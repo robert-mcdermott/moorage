@@ -16,15 +16,16 @@ and the internal **shim** mode (hidden).
 
 - Client configuration lives in the OS config directory
   (`~/.config/moorage/config.toml`, `~/Library/Application Support/moorage`,
-  `%AppData%\moorage`) as named **contexts** (server URL + user). Tokens are
-  stored in the OS keychain when available, otherwise in a `0600` file.
-- On the server itself, `sudo moor …` talks to the local admin socket and
-  needs no login.
+  `%AppData%\moorage`) as named **contexts** (server URL + user + token), in a
+  `0600` file. *(Using the OS keychain, where there is one, is a later addition.)*
+- On the server itself, `sudo moor …` uses the server's local admin token and
+  needs no login. `$MOORAGE_CONFIG` names a local server on purpose, and comes
+  before the current context; `--server`, `--token` and `$MOOR_*` come before both.
 
 ### How the CLI picks the app and environment
 
-- **App:** `--app` › `MOOR_APP` › the app behind the `moorage` git remote in
-  the current repository › `[app].name` in `moorage.toml`.
+- **App:** `--app` › `MOOR_APP` › `[app].name` in `moorage.toml` › the app
+  behind the `moorage` git remote in the current repository.
 - **Environment:** `--env <name>` › `production`. `--env .` means "the
   environment of the current git branch" (its preview or mapped environment).
 
@@ -32,7 +33,7 @@ and the internal **shim** mode (hidden).
 
 ```text
 Getting started
-  moor login [url]                    Sign in via browser approval; save a context
+  moor login [url] [--with-token]     Sign in via browser approval; save a context
   moor logout | whoami | context [list|use|rm]
   moor init                           Detect the stack and write moorage.toml
   moor manifest validate|explain|schema
@@ -81,7 +82,7 @@ Observing
   moor events [-f]
 
 Account
-  moor keys [list|add|rm]
+  moor keys [list|add|remove]
   moor tokens [list|create|revoke]
   moor trust                          Trust the server's internal CA on this machine
 
@@ -89,7 +90,7 @@ Server administration
   moor server init|run|install|uninstall|start|stop|status
   moor server doctor|upgrade|backup|restore|config|rotate-key
   moor server proxy-config nginx      Print a config for running behind a TLS-terminating nginx
-  moor server users [list|create|disable|role]
+  moor server users [list|create|invite|role|disable|enable]
   moor toolchains [list|install|prune|import]
 
   moor version | completion [bash|zsh|fish|powershell]
@@ -111,11 +112,11 @@ Server administration
 | Topic | Rule |
 |---|---|
 | Base path | `/api/v1` on the console hostname |
-| Contract | OpenAPI 3.1 document checked into the repo and served at `/api/v1/openapi.json`. Server request/response types are generated from it; CI fails on drift. |
+| Contract | OpenAPI 3.1 document generated from the route table and the API's types, checked into the repo as `docs/openapi.json` and served at `/api/v1/openapi.json`; CI fails on drift. |
 | Auth | Session cookie + CSRF token (console) or `Authorization: Bearer moor_…` |
 | Addressing | Resources addressed by name in paths (`/apps/acme-portal/envs/production`); responses also carry typed IDs (`app_…`, `env_…`, `dep_…`) which are accepted anywhere a name is. |
 | Errors | RFC 9457 `application/problem+json` with a stable `code` and per-field details |
-| Pagination | Cursor-based: `?limit=&cursor=` → `next_cursor` |
+| Pagination | Lists that can grow are cursor-based: `?limit=&cursor=` → `{"items": […], "next_cursor": "…"}`. A person's own tokens, keys and sessions are plain arrays. |
 | Idempotency | `Idempotency-Key` header honoured on creates and deploys |
 | Long operations | `202 Accepted` + the deployment/job resource; follow via SSE |
 | Streaming | Server-sent events for logs, deployment progress and the event feed (resumable with `Last-Event-ID`); WebSocket for interactive PTYs |
@@ -126,6 +127,7 @@ Server administration
 ```text
 POST   /auth/login | /auth/logout | /auth/device (CLI device approval)
 GET    /me                                     · sessions · tokens · ssh-keys
+GET    /users               POST /users        PATCH /users/{user} · POST /users/{user}/invitation
 
 GET    /projects            POST /projects     · members
 GET    /apps                POST /apps
@@ -153,8 +155,8 @@ GET    /events                                 (SSE feed, filtered by permission
 
 POST   /hooks/{app}/{hook-id}                  (incoming deploy webhooks, HMAC-verified)
 
-GET    /server/status · /server/settings (PATCH) · /server/doctor
-GET    /users · /toolchains · /audit · /notifications/channels · /notifications/rules
+GET    /server · /server/status · /server/settings (PATCH) · /server/doctor
+GET    /toolchains · /audit · /notifications/channels · /notifications/rules
 ```
 
 Git endpoints (`/git/<app>.git/…`) and platform endpoints under `/.moorage/`

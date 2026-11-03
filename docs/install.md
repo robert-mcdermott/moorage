@@ -125,20 +125,25 @@ To run the server in the foreground instead, for a try:
 moor server run
 ```
 
-## 4. Deploy
+## 4. Claim it
+
+`moor server init` printed a one-time setup link (`moor server status` shows it
+again). Open it and create the first account, the server's administrator. On
+your own computer you can skip this: the command line needs no account there.
+
+## 5. Deploy
 
 On the server's machine, the command line finds the server and its admin
 token by itself, when run as the user that runs the server (with `sudo` for
-a system service). From another
-machine, pass the server's address and the token from `keys/admin-token` in
-the data directory, or set them in the environment:
+a system service). From another machine, sign in:
 
 ```bash
-export MOOR_SERVER=https://moorage.apps.example.com MOOR_TOKEN=moor_…
+moor login https://moorage.apps.example.com
 ```
 
-With Moorage's own CA, also pass its certificate (`--ca-cert ca.crt`, or
-`MOOR_CA_CERT`).
+That opens your browser to approve the sign-in; with Moorage's own CA, also pass
+its certificate (`--ca-cert ca.crt`). `moor server users create` adds other
+people ([Accounts and access](accounts.md)).
 
 Then deploy an app from its source directory:
 

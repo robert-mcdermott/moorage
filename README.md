@@ -40,6 +40,9 @@ binary with its state in SQLite, and everything else is built in.
 - **Configures apps with variables and secrets.** Secrets are encrypted on
   the server and handed to apps in memory only; every change is a new
   release.
+- **Accounts for a team.** Sign in from any machine by approving it in a
+  browser; scoped API tokens for CI; SSH keys for pushing; each deploy records
+  who did it. On your own computer you need none of this.
 
 ## Quick start
 
@@ -130,8 +133,15 @@ sudo moor server install    # a systemd unit on Linux, a launchd daemon on macOS
 ```
 
 Point a wildcard DNS record, `*.apps.example.com`, at the server, and apps
-are at `https://<app>.apps.example.com`. [Installing Moorage](docs/install.md)
-covers TLS, running behind nginx, deploying from other machines and backups.
+are at `https://<app>.apps.example.com`. Open the setup link that `init` printed
+to create the first account, then sign in from your own machine:
+
+```bash
+moor login https://moorage.apps.example.com
+```
+
+[Installing Moorage](docs/install.md) covers TLS and running behind nginx;
+[Accounts and access](docs/accounts.md) covers users, tokens and keys.
 
 ## Examples
 
@@ -145,8 +155,8 @@ covers TLS, running behind nginx, deploying from other machines and backups.
 ## Documentation
 
 - [Documentation](docs/README.md): installing Moorage, deploying each kind
-  of app, variables and secrets, and the [`moorage.toml`
-  reference](docs/manifest.md).
+  of app, variables and secrets, accounts, the [`moorage.toml`
+  reference](docs/manifest.md) and [the API](docs/api.md).
 - [Design](spec/README.md): how Moorage works inside, the
   [roadmap](spec/11-roadmap.md) and the [decisions](spec/12-decisions.md)
   behind it.

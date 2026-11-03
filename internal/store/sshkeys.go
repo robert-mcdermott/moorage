@@ -10,7 +10,9 @@ import (
 
 // SSHKey is a public key that may push over SSH.
 type SSHKey struct {
-	ID          string
+	ID string
+	// UserID is empty for a key of the server's local administrator.
+	UserID      string
 	Name        string
 	Fingerprint string // SHA256:…
 	PublicKey   string // authorized_keys format
@@ -18,34 +20,43 @@ type SSHKey struct {
 	LastUsedAt  time.Time
 }
 
-// KeyExistsError is returned when a key's name or the key itself is
-// already registered.
+// KeyExistsError is returned for a key that is registered already (by
+// anyone: a key identifies one owner), or a name its owner already uses.
 type KeyExistsError struct{ Name string }
 
 func (e *KeyExistsError) Error() string {
-	return fmt.Sprintf("that key is already registered, as %s", e.Name)
+	if e.Name == "" {
+		return "that key is already registered, to another account"
+	}
+	return fmt.Sprintf("that key or that name is already registered, as %s", e.Name)
 }
 
 // AddSSHKey registers a key.
 func (db *DB) AddSSHKey(ctx context.Context, k SSHKey) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
-		var existing string
-		err := tx.QueryRowContext(ctx, `SELECT name FROM ssh_keys WHERE name = ? OR fingerprint = ?`, k.Name, k.Fingerprint).Scan(&existing)
+		var owner, existing string
+		err := tx.QueryRowContext(ctx, `SELECT coalesce(user_id, ''), name FROM ssh_keys WHERE fingerprint = ?
+			OR (coalesce(user_id, '') = ? AND name = ?)`, k.Fingerprint, k.UserID, k.Name).Scan(&owner, &existing)
 		if err == nil {
+			if owner != k.UserID {
+				existing = "" // not this owner's to know
+			}
 			return &KeyExistsError{existing}
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO ssh_keys (id, name, fingerprint, public_key, created_at) VALUES (?, ?, ?, ?, ?)`,
-			k.ID, k.Name, k.Fingerprint, k.PublicKey, k.CreatedAt.UnixMilli())
+		_, err = tx.ExecContext(ctx, `INSERT INTO ssh_keys (id, user_id, name, fingerprint, public_key, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			k.ID, nullString(k.UserID), k.Name, k.Fingerprint, k.PublicKey, k.CreatedAt.UnixMilli())
 		return err
 	})
 }
 
-// SSHKeys lists the registered keys, oldest first.
-func (db *DB) SSHKeys(ctx context.Context) ([]SSHKey, error) {
-	rows, err := db.Reader.QueryContext(ctx, `SELECT id, name, fingerprint, public_key, created_at, last_used_at FROM ssh_keys ORDER BY created_at, name`)
+// SSHKeys lists the keys of a user (or, with "", of the local administrator),
+// oldest first.
+func (db *DB) SSHKeys(ctx context.Context, userID string) ([]SSHKey, error) {
+	rows, err := db.Reader.QueryContext(ctx, `SELECT id, user_id, name, fingerprint, public_key, created_at, last_used_at FROM ssh_keys
+		WHERE coalesce(user_id, '') = ? ORDER BY created_at, name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +74,7 @@ func (db *DB) SSHKeys(ctx context.Context) ([]SSHKey, error) {
 
 // SSHKeyByFingerprint returns the key with fingerprint, or ErrNotFound.
 func (db *DB) SSHKeyByFingerprint(ctx context.Context, fingerprint string) (SSHKey, error) {
-	k, err := scanSSHKey(db.Reader.QueryRowContext(ctx, `SELECT id, name, fingerprint, public_key, created_at, last_used_at
+	k, err := scanSSHKey(db.Reader.QueryRowContext(ctx, `SELECT id, user_id, name, fingerprint, public_key, created_at, last_used_at
 		FROM ssh_keys WHERE fingerprint = ?`, fingerprint))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SSHKey{}, ErrNotFound
@@ -71,14 +82,14 @@ func (db *DB) SSHKeyByFingerprint(ctx context.Context, fingerprint string) (SSHK
 	return k, err
 }
 
-// RemoveSSHKey removes the key named, or with the fingerprint, which, and
-// returns it; ErrNotFound if there is none.
-func (db *DB) RemoveSSHKey(ctx context.Context, which string) (SSHKey, error) {
+// RemoveSSHKey removes the owner's key named, or with the fingerprint, which,
+// and returns it; ErrNotFound if they have none.
+func (db *DB) RemoveSSHKey(ctx context.Context, userID, which string) (SSHKey, error) {
 	var k SSHKey
 	err := db.write(ctx, func(tx *sql.Tx) error {
 		var err error
-		k, err = scanSSHKey(tx.QueryRowContext(ctx, `SELECT id, name, fingerprint, public_key, created_at, last_used_at
-			FROM ssh_keys WHERE name = ? OR fingerprint = ? OR id = ?`, which, which, which))
+		k, err = scanSSHKey(tx.QueryRowContext(ctx, `SELECT id, user_id, name, fingerprint, public_key, created_at, last_used_at
+			FROM ssh_keys WHERE coalesce(user_id, '') = ? AND (name = ? OR fingerprint = ? OR id = ?)`, userID, which, which, which))
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -101,11 +112,13 @@ func (db *DB) TouchSSHKey(ctx context.Context, id string) error {
 
 func scanSSHKey(row interface{ Scan(...any) error }) (SSHKey, error) {
 	var k SSHKey
+	var user sql.NullString
 	var created int64
 	var used sql.NullInt64
-	if err := row.Scan(&k.ID, &k.Name, &k.Fingerprint, &k.PublicKey, &created, &used); err != nil {
+	if err := row.Scan(&k.ID, &user, &k.Name, &k.Fingerprint, &k.PublicKey, &created, &used); err != nil {
 		return SSHKey{}, err
 	}
+	k.UserID = user.String
 	k.CreatedAt = time.UnixMilli(created).UTC()
 	if used.Valid {
 		k.LastUsedAt = time.UnixMilli(used.Int64).UTC()

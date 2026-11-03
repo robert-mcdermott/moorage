@@ -54,7 +54,7 @@ func sshKeyDoc(k store.SSHKey) apitypes.SSHKey {
 }
 
 func (s *Server) sshKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := s.db.SSHKeys(r.Context())
+	keys, err := s.db.SSHKeys(r.Context(), who(r).UserID)
 	if err != nil {
 		s.internal(w, err)
 		return
@@ -99,13 +99,13 @@ func (s *Server) addSSHKey(w http.ResponseWriter, r *http.Request) {
 		}, strings.TrimPrefix(fingerprint, "SHA256:"))[:8]
 	}
 	k := store.SSHKey{
-		ID: ids.New(ids.SSHKey), Name: name, Fingerprint: fingerprint,
+		ID: ids.New(ids.SSHKey), UserID: who(r).UserID, Name: name, Fingerprint: fingerprint,
 		PublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))) + " " + name, CreatedAt: time.Now().UTC(),
 	}
 	if err := s.db.AddSSHKey(r.Context(), k); err != nil {
 		var exists *store.KeyExistsError
 		if errors.As(err, &exists) {
-			problem(w, http.StatusConflict, "key_exists", "That key or that name is already registered, as "+exists.Name+".")
+			problem(w, http.StatusConflict, "key_exists", exists.Error()+".")
 			return
 		}
 		s.internal(w, err)
@@ -115,9 +115,9 @@ func (s *Server) addSSHKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) removeSSHKey(w http.ResponseWriter, r *http.Request) {
-	k, err := s.db.RemoveSSHKey(r.Context(), r.PathValue("key"))
+	k, err := s.db.RemoveSSHKey(r.Context(), who(r).UserID, r.PathValue("key"))
 	if errors.Is(err, store.ErrNotFound) {
-		problem(w, http.StatusNotFound, "not_found", "There is no key named "+r.PathValue("key")+".")
+		problem(w, http.StatusNotFound, "not_found", "You have no key named "+r.PathValue("key")+".")
 		return
 	}
 	if err != nil {

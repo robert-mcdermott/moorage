@@ -489,6 +489,59 @@ directory, supervises it, and serves it on its own hostname.
    (`moor login`, `logout`, `whoami`, `context`); keys per user (`moor keys`
    arrived in slice 2, every key the administrator's), `moor tokens`;
    the OpenAPI contract with problem+json errors and cursor pagination.
+   - Done (slice 3):
+     - Users with an email address, a name, an Argon2id password (at least 12
+       characters, common and repetitive ones refused) and a role; sessions with
+       idle and absolute timeouts, in a host-only `__Host-` cookie over HTTPS;
+       API tokens with scopes, an optional app and expiry, stored as hashes;
+       SSH keys per user, a key having one owner.
+     - The first-run claim: `moor server init`, `moor server status` and the
+       server's log give a one-time link, whose page creates the first admin.
+       Invitations: one-time links for new users and forgotten passwords.
+     - CLI browser login: `moor login` (a device code, approved on a page that
+       shows the client, its address and the code), `--with-token`, `logout`,
+       `whoami`, `context`; `moor tokens`; `moor server users`.
+     - One route table for the API: each route declares its permission, a test
+       enumerates every route against every kind of caller, and an unset
+       permission stops the server from starting. Cookie-authenticated changes
+       need the session's CSRF token and the console's own origin.
+     - The OpenAPI 3.1 document, generated from that table and the API's types,
+       checked in as `docs/openapi.json` (a test fails on drift) and served at
+       `/api/v1/openapi.json`. Field-level problem details; cursor pagination of
+       apps, deployments, releases and users.
+     - Git follows: a push is recorded as its user's, tokens need the `deploy`
+       or `read` scope and reach only their app, a disabled user's keys and
+       tokens stop at once.
+     - Limits with a growing delay on sign-in (per address and per account), the
+       claim code, wrong device codes and SSH handshakes; failures are logged as
+       `security:` lines.
+     - Minimal pages for all this on the console's hostname (`internal/console`),
+       which wave 3 builds on.
+     - Verified by tests of the store, the service and the pages; by the route
+       enumeration; against the whole server with the API, and with the git and
+       ssh command lines as users; by a test of the CLI's whole journey with a
+       browser's approval imitated; and with the binary and a real browser on
+       macOS, in light and dark.
+   - Found by slice 3:
+     - The roadmap's "replacing the bootstrap token" would break the quick start
+       on one's own computer and `sudo moor`, which the interfaces promise need no
+       login. The token stays, as the server's local admin token, and once the
+       server has accounts it works only from the server's own machine.
+     - A claim URL and browser login need pages before the console exists, so
+       minimal ones arrived here rather than in wave 3.
+     - New users need a way to set a password without email: one-time links an
+       admin sends them. Moorage sends no email.
+     - OpenAPI runs the other way from the plan: the document is generated from
+       the route table and types, not the types from the document. A generator
+       would add a dependency to keep two descriptions aligned; one source
+       cannot drift.
+     - Reaching the OS keychain from pure Go needs a helper per OS, so CLI tokens
+       are in a `0600` file for now.
+     - A saved context beat `$MOORAGE_CONFIG`, which names a local server on
+       purpose, so a command could reach the wrong server. The explicit setting
+       now comes first.
+     - Lists changing to pages breaks API clients of 0.1.0. Better now, with the
+       contract, than after it.
 4. **Containers.** The container driver — one CLI lifecycle for Podman and
    Docker, an observation adapter per engine, label-based adoption — and the
    `dockerfile` and `image` runtimes, with digests pinned at release and
@@ -505,7 +558,8 @@ directory, supervises it, and serves it on its own hostname.
 ### Wave 3
 
 1. **Console foundation.** Layout and CSS design tokens (light and dark),
-   templates, sign-in and the first-run wizard, CSRF-protected forms, the event
+   templates, the first-run wizard, grown from the account pages of wave 2,
+   slice 3 (sign-in, the claim, CSRF-protected forms), the event
    bus with one SSE stream, the activity timeline, the command palette.
 2. **Apps and deployments.** The dashboard; the app overview with
    environments and instances; deployments with the live stage timeline and

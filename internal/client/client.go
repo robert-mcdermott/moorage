@@ -12,11 +12,13 @@ import (
 	"io"
 	"io/fs"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/archive"
@@ -39,6 +41,15 @@ func New(serverURL, token, caFile string) (*Client, error) {
 		return nil, fmt.Errorf("server address %q must be an http:// or https:// URL", serverURL)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Browsers and curl send *.localhost to this machine; resolvers do not
+	// all do so.
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if host, port, err := net.SplitHostPort(addr); err == nil && strings.HasSuffix(host, ".localhost") {
+			addr = net.JoinHostPort("127.0.0.1", port)
+		}
+		return dialer.DialContext(ctx, network, addr)
+	}
 	if caFile != "" {
 		pem, err := os.ReadFile(caFile)
 		if err != nil {
@@ -61,16 +72,33 @@ func (c *Client) Server() string { return c.base.String() }
 
 // Apps lists the apps.
 func (c *Client) Apps(ctx context.Context) ([]apitypes.App, error) {
-	var apps []apitypes.App
-	err := c.do(ctx, http.MethodGet, "/api/v1/apps", nil, "", &apps)
-	return apps, err
+	return allPages[apitypes.App](ctx, c, "/api/v1/apps")
 }
 
 // Releases lists an environment's releases, newest first.
 func (c *Client) Releases(ctx context.Context, app, env string) ([]apitypes.Release, error) {
-	var rels []apitypes.Release
-	err := c.do(ctx, http.MethodGet, envPath(app, env, "releases"), nil, "", &rels)
-	return rels, err
+	return allPages[apitypes.Release](ctx, c, envPath(app, env, "releases"))
+}
+
+// allPages reads a paged list to its end.
+func allPages[T any](ctx context.Context, c *Client, path string) ([]T, error) {
+	var all []T
+	cursor := ""
+	for {
+		var page apitypes.Page[T]
+		p := path
+		if cursor != "" {
+			p += "?cursor=" + url.QueryEscape(cursor)
+		}
+		if err := c.do(ctx, http.MethodGet, p, nil, "", &page); err != nil {
+			return nil, err
+		}
+		all = append(all, page.Items...)
+		if page.NextCursor == "" {
+			return all, nil
+		}
+		cursor = page.NextCursor
+	}
 }
 
 // Rollback publishes an earlier release again; version 0 means the release
@@ -91,6 +119,89 @@ func (c *Client) RollbackWith(ctx context.Context, app, env string, req apitypes
 func (c *Client) Vars(ctx context.Context, app, env string) ([]apitypes.Var, error) {
 	var out []apitypes.Var
 	err := c.do(ctx, http.MethodGet, envPath(app, env, "vars"), nil, "", &out)
+	return out, err
+}
+
+// post sends a JSON document and decodes the answer into out, if any.
+func (c *Client) post(ctx context.Context, method, path string, in, out any) error {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, method, path, bytes.NewReader(body), "application/json", out)
+}
+
+// Me says who the client's credentials are.
+func (c *Client) Me(ctx context.Context) (apitypes.Me, error) {
+	var out apitypes.Me
+	err := c.do(ctx, http.MethodGet, "/api/v1/me", nil, "", &out)
+	return out, err
+}
+
+// Logout revokes the token in use.
+func (c *Client) Logout(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/auth/logout", nil, "", nil)
+}
+
+// StartDevice begins a sign-in to approve in a browser.
+func (c *Client) StartDevice(ctx context.Context, client string) (apitypes.DeviceAuthorization, error) {
+	var out apitypes.DeviceAuthorization
+	err := c.post(ctx, http.MethodPost, "/api/v1/auth/device", apitypes.DeviceRequest{Client: client}, &out)
+	return out, err
+}
+
+// DeviceToken asks whether a sign-in has been approved. Until then it fails
+// with an *APIError whose Code says why.
+func (c *Client) DeviceToken(ctx context.Context, deviceCode string) (apitypes.DeviceToken, error) {
+	var out apitypes.DeviceToken
+	err := c.post(ctx, http.MethodPost, "/api/v1/auth/device/token", apitypes.DeviceTokenRequest{DeviceCode: deviceCode}, &out)
+	return out, err
+}
+
+// Tokens lists the caller's API tokens.
+func (c *Client) Tokens(ctx context.Context) ([]apitypes.Token, error) {
+	var out []apitypes.Token
+	err := c.do(ctx, http.MethodGet, "/api/v1/me/tokens", nil, "", &out)
+	return out, err
+}
+
+// CreateToken creates an API token and returns it with its secret.
+func (c *Client) CreateToken(ctx context.Context, t apitypes.NewToken) (apitypes.CreatedToken, error) {
+	var out apitypes.CreatedToken
+	err := c.post(ctx, http.MethodPost, "/api/v1/me/tokens", t, &out)
+	return out, err
+}
+
+// RevokeToken revokes the caller's token with this name or ID.
+func (c *Client) RevokeToken(ctx context.Context, which string) (apitypes.Token, error) {
+	var out apitypes.Token
+	err := c.do(ctx, http.MethodDelete, "/api/v1/me/tokens/"+url.PathEscape(which), nil, "", &out)
+	return out, err
+}
+
+// Users lists the users.
+func (c *Client) Users(ctx context.Context) ([]apitypes.User, error) {
+	return allPages[apitypes.User](ctx, c, "/api/v1/users")
+}
+
+// CreateUser creates a user, and returns their invitation.
+func (c *Client) CreateUser(ctx context.Context, u apitypes.NewUser) (apitypes.Invitation, error) {
+	var out apitypes.Invitation
+	err := c.post(ctx, http.MethodPost, "/api/v1/users", u, &out)
+	return out, err
+}
+
+// ChangeUser changes a user, by email address or ID.
+func (c *Client) ChangeUser(ctx context.Context, which string, ch apitypes.UserChange) (apitypes.User, error) {
+	var out apitypes.User
+	err := c.post(ctx, http.MethodPatch, "/api/v1/users/"+url.PathEscape(which), ch, &out)
+	return out, err
+}
+
+// InviteUser makes a new one-time link for a user to choose a password.
+func (c *Client) InviteUser(ctx context.Context, which string) (apitypes.Invitation, error) {
+	var out apitypes.Invitation
+	err := c.do(ctx, http.MethodPost, "/api/v1/users/"+url.PathEscape(which)+"/invitation", nil, "", &out)
 	return out, err
 }
 
@@ -204,9 +315,9 @@ func (c *Client) Deployment(ctx context.Context, id string) (apitypes.Deployment
 
 // Deployments lists an environment's latest deployments, newest first.
 func (c *Client) Deployments(ctx context.Context, app, env string, limit int) ([]apitypes.Deployment, error) {
-	var out []apitypes.Deployment
-	err := c.do(ctx, http.MethodGet, envPath(app, env, "deployments")+"?limit="+strconv.Itoa(limit), nil, "", &out)
-	return out, err
+	var page apitypes.Page[apitypes.Deployment]
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "deployments")+"?limit="+strconv.Itoa(limit), nil, "", &page)
+	return page.Items, err
 }
 
 // FollowDeployment calls fn with each line of a deployment's log, as it is

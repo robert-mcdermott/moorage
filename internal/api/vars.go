@@ -83,7 +83,7 @@ func (s *Server) changeVars(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "bad_request", "The body is not a valid change of variables: "+err.Error())
 		return
 	}
-	ch := deploy.ConfigChange{Unset: req.Unset, AllEnvs: req.AllEnvs, Restart: !req.NoRestart, By: "admin"}
+	ch := deploy.ConfigChange{Unset: req.Unset, AllEnvs: req.AllEnvs, Restart: !req.NoRestart, By: who(r).Name}
 	for _, v := range req.Set {
 		ch.Set = append(ch.Set, deploy.VarValue{Name: v.Name, Value: v.Value, Secret: v.Secret, Build: v.Build})
 	}

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
@@ -36,11 +38,22 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	limit := 20
-	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 200 {
-		limit = n
+	limit, cursor, ok := pageParams(w, r, 20)
+	if !ok {
+		return
 	}
-	deps, err := s.db.Deployments(r.Context(), app, env, limit)
+	var created time.Time
+	var id string
+	if cursor != "" {
+		at, rest, _ := strings.Cut(cursor, "/")
+		ms, err := strconv.ParseInt(at, 10, 64)
+		if err != nil || rest == "" {
+			problem(w, http.StatusBadRequest, "invalid_cursor", "That cursor is not one the API gave.")
+			return
+		}
+		created, id = time.UnixMilli(ms), rest
+	}
+	deps, err := s.db.DeploymentsBefore(r.Context(), app, env, created, id, limit+1)
 	if errors.Is(err, store.ErrNotFound) {
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return
@@ -49,11 +62,16 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	out := make([]apitypes.Deployment, 0, len(deps))
-	for _, d := range deps {
-		out = append(out, s.deploymentDoc(d))
+	page := apitypes.Page[apitypes.Deployment]{Items: []apitypes.Deployment{}}
+	for i, d := range deps {
+		if i == limit {
+			last := deps[i-1]
+			page.NextCursor = encodeCursor(strconv.FormatInt(last.CreatedAt.UnixMilli(), 10) + "/" + last.ID)
+			break
+		}
+		page.Items = append(page.Items, s.deploymentDoc(d))
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, page)
 }
 
 // lookupDeployment reads the {id} path value and its deployment.
@@ -70,6 +88,10 @@ func (s *Server) lookupDeployment(w http.ResponseWriter, r *http.Request) (store
 	}
 	if err != nil {
 		s.internal(w, err)
+		return d, false
+	}
+	if !who(r).CanApp(d.App) {
+		problem(w, http.StatusNotFound, "not_found", "There is no deployment "+id+".")
 		return d, false
 	}
 	return d, true

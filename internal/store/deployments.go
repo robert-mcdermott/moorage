@@ -159,11 +159,22 @@ func (db *DB) Deployment(ctx context.Context, id string) (Deployment, error) {
 
 // Deployments lists an environment's deployments, newest first.
 func (db *DB) Deployments(ctx context.Context, app, env string, limit int) ([]Deployment, error) {
+	return db.DeploymentsBefore(ctx, app, env, time.Time{}, "", limit)
+}
+
+// DeploymentsBefore lists up to limit deployments, newest first, older than
+// the one created at created with this ID (a zero time: from the newest).
+func (db *DB) DeploymentsBefore(ctx context.Context, app, env string, created time.Time, id string, limit int) ([]Deployment, error) {
 	if _, err := db.EnvID(ctx, app, env); err != nil {
 		return nil, err
 	}
+	before := int64(0)
+	if !created.IsZero() {
+		before = created.UnixMilli()
+	}
 	rows, err := db.Reader.QueryContext(ctx, deploymentColumns+` WHERE a.name = ? AND e.name = ?
-		ORDER BY d.created_at DESC, d.id DESC LIMIT ?`, app, env, limit)
+		AND (? = 0 OR (d.created_at, d.id) < (?, ?))
+		ORDER BY d.created_at DESC, d.id DESC LIMIT ?`, app, env, before, before, id, limit)
 	if err != nil {
 		return nil, err
 	}

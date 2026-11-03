@@ -8,6 +8,8 @@ how it works inside and where it is going.
 
 - [Installing Moorage](install.md): get `moor`, configure the server, run it
   as a service, back it up.
+- [Accounts and access](accounts.md): claiming a server, signing in, users,
+  API tokens and SSH keys.
 - The [examples](../examples/README.md): complete apps, ready to deploy.
 
 ## Deploying apps
@@ -25,6 +27,7 @@ how it works inside and where it is going.
 ## Reference
 
 - [`moorage.toml`](manifest.md): every setting of the app manifest.
+- [The API](api.md): authentication, lists, errors, and the OpenAPI document.
 - The command line: every command has `--help`; the common ones are below.
 
 | Command | What it does |
@@ -42,6 +45,10 @@ how it works inside and where it is going.
 | `moor env` | Lists and changes variables and secrets |
 | `moor manifest explain` | Shows how Moorage will build and run the app |
 | `moor server status` | Shows the server and its service |
+| `moor login [URL]` | Signs in to a server, approving it in a browser |
+| `moor whoami` | Shows who you are signed in as |
+| `moor tokens` | Lists your API tokens; `create` and `revoke` them |
+| `moor server users` | Lists the users; `create`, `invite`, `role`, `disable` and `enable` them |
 
 An app is chosen with `--app`, `$MOOR_APP`, `[app].name` in the
 `moorage.toml` of the current directory, or the repository's `moorage` git

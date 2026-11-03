@@ -1,6 +1,5 @@
-// Package api is Moorage's REST API under /api/v1 (spec/09-interfaces.md).
-// Until accounts arrive (wave 2), every request needs the bootstrap admin
-// token as a bearer token.
+// Package api is Moorage's REST API under /api/v1 (spec/09-interfaces.md). Its
+// routes are declared in routes.go, each with the permission it requires.
 package api
 
 import (
@@ -11,7 +10,8 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
-	"strings"
+	"strconv"
+	"sync"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -34,69 +34,62 @@ type Runtime interface {
 
 // Server serves the API.
 type Server struct {
-	db        *store.DB
-	cfg       config.Config
-	dataDir   string
-	tokenHash [32]byte
-	runtime   Runtime
-	deployer  *deploy.Deployer
-	log       *slog.Logger
+	db       *store.DB
+	cfg      config.Config
+	dataDir  string
+	auth     *auth.Service
+	runtime  Runtime
+	deployer *deploy.Deployer
+	log      *slog.Logger
+	// openapiDoc is the OpenAPI document, generated once.
+	openapiDoc func() []byte
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, tokenHash [32]byte, runtime Runtime, deployer *deploy.Deployer, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, tokenHash: tokenHash, runtime: runtime, deployer: deployer, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, log: log}
+	s.openapiDoc = sync.OnceValue(func() []byte { return openAPIDocument(s.routes()) })
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/apps", s.listApps)
-	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/deployments", s.deploy)
-	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/deployments", s.deployments)
-	mux.HandleFunc("GET /api/v1/deployments/{id}", s.deployment)
-	mux.HandleFunc("GET /api/v1/deployments/{id}/log", s.deploymentLog)
-	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/releases", s.releases)
-	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/rollback", s.rollback)
-	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/restart", s.restart)
-	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/instances", s.instances)
-	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/vars", s.vars)
-	mux.HandleFunc("PATCH /api/v1/apps/{app}/envs/{env}/vars", s.changeVars)
-	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/logs", s.logs)
-	mux.HandleFunc("GET /api/v1/server", s.serverInfo)
-	mux.HandleFunc("GET /api/v1/me/ssh-keys", s.sshKeys)
-	mux.HandleFunc("POST /api/v1/me/ssh-keys", s.addSSHKey)
-	mux.HandleFunc("DELETE /api/v1/me/ssh-keys/{key}", s.removeSSHKey)
+	for _, rt := range s.routes() {
+		mux.HandleFunc(rt.method+" "+basePath+rt.path, s.guard(rt))
+	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusNotFound, "not_found", "There is no such API endpoint.")
 	})
-	return s.authenticate(mux)
+	return mux
 }
 
-func (s *Server) authenticate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || !auth.Matches(strings.TrimSpace(token), s.tokenHash) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="moorage"`)
-			problem(w, http.StatusUnauthorized, "unauthorized", "A valid token is required (Authorization: Bearer <token>).")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
+// basePath is where the API's routes are.
+const basePath = "/api/v1"
 
 func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
-	apps, err := s.db.Apps(r.Context())
+	limit, cursor, ok := pageParams(w, r, 100)
+	if !ok {
+		return
+	}
+	apps, err := s.db.AppsAfter(r.Context(), cursor, limit+1)
 	if err != nil {
 		s.internal(w, err)
 		return
 	}
-	out := make([]apitypes.App, 0, len(apps))
-	for _, a := range apps {
+	p := who(r)
+	page := apitypes.Page[apitypes.App]{Items: []apitypes.App{}}
+	for i, a := range apps {
+		if i == limit {
+			page.NextCursor = encodeCursor(apps[i-1].Name)
+			break
+		}
+		if !p.CanApp(a.Name) {
+			continue
+		}
 		app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt}
 		if a.Production != nil {
 			rel := release(*a.Production)
 			app.Production = &rel
 		}
-		out = append(out, app)
+		page.Items = append(page.Items, app)
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +124,7 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				problem(w, http.StatusBadRequest, "bad_request", "Send source alone, without a plan: the server works out how to build it.")
 				return
 			}
-			dep, created, err := s.deployer.Submit(r.Context(), app, env, "admin", part)
+			dep, created, err := s.deployer.Submit(r.Context(), app, env, who(r).Name, part)
 			var invalid *deploy.InvalidUploadError
 			switch {
 			case errors.As(err, &invalid):
@@ -173,7 +166,7 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			rel, dep, err := s.deployer.Publish(r.Context(), deploy.PublishRequest{
-				App: app, Env: env, By: "admin", Source: plan.Kind + "-upload", Reason: "deploy", Build: build, Plan: *plan,
+				App: app, Env: env, By: who(r).Name, Source: plan.Kind + "-upload", Reason: "deploy", Build: build, Plan: *plan,
 			})
 			if s.publishFailed(w, err) {
 				return
@@ -216,7 +209,20 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rels, err := s.db.Releases(r.Context(), app, env)
+	limit, cursor, ok := pageParams(w, r, 50)
+	if !ok {
+		return
+	}
+	before := 0
+	if cursor != "" {
+		n, err := strconv.Atoi(cursor)
+		if err != nil || n < 1 {
+			problem(w, http.StatusBadRequest, "invalid_cursor", "That cursor is not one the API gave.")
+			return
+		}
+		before = n
+	}
+	rels, err := s.db.ReleasesBefore(r.Context(), app, env, before, limit+1)
 	if errors.Is(err, store.ErrNotFound) {
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return
@@ -225,11 +231,15 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	out := make([]apitypes.Release, 0, len(rels))
-	for _, rel := range rels {
-		out = append(out, release(rel))
+	page := apitypes.Page[apitypes.Release]{Items: []apitypes.Release{}}
+	for i, rel := range rels {
+		if i == limit {
+			page.NextCursor = encodeCursor(strconv.Itoa(rels[i-1].Version))
+			break
+		}
+		page.Items = append(page.Items, release(rel))
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
@@ -274,7 +284,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rel, dep, err := s.deployer.Publish(r.Context(), deploy.PublishRequest{
-		App: app, Env: env, By: "admin", Source: "rollback", Reason: "rollback", Build: build, Plan: plan, Config: cfg,
+		App: app, Env: env, By: who(r).Name, Source: "rollback", Reason: "rollback", Build: build, Plan: plan, Config: cfg,
 	})
 	if s.publishFailed(w, err) {
 		return
@@ -370,8 +380,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func problem(w http.ResponseWriter, status int, code, detail string) {
+	writeProblem(w, apitypes.Problem{Title: http.StatusText(status), Status: status, Detail: detail, Code: code})
+}
+
+func writeProblem(w http.ResponseWriter, p apitypes.Problem) {
 	w.Header().Set("Content-Type", apitypes.ProblemType)
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(apitypes.Problem{Title: http.StatusText(status), Status: status, Detail: detail, Code: code})
+	w.WriteHeader(p.Status)
+	_ = json.NewEncoder(w).Encode(p)
 }

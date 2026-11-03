@@ -79,14 +79,12 @@ var notFound = page{
 	Message: "There is nothing at this address.",
 }
 
-// Placeholder answers on the console's hostname until the console arrives.
-func Placeholder() http.Handler { return running }
-
+// running answers on the console's hostname until the server sets its console.
 var running = page{
 	Status:  http.StatusOK,
 	Title:   "Moorage",
 	Heading: "Moorage is running",
-	Message: "The web console arrives in a later release. Deploy with the moor command line in the meantime.",
+	Message: "The server is starting.",
 }
 
 var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>

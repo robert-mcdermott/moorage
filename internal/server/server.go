@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +24,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/build"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
+	consolepages "github.com/robert-mcdermott/moorage/internal/console"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
@@ -60,6 +60,8 @@ type Layout struct {
 	MasterKey string
 	// SSHHostKey is the git server's SSH host key.
 	SSHHostKey string
+	// ClaimCode holds the first-run claim code until the server is claimed.
+	ClaimCode string
 }
 
 // NewLayout returns the layout of the data directory root.
@@ -83,6 +85,7 @@ func NewLayout(root string) Layout {
 		AdminToken: at("keys", "admin-token"),
 		MasterKey:  at("keys", "master.key"),
 		SSHHostKey: at("keys", "ssh_host_ed25519_key"),
+		ClaimCode:  at("keys", "claim-code"),
 	}
 }
 
@@ -148,6 +151,24 @@ type Options struct {
 	// GCMinAge, if set, overrides how old a build must be before garbage
 	// collection may remove it (tests shorten it).
 	GCMinAge time.Duration
+}
+
+// authorizeGit decides a Smart HTTP request by the API token in its password:
+// fetching needs the read scope, pushing the deploy scope, and a token for one
+// app reaches only that app.
+func authorizeGit(r *http.Request, authn *auth.Service, password, app string, push bool) (string, error) {
+	p, err := authn.Token(r.Context(), password, authn.ClientIP(r))
+	if err != nil {
+		return "", gitserver.ErrBadCredentials
+	}
+	scope := auth.ScopeRead
+	if push {
+		scope = auth.ScopeDeploy
+	}
+	if !p.Can(scope) || !p.CanApp(app) {
+		return "", gitserver.ErrForbidden
+	}
+	return p.Name, nil
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully. The
@@ -268,16 +289,28 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.
 	defer deployer.Shutdown()
+	authn := &auth.Service{
+		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
+		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
+	}
+	claimCode, err := authn.PrepareClaim(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare the first-run claim: %w", err)
+	}
+	if claimCode != "" {
+		log.Info("this server has no accounts yet: claim it with the setup link",
+			"url", cfg.PublicURL(cfg.ConsoleHost)+"/setup?code="+claimCode)
+	}
+
 	// The git server: Smart HTTP on the console's hostname, SSH on its own
-	// port. Until accounts arrive, the admin token and the registered SSH
-	// keys may push.
+	// port.
 	git := &gitserver.Server{Repos: gitserver.NewRepos(layout.Repos), Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, tokenHash, runtime, deployer, log))
-	console.Handle("/git/", &gitserver.HTTP{Git: git, Password: func(_ *http.Request, _, password string) (string, bool) {
-		return "admin", auth.Matches(strings.TrimSpace(password), tokenHash)
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, log))
+	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
+		return authorizeGit(r, authn, password, app, push)
 	}})
-	console.Handle("/", ingress.Placeholder())
+	console.Handle("/", consolepages.New(authn, db, log))
 	router.SetConsole(console)
 
 	var tlsConfig *tls.Config
@@ -345,10 +378,10 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		}
 		addrs.SSH = sshLn.Addr()
 		sshSrv = &gitserver.SSH{
-			Git: git, HostKey: hostKey,
+			Git: git, HostKey: hostKey, Attempts: authn.Limits,
 			Key: func(ctx context.Context, key ssh.PublicKey) (string, bool) {
-				_, err := db.SSHKeyByFingerprint(ctx, ssh.FingerprintSHA256(key))
-				return "admin", err == nil
+				p, _, err := authn.Key(ctx, ssh.FingerprintSHA256(key))
+				return p.Name, err == nil
 			},
 			Used: func(fingerprint string) {
 				if k, err := db.SSHKeyByFingerprint(ctx, fingerprint); err == nil {

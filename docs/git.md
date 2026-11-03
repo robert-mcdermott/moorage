@@ -11,9 +11,10 @@ moor keys add
 ```
 
 That registers `~/.ssh/id_ed25519.pub` (or `id_ecdsa.pub`, or `id_rsa.pub`;
-name another file to use it). Moorage accepts Ed25519, ECDSA and RSA keys of
-3072 bits or more. `moor keys` lists the keys, `moor keys remove NAME` removes
-one. Until accounts arrive, every registered key may push to every app.
+name another file to use it) on your account. Moorage accepts Ed25519, ECDSA and
+RSA keys of 3072 bits or more. `moor keys` lists yours, `moor keys remove NAME`
+removes one. A push is recorded as yours, and until projects arrive, any account
+may push to any app.
 
 ## For each app: add the remote, push
 
@@ -99,6 +100,11 @@ The remote is `https://moorage.apps.example.com/git/hello.git`, and
 `moor git remote --http` sets up `moor git credential` for it, a git
 credential helper that gives git the token of the server `moor` talks to.
 The token is not given to any other host, and not stored in a keychain.
+
+In a script, use an API token as the password
+([Accounts and access](accounts.md#api-tokens)): pushing needs the `deploy` scope,
+fetching the `read` scope, and a token restricted to an app reaches only that
+app's repository. A disabled user's keys and tokens stop working at once.
 
 ## What is deployed
 

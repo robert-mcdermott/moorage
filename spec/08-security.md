@@ -42,16 +42,20 @@ hosting needs VM-level isolation and is out of scope.
 
 ## Authentication
 
-- **Bootstrap admin token (until accounts arrive in wave 2):** the server
-  generates one admin token, stores only its SHA-256, and writes the token to
-  `keys/admin-token` (mode `0600`) in the data directory. The CLI on the
-  server's machine reads it there; other machines pass it with `--token`.
-  Deleting the file and restarting the server replaces the token.
+- **Local admin token:** the server generates one admin token, stores only its
+  SHA-256, and writes the token to `keys/admin-token` (mode `0600`) in the data
+  directory. The CLI on the server's machine reads it there, which is why
+  `sudo moor …` needs no sign-in; it acts as an administrator with no account.
+  Once the server has accounts it is accepted only from the server's own machine
+  (behind a proxy, by the forwarded address of a trusted proxy); until then, from
+  anywhere, so that a 0.1.0 server keeps working. Deleting the file and restarting
+  the server replaces the token.
 - **Local accounts:** email + password hashed with Argon2id; minimum length
   12; an embedded list of common passwords is rejected.
-- **First-run claim:** `moor server init` prints a one-time setup URL. The
-  console's first-run page requires it, so nobody can race to claim a freshly
-  installed, network-reachable server.
+- **First-run claim:** `moor server init` prints a one-time setup URL. Its code
+  is kept in `keys/claim-code` (mode `0600`) until it is used, and the server's
+  log and `moor server status` show it meanwhile. The first-run page requires it,
+  so nobody can race to claim a freshly installed, network-reachable server.
 - **Sessions:** 256-bit random IDs stored hashed; idle and absolute timeouts;
   users can see and revoke their sessions.
 - **CLI login:** `moor login <url>` opens the console in a browser to approve
@@ -61,7 +65,10 @@ hosting needs VM-level isolation and is out of scope.
   scanners spot leaked tokens), stored as SHA-256 hashes, with scopes (`read`,
   `deploy`, `admin`, `gate`), optional app restriction, optional expiry and
   last-used tracking.
-- **SSH keys:** per user, Ed25519/ECDSA/RSA ≥ 3072 bits.
+- **Invitations:** a new user chooses a password with a one-time link an admin
+  sends them, valid for 7 days; a new link is also how a forgotten password is
+  replaced, and it ends the user's sessions.
+- **SSH keys:** per user, Ed25519/ECDSA/RSA ≥ 3072 bits; one key has one owner.
 - **Brute-force protection:** per-IP and per-account rate limits with backoff
   on sign-in, gate passwords, share-link redemption and SSH authentication;
   failures are logged as security events.
@@ -72,7 +79,10 @@ hosting needs VM-level isolation and is out of scope.
 ## Authorisation
 
 Apps belong to exactly one **project**. Small installations can use a single
-default project that everyone belongs to.
+default project that everyone belongs to. Until projects arrive in wave 4, every
+user may do everything with every app, and only an admin manages users; token
+scopes narrow what a token can do: `read` the first row below, `deploy` up to the
+third, and `admin` the rest.
 
 | Capability | Viewer | Deployer | Maintainer | Admin |
 |---|:-:|:-:|:-:|:-:|
@@ -86,8 +96,9 @@ default project that everyone belongs to.
 ¹ Configurable per project, because logs can contain sensitive data.
 
 Authorisation is enforced in the API layer only (the console just hides what
-you cannot do). Every route declares its required permission, and a test
-enumerates all routes to guarantee none is missing.
+you cannot do). Every route declares its required permission, in one table, and a
+test enumerates all routes to guarantee none is missing and each kind of caller
+gets what it should.
 
 ## Secrets
 

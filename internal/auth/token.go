@@ -1,5 +1,5 @@
-// Package auth holds Moorage's credentials. Until accounts arrive (wave 2),
-// the API is guarded by one bootstrap admin token.
+// Package auth holds Moorage's credentials: the server's local admin token,
+// API tokens, sessions, passwords, and who a request is from.
 package auth
 
 import (
@@ -49,7 +49,7 @@ type bootstrapRecord struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
-// BootstrapToken makes sure the server has an admin token. The token's hash
+// BootstrapToken makes sure the server has its local admin token. The token's hash
 // is stored as a setting and the token itself in file (mode 0600), where an
 // operator on the server can read it. When the file is missing a new token
 // replaces the old one, since the file is the only place it can be read.

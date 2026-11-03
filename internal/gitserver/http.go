@@ -14,10 +14,17 @@ import (
 // Basic authentication.
 type HTTP struct {
 	Git *Server
-	// Password returns who a request's Basic credentials belong to, or
-	// false.
-	Password func(r *http.Request, user, password string) (who string, ok bool)
+	// Authorize returns who a request's Basic credentials belong to, if they may
+	// read app's repository, or, with push, push to it. It fails with
+	// ErrBadCredentials or ErrForbidden.
+	Authorize func(r *http.Request, password, app string, push bool) (who string, err error)
 }
+
+// Errors of HTTP.Authorize.
+var (
+	ErrBadCredentials = errors.New("bad credentials")
+	ErrForbidden      = errors.New("not allowed")
+)
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rest, ok := strings.CutPrefix(r.URL.Path, "/git/")
@@ -31,12 +38,18 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a repository: use /git/<app>.git", http.StatusNotFound)
 		return
 	}
-	user, password, hasAuth := r.BasicAuth()
-	who, authorised := "", false
+	push := action == "git-receive-pack" || r.URL.Query().Get("service") == "git-receive-pack"
+	_, password, hasAuth := r.BasicAuth()
+	var who string
+	err := ErrBadCredentials
 	if hasAuth {
-		who, authorised = h.Password(r, user, password)
+		who, err = h.Authorize(r, password, app, push)
 	}
-	if !authorised {
+	switch {
+	case errors.Is(err, ErrForbidden):
+		http.Error(w, "That token may not do this: pushing needs the deploy scope, and a token for one app reaches only that app.", http.StatusForbidden)
+		return
+	case err != nil:
 		w.Header().Set("WWW-Authenticate", `Basic realm="Moorage", charset="UTF-8"`)
 		http.Error(w, "Moorage needs a token: the password is an API token (moor git credential supplies it)", http.StatusUnauthorized)
 		return

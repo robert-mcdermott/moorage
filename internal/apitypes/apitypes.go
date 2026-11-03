@@ -147,15 +147,157 @@ type GitInfo struct {
 	HTTP string `json:"http"`
 }
 
-// Problem is an RFC 9457 error document. Output, when present, holds the
-// last lines of a failing instance's log.
+// Page is one page of a list. NextCursor, when set, is passed back as
+// ?cursor=… for the next page.
+type Page[T any] struct {
+	Items      []T    `json:"items"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// User is an account.
+type User struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	// Role is "admin" or "member".
+	Role      string    `json:"role"`
+	Disabled  bool      `json:"disabled,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Me says who the caller is. Local marks the server's local administrator, who
+// holds the admin token on the server's machine and has no account.
+type Me struct {
+	ID    string `json:"id,omitempty"`
+	Email string `json:"email,omitempty"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
+	Local bool   `json:"local,omitempty"`
+	// Scopes and App are the limits of the token in use, if any.
+	Scopes []string `json:"scopes,omitempty"`
+	App    string   `json:"app,omitempty"`
+}
+
+// LoginRequest signs in with an email address and password.
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// LoginResult is a new session: the session cookie is set, and
+// cookie-authenticated requests that change anything send CSRFToken in the
+// X-CSRF-Token header.
+type LoginResult struct {
+	User      User   `json:"user"`
+	CSRFToken string `json:"csrf_token"`
+}
+
+// DeviceRequest begins a CLI's sign-in. Client names it for the person
+// approving it.
+type DeviceRequest struct {
+	Client string `json:"client"`
+}
+
+// DeviceAuthorization is a sign-in waiting for approval in a browser: the CLI
+// shows UserCode and opens VerificationURLComplete, and polls with DeviceCode
+// every Interval seconds.
+type DeviceAuthorization struct {
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURL         string `json:"verification_url"`
+	VerificationURLComplete string `json:"verification_url_complete"`
+	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval"`
+}
+
+// DeviceTokenRequest asks whether a sign-in has been approved. Until it is,
+// the answer is a problem with the code authorization_pending or slow_down;
+// access_denied and expired_token end it.
+type DeviceTokenRequest struct {
+	DeviceCode string `json:"device_code"`
+}
+
+// DeviceToken is an approved sign-in's API token, given once.
+type DeviceToken struct {
+	Token string `json:"token"`
+	User  User   `json:"user"`
+}
+
+// Session is a browser's sign-in.
+type Session struct {
+	ID         string    `json:"id"`
+	Current    bool      `json:"current,omitempty"`
+	IP         string    `json:"ip,omitempty"`
+	UserAgent  string    `json:"user_agent,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+// Token is an API token, without its secret.
+type Token struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Scopes     []string  `json:"scopes"`
+	App        string    `json:"app,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at,omitzero"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// NewToken creates an API token. Scopes are read, deploy, admin and gate; App,
+// if set, restricts it to one app.
+type NewToken struct {
+	Name      string    `json:"name"`
+	Scopes    []string  `json:"scopes"`
+	App       string    `json:"app,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+}
+
+// CreatedToken is a new token, with its secret, shown this once.
+type CreatedToken struct {
+	Token
+	Secret string `json:"token"`
+}
+
+// NewUser creates an account, with an invitation to choose a password. Role is
+// "member" unless it says "admin".
+type NewUser struct {
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+	Role  string `json:"role,omitempty"`
+}
+
+// UserChange changes an account; fields left out stay as they are.
+type UserChange struct {
+	Role     *string `json:"role,omitempty"`
+	Disabled *bool   `json:"disabled,omitempty"`
+}
+
+// Invitation is a one-time link for a user to choose a password.
+type Invitation struct {
+	User      User      `json:"user"`
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// FieldProblem says what is wrong with one field of a request.
+type FieldProblem struct {
+	Field  string `json:"field"`
+	Detail string `json:"detail"`
+}
+
+// Problem is an RFC 9457 error document, with a stable Code. Errors, when
+// present, say what is wrong field by field; Output holds the last lines of a
+// failing instance's log.
 type Problem struct {
-	Type   string   `json:"type,omitempty"`
-	Title  string   `json:"title"`
-	Status int      `json:"status"`
-	Detail string   `json:"detail,omitempty"`
-	Code   string   `json:"code,omitempty"`
-	Output []string `json:"output,omitempty"`
+	Type   string         `json:"type,omitempty"`
+	Title  string         `json:"title"`
+	Status int            `json:"status"`
+	Detail string         `json:"detail,omitempty"`
+	Code   string         `json:"code,omitempty"`
+	Errors []FieldProblem `json:"errors,omitempty"`
+	Output []string       `json:"output,omitempty"`
 }
 
 // Instance is one running copy of a process.

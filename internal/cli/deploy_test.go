@@ -22,7 +22,15 @@ import (
 // The test binary plays the shims, the shell and the apps.
 func TestMain(m *testing.M) {
 	testroles.Run()
-	os.Exit(m.Run())
+	// The tests stay away from the real client configuration.
+	dir, err := os.MkdirTemp("", "moor-cli-test")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("MOOR_CONFIG", filepath.Join(dir, "config.toml"))
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 // startLocalServer runs a server configured as the one "on this machine"

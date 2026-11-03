@@ -37,26 +37,47 @@ func (c *connection) addFlags(cmd *cobra.Command) {
 	f.StringVar(&c.caCert, "ca-cert", "", "PEM file of an extra CA to trust, such as the server's internal CA (default: $MOOR_CA_CERT)")
 }
 
-// client connects to --server or $MOOR_SERVER; without either, to the
-// server configured on this machine, over its loopback address, with its
-// admin token when this user can read it.
+// client connects as resolve says.
 func (c *connection) client() (*client.Client, error) {
-	serverURL, token, err := c.resolve()
+	serverURL, token, caCert, err := c.resolve()
 	if err != nil {
 		return nil, err
 	}
-	return client.New(serverURL, token, firstOf(c.caCert, os.Getenv("MOOR_CA_CERT")))
+	return client.New(serverURL, token, caCert)
 }
 
-// resolve returns the server's URL and the token to use.
-func (c *connection) resolve() (serverURL, token string, err error) {
+// resolve picks the server and credentials: --server and --token, or
+// $MOOR_SERVER and $MOOR_TOKEN; failing those, the current context (or, given
+// only a server, its context); failing that, the server configured on this
+// machine, over its loopback address, with its admin token when this user can
+// read it. $MOORAGE_CONFIG names that server on purpose, so it comes before the
+// current context.
+func (c *connection) resolve() (serverURL, token, caCert string, err error) {
 	serverURL = firstOf(c.server, os.Getenv("MOOR_SERVER"))
 	token = firstOf(c.token, os.Getenv("MOOR_TOKEN"))
+	caCert = firstOf(c.caCert, os.Getenv("MOOR_CA_CERT"))
+	cfg, err := loadClientConfig()
+	if err != nil {
+		return "", "", "", err
+	}
+	if token == "" {
+		var ctx *clientContext
+		switch {
+		case serverURL != "":
+			ctx = cfg.forServer(serverURL)
+		case os.Getenv("MOORAGE_CONFIG") == "":
+			ctx = cfg.current()
+		}
+		if ctx != nil {
+			serverURL, token = ctx.Server, ctx.Token
+			caCert = firstOf(caCert, ctx.CACert)
+		}
+	}
 	if serverURL == "" || token == "" {
 		localURL, localToken, err := localServer()
 		if serverURL == "" {
 			if err != nil {
-				return "", "", fmt.Errorf("no server to talk to: pass --server and --token, or set MOOR_SERVER and MOOR_TOKEN (%v)", err)
+				return "", "", "", fmt.Errorf("no server to talk to: sign in with moor login, pass --server and --token, or set MOOR_SERVER and MOOR_TOKEN (%v)", err)
 			}
 			serverURL = localURL
 		}
@@ -64,7 +85,7 @@ func (c *connection) resolve() (serverURL, token string, err error) {
 			token = localToken
 		}
 	}
-	return serverURL, token, nil
+	return serverURL, token, caCert, nil
 }
 
 // localServer returns the loopback URL of the server configured on this

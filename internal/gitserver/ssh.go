@@ -32,11 +32,20 @@ type SSH struct {
 	// Used, if set, is told the fingerprint of each key a client signed in
 	// with (not of the keys it only offered).
 	Used func(fingerprint string)
+	// Attempts, if set, slows addresses whose handshakes keep failing.
+	Attempts Attempts
 
 	mu    sync.Mutex
 	ln    net.Listener
 	conns map[*ssh.ServerConn]bool
 	done  bool
+}
+
+// Attempts counts failures per key, here an address.
+type Attempts interface {
+	Wait(key string) time.Duration
+	Fail(key string)
+	Clear(key string)
 }
 
 const (
@@ -131,11 +140,25 @@ func (x *SSH) Close() error {
 }
 
 func (x *SSH) handle(nc net.Conn, cfg *ssh.ServerConfig) {
+	ip, _, _ := net.SplitHostPort(nc.RemoteAddr().String())
+	key := "ssh-ip:" + ip
+	if x.Attempts != nil && x.Attempts.Wait(key) > 0 {
+		x.Git.logger().Warn("security: an SSH connection refused by the rate limit", "ip", ip)
+		nc.Close()
+		return
+	}
 	nc.SetDeadline(time.Now().Add(30 * time.Second)) // for the handshake
 	conn, chans, reqs, err := ssh.NewServerConn(nc, cfg)
 	if err != nil {
+		if x.Attempts != nil {
+			x.Attempts.Fail(key)
+		}
+		x.Git.logger().Warn("security: an SSH sign-in failed", "ip", ip, "err", err)
 		nc.Close()
 		return
+	}
+	if x.Attempts != nil {
+		x.Attempts.Clear(key)
 	}
 	nc.SetDeadline(time.Time{})
 	x.mu.Lock()

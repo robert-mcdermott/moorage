@@ -16,6 +16,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/native"
 	"github.com/robert-mcdermott/moorage/internal/platform"
+	"github.com/robert-mcdermott/moorage/internal/server"
 	"github.com/robert-mcdermott/moorage/internal/service"
 )
 
@@ -291,6 +292,9 @@ func newServerStatusCmd() *cobra.Command {
 			fmt.Fprintf(out, "Server:   %s on %s\n", answer, t.cfg.Listen.HTTP)
 			fmt.Fprintf(out, "Config:   %s\n", t.path)
 			fmt.Fprintf(out, "Logs:     %s\n", t.manager.Logs())
+			if data, err := os.ReadFile(server.NewLayout(t.cfg.DataDir).ClaimCode); err == nil {
+				fmt.Fprintf(out, "Claim:    no accounts yet: create the first at %s\n", claimURL(t.cfg, strings.TrimSpace(string(data))))
+			}
 			return nil
 		},
 	}

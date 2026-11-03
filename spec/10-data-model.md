@@ -63,11 +63,12 @@ erDiagram
 
 | Table | Key columns |
 |---|---|
-| `users` | `id`, `email` (unique), `name`, `password_hash`, `server_role` (`admin`/`member`), `totp_secret_enc`, `disabled_at`, `created_at` |
-| `sessions` | `id_hash`, `user_id`, `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent` |
-| `api_tokens` | `id`, `user_id`, `name`, `token_hash`, `scopes`, `app_id` (optional restriction), `expires_at`, `last_used_at` |
-| `device_codes` | `code_hash`, `user_code`, `approved_by`, `expires_at` (CLI browser login) |
-| `ssh_keys` | `id`, `user_id`, `name`, `fingerprint` (unique), `public_key`, `last_used_at` |
+| `users` | `id`, `email` (unique), `name`, `password_hash` (empty until an invitation is accepted), `role` (`admin`/`member`), `totp_secret_enc`, `disabled_at`, `created_at` |
+| `sessions` | `id`, `id_hash`, `user_id`, `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent` |
+| `api_tokens` | `id`, `user_id` (empty: the server's local administrator), `name` (unique per owner), `token_hash`, `scopes`, `app_id` (optional restriction), `expires_at`, `last_used_at` |
+| `device_codes` | `code_hash`, `user_code`, `client`, `ip`, `approved_by`, `denied`, `last_poll_at`, `expires_at` (CLI browser login) |
+| `invitations` | `code_hash`, `user_id`, `created_by`, `expires_at` (one-time links to choose a password) |
+| `ssh_keys` | `id`, `user_id` (empty: the server's local administrator), `name` (unique per owner), `fingerprint` (unique), `public_key`, `last_used_at` |
 | `projects` | `id`, `name`, `settings` (JSON: log visibility, limits, quotas) |
 | `project_members` | `project_id`, `user_id`, `role` (`viewer`/`deployer`/`maintainer`) |
 

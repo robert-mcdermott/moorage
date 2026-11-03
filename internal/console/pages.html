@@ -1,0 +1,150 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{if eq .Title "Moorage"}}Moorage{{else}}{{.Title}} · Moorage{{end}}</title>
+<link rel="icon" href="{{.Favicon}}">
+<style>
+:root { color-scheme: light dark; --bg: #f7f7f5; --card: #ffffff; --fg: #1d1f24; --muted: #5e6470; --line: #dcdfe4;
+        --brand: #08264c; --accent: #0e8786; --accent-fg: #ffffff; --danger: #b3382c; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15171c; --card: #1c1f26; --fg: #e8e9ec; --muted: #9aa0ab; --line: #2e323b;
+          --brand: #e6ebf2; --accent: #2bb0ac; --accent-fg: #071312; --danger: #f08072; } }
+* { box-sizing: border-box; }
+html, body { min-height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+       display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; }
+main { width: 100%; max-width: 26rem; }
+.mark { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; color: var(--brand); font-weight: 700; font-size: 1.1rem; }
+.mark span, .mark svg { display: block; width: 1.9rem; height: 1.9rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; }
+h1 { font-size: 1.3rem; line-height: 1.3; margin: 0 0 .5rem; }
+p { margin: 0 0 1rem; color: var(--muted); }
+strong, code { color: var(--fg); }
+label { display: block; font-weight: 600; font-size: .9rem; margin: .9rem 0 .25rem; }
+.hint { font-weight: 400; color: var(--muted); }
+input { width: 100%; padding: .55rem .7rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button { padding: .55rem 1.1rem; font: inherit; font-weight: 600; color: var(--accent-fg); background: var(--accent); border: 0; border-radius: 8px; cursor: pointer; }
+button.quiet { color: var(--fg); background: none; border: 1px solid var(--line); }
+.actions { display: flex; gap: .5rem; margin-top: 1.25rem; }
+.alert { color: var(--danger); margin: .75rem 0 0; }
+.code { font: 600 1.4rem ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .05em; color: var(--fg); margin: 0 0 1rem; }
+a { color: var(--accent); }
+footer { margin-top: 1rem; font-size: .8rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<div class="mark"><span aria-hidden="true">{{.Icon}}</span>Moorage</div>
+<div class="card">
+{{template "body" .}}
+</div>
+<footer>Moorage {{.Version}}</footer>
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "home"}}
+<h1>Moorage is running</h1>
+{{if .User}}
+<p>Signed in as <strong>{{.User}}</strong>.</p>
+<p>The web console arrives in a later release. Deploy with the <code>moor</code> command line in the meantime.</p>
+<form method="post" action="/logout">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button class="quiet" type="submit">Sign out</button>
+</form>
+{{else if .Unclaimed}}
+<p>This server has no accounts yet. Whoever installed it can claim it with the setup link that <code>moor server status</code> shows on the server.</p>
+{{else}}
+<p>The web console arrives in a later release. Deploy with the <code>moor</code> command line in the meantime.</p>
+<p><a href="/login">Sign in</a></p>
+{{end}}
+{{end}}
+
+{{define "setup"}}
+<h1>Claim this server</h1>
+<p>Create the first account. It will be the server's administrator.</p>
+<form method="post" action="/setup">
+  <input type="hidden" name="code" value="{{.Code}}">
+  {{template "account-fields" .}}
+  {{template "password-fields" .}}
+  {{template "alert" .}}
+  <div class="actions"><button type="submit">Create the account</button></div>
+</form>
+{{end}}
+
+{{define "account-fields"}}
+  <label for="email">Email address</label>
+  <input id="email" name="email" type="email" autocomplete="username" value="{{.Email}}" required autofocus>
+  <label for="name">Name <span class="hint">(optional)</span></label>
+  <input id="name" name="name" autocomplete="name" value="{{.Name}}">
+{{end}}
+
+{{define "password-fields"}}
+  <label for="password">Password <span class="hint">(at least 12 characters)</span></label>
+  <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required>
+  <label for="confirm">The password again</label>
+  <input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="12" required>
+{{end}}
+
+{{define "alert"}}{{with .Error}}<p class="alert" role="alert">{{.}}</p>{{end}}{{end}}
+
+{{define "login"}}
+<h1>Sign in</h1>
+<form method="post" action="/login">
+  <input type="hidden" name="next" value="{{.Next}}">
+  <label for="email">Email address</label>
+  <input id="email" name="email" type="email" autocomplete="username" value="{{.Email}}" required autofocus>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  {{template "alert" .}}
+  <div class="actions"><button type="submit">Sign in</button></div>
+</form>
+{{end}}
+
+{{define "invite"}}
+<h1>Choose a password</h1>
+<p>For <strong>{{.Email}}</strong>.</p>
+<form method="post" action="/invite">
+  <input type="hidden" name="code" value="{{.Code}}">
+  {{template "password-fields" .}}
+  {{template "alert" .}}
+  <div class="actions"><button type="submit">Save the password</button></div>
+</form>
+{{end}}
+
+{{define "device-enter"}}
+<h1>Approve a sign-in</h1>
+<p>Enter the code your terminal shows.</p>
+<form method="get" action="/device">
+  <label for="code">Code</label>
+  <input id="code" name="code" autocomplete="off" autocapitalize="characters" required autofocus>
+  {{template "alert" .}}
+  <div class="actions"><button type="submit">Continue</button></div>
+</form>
+{{end}}
+
+{{define "device-confirm"}}
+<h1>Approve this sign-in?</h1>
+<p><strong>{{.Client}}</strong>{{with .ClientIP}} from {{.}}{{end}} wants to act as <strong>{{.User}}</strong>, with everything you may do.</p>
+<p>Approve it only if your terminal shows this code:</p>
+<p class="code">{{.Code}}</p>
+<form method="post" action="/device">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="code" value="{{.Code}}">
+  <div class="actions">
+    <button type="submit" name="decision" value="approve">Approve</button>
+    <button class="quiet" type="submit" name="decision" value="deny">Deny</button>
+  </div>
+</form>
+{{end}}
+
+{{define "message"}}
+<h1>{{.Heading}}</h1>
+<p>{{.Message}}</p>
+{{if .Link}}<p><a href="{{.Link}}">{{.LinkText}}</a></p>{{end}}
+{{end}}

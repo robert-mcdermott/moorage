@@ -142,7 +142,7 @@ for the repository; it answers only for the Moorage server's own git URL.`,
 			if len(args) == 0 || args[0] != "get" {
 				return nil // nothing is stored, so nothing is erased
 			}
-			serverURL, token, err := conn.resolve()
+			serverURL, token, _, err := conn.resolve()
 			if err != nil || token == "" {
 				return nil // git asks the next helper, or the user
 			}

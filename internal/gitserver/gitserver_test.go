@@ -108,8 +108,16 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { srv.Close() })
 	f.sshAddr = ln.Addr().String()
 
-	h := &HTTP{Git: f.git, Password: func(_ *http.Request, _, password string) (string, bool) {
-		return "admin", password == "secret"
+	h := &HTTP{Git: f.git, Authorize: func(_ *http.Request, password, _ string, push bool) (string, error) {
+		switch {
+		case password == "secret":
+			return "admin", nil
+		case password == "read-only" && !push:
+			return "reader", nil
+		case password == "read-only":
+			return "", ErrForbidden
+		}
+		return "", ErrBadCredentials
 	}}
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
@@ -302,6 +310,91 @@ func TestUnknownKeysAndCommands(t *testing.T) {
 	}
 }
 
+// attempts is the rate limit a server would use: three free failures.
+type attempts struct {
+	mu       sync.Mutex
+	failures int
+}
+
+func (a *attempts) Wait(string) time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failures > 3 {
+		return time.Minute
+	}
+	return 0
+}
+
+func (a *attempts) Fail(string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.failures++
+}
+
+func (a *attempts) Clear(string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.failures = 0
+}
+
+func TestFailedHandshakesAreSlowed(t *testing.T) {
+	host, err := LoadHostKey(filepath.Join(t.TempDir(), "host"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, err := LoadHostKey(filepath.Join(t.TempDir(), "allowed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stranger, err := LoadHostKey(filepath.Join(t.TempDir(), "stranger"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := &attempts{}
+	srv := &SSH{
+		Git: &Server{Repos: NewRepos(t.TempDir()), Receiver: &receiver{}}, HostKey: host, Attempts: limits,
+		Key: func(_ context.Context, k ssh.PublicKey) (string, bool) {
+			return "admin", ssh.FingerprintSHA256(k) == ssh.FingerprintSHA256(allowed.PublicKey())
+		},
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	dial := func(key ssh.Signer) error {
+		c, err := ssh.Dial("tcp", ln.Addr().String(), &ssh.ClientConfig{
+			User: "git", Auth: []ssh.AuthMethod{ssh.PublicKeys(key)}, HostKeyCallback: ssh.FixedHostKey(host.PublicKey()), Timeout: 5 * time.Second,
+		})
+		if err == nil {
+			c.Close()
+		}
+		return err
+	}
+	if err := dial(allowed); err != nil {
+		t.Fatalf("a good key: %v", err)
+	}
+	for range 4 {
+		if err := dial(stranger); err == nil {
+			t.Fatal("an unknown key signed in")
+		}
+	}
+	// Failures are counted once the server has seen them.
+	waitFor(t, "the failures to count", func() bool {
+		limits.mu.Lock()
+		defer limits.mu.Unlock()
+		return limits.failures >= 4
+	})
+	if err := dial(allowed); err == nil {
+		t.Error("a good key got through during the wait")
+	}
+	limits.Clear("")
+	if err := dial(allowed); err != nil {
+		t.Errorf("after the wait: %v", err)
+	}
+}
+
 func TestRefusedPush(t *testing.T) {
 	f := newFixture(t)
 	w := newWork(t)
@@ -341,6 +434,18 @@ func TestPushOverHTTP(t *testing.T) {
 	}
 	if head, _ := clone.Head(); head.Hash() != first {
 		t.Errorf("clone's HEAD = %s", head.Hash())
+	}
+	// A token that may read can fetch, not push.
+	readOnly := client.WithHTTPAuth(&githttp.BasicAuth{Username: "moor", Password: "read-only"})
+	if _, err := git.PlainClone(t.TempDir(), &git.CloneOptions{URL: url, ClientOptions: []client.Option{readOnly}}); err != nil {
+		t.Errorf("a clone with a read-only token: %v", err)
+	}
+	w.commit("two", map[string]string{"b": "b"})
+	if _, err := w.push(url, readOnly); err == nil {
+		t.Error("a push with a read-only token was accepted")
+	}
+	if got := f.ref(t, "site", "refs/heads/main"); got != first {
+		t.Errorf("main moved to %s", got)
 	}
 	res, err := http.Get(f.httpURL + "/git/site.git/info/refs?service=git-upload-pack")
 	if err != nil {
