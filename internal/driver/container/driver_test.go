@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,13 +40,29 @@ func realEngine(t *testing.T) *Driver {
 	if err := e.Pull(ctx, testImage, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	d := New(e, "test-"+strconv.FormatInt(time.Now().UnixNano(), 36), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	w := &testLog{t: t}
+	d := New(e, "test-"+strconv.FormatInt(time.Now().UnixNano(), 36), slog.New(slog.NewTextHandler(w, nil)))
 	t.Cleanup(func() {
 		for _, id := range d.List() {
 			d.Remove(id)
 		}
+		d.Shutdown()
+		w.done.Store(true)
 	})
 	return d
+}
+
+// testLog shows the driver's log with the test's, until the test ends.
+type testLog struct {
+	t    *testing.T
+	done atomic.Bool
+}
+
+func (w *testLog) Write(p []byte) (int, error) {
+	if !w.done.Load() {
+		w.t.Log(strings.TrimSpace(string(p)))
+	}
+	return len(p), nil
 }
 
 var seq int
@@ -137,6 +154,9 @@ func TestRunAndStop(t *testing.T) {
 	if got := d.List(); !slices.Contains(got, s.ID) {
 		t.Errorf("List: %v", got)
 	}
+	if got, err := d.nameOf(s.ID); err != nil || got != containerName(s) {
+		t.Errorf("its name: %q %v", got, err)
+	}
 	if st, alive, err := d.Status(s.ID); err != nil || !alive || st.Status != shim.Running {
 		t.Errorf("Status: %+v %v %v", st, alive, err)
 	}
@@ -217,11 +237,17 @@ func TestOutOfMemory(t *testing.T) {
 		return err == nil && st.Status == shim.Exited
 	})
 	st, _, _ := d.Status(s.ID)
-	if st.LastExit == nil || st.LastExit.Signal != "OOM" {
+	// Some engines report it; for the others, the log says what is likely.
+	reported := st.LastExit != nil && st.LastExit.Signal == "OOM"
+	if !reported && (st.LastExit == nil || st.LastExit.Signal != "KILL" || st.LastExit.Code != 137) {
 		t.Errorf("%+v", st.LastExit)
 	}
-	if !slices.ContainsFunc(logText(t, s), func(l logs.Line) bool { return strings.Contains(l.Text, "out of memory") }) {
-		t.Errorf("the log says nothing of it: %+v", logText(t, s))
+	said := "perhaps for going over its memory limit"
+	if reported {
+		said = "out of memory"
+	}
+	if !slices.ContainsFunc(logText(t, s), func(l logs.Line) bool { return strings.Contains(l.Text, said) }) {
+		t.Errorf("the log does not say %q: %+v", said, logText(t, s))
 	}
 	d.Stop(s.ID, time.Second)
 }

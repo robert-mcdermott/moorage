@@ -97,6 +97,7 @@ jobs:
       - name: The container driver
         run: go test ./internal/driver/container -v -count=1 -timeout 10m
       - name: Deploys in containers
+        if: ${{ !cancelled() }}
         run: go test ./internal/server -run 'TestContainer' -v -count=1 -timeout 15m
 
   service:

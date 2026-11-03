@@ -65,6 +65,9 @@ type Spec struct {
 	BackoffMin time.Duration
 }
 
+// exitKilled is the exit status of a process killed with SIGKILL.
+const exitKilled = 137
+
 // How restarts slow down: the delay doubles up to backoffMax, and a container
 // that keeps exiting waits crashBackoff.
 const (
@@ -567,9 +570,18 @@ func (d *Driver) exited(t *tracked, st state, delay *time.Duration, crashes *[]t
 	ran := at.Sub(t.current().StartedAt)
 	exit := &shim.Exit{Code: st.ExitCode, At: at.UTC()}
 	why := fmt.Sprintf("exited with status %d", st.ExitCode)
-	if st.OOMKilled {
+	switch {
+	case st.OOMKilled:
 		exit.Signal = "OOM"
 		why = fmt.Sprintf("was killed for running out of memory (status %d)", st.ExitCode)
+	case st.ExitCode == exitKilled:
+		// Not every engine reports running out of memory (Podman 4.9 does not,
+		// with an init process), so this may be that too.
+		exit.Signal = "KILL"
+		why = fmt.Sprintf("was killed (status %d)", st.ExitCode)
+		if t.spec.Memory > 0 {
+			why += ", perhaps for going over its memory limit"
+		}
 	}
 	policy := t.spec.Restart
 	if policy == "never" || (policy == "on-failure" && st.ExitCode == 0) {
@@ -786,13 +798,24 @@ func (d *Driver) Remove(id string) {
 // CleanupOrphan has nothing to do: a container has no shim to outlive.
 func (d *Driver) CleanupOrphan(shim.State) {}
 
-// List returns the instances that have containers of this server's.
+// List returns the instances that have containers of this server's. Their
+// labels are read with inspect, whose output is the same on every engine and
+// version; ps's templates are not.
 func (d *Driver) List() []string {
 	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
-	out, err := d.engine.output(ctx, nil, "ps", "-a",
-		"--filter", "label="+labelServer+"="+d.server, "--format", `{{.Label "`+labelInstance+`"}}`)
+	out, err := d.engine.output(ctx, nil, "ps", "-aq", "--filter", "label="+labelServer+"="+d.server)
 	if err != nil {
+		d.log.Warn("listing containers", "err", err)
+		return nil
+	}
+	ids := strings.Fields(string(out))
+	if len(ids) == 0 {
+		return nil
+	}
+	args := append([]string{"inspect", "--format", `{{index .Config.Labels "` + labelInstance + `"}}`}, ids...)
+	out, err = d.engine.output(ctx, nil, args...)
+	if err != nil && !IsNotFound(err) { // one may have gone since; the rest are listed
 		d.log.Warn("listing containers", "err", err)
 		return nil
 	}

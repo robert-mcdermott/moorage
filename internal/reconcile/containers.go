@@ -70,7 +70,7 @@ func (m *Manager) containerSpec(ctx context.Context, es *envState, rel store.Rel
 	spec := m.baseContainerSpec(es.app, es.env, in, plan, rel.Version)
 	spec.Vars, spec.Secrets = vars, secrets
 	spec.DataDir, spec.Mount = dataDir, c.Mount
-	spec.User, spec.Memory, spec.CPU, spec.PIDs = c.User, c.Memory, c.CPU, c.PIDs
+	spec.User, spec.CPU, spec.PIDs = c.User, c.CPU, c.PIDs
 	spec.Command = in.proc.Command
 	if in.port != 0 {
 		vars["PORT"] = strconv.Itoa(c.Port)
@@ -84,7 +84,7 @@ func (m *Manager) containerSpec(ctx context.Context, es *envState, rel store.Rel
 func (m *Manager) baseContainerSpec(app, env string, in *instance, plan manifest.Plan, version int) container.Spec {
 	return container.Spec{
 		ID: in.id, App: app, Env: env, Process: in.process, Index: in.index, Release: "v" + strconv.Itoa(version),
-		Image:   plan.Container.Image,
+		Image: plan.Container.Image, Memory: plan.Container.Memory,
 		Restart: in.proc.Restart, StopSignal: in.proc.StopSignal, StopTimeout: in.proc.StopTimeout.Std(),
 		LogFile: in.logFile, BackoffMin: m.opts.BackoffMin,
 	}

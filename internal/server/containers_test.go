@@ -449,7 +449,8 @@ health = { min_uptime = "1s" }
 	}
 	waitUntil(t, "the memory limit", func() bool {
 		for _, in := range instances(t, c, "workers") {
-			if in.Process == "hog" && in.Status == "exited" && in.LastExit != nil && in.LastExit.Signal == "OOM" {
+			// Some engines report running out of memory; others only the kill.
+			if in.Process == "hog" && in.Status == "exited" && in.LastExit != nil && (in.LastExit.Signal == "OOM" || in.LastExit.Signal == "KILL") {
 				return true
 			}
 		}

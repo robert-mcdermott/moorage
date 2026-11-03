@@ -591,6 +591,11 @@ directory, supervises it, and serves it on its own hostname.
        deploy refuses with a clear message.
      - An image's user cannot be known beforehand, so the data directory is
        world-writable, below directories that keep out other users of the server.
+     - Podman 4.9, which Ubuntu packages, differs from current releases in two
+       ways CI found: `ps` printed no labels through its template, so labels are now
+       read with `inspect`; and it does not report an OOM kill when the container
+       has an init process. A kill (status 137) of a container with a memory limit
+       is logged as perhaps that.
 5. **TLS and operations.** `moor trust` (installs the internal CA into the
    OS trust store; certificate issuance itself arrived in wave 1, slice 2);
    `moor server proxy-config nginx`; `moor server doctor` (DNS, ports, TLS, the

@@ -131,7 +131,9 @@ command = "/app/worker"
 - **Moorage owns restarts**, by `restart` under [`[processes]`](manifest.md#processes).
   The engine's own restart policy is off, and a container that keeps exiting is
   restarted more and more slowly. One the kernel killed for running out of memory
-  says so in its log and in `moor ps --json`.
+  says so in its log and in `moor ps --json`, where the engine reports it. Podman
+  4.9 does not: the log says the container was killed, perhaps for going over its
+  memory limit.
 - **A health check needs an answer.** A published port accepts connections
   whatever the container is doing, so a TCP check also waits to see that the
   connection stays open: a `health.path` is still the better check.

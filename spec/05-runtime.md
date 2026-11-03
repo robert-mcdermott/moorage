@@ -271,7 +271,9 @@ it), so the console reports the protection that is actually in effect.
   restart policy, with the same backoff and crash limit, then `start`. These are
   the same on both engines, and need no parsing of `events` streams, which differ.
   When the server stops, so do the goroutines; the containers run on, and a new
-  server adopts them. One that exited meanwhile goes through the policy.
+  server adopts them. One that exited meanwhile goes through the policy. Podman 4.9
+  does not flag an OOM kill of a container with an init process, so a status of 137
+  with a memory limit is logged as perhaps that.
 - **Logs:** `logs --follow --timestamps --since`, per instance, separating stdout
   and stderr, into the instance's log file with secrets removed. Podman's timestamps
   have a precision of a second, so a follower that starts again reads from the start

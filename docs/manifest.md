@@ -175,7 +175,7 @@ Limits for each instance of an app in a container.
 
 | Key | Description |
 |---|---|
-| `memory` | Memory: `"512MiB"`. The kernel kills an instance that goes over it, and `moor ps --json` says so. |
+| `memory` | Memory: `"512MiB"`. The kernel kills an instance that goes over it. |
 | `cpu` | CPU, in cores: `0.5`, `2`. |
 | `pids` | The most processes and threads. |
 
