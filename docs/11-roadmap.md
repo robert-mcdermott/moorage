@@ -275,14 +275,21 @@ directory, supervises it, and serves it on its own hostname.
      - `TestDeadShimIsReplaced` failed once under the race detector on a
        loaded macOS machine (the replaced app still answered on its port for
        30 seconds) and passed in every later run; to be watched in CI.
-     - In CI on macOS, a sample app served by Python's single-threaded
-       `HTTPServer` held each rollout for the whole drain (30 seconds): the
-       proxy's HTTP client may open a connection to a backend and leave it
-       idle, and a server that handles one connection at a time waits on it
-       before answering anyone else. The samples now use
-       `ThreadingHTTPServer`, as `python -m http.server` does; the per-runtime
-       quick-start documentation (slice 6) warns about servers that handle
-       one connection at a time.
+     - Two traps of Python's `http.server`, found by the sample apps in CI on
+       macOS, go into the per-runtime quick-start documentation (slice 6):
+       - Its `HTTPServer` handles one connection at a time. The proxy's HTTP
+         client may open a connection to a backend and leave it idle, and
+         such a server then waits on it before answering anyone else (a
+         request hung for 20 seconds). The samples use `ThreadingHTTPServer`,
+         as `python -m http.server` does.
+       - When it binds, it looks up the name of its address, and on the macOS
+         runner (Homebrew Python 3.15) that reverse lookup of 127.0.0.1 took
+         35 seconds, so each new instance needed 35 seconds to answer its
+         first health check. The rollouts were correct, only slow. The
+         samples bind without the lookup.
+     - Rollouts now log a warning when a drain ends with requests still in
+       flight and when an instance takes more than five seconds to stop; the
+       sample-app test prints the apps' own logs when one fails.
 5. **Configuration.** Variables and encrypted secrets (`moor env`), every
    configuration change a release.
    - Done when: setting a variable rolls out a new release without

@@ -2,7 +2,17 @@
 import http.server
 import os
 import platform
+import socketserver
 import sys
+
+
+class Server(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        # http.server looks up the name of the address it binds, and a
+        # reverse lookup of 127.0.0.1 can take half a minute on some hosts
+        # (macOS among them): bind without it.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -21,6 +31,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    port = int(os.environ["PORT"])
-    print(f"listening on 127.0.0.1:{port}")
-    http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    server = Server(("127.0.0.1", int(os.environ["PORT"])), Handler)
+    print(f"listening on 127.0.0.1:{server.server_port}")
+    server.serve_forever()

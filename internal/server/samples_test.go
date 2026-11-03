@@ -61,8 +61,6 @@ func TestSampleApps(t *testing.T) {
 				python, err := exec.LookPath("python3")
 				out, _ := exec.Command("python3", "--version").CombinedOutput()
 				t.Logf("the host's python3: %s %v (%s)", python, err, strings.TrimSpace(string(out)))
-				timePython(t, "before the first deploy")
-				defer timePython(t, "with the app running")
 			}
 			t.Cleanup(func() {
 				if t.Failed() {
@@ -123,20 +121,6 @@ func TestSampleApps(t *testing.T) {
 			}
 		})
 	}
-}
-
-// timePython measures what the host's Python spends time on when an
-// http.server app starts: the interpreter, the imports, and the reverse
-// lookup of 127.0.0.1 that http.server's server_bind does.
-func timePython(t *testing.T, when string) {
-	script := `import time; t0 = time.time()
-import http.server, platform, socket; t1 = time.time()
-socket.getfqdn("127.0.0.1"); t2 = time.time()
-socket.getfqdn("127.0.0.1"); t3 = time.time()
-print(f"imports {t1-t0:.2f}s, getfqdn {t2-t1:.2f}s then {t3-t2:.2f}s")`
-	start := time.Now()
-	out, err := exec.Command("python3", "-c", script).CombinedOutput()
-	t.Logf("the host's python3 %s: %s %v (%s in all)", when, strings.TrimSpace(string(out)), err, time.Since(start).Round(10*time.Millisecond))
 }
 
 // dumpAppLogs prints the logs of an app's instances, where the shim notes
