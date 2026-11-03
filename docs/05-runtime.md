@@ -65,11 +65,13 @@ assembled in layers, later layers winning:
 1. A minimal base: `PATH` (toolchains, project tool directories, then a
    standard system path), `HOME` (the data directory), `LANG=C.UTF-8`, `TZ`,
    `TMPDIR` (a per-instance temporary directory).
-2. The manifest's `[env]`.
-3. The manifest's `[environments.<env>].env` (or `[environments.preview]`).
-4. Server-side app variables (all environments).
-5. Server-side environment-scoped variables.
-6. Variables injected by Moorage (cannot be overridden):
+2. The runtime's own variables: `PYTHONUNBUFFERED=1` and `VIRTUAL_ENV`
+   (the build's `.venv`) for Python, `NODE_ENV=production` for Node.js.
+3. The manifest's `[env]`.
+4. The manifest's `[environments.<env>].env` (or `[environments.preview]`).
+5. Server-side app variables (all environments).
+6. Server-side environment-scoped variables.
+7. Variables injected by Moorage (cannot be overridden):
 
 | Variable | Example | Notes |
 |---|---|---|
@@ -86,8 +88,10 @@ assembled in layers, later layers winning:
 | `MOORAGE_BIN` | `<build>/.moorage/bin` | Where runtime presets put built binaries. |
 
 Secret values are decrypted only at instance start and passed to the process
-directly (native) or through a temporary `0600` env-file that is removed after
-start (containers) — never on a command line where `ps` could show them.
+through its shim's standard input (native: the shim keeps them in memory to
+restart the app, and they are never written to disk) or through a temporary
+`0600` env-file that is removed after start (containers) — never on a command
+line where `ps` could show them.
 
 ## Ports
 
@@ -193,7 +197,7 @@ tiny exec helper: the shim re-executes `moor` in a helper mode as the app's
 process, already inside the instance cgroup and under the app's UID/GID; the
 helper applies Landlock and `no_new_privs`, then replaces itself with the app
 via `exec`. The shim itself stays unrestricted, so it can keep writing logs
-and serving its control socket. Everything is plain system calls — no external
+and taking commands from the server. Everything is plain system calls — no external
 tools. Landlock runs in best-effort mode (it is a no-op on kernels without
 it), so the console reports the protection that is actually in effect.
 

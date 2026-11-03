@@ -190,9 +190,9 @@ Each runtime has a table of options; all keys are optional.
 
 | Key | Default | Description |
 |---|---|---|
-| `version` | from `go.mod` (`toolchain` / `go` directive) | Go toolchain version. |
+| `version` | from `go.mod`: the `toolchain` line, else the newest patch release of the `go` line's minor version | Go toolchain version. Builds run with `GOTOOLCHAIN=local`, so this is the Go that builds. |
 | `main` | `.` if it is `package main`, else the single `./cmd/*` | Main package to build. |
-| `binary` | last element of `main` | Output name, placed in `$MOORAGE_BIN`. |
+| `binary` | last element of `main` (of the module path when `main` is `.`) | Output name, placed in `$MOORAGE_BIN`. |
 | `ldflags` | `"-s -w"` | Linker flags. |
 | `tags` | `[]` | Build tags. |
 | `cgo` | `false` | Sets `CGO_ENABLED`. Requires a host C toolchain when `true`. |
@@ -217,7 +217,7 @@ commands like `uvicorn …` or `python -m …` resolve without `uv run`.
 | Key | Default | Description |
 |---|---|---|
 | `version` | `.nvmrc` / `.node-version` / `engines.node`, else current LTS | Runtime version. |
-| `package_manager` | from lockfile (`package-lock.json`→npm, `pnpm-lock.yaml`→pnpm, `yarn.lock`→yarn, `bun.lock`→bun) | Installer. |
+| `package_manager` | from lockfile (`package-lock.json`→npm, `pnpm-lock.yaml`→pnpm, `yarn.lock`→yarn, `bun.lock`→bun) | Installer. npm runs `npm ci` (`npm install`, with a reproducibility warning, without a lockfile). *pnpm, yarn and bun are not available yet.* |
 | `build_script` | `"build"` if present in `package.json` | Script run after install. |
 | `prune` | `true` | Remove dev dependencies after build. |
 
@@ -264,7 +264,7 @@ siblings are served when the client accepts them.
 | `post` | string | — | Runs after the preset/`command` (e.g. building a frontend). |
 | `env` | table | `{}` | Build-time-only environment variables. |
 | `timeout` | duration | `"20m"` | Build is cancelled after this long. |
-| `exclude` | string[] | `[]` | Globs pruned from the release after the build (tests, caches, sources not needed at runtime). `.moorignore` is honoured too. |
+| `exclude` | string[] | `[]` | Patterns, in `.gitignore` syntax, pruned from the release after the build (tests, caches, sources not needed at runtime). `.moorignore` is honoured too. |
 
 ### `[processes.<name>]`
 
@@ -291,7 +291,7 @@ traffic by default. A process can be given as a plain string
 | `path` | — | HTTP `GET` path; 2xx/3xx is healthy. Without it, a TCP connect to `$PORT` is used. |
 | `expect` | — | Optional text the HTTP response body must contain. |
 | `min_uptime` | `"5s"` | For non-exposed processes (workers): during a rollout, the new instance must stay running this long to count as healthy. |
-| `command` | — | Alternative: command run in the instance environment; exit 0 is healthy. |
+| `command` | — | Alternative: command run in the instance environment; exit 0 is healthy *(not supported yet)*. |
 | `interval` | `"10s"` | Time between liveness checks. |
 | `timeout` | `"3s"` | Per-check timeout. |
 | `startup` | `"60s"` | How long a new instance may take to become healthy during a deploy. |
@@ -302,7 +302,9 @@ traffic by default. A process can be given as a plain string
 Runs **once per deployment**, after the build and before any new instance
 receives traffic, using the new release and the environment's runtime
 configuration. Typical use: database migrations. A failing release command
-aborts the deployment and leaves the current release serving.
+aborts the deployment and leaves the current release serving. A rollback
+or a change of variables publishes a build that was already released, so it
+does not run the release command again.
 
 | Key | Default | Description |
 |---|---|---|

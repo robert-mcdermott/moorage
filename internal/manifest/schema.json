@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "moorage.toml",
+  "description": "How Moorage builds and runs an app (manifest version 1).",
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": { "description": "Reserved for other tools; Moorage ignores it." }
+  },
+  "properties": {
+    "version": { "description": "Manifest schema version.", "type": "integer", "enum": [1], "default": 1 },
+    "app": {
+      "description": "The app as a whole.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "Suggested app name; the server-side name always wins.", "type": "string", "pattern": "^[a-z][a-z0-9-]{1,38}[a-z0-9]$" },
+        "runtime": {
+          "description": "How the app is built and run; auto detects it from the files.",
+          "enum": ["auto", "static", "go", "python", "node", "bun", "deno", "binary", "command", "dockerfile", "image"],
+          "default": "auto"
+        },
+        "toolchains": {
+          "description": "Extra toolchains on PATH during build and run, as name@version (versions may be partial, or system for the host's).",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*@[A-Za-z0-9.*+-]+$" }
+        },
+        "root": { "description": "Sub-directory containing the app (monorepos).", "type": "string", "default": "." },
+        "shell": { "description": "Shell for build and run commands.", "enum": ["embedded", "system"], "default": "embedded" },
+        "watch": { "description": "Path globs; a push touching none of them is not deployed.", "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "go": {
+      "description": "Options of the go runtime.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": { "description": "Go version; defaults to the toolchain or go line of go.mod.", "type": "string" },
+        "main": { "description": "Main package to build; defaults to . when it is package main, else the single ./cmd/* package.", "type": "string" },
+        "binary": { "description": "Name of the built binary, placed in $MOORAGE_BIN.", "type": "string" },
+        "ldflags": { "description": "Linker flags.", "type": "string", "default": "-s -w" },
+        "tags": { "description": "Build tags.", "type": "array", "items": { "type": "string" } },
+        "cgo": { "description": "Sets CGO_ENABLED; true needs a C toolchain on the host.", "type": "boolean", "default": false }
+      }
+    },
+    "python": {
+      "description": "Options of the python runtime (uv).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": { "description": "Python version; defaults to .python-version, then requires-python, then the latest.", "type": "string" },
+        "manager": { "description": "uv for pyproject.toml projects, uv-pip for requirements.txt.", "enum": ["uv", "uv-pip"] },
+        "groups": { "description": "Extra dependency groups to install.", "type": "array", "items": { "type": "string" } },
+        "extras": { "description": "Optional extras to install.", "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "node": { "$ref": "#/$defs/js", "description": "Options of the node runtime." },
+    "bun": { "$ref": "#/$defs/js", "description": "Options of the bun runtime." },
+    "deno": { "$ref": "#/$defs/js", "description": "Options of the deno runtime." },
+    "static": {
+      "description": "How a directory of files is served.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dir": { "description": "Directory to serve; defaults to the first of dist, build, out, public, _site, site and . with an index.html.", "type": "string" },
+        "spa": { "description": "Serve index.html for unknown paths (client-side routing).", "type": "boolean", "default": false },
+        "clean_urls": { "description": "/about serves about.html, and /about.html redirects to /about.", "type": "boolean", "default": true },
+        "not_found": { "description": "Page served with status 404; defaults to 404.html when present.", "type": "string" },
+        "trailing_slash": { "description": "How trailing slashes are handled.", "enum": ["auto", "always", "never"], "default": "auto" },
+        "listing": { "description": "Generate directory listings.", "type": "boolean", "default": false },
+        "headers": {
+          "description": "Response headers for paths matching a pattern.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["for", "values"],
+            "properties": {
+              "for": { "description": "Path pattern; * matches any run of characters.", "type": "string" },
+              "values": { "description": "Headers to set.", "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
+        },
+        "redirects": {
+          "description": "Redirect and rewrite rules, tried in order; the first match wins.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "description": "Path with optional :name segments and a trailing *.", "type": "string" },
+              "to": { "description": "Target; may use :name and :splat.", "type": "string" },
+              "status": { "description": "301, 302, 307, 308, or 200 for a rewrite.", "enum": [200, 301, 302, 307, 308], "default": 301 },
+              "force": { "description": "Apply even when a file exists at the path.", "type": "boolean", "default": false }
+            }
+          }
+        }
+      }
+    },
+    "container": {
+      "description": "Options of the dockerfile and image runtimes.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": { "description": "Build file; defaults to Containerfile, else Dockerfile.", "type": "string" },
+        "context": { "description": "Build context.", "type": "string", "default": "." },
+        "target": { "description": "Multi-stage target.", "type": "string" },
+        "args": { "description": "Build arguments.", "type": "object", "additionalProperties": { "type": "string" } },
+        "image": { "description": "Image reference (runtime image).", "type": "string" },
+        "port": { "description": "Port the app listens on inside the container.", "type": "integer", "minimum": 1, "maximum": 65535 },
+        "user": { "description": "Run as this user.", "type": "string" }
+      }
+    },
+    "build": {
+      "description": "How the app is built.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": { "description": "Replaces the runtime's preset build.", "type": "string" },
+        "pre": { "description": "Runs before the build.", "type": "string" },
+        "post": { "description": "Runs after the build.", "type": "string" },
+        "env": { "$ref": "#/$defs/env", "description": "Build-time-only environment variables." },
+        "timeout": { "$ref": "#/$defs/duration", "description": "The build is cancelled after this long.", "default": "20m" },
+        "exclude": { "description": "Globs removed from the build once it is done.", "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "processes": {
+      "description": "Long-running processes; web receives HTTP traffic.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,29}$" },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string", "description": "The command to run." },
+          { "$ref": "#/$defs/process" }
+        ]
+      }
+    },
+    "release": {
+      "description": "Commands run once per deployment, before the new release takes traffic.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": { "description": "Runs on every deployment, such as database migrations.", "type": "string" },
+        "on_create": { "description": "Runs once, after the first successful deployment of a new environment.", "type": "string" },
+        "timeout": { "$ref": "#/$defs/duration", "description": "Time limit of each command.", "default": "10m" }
+      }
+    },
+    "deploy": {
+      "description": "How a release replaces the previous one.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy": { "description": "rolling starts new instances first; recreate stops the old ones first.", "enum": ["rolling", "recreate"], "default": "rolling" },
+        "drain": { "$ref": "#/$defs/duration", "description": "How long old instances finish their requests.", "default": "30s" },
+        "keep_releases": { "description": "Releases kept for instant rollback.", "type": "integer", "minimum": 1, "default": 5 }
+      }
+    },
+    "cron": {
+      "description": "Scheduled jobs.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "schedule", "command"],
+        "properties": {
+          "name": { "description": "Unique per app.", "type": "string" },
+          "schedule": { "description": "Five cron fields, or @hourly, @daily, @every 15m.", "type": "string" },
+          "command": { "description": "Runs as a one-off instance of the current release.", "type": "string" },
+          "timezone": { "description": "IANA time zone; defaults to the server's.", "type": "string" },
+          "timeout": { "$ref": "#/$defs/duration", "description": "A run is killed after this long.", "default": "1h" },
+          "overlap": { "description": "What happens when the previous run is still going.", "enum": ["skip", "allow", "replace"], "default": "skip" },
+          "environments": { "description": "Environments the job runs in.", "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "routes": {
+      "description": "Explicit path routes, matched by longest prefix.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": {
+          "path": { "description": "Path prefix.", "type": "string", "pattern": "^/" },
+          "process": { "description": "Exposed process to proxy to.", "type": "string" },
+          "static": { "description": "Serve the [static] directory.", "type": "boolean" },
+          "strip_prefix": { "description": "Remove the path before proxying.", "type": "boolean", "default": false }
+        }
+      }
+    },
+    "env": { "$ref": "#/$defs/env", "description": "Non-secret environment variables for build and run; server-side values win." },
+    "vars": {
+      "description": "Variables the app expects, without their values.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": { "description": "Shown in the console and CLI.", "type": "string" },
+          "required": { "description": "A deployment fails if it is unset.", "type": "boolean", "default": false },
+          "secret": { "description": "The value must be stored as a secret.", "type": "boolean", "default": false },
+          "generate": { "description": "Generated once per environment.", "enum": ["secret", "uuid"] }
+        }
+      }
+    },
+    "resources": { "$ref": "#/$defs/resources" },
+    "storage": {
+      "description": "The environment's persistent data directory.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mount": { "description": "Mount point inside containers.", "type": "string", "default": "/data" }
+      }
+    },
+    "previews": {
+      "description": "Preview environments for branches.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "description": "Create an environment per pushed branch.", "type": "boolean" },
+        "branches": { "description": "Branch globs; ! excludes.", "type": "array", "items": { "type": "string" } },
+        "ttl": { "$ref": "#/$defs/duration", "description": "Deleted after this long without a deploy or a request.", "default": "7d" },
+        "sleep_after": { "$ref": "#/$defs/duration", "description": "Stopped after this long without requests.", "default": "30m" },
+        "access": { "$ref": "#/$defs/access" },
+        "data": { "description": "Start with an empty data directory or a copy of production's.", "enum": ["empty", "copy"], "default": "empty" }
+      }
+    },
+    "environments": {
+      "description": "Overrides per environment (production, a named environment, or preview).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "branch": { "description": "Branch that deploys to this environment.", "type": "string" },
+          "env": { "$ref": "#/$defs/env" },
+          "resources": { "$ref": "#/$defs/resources" },
+          "processes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "instances": { "type": "integer", "minimum": 0 } }
+            }
+          },
+          "sleep_after": { "description": "A duration, or off.", "type": "string" },
+          "access": { "$ref": "#/$defs/access" }
+        }
+      }
+    },
+    "services": {
+      "description": "Backing services provisioned by Moorage.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "enum": ["postgres", "mysql", "redis", "valkey", "s3"] },
+          "version": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "duration": {
+      "description": "A duration such as 500ms, 30s, 15m, 2h or 7d.",
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h|d))+$"
+    },
+    "size": {
+      "description": "A size such as 512MiB or 2GiB, or a number of bytes.",
+      "type": ["string", "integer"],
+      "pattern": "^[0-9]+(\\.[0-9]+)?\\s*(B|K|KB|KiB|M|MB|MiB|G|GB|GiB)?$"
+    },
+    "env": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": { "type": "string" }
+    },
+    "access": { "description": "Access gate.", "enum": ["public", "password", "login", "share"] },
+    "js": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": { "description": "Runtime version; defaults to .nvmrc, .node-version or engines.node, else the current LTS.", "type": "string" },
+        "package_manager": { "description": "Installer; defaults to the one whose lockfile is present.", "enum": ["npm", "pnpm", "yarn", "bun"] },
+        "build_script": { "description": "Script run after the install; defaults to build when present.", "type": "string" },
+        "prune": { "description": "Remove development dependencies after the build.", "type": "boolean", "default": true }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": { "description": "Command to run.", "type": "string" },
+        "instances": { "description": "Number of instances; 0 disables the process.", "type": "integer", "minimum": 0, "maximum": 20, "default": 1 },
+        "expose": { "description": "The process listens on $PORT and can be routed to (default: true for web).", "type": "boolean" },
+        "health": {
+          "description": "Health check; without path, a TCP connection to $PORT.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "description": "HTTP GET path; 2xx and 3xx are healthy.", "type": "string", "pattern": "^/" },
+            "command": { "description": "Command whose exit status 0 is healthy (not supported yet).", "type": "string" },
+            "expect": { "description": "Text the response body must contain.", "type": "string" },
+            "interval": { "$ref": "#/$defs/duration", "default": "10s" },
+            "timeout": { "$ref": "#/$defs/duration", "default": "3s" },
+            "startup": { "$ref": "#/$defs/duration", "description": "How long a new instance may take to become healthy.", "default": "60s" },
+            "threshold": { "description": "Consecutive failures before an instance is unhealthy.", "type": "integer", "minimum": 1, "default": 3 },
+            "min_uptime": { "$ref": "#/$defs/duration", "description": "How long a process that does not listen must keep running to count as healthy.", "default": "5s" }
+          }
+        },
+        "stop_signal": { "description": "Signal sent on stop.", "enum": ["TERM", "INT", "QUIT", "HUP", "USR1", "USR2"], "default": "TERM" },
+        "stop_timeout": { "$ref": "#/$defs/duration", "description": "Time between the stop signal and a forced kill.", "default": "30s" },
+        "restart": { "description": "When the process is restarted.", "enum": ["always", "on-failure", "never"], "default": "always" },
+        "sleep": { "description": "Stopped when the environment sleeps.", "type": "boolean", "default": true },
+        "protocol": { "description": "Backend protocol.", "enum": ["http", "h2c"], "default": "http" }
+      }
+    },
+    "resources": {
+      "description": "Resource limits per instance.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memory": { "$ref": "#/$defs/size" },
+        "cpu": { "description": "CPU cores.", "type": "number", "minimum": 0 },
+        "pids": { "description": "Maximum processes and threads.", "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -42,6 +42,11 @@ hosting needs VM-level isolation and is out of scope.
 
 ## Authentication
 
+- **Bootstrap admin token (until accounts arrive in wave 2):** the server
+  generates one admin token, stores only its SHA-256, and writes the token to
+  `keys/admin-token` (mode `0600`) in the data directory. The CLI on the
+  server's machine reads it there; other machines pass it with `--token`.
+  Deleting the file and restarting the server replaces the token.
 - **Local accounts:** email + password hashed with Argon2id; minimum length
   12; an embedded list of common passwords is rejected.
 - **First-run claim:** `moor server init` prints a one-time setup URL. The
@@ -95,9 +100,10 @@ enumerates all routes to guarantee none is missing.
   support is a later addition. `moor server rotate-key` re-wraps data keys.
 - Secret values are write-only by default (masked in the console and API);
   maintainers can reveal a value, which is audited.
-- Never logged; redacted from app logs at capture time (best effort); not
+- Never logged; redacted from app, build and release-command logs at capture
+  time (best effort: values of six characters or more, as they appear); not
   exposed to builds unless explicitly flagged; passed to processes without
-  appearing on command lines.
+  appearing on command lines or on disk.
 - Database backups contain only ciphertext — **the master key must be backed
   up separately**, and the backup tooling says so.
 - Gate passwords (Argon2id), share-link tokens, session IDs and API tokens are

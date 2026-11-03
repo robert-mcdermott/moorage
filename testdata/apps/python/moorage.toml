@@ -1,0 +1,10 @@
+[app]
+name = "sample-python"
+
+# The python runtime installs the project with uv; its one script,
+# sample-python, is the web command.
+[processes.web]
+health = { path = "/health" }
+
+[release]
+command = "python -c \"import os, pathlib; pathlib.Path(os.environ['MOORAGE_DATA_DIR'], 'release-ran').write_text(os.environ['MOORAGE_RELEASE'])\""

@@ -36,9 +36,9 @@ production deploy skips straight to the release phase.
 |---|---|---|
 | **Git push over SSH** | `git push moorage main` | Day-to-day developer flow |
 | **Git push over HTTPS** | Same, with an API token via `moor git credential` helper | Networks that block SSH |
-| **Directory upload** | `moor deploy` (tars the working directory, honouring `.gitignore` and `.moorignore`) | Quick iteration, repos hosted elsewhere, no git at all |
+| **Directory upload** | `moor deploy [DIR]` (tars the directory, honouring `.gitignore` and `.moorignore`, and always leaving out `.git`, `node_modules`, `.venv` and `__pycache__`, which the build makes again) | Quick iteration, repos hosted elsewhere, no git at all |
 | **Static upload** | `moor deploy --static ./site`, or drag a folder into the console | Docs, reports, SPAs |
-| **Artifact upload** | `moor deploy --artifact app.tar.gz` / `--binary ./server` | Binaries built in CI |
+| **Artifact upload** | `moor deploy --artifact [DIR]`: an app ready to run (a compiled binary, a script for an interpreter on the host), run with the manifest's `[processes]` | Binaries built in CI |
 | **Image** | `moor deploy --image registry/app:tag` | Images built in CI |
 | **Remote repository** *(Phase 3)* | Connect a repository URL; deploy on webhook (GitHub, GitLab, Gitea, generic HMAC) or by polling | Code hosted on a forge, PR previews with status checks |
 | **API** | `POST /api/v1/apps/{app}/envs/{env}/deployments` | Anything else |
@@ -307,11 +307,11 @@ notifications are emitted, and garbage collection is scheduled.
 
 | Action | What happens | Speed |
 |---|---|---|
-| `moor rollback [vN]` | New release pointing at an earlier build, with the **current** configuration (`--with-config` restores that release's configuration too). | Seconds — no build |
+| `moor rollback [vN]` | New release pointing at an earlier build, with the **current** configuration (`--with-config` restores that release's configuration too). The release command does not run again. | Seconds — no build |
 | `moor redeploy [--no-cache]` | Rebuild the current commit (e.g. after a toolchain update) and roll out. | Build time |
 | `moor promote --from <env> --to <env>` | Release the exact build running in one environment (e.g. `staging`) to another (e.g. `production`). Warns if build-time variables differ. | Seconds |
 | `moor restart [process]` | Rolling restart of the current release. | Seconds |
-| `moor env set A=1 B=2` | New release with the same build and new configuration, rolled out. `--no-restart` stages the change for the next deploy. | Seconds |
+| `moor env set A=1 B=2` | New release with the same build and new configuration, rolled out; the release command does not run again. `--no-restart` stages the change for the next deploy. | Seconds |
 
 Rollback is unavailable only if the target build has been garbage-collected;
 the console greys out such releases.
@@ -326,7 +326,7 @@ build time and the exact version is recorded in the build.
 | Toolchain | Source | Verification |
 |---|---|---|
 | Go | Official download index (JSON, full release history) | SHA-256 from the index |
-| Node.js | Official distribution index | `SHASUMS256.txt`, whose signature is checked against the project's published release keys |
+| Node.js | Official distribution index | `SHASUMS256.txt` (its signature, checked against the project's published release keys: wave 6) |
 | uv | Official release assets | Per-asset SHA-256 (+ build provenance attestation, Phase 3) |
 | Python | Installed by uv (`uv python install`) into the toolchain directory | Checksums bundled with uv |
 | Bun | Official release assets | `SHASUMS256.txt` |
@@ -343,9 +343,11 @@ build time and the exact version is recorded in the build.
   virtual environment points at the interpreter it was created with.
 
 - `toolchains = ["java@system"]` uses whatever is on the host `PATH` instead.
-- Mirrors: each provider's base URL is configurable for proxies and
-  air-gapped installs; `moor toolchains import <archive>` side-loads a
-  toolchain.
+- Mirrors: each provider's base URL is configurable (`[toolchains]` in
+  `server.toml`) for proxies and air-gapped installs; `moor toolchains
+  import <archive>` side-loads a toolchain.
+- When a provider cannot be reached, a build uses the newest installed
+  version that matches its request, and says so in its log.
 - `moor toolchains list | install | prune` manages the cache; unused versions
   are pruned after 30 days.
 

@@ -12,15 +12,20 @@ provisional until the corresponding Phase 0 spike reports back.
   their output must not be lost.
 - **Decision:** the daemon launches every native instance through
   `moor shim` (same binary), which owns the app's output, applies OS controls,
-  restarts it per policy and exposes a control socket. The daemon adopts shims
+  restarts it per policy and takes commands over a loopback port guarded by a
+  per-shim secret. The daemon adopts shims
   on startup. **(spike S2)**
 - **Alternatives:** apps as direct children of the daemon (simplest, but every
   daemon restart is an outage); systemd transient units (excellent on Linux,
   but Linux-only); a separate long-lived supervisor daemon (one process
   instead of N, but upgrading it still restarts every app).
-- **Consequences:** a few MB of memory per instance; package `init()` code must
-  stay cheap; fallback to one shim per environment if the per-instance cost is
-  too high. Each OS needs its own "no orphans, but survive the daemon" wiring:
+- **Consequences:** a few MB of memory per instance (measured in wave 1:
+  4.4–5.3 MB private on Linux and a 6.2 MB physical footprint on macOS, against
+  a 5 MB target);
+  package `init()` code must stay cheap; fallback to one shim per environment
+  if the per-instance cost matters in practice. The control channel is a
+  loopback TCP port with a per-shim secret rather than a UNIX socket, whose
+  paths are limited to about 104 bytes on macOS. Each OS needs its own "no orphans, but survive the daemon" wiring:
   on Linux the systemd unit must use `KillMode=process` with a delegated
   cgroup subtree (otherwise stopping the service kills every app), and the
   daemon handles host shutdown itself; on macOS launchd must not reap the

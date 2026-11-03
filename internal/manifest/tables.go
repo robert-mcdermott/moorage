@@ -1,0 +1,346 @@
+package manifest
+
+import (
+	"fmt"
+	"path"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// Runtimes an app may name in [app].runtime.
+var Runtimes = []string{"auto", "static", "go", "python", "node", "bun", "deno", "binary", "command", "dockerfile", "image"}
+
+// Go is the [go] table.
+type Go struct {
+	Version string   `toml:"version" json:"version,omitempty"`
+	Main    string   `toml:"main" json:"main,omitempty"`
+	Binary  string   `toml:"binary" json:"binary,omitempty"`
+	LDFlags *string  `toml:"ldflags" json:"ldflags,omitempty"`
+	Tags    []string `toml:"tags" json:"tags,omitempty"`
+	CGO     bool     `toml:"cgo" json:"cgo,omitempty"`
+}
+
+// Python is the [python] table.
+type Python struct {
+	Version string   `toml:"version" json:"version,omitempty"`
+	Manager string   `toml:"manager" json:"manager,omitempty"`
+	Groups  []string `toml:"groups" json:"groups,omitempty"`
+	Extras  []string `toml:"extras" json:"extras,omitempty"`
+}
+
+// JS is the [node], [bun] or [deno] table.
+type JS struct {
+	Version        string `toml:"version" json:"version,omitempty"`
+	PackageManager string `toml:"package_manager" json:"package_manager,omitempty"`
+	BuildScript    string `toml:"build_script" json:"build_script,omitempty"`
+	Prune          *bool  `toml:"prune" json:"prune,omitempty"`
+}
+
+// Container is the [container] table.
+type Container struct {
+	File    string            `toml:"file"`
+	Context string            `toml:"context"`
+	Target  string            `toml:"target"`
+	Args    map[string]string `toml:"args"`
+	Image   string            `toml:"image"`
+	Port    int               `toml:"port"`
+	User    string            `toml:"user"`
+}
+
+// Build is the [build] table.
+type Build struct {
+	Command string            `toml:"command" json:"command,omitempty"`
+	Pre     string            `toml:"pre" json:"pre,omitempty"`
+	Post    string            `toml:"post" json:"post,omitempty"`
+	Env     map[string]string `toml:"env" json:"env,omitempty"`
+	Timeout Duration          `toml:"timeout" json:"timeout,omitempty"`
+	Exclude []string          `toml:"exclude" json:"exclude,omitempty"`
+}
+
+// Release is the [release] table: commands run once per deployment.
+type Release struct {
+	Command  string   `toml:"command" json:"command,omitempty"`
+	OnCreate string   `toml:"on_create" json:"on_create,omitempty"`
+	Timeout  Duration `toml:"timeout" json:"timeout,omitempty"`
+}
+
+// Cron is one [[cron]] job.
+type Cron struct {
+	Name         string   `toml:"name"`
+	Schedule     string   `toml:"schedule"`
+	Command      string   `toml:"command"`
+	Timezone     string   `toml:"timezone"`
+	Timeout      Duration `toml:"timeout"`
+	Overlap      string   `toml:"overlap"`
+	Environments []string `toml:"environments"`
+}
+
+// Route is one [[routes]] entry.
+type Route struct {
+	Path        string `toml:"path"`
+	Process     string `toml:"process"`
+	Static      bool   `toml:"static"`
+	StripPrefix bool   `toml:"strip_prefix"`
+}
+
+// Var is one [vars.<NAME>] declaration.
+type Var struct {
+	Description string `toml:"description"`
+	Required    bool   `toml:"required"`
+	Secret      bool   `toml:"secret"`
+	Generate    string `toml:"generate"`
+}
+
+// Resources is the [resources] table.
+type Resources struct {
+	Memory Size    `toml:"memory"`
+	CPU    float64 `toml:"cpu"`
+	PIDs   int     `toml:"pids"`
+}
+
+// Storage is the [storage] table.
+type Storage struct {
+	Mount string `toml:"mount"`
+}
+
+// Previews is the [previews] table.
+type Previews struct {
+	Enabled    *bool    `toml:"enabled"`
+	Branches   []string `toml:"branches"`
+	TTL        Duration `toml:"ttl"`
+	SleepAfter Duration `toml:"sleep_after"`
+	Access     string   `toml:"access"`
+	Data       string   `toml:"data"`
+}
+
+// Environment is one [environments.<name>] table of overrides.
+type Environment struct {
+	Branch     string                         `toml:"branch"`
+	Env        map[string]string              `toml:"env"`
+	Resources  *Resources                     `toml:"resources"`
+	Processes  map[string]EnvironmentInstance `toml:"processes"`
+	SleepAfter string                         `toml:"sleep_after"`
+	Access     string                         `toml:"access"`
+}
+
+// EnvironmentInstance overrides a process's instance count.
+type EnvironmentInstance struct {
+	Instances *int `toml:"instances"`
+}
+
+// Service is one [services.<name>] table.
+type Service struct {
+	Type    string `toml:"type"`
+	Version string `toml:"version"`
+}
+
+// Size is an amount of bytes written as "512MiB", "2GiB", "300M" or a
+// plain number of bytes.
+type Size int64
+
+var sizeUnits = map[string]int64{
+	"": 1, "B": 1,
+	"K": 1000, "KB": 1000, "KiB": 1 << 10,
+	"M": 1000 * 1000, "MB": 1000 * 1000, "MiB": 1 << 20,
+	"G": 1000 * 1000 * 1000, "GB": 1000 * 1000 * 1000, "GiB": 1 << 30,
+}
+
+var sizePattern = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]*)$`)
+
+// UnmarshalText parses a size.
+func (s *Size) UnmarshalText(b []byte) error {
+	m := sizePattern.FindStringSubmatch(strings.TrimSpace(string(b)))
+	if m == nil {
+		return fmt.Errorf("%q is not a size such as 512MiB or 2GiB", b)
+	}
+	unit, ok := sizeUnits[m[2]]
+	if !ok {
+		return fmt.Errorf("%q is not a size such as 512MiB or 2GiB", b)
+	}
+	n, _ := strconv.ParseFloat(m[1], 64)
+	*s = Size(n * float64(unit))
+	return nil
+}
+
+// MarshalText formats the size in bytes.
+func (s Size) MarshalText() ([]byte, error) { return []byte(strconv.FormatInt(int64(s), 10)), nil }
+
+var (
+	toolchainPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*@[A-Za-z0-9.*+-]+$`)
+	cronField        = regexp.MustCompile(`^[0-9A-Za-z*,/-]+$`)
+	cronMacros       = []string{"@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"}
+)
+
+// validateTables checks the tables beyond [static], [processes] and
+// [deploy]; it returns every problem found.
+func (m *Manifest) validateTables() []string {
+	var p []string
+	add := func(format string, args ...any) { p = append(p, fmt.Sprintf(format, args...)) }
+
+	if m.App.Runtime != "" && !oneOf(m.App.Runtime, Runtimes) {
+		add("app.runtime %q must be one of %s", m.App.Runtime, strings.Join(Runtimes, ", "))
+	}
+	if m.App.Shell != "" && !oneOf(m.App.Shell, []string{"embedded", "system"}) {
+		add("app.shell %q must be embedded or system", m.App.Shell)
+	}
+	for _, t := range m.App.Toolchains {
+		if !toolchainPattern.MatchString(t) {
+			add("app.toolchains: %q must be name@version, such as node@24 or java@system", t)
+		}
+	}
+	if m.App.Root != "" && !relativePath(m.App.Root) {
+		add("app.root %q must be a path inside the repository", m.App.Root)
+	}
+	if m.Python != nil && m.Python.Manager != "" && !oneOf(m.Python.Manager, []string{"uv", "uv-pip"}) {
+		add("python.manager %q must be uv or uv-pip", m.Python.Manager)
+	}
+	for table, js := range map[string]*JS{"node": m.Node, "bun": m.Bun, "deno": m.Deno} {
+		if js != nil && js.PackageManager != "" && !oneOf(js.PackageManager, []string{"npm", "pnpm", "yarn", "bun"}) {
+			add("%s.package_manager %q must be npm, pnpm, yarn or bun", table, js.PackageManager)
+		}
+	}
+	if m.Build != nil {
+		checkEnv(&p, "build.env", m.Build.Env)
+		for _, g := range m.Build.Exclude {
+			if _, err := path.Match(g, ""); err != nil || !relativePath(strings.TrimSuffix(g, "/**")) {
+				add("build.exclude: %q is not a valid pattern inside the app", g)
+			}
+		}
+	}
+	names := map[string]bool{}
+	for i, c := range m.Cron {
+		where := fmt.Sprintf("cron[%d]", i)
+		if c.Name == "" {
+			add("%s: name is required", where)
+		} else if names[c.Name] {
+			add("%s: the name %q is used twice", where, c.Name)
+		}
+		names[c.Name] = true
+		if c.Command == "" {
+			add("%s: command is required", where)
+		}
+		if !validSchedule(c.Schedule) {
+			add("%s: schedule %q must be five cron fields, such as \"0 3 * * *\", or @hourly, @daily, @every 15m", where, c.Schedule)
+		}
+		if c.Overlap != "" && !oneOf(c.Overlap, []string{"skip", "allow", "replace"}) {
+			add("%s: overlap %q must be skip, allow or replace", where, c.Overlap)
+		}
+	}
+	for i, r := range m.Routes {
+		where := fmt.Sprintf("routes[%d]", i)
+		if !strings.HasPrefix(r.Path, "/") {
+			add("%s: path %q must start with /", where, r.Path)
+		}
+		if (r.Process == "") == !r.Static {
+			add("%s: give either process or static = true", where)
+		}
+		if r.Process != "" && m.Processes != nil {
+			if _, ok := m.Processes[r.Process]; !ok {
+				add("%s: there is no process %q", where, r.Process)
+			}
+		}
+	}
+	for name, v := range m.Vars {
+		if !envName.MatchString(name) {
+			add("vars: %q is not a valid variable name", name)
+		}
+		if v.Generate != "" && !oneOf(v.Generate, []string{"secret", "uuid"}) {
+			add("vars.%s.generate %q must be secret or uuid", name, v.Generate)
+		}
+	}
+	if m.Resources != nil {
+		checkResources(&p, "resources", *m.Resources)
+	}
+	if m.Previews != nil {
+		if m.Previews.Access != "" && !oneOf(m.Previews.Access, accessModes) {
+			add("previews.access %q must be one of %s", m.Previews.Access, strings.Join(accessModes, ", "))
+		}
+		if m.Previews.Data != "" && !oneOf(m.Previews.Data, []string{"empty", "copy"}) {
+			add("previews.data %q must be empty or copy", m.Previews.Data)
+		}
+	}
+	for name, e := range m.Environments {
+		where := "environments." + name
+		checkEnv(&p, where+".env", e.Env)
+		if e.Resources != nil {
+			checkResources(&p, where+".resources", *e.Resources)
+		}
+		if e.Access != "" && !oneOf(e.Access, accessModes) {
+			add("%s.access %q must be one of %s", where, e.Access, strings.Join(accessModes, ", "))
+		}
+		if e.SleepAfter != "" && e.SleepAfter != "off" {
+			var d Duration
+			if err := d.UnmarshalText([]byte(e.SleepAfter)); err != nil {
+				add("%s.sleep_after: %v (or \"off\")", where, err)
+			}
+		}
+		for proc, o := range e.Processes {
+			if o.Instances != nil && *o.Instances < 0 {
+				add("%s.processes.%s.instances must not be negative", where, proc)
+			}
+		}
+	}
+	for name, s := range m.Services {
+		if !oneOf(s.Type, []string{"postgres", "mysql", "redis", "valkey", "s3"}) {
+			add("services.%s.type %q must be postgres, mysql, redis, valkey or s3", name, s.Type)
+		}
+	}
+	return p
+}
+
+var accessModes = []string{"public", "password", "login", "share"}
+
+func checkEnv(p *[]string, where string, env map[string]string) {
+	for k := range env {
+		if !envName.MatchString(k) {
+			*p = append(*p, fmt.Sprintf("%s: %q is not a valid variable name", where, k))
+		}
+	}
+}
+
+func checkResources(p *[]string, where string, r Resources) {
+	if r.Memory < 0 || r.CPU < 0 || r.PIDs < 0 {
+		*p = append(*p, where+": limits must not be negative")
+	}
+}
+
+func validSchedule(s string) bool {
+	s = strings.TrimSpace(s)
+	if oneOf(s, cronMacros) {
+		return true
+	}
+	if every, ok := strings.CutPrefix(s, "@every "); ok {
+		var d Duration
+		return d.UnmarshalText([]byte(every)) == nil && d > 0
+	}
+	fields := strings.Fields(s)
+	if len(fields) != 5 {
+		return false
+	}
+	for _, f := range fields {
+		if !cronField.MatchString(f) {
+			return false
+		}
+	}
+	return true
+}
+
+// relativePath reports whether p is a slash-separated path that stays
+// inside its base directory.
+func relativePath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, `\`) || (len(p) > 1 && p[1] == ':') {
+		return false
+	}
+	c := path.Clean(p)
+	return c != ".." && !strings.HasPrefix(c, "../")
+}
+
+func oneOf(s string, options []string) bool {
+	for _, o := range options {
+		if s == o {
+			return true
+		}
+	}
+	return false
+}

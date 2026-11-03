@@ -1,0 +1,13 @@
+[project]
+name = "sample-python"
+version = "0.1.0"
+description = "A sample Python app, served by its own script"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+sample-python = "sample_python:main"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"

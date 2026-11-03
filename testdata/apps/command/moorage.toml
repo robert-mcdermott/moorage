@@ -1,0 +1,12 @@
+[app]
+name = "sample-command"
+runtime = "command"
+toolchains = ["go@1.26"]
+
+[build]
+command = "go build -o bin/server ."
+env = { CGO_ENABLED = "0", GOTOOLCHAIN = "local" }
+
+[processes.web]
+command = "bin/server"
+health = { path = "/health" }

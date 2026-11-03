@@ -1,0 +1,7 @@
+[app]
+name = "sample-binary"
+runtime = "binary"
+
+[processes.web]
+command = "./server.py"
+health = { path = "/health" }

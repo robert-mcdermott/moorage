@@ -83,7 +83,9 @@ spawns the app. The shim:
   then `exec`s the app, leaving the shim itself unrestricted; Windows: a Job
   Object);
 - records the app's PID, start time and exit statuses in a small state file;
-- serves a control socket (`run/shims/<instance>.sock`) speaking newline-
+- takes commands from the server on a loopback TCP port, guarded by a per-shim
+  secret (UNIX socket paths are too short on macOS for deep data directories),
+  speaking newline-
   delimited JSON: `status`, `signal`, `stop`, `wait`;
 - exits when the app is stopped on purpose.
 
@@ -102,8 +104,9 @@ there are no orphans, and the reconciler starts a fresh instance:
 
 Shims must stay small: the `shim` code path avoids touching heavy packages,
 and package `init()` functions across the codebase must be cheap. Budget:
-**≤ 5 MB private RSS per shim** (validated in the Phase 0 spike; fallback is
-one shim per environment instead of per instance).
+**≤ 5 MB private RSS per shim** (measured in wave 1 at 4.4–5.3 MB on Linux
+and 6.2 MB on macOS, around it; fallback is one shim per environment instead
+of per instance).
 
 ### Linux: service unit and cgroup layout
 
@@ -204,10 +207,15 @@ layer the API uses. Small plain-JavaScript modules keep one SSE connection to
 
 ## On-disk layout
 
-Default data directory: `/var/lib/moorage` (Linux),
-`/Library/Application Support/Moorage` (macOS system service) or
-`~/Library/Application Support/Moorage` (macOS per-user/laptop mode),
-`%ProgramData%\Moorage` (Windows).
+Default locations, when neither a flag nor `MOORAGE_CONFIG` /
+`MOORAGE_DATA_DIR` says otherwise — system-wide when `moor` runs as root (an
+elevated Administrator on Windows), per-user otherwise (laptop mode):
+
+| Platform | Configuration (system / per-user) | Data directory (system / per-user) |
+|---|---|---|
+| Linux | `/etc/moorage/server.toml` / `~/.config/moorage/server.toml` | `/var/lib/moorage` / `~/.local/share/moorage` (XDG variables honoured) |
+| macOS | `/Library/Application Support/Moorage/server.toml` / `~/Library/Application Support/Moorage/server.toml` | the same directory as the configuration |
+| Windows | `%ProgramData%\Moorage\server.toml` / `%LocalAppData%\Moorage\server.toml` | the same directory as the configuration |
 
 ```
 <data>/
@@ -217,20 +225,21 @@ Default data directory: `/var/lib/moorage` (Linux),
   builds/<app>/<build-id>/        immutable build outputs (built in place)
   data/<app>/<env>/               persistent data directories
   logs/
-    apps/<app>/<env>/<instance>.log[.N]
+    apps/<app>/<env>/<process>.<index>.<instance>.log[.N]
+    router/<app>/<env>.log[.N]   access logs
     builds/<deployment>.log
     server/moorage.log
   toolchains/<name>/<version>/    verified runtimes (go, node, uv, python, …)
   cache/<toolchain>/              shared build caches (module, package, uv caches)
-  certs/                          ACME account and certificates
-  run/
-    shims/<instance>.sock|.json   shim control sockets and state files
+  certs/                          CA material, certificates, later the ACME account (0700)
+  backups/                        database snapshots taken before migrating; later, backups (0700)
+  run/                            (0700)
+    moor.lock                     held by the running server: one server per data directory
+    shims/<instance>.spec.json    what a shim runs (0600: the environment may hold secrets)
+    shims/<instance>.state.json   a shim's state and control address
     moor.sock                     local admin socket (root/service user only)
-  tmp/
+  tmp/                            (0700)
 ```
-
-Bootstrap configuration lives in `/etc/moorage/server.toml` (Linux),
-next to the data directory elsewhere, or is passed by flags/environment.
 
 ## Configuration
 
@@ -360,9 +369,16 @@ all three. The CLI works on every platform from Phase 1; running the
 ```
 cmd/moor/                 main: dispatches to client, server and shim modes
 internal/
+  buildinfo/              version, commit and platform of the binary
   cli/                    command tree (client + server admin commands)
+  client/                 the CLI's API client
+  config/                 server.toml: presets, strict parsing, validation, writing
+  ids/                    typed, sortable identifiers (prefix + ULID)
   server/                 wiring, lifecycle, startup/adoption/shutdown
+  shell/                  the embedded POSIX shell for manifest commands (`moor sh -c`)
   api/                    REST handlers, auth middleware, SSE/WebSocket, OpenAPI
+  apitypes/               the API's JSON documents, shared by server and CLI
+  archive/                packing uploads; safe extraction (no escapes, links or excess)
   console/                web console: handlers, html/template pages, static CSS/JS (embedded)
   store/                  SQLite access, migrations, typed queries
   events/                 event bus
@@ -372,18 +388,21 @@ internal/
   deploy/                 job queue, pipeline, rollouts, previews
   build/                  detection, runtime presets, build sandbox
   manifest/               parsing, validation, JSON Schema
+  names/                  app and environment name rules
   toolchain/              resolvers, downloads, verification, cache
   reconcile/              desired vs actual state convergence
   driver/native/          shim launcher + adoption
   driver/container/       Podman/Docker CLI driver
   shim/                   shim mode (small, minimal imports)
-  ingress/                router, proxy, TLS, gates, static server, wake pages
+  ingress/                router, proxy, TLS, gates, platform and wake pages
+  ingress/static/         static site serving: index, rules, caching, compression
   observe/logs/           log files, rotation, tail/follow, search
   observe/metrics/        samplers, ring buffers, roll-ups, Prometheus export
   observe/health/         checkers, status model
   notify/                 webhook, chat, email channels
   scheduler/              cron, TTL, sleep, GC
   platform/               OS-specific code behind build tags (linux, darwin, windows)
+  testapp/, testroles/    test helpers: an app to deploy, and test binaries playing moor's helper modes
 schema/                   JSON Schema for moorage.toml
 docs/
 ```
@@ -407,7 +426,7 @@ Planned modules:
 | SSH server | `golang.org/x/crypto/ssh` (a current release with the 2026 SSH security fixes) and a small in-house server that handles only git exec requests |
 | Internal CA, certificate selection | Standard library (`crypto/x509`, `crypto/tls`) |
 | ACME (Phase 3) | `github.com/caddyserver/certmagic` (+ `libdns` providers for DNS-01) |
-| TOML | `github.com/BurntSushi/toml` or `github.com/pelletier/go-toml/v2` |
+| TOML | `github.com/pelletier/go-toml/v2` (strict decoding that reports the line of an unknown key) |
 | CLI | `github.com/spf13/cobra` |
 | Embedded POSIX shell | `mvdan.cc/sh/v3` |
 | Cron expressions | Small in-house parser (5 fields plus `@hourly`/`@daily`/`@every` macros) |

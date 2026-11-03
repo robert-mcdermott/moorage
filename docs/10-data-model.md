@@ -130,7 +130,7 @@ share a port.
 | Git repositories | `repos/<app>.git` | Bare; periodic repack |
 | Builds | `builds/<app>/<build-id>/` | Read-only after packaging; deleted by GC |
 | App data | `data/<app>/<env>/` | Owned by the app's UID under `user` isolation |
-| App logs | `logs/apps/<app>/<env>/<instance>.log[.N]` | Rotated by the shim / log manager |
+| App logs | `logs/apps/<app>/<env>/<process>.<index>.<instance>.log[.N]` | Written and rotated by the shim |
 | Build and run logs | `logs/builds/<deployment>.log`, `logs/runs/<run>.log` | |
 | Access logs | `logs/router/<app>/<env>.log[.N]` | |
 | Certificates | `certs/` | ACME account, certificates, internal CA material |
