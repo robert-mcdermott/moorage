@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -56,6 +57,16 @@ func TestSampleApps(t *testing.T) {
 		t.Run(s.dir, func(t *testing.T) {
 			app := "sample-" + s.dir
 			src := copyTree(t, filepath.Join("..", "..", "testdata", "apps", s.dir))
+			if s.dir == "binary" {
+				python, err := exec.LookPath("python3")
+				out, _ := exec.Command("python3", "--version").CombinedOutput()
+				t.Logf("the host's python3: %s %v (%s)", python, err, strings.TrimSpace(string(out)))
+			}
+			t.Cleanup(func() {
+				if t.Failed() {
+					dumpAppLogs(t, cfg.DataDir, app)
+				}
+			})
 			deploy := func(version int) {
 				t.Helper()
 				start := time.Now()
@@ -101,10 +112,24 @@ func TestSampleApps(t *testing.T) {
 			}
 			t.Logf("rolled back in %s", took.Round(10*time.Millisecond))
 			check("release one")
+			if s.dir == "python" {
+				// The release command ran for v2, and not again for the rollback.
+				data, err := os.ReadFile(filepath.Join(cfg.DataDir, "data", app, "production", "release-ran"))
+				if err != nil || string(data) != "v2" {
+					t.Errorf("the release command: %q %v", data, err)
+				}
+			}
 		})
 	}
-	if data, err := os.ReadFile(filepath.Join(cfg.DataDir, "data", "sample-python", "production", "release-ran")); err != nil || string(data) != "v2" {
-		t.Errorf("the python release command: %q %v", data, err)
+}
+
+// dumpAppLogs prints the logs of an app's instances, where the shim notes
+// how each one started and stopped.
+func dumpAppLogs(t *testing.T, dataDir, app string) {
+	files, _ := filepath.Glob(filepath.Join(dataDir, "logs", "apps", app, "production", "*.log"))
+	for _, f := range files {
+		data, _ := os.ReadFile(f)
+		t.Logf("%s:\n%s", filepath.Base(f), data)
 	}
 }
 

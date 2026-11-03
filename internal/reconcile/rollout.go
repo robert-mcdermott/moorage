@@ -428,13 +428,22 @@ func (m *Manager) retire(es *envState, ins []*instance, drain time.Duration) {
 		for in.backend != nil && in.backend.InFlight() > 0 && time.Now().Before(deadline) {
 			time.Sleep(20 * time.Millisecond)
 		}
+		if in.backend != nil && in.backend.InFlight() > 0 {
+			m.log.Warn("the drain ended with requests still in flight", "app", es.app, "env", es.env,
+				"instance", in.id, "requests", in.backend.InFlight(), "drain", drain)
+		}
 	}
 	done := make(chan struct{}, len(ins))
 	for _, in := range ins {
 		go func() {
 			defer func() { done <- struct{}{} }()
+			start := time.Now()
 			if err := m.driver.Stop(in.id, in.proc.StopTimeout.Std()); err != nil {
 				m.log.Warn("stopping an instance", "instance", in.id, "err", err)
+			}
+			if took := time.Since(start); took > 5*time.Second {
+				m.log.Warn("an instance was slow to stop", "app", es.app, "env", es.env, "instance", in.id,
+					"took", took.Round(100*time.Millisecond), "stop_timeout", in.proc.StopTimeout.Std())
 			}
 			m.db.StopInstance(context.Background(), in.id)
 			removeTmp(in)
