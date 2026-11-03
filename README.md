@@ -73,6 +73,16 @@ To try the server on this computer:
 curl http://127.0.0.1:8080/.moorage/health
 ```
 
+Deploy a directory of files as a static site (on the server's machine the CLI
+finds the server and its admin token by itself):
+
+```bash
+MOORAGE_CONFIG=~/moorage-dev/server.toml ./moor deploy --static ./some-site --app hello
+```
+
+Chromium- and Firefox-based browsers resolve `hello.localhost` on their own: open
+`http://hello.localhost:8080`.
+
 Work is planned in waves and slices: each wave has a `waveN` branch and ends
 in a release (see the [roadmap](docs/11-roadmap.md)). Changes are recorded in
 the [changelog](CHANGELOG.md).

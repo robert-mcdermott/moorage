@@ -293,3 +293,22 @@ func TestParseTrusted(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicURL(t *testing.T) {
+	cases := []struct {
+		c    Config
+		host string
+		want string
+	}{
+		{Config{Listen: Listen{HTTP: "127.0.0.1:8080"}, TLS: TLS{Mode: "off"}, Proxy: Proxy{ExternalScheme: "http"}}, "a.localhost", "http://a.localhost:8080"},
+		{Config{Listen: Listen{HTTP: ":80"}, TLS: TLS{Mode: "off"}, Proxy: Proxy{ExternalScheme: "http"}}, "a.example.com", "http://a.example.com"},
+		{Config{Listen: Listen{HTTP: ":80", HTTPS: ":443"}, TLS: TLS{Mode: "internal"}, Proxy: Proxy{ExternalScheme: "https"}}, "a.example.com", "https://a.example.com"},
+		{Config{Listen: Listen{HTTP: ":80", HTTPS: ":8443"}, TLS: TLS{Mode: "files"}, Proxy: Proxy{ExternalScheme: "https"}}, "a.example.com", "https://a.example.com:8443"},
+		{Config{Listen: Listen{HTTP: "127.0.0.1:8080"}, TLS: TLS{Mode: "off"}, Proxy: Proxy{Trusted: []string{"127.0.0.1"}, ExternalScheme: "https"}}, "a.example.com", "https://a.example.com"},
+	}
+	for _, c := range cases {
+		if got := c.c.PublicURL(c.host); got != c.want {
+			t.Errorf("PublicURL(%+v) = %q, want %q", c.c, got, c.want)
+		}
+	}
+}

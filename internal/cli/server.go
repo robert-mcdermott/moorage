@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -110,8 +109,8 @@ system-wide when run as root (Administrator on Windows), per-user otherwise.`,
 func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset string, c config.Config) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Wrote %s (preset %s).\n\n", path, preset)
-	fmt.Fprintf(out, "  Console:  %s\n", publicURL(c, c.ConsoleHost))
-	fmt.Fprintf(out, "  Apps:     %s\n", publicURL(c, "<app>."+c.Domain))
+	fmt.Fprintf(out, "  Console:  %s\n", c.PublicURL(c.ConsoleHost))
+	fmt.Fprintf(out, "  Apps:     %s\n", c.PublicURL("<app>."+c.Domain))
 	fmt.Fprintf(out, "  Data:     %s\n\n", c.DataDir)
 	switch {
 	case len(c.Proxy.Trusted) > 0:
@@ -126,23 +125,6 @@ func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset
 		run += " --config " + quoteArg(path)
 	}
 	fmt.Fprintf(out, "Start the server with:\n\n  %s\n", run)
-}
-
-// publicURL is how a browser reaches host: through the proxy when Moorage is
-// behind one, otherwise on Moorage's own listener (with its port if it is
-// not the scheme's default).
-func publicURL(c config.Config, host string) string {
-	port := ""
-	if len(c.Proxy.Trusted) == 0 {
-		addr, def := c.Listen.HTTP, "80"
-		if c.TLS.Mode != "off" {
-			addr, def = c.Listen.HTTPS, "443"
-		}
-		if _, p, err := net.SplitHostPort(addr); err == nil && p != def {
-			port = ":" + p
-		}
-	}
-	return c.Proxy.ExternalScheme + "://" + host + port
 }
 
 func quoteArg(s string) string {

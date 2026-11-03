@@ -300,6 +300,23 @@ func ParseTrusted(s string) (netip.Prefix, error) {
 	return netip.PrefixFrom(a, a.BitLen()), nil
 }
 
+// PublicURL is how a browser reaches host: through the proxy when Moorage is
+// behind one, otherwise on Moorage's own listener, with the port when it is
+// not the scheme's default.
+func (c Config) PublicURL(host string) string {
+	port := ""
+	if len(c.Proxy.Trusted) == 0 {
+		addr, def := c.Listen.HTTP, "80"
+		if c.TLS.Mode != "off" {
+			addr, def = c.Listen.HTTPS, "443"
+		}
+		if _, p, err := net.SplitHostPort(addr); err == nil && p != def {
+			port = ":" + p
+		}
+	}
+	return c.Proxy.ExternalScheme + "://" + host + port
+}
+
 func checkListen(addr string) error {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {

@@ -366,10 +366,13 @@ cmd/moor/                 main: dispatches to client, server and shim modes
 internal/
   buildinfo/              version, commit and platform of the binary
   cli/                    command tree (client + server admin commands)
+  client/                 the CLI's API client
   config/                 server.toml: presets, strict parsing, validation, writing
   ids/                    typed, sortable identifiers (prefix + ULID)
   server/                 wiring, lifecycle, startup/adoption/shutdown
   api/                    REST handlers, auth middleware, SSE/WebSocket, OpenAPI
+  apitypes/               the API's JSON documents, shared by server and CLI
+  archive/                packing uploads; safe extraction (no escapes, links or excess)
   console/                web console: handlers, html/template pages, static CSS/JS (embedded)
   store/                  SQLite access, migrations, typed queries
   events/                 event bus
@@ -379,12 +382,14 @@ internal/
   deploy/                 job queue, pipeline, rollouts, previews
   build/                  detection, runtime presets, build sandbox
   manifest/               parsing, validation, JSON Schema
+  names/                  app and environment name rules
   toolchain/              resolvers, downloads, verification, cache
   reconcile/              desired vs actual state convergence
   driver/native/          shim launcher + adoption
   driver/container/       Podman/Docker CLI driver
   shim/                   shim mode (small, minimal imports)
-  ingress/                router, proxy, TLS, gates, static server, wake pages
+  ingress/                router, proxy, TLS, gates, platform and wake pages
+  ingress/static/         static site serving: index, rules, caching, compression
   observe/logs/           log files, rotation, tail/follow, search
   observe/metrics/        samplers, ring buffers, roll-ups, Prometheus export
   observe/health/         checkers, status model

@@ -123,22 +123,3 @@ func TestServerRunRejectsInvalidConfig(t *testing.T) {
 		t.Errorf("run with an invalid configuration: code %d, stderr %q", code, errOut)
 	}
 }
-
-func TestPublicURL(t *testing.T) {
-	cases := []struct {
-		c    config.Config
-		host string
-		want string
-	}{
-		{config.Config{Listen: config.Listen{HTTP: "127.0.0.1:8080"}, TLS: config.TLS{Mode: "off"}, Proxy: config.Proxy{ExternalScheme: "http"}}, "a.localhost", "http://a.localhost:8080"},
-		{config.Config{Listen: config.Listen{HTTP: ":80"}, TLS: config.TLS{Mode: "off"}, Proxy: config.Proxy{ExternalScheme: "http"}}, "a.example.com", "http://a.example.com"},
-		{config.Config{Listen: config.Listen{HTTP: ":80", HTTPS: ":443"}, TLS: config.TLS{Mode: "internal"}, Proxy: config.Proxy{ExternalScheme: "https"}}, "a.example.com", "https://a.example.com"},
-		{config.Config{Listen: config.Listen{HTTP: ":80", HTTPS: ":8443"}, TLS: config.TLS{Mode: "files"}, Proxy: config.Proxy{ExternalScheme: "https"}}, "a.example.com", "https://a.example.com:8443"},
-		{config.Config{Listen: config.Listen{HTTP: "127.0.0.1:8080"}, TLS: config.TLS{Mode: "off"}, Proxy: config.Proxy{Trusted: []string{"127.0.0.1"}, ExternalScheme: "https"}}, "a.example.com", "https://a.example.com"},
-	}
-	for _, c := range cases {
-		if got := publicURL(c.c, c.host); got != c.want {
-			t.Errorf("publicURL(%+v) = %q, want %q", c.c, got, c.want)
-		}
-	}
-}

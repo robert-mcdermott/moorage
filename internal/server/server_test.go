@@ -29,29 +29,35 @@ func testConfig(t *testing.T) config.Config {
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-// start runs a server and returns its HTTP address and a function that
-// stops it and returns Run's error.
-func start(t *testing.T, cfg config.Config) (string, func() error) {
+// start runs a server and returns its addresses and a function that stops
+// it and returns Run's error.
+func start(t *testing.T, cfg config.Config) (Addrs, func() error) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	ready := make(chan net.Addr, 1)
+	ready := make(chan Addrs, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, cfg, quiet, Options{Ready: func(a net.Addr) { ready <- a }})
+		done <- Run(ctx, cfg, quiet, Options{Ready: func(a Addrs) { ready <- a }})
 	}()
 	select {
-	case addr := <-ready:
+	case addrs := <-ready:
+		var stopped bool
+		var stopErr error
 		stop := func() error {
+			if stopped {
+				return stopErr
+			}
+			stopped = true
 			cancel()
 			select {
-			case err := <-done:
-				return err
+			case stopErr = <-done:
 			case <-time.After(15 * time.Second):
 				t.Fatal("server did not stop")
-				return nil
 			}
+			return stopErr
 		}
-		return addr.String(), stop
+		t.Cleanup(func() { stop() })
+		return addrs, stop
 	case err := <-done:
 		cancel()
 		t.Fatalf("server did not start: %v", err)
@@ -59,44 +65,59 @@ func start(t *testing.T, cfg config.Config) (string, func() error) {
 		cancel()
 		t.Fatal("server did not start in time")
 	}
-	return "", nil
+	return Addrs{}, nil
 }
 
-func TestRunServesHealth(t *testing.T) {
-	cfg := testConfig(t)
-	addr, stop := start(t, cfg)
-
-	res, err := http.Get("http://" + addr + "/.moorage/health")
+// get requests path from addr with the given Host header.
+func get(t *testing.T, addr net.Addr, host, path string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr.String()+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = host
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("health status = %d", res.StatusCode)
+	body, _ := io.ReadAll(res.Body)
+	return res, string(body)
+}
+
+func TestRunServesHealthAndPages(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, stop := start(t, cfg)
+
+	res, body := get(t, addrs.HTTP, "anything.example.com", "/.moorage/health")
+	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "application/json" {
+		t.Errorf("health: %d %q", res.StatusCode, res.Header.Get("Content-Type"))
 	}
-	if ct := res.Header.Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q", ct)
-	}
-	var h health
-	if err := json.NewDecoder(res.Body).Decode(&h); err != nil {
-		t.Fatal(err)
-	}
-	if h.Status != "ok" || h.Version != buildinfo.Version {
-		t.Errorf("health = %+v", h)
+	var h struct{ Status, Version string }
+	if err := json.Unmarshal([]byte(body), &h); err != nil || h.Status != "ok" || h.Version != buildinfo.Version {
+		t.Errorf("health = %q (%v)", body, err)
 	}
 
-	// Health answers on any hostname; other paths are not found.
-	req, _ := http.NewRequest("GET", "http://"+addr+"/.moorage/health", nil)
-	req.Host = "anything.example.com"
-	if res, err := http.DefaultClient.Do(req); err != nil || res.StatusCode != http.StatusOK {
-		t.Errorf("health on another hostname: %v %v", res, err)
-	} else {
-		res.Body.Close()
+	cases := []struct {
+		host, want string
+		code       int
+	}{
+		{"moorage.localhost", "Moorage is running", 200},
+		{"127.0.0.1", "Moorage is running", 200},
+		{"nope.localhost", "There is no app named", 404},
+		{"example.org", "Not found", 404},
 	}
-	if res, err := http.Get("http://" + addr + "/"); err != nil || res.StatusCode != http.StatusNotFound {
-		t.Errorf("GET /: %v %v", res, err)
-	} else {
-		res.Body.Close()
+	for _, c := range cases {
+		res, body := get(t, addrs.HTTP, c.host, "/")
+		if res.StatusCode != c.code || !strings.Contains(body, c.want) {
+			t.Errorf("Host %s: %d, body lacks %q", c.host, res.StatusCode, c.want)
+		}
+	}
+
+	res, body = get(t, addrs.HTTP, "127.0.0.1", "/api/v1/apps")
+	if res.StatusCode != http.StatusUnauthorized || res.Header.Get("Content-Type") != "application/problem+json" || !strings.Contains(body, "token") {
+		t.Errorf("API without a token: %d %q %s", res.StatusCode, res.Header.Get("Content-Type"), body)
 	}
 
 	if err := stop(); err != nil {
@@ -111,7 +132,7 @@ func TestRunPreparesDataDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := NewLayout(cfg.DataDir)
-	for _, p := range []string{l.Database, l.Keys, l.Repos, l.Builds, l.AppData, l.Logs, l.Toolchains, l.Cache, l.Certs, l.Run, l.Tmp, l.Backups} {
+	for _, p := range []string{l.Database, l.Keys, l.Repos, l.Builds, l.AppData, l.Logs, l.Toolchains, l.Cache, l.Certs, l.Run, l.Tmp, l.Backups, l.AdminToken} {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("%s: %v", p, err)
 		}
@@ -123,13 +144,15 @@ func TestRunPreparesDataDirectory(t *testing.T) {
 				t.Errorf("%s has mode %v, want 0700", p, fi.Mode().Perm())
 			}
 		}
+		if fi, err := os.Stat(l.AdminToken); err == nil && fi.Mode().Perm() != 0o600 {
+			t.Errorf("admin token has mode %v", fi.Mode().Perm())
+		}
 	}
 }
 
 func TestRunRefusesSecondServer(t *testing.T) {
 	cfg := testConfig(t)
-	_, stop := start(t, cfg)
-	defer stop()
+	start(t, cfg)
 	err := Run(context.Background(), cfg, quiet, Options{})
 	if err == nil || !strings.Contains(err.Error(), "another moor server") {
 		t.Errorf("second server on the same data directory: %v", err)
@@ -142,7 +165,8 @@ func TestRunRestartKeepsDatabase(t *testing.T) {
 	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
-	// A second start finds the schema in place and needs no snapshot.
+	token1, _ := os.ReadFile(NewLayout(cfg.DataDir).AdminToken)
+	// A second start finds the schema and the token in place.
 	_, stop = start(t, cfg)
 	if err := stop(); err != nil {
 		t.Fatal(err)
@@ -153,6 +177,9 @@ func TestRunRestartKeepsDatabase(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("restart without new migrations wrote snapshots: %v", entries)
+	}
+	if token2, _ := os.ReadFile(NewLayout(cfg.DataDir).AdminToken); string(token1) != string(token2) {
+		t.Error("the admin token changed on restart")
 	}
 }
 
@@ -167,5 +194,13 @@ func TestRunReportsBusyPort(t *testing.T) {
 	err = Run(context.Background(), cfg, quiet, Options{})
 	if err == nil || !strings.Contains(err.Error(), "listen on "+cfg.Listen.HTTP) {
 		t.Errorf("Run on a busy port: %v", err)
+	}
+}
+
+func TestRunRefusesPathRouting(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Routing = "path"
+	if err := Run(context.Background(), cfg, quiet, Options{}); err == nil || !strings.Contains(err.Error(), "path") {
+		t.Errorf("path routing: %v", err)
 	}
 }

@@ -63,20 +63,64 @@ directory, supervises it, and serves it on its own hostname.
      `/.moorage/health`; CI (format, vet, tests on three operating systems, the
      race detector on Linux, six cgo-free builds, `govulncheck`) and the release
      workflow. Verified locally on macOS (tests with the race detector, the six
-     builds, `go vet` for Linux and Windows, an end-to-end run of the binary);
-     Linux and Windows run in CI once the branch is pushed.
+     builds, `go vet` for Linux and Windows, an end-to-end run of the binary)
+     and in CI on Linux, macOS and Windows.
    - Found by slice 1: the server log goes to stderr only for now (journald
      and launchd capture it); the rotating file log under `logs/server/` comes
      with the log manager in slice 3.
 2. **Ingress and static sites.** The routing table with atomic swaps;
    hostname routing under the base domain; static serving with the `[static]`
    rules (SPA fallback, clean URLs, headers, redirects); platform pages; TLS
-   modes `files` and `off`, with the `[proxy]` section for running behind a TLS
-   proxy; a deploy API guarded by a bootstrap admin token;
-   `moor deploy --static`; instant static rollback. Runs spike S4.
+   modes `internal` (certificates issued on demand by an auto-generated root
+   or a corporate intermediate), `files` and `off`, with the `[proxy]` section
+   for running behind a TLS proxy; a deploy API guarded by a bootstrap admin
+   token; `moor deploy --static`; instant static rollback. Runs spike S4.
    - Done when: a site deployed with `moor deploy --static` is served on its
      hostname, directly over TLS and behind nginx; deploys and rollbacks under
      load fail no requests.
+   - Done (slice 2):
+     - Apps, environments, builds and releases in the database; app names
+       checked; an app is created by its first deploy, and only once the upload
+       is valid.
+     - The router serves `<app>.<domain>` from an immutable table swapped
+       atomically on every deploy and rollback; `/.moorage/health` and
+       `/.moorage/ca.crt` on every hostname; platform pages (no such app, not
+       deployed yet, not found, a placeholder on the console's hostname).
+     - The static server: clean URLs, the three trailing-slash modes, SPA
+       fallback, 404 pages, ordered redirect and rewrite rules with `:name` and
+       `*` placeholders that existing files shadow unless forced, header rules,
+       hashed assets cached as immutable, pre-compressed Brotli and gzip
+       variants, strong ETags from content hashes, ranges, directory listings,
+       and Moorage's own MIME table.
+     - Uploads: a gzip-compressed tar streamed while it is packed; extraction
+       refuses absolute paths, `..`, links and duplicates, and limits files and
+       size; builds are written aside and renamed into place, then made
+       read-only; half-written builds are removed at startup.
+     - TLS: `internal` (a root generated on first start, name-constrained to
+       the base domain and the console's hostname, or an intermediate from a
+       corporate CA; 30-day certificates for the console and app hostnames
+       only, renewed a week before expiry), `files` (several pairs chosen by
+       server name, reloaded when they change), and `off` behind a proxy; plain
+       HTTP moves to HTTPS except on this machine.
+     - The API (`/api/v1`): list apps, deploy a static site, list releases,
+       roll back; problem+json errors; a bootstrap admin token in
+       `keys/admin-token`, stored as a hash. The CLI (`moor deploy --static`,
+       `apps`, `releases`, `rollback`) finds the server and token on its own
+       machine, or takes `--server`, `--token` and `--ca-cert`.
+     - Spike S4: 2,046 requests across 12 deploys and rollbacks under load,
+       none failed. Verified by tests (TLS in both modes with an intermediate
+       chain, a TLS-terminating reverse proxy in front of Moorage, the CLI
+       against a running server), the race detector, the six builds and an
+       end-to-end run of the binary on macOS.
+   - Found by slice 2:
+     - nginx itself was not available on the test machine; a reverse proxy in
+       the tests stands in for it. `moor server proxy-config nginx` (wave 2,
+       slice 4) should be checked against a real nginx.
+     - Forwarded headers and the PROXY protocol matter once Moorage proxies to
+       apps: honouring them only from trusted addresses comes with proxying in
+       slice 3, and access logs with the log manager there too.
+     - Old builds are kept for now; garbage collection of builds beyond
+       `keep_releases` comes with builds in slice 4.
 3. **Native runtime.** Shims (spawn, log capture and rotation, restart with
    backoff, control socket, adoption after a daemon restart, no orphans on
    Linux, macOS and Windows); port allocation; TCP and HTTP health checks; the
@@ -116,10 +160,11 @@ directory, supervises it, and serves it on its own hostname.
    Docker, an observation adapter per engine, label-based adoption — and the
    `dockerfile` and `image` runtimes, with digests pinned at release and
    registry credentials. Runs spike S6.
-4. **TLS and operations.** `internal` TLS (an auto-generated root or a
-   corporate intermediate, `moor trust`); `moor server proxy-config nginx`;
-   `moor server doctor` (DNS, ports, TLS, the proxy path, the container
-   engine, kernel features); the laptop-mode resolver helper. Runs spike S5.
+4. **TLS and operations.** `moor trust` (installs the internal CA into the
+   OS trust store; certificate issuance itself arrived in wave 1, slice 2);
+   `moor server proxy-config nginx`; `moor server doctor` (DNS, ports, TLS, the
+   proxy path, the container engine, kernel features); the laptop-mode
+   resolver helper. Completes spike S5.
 5. **Release 0.2.0.**
 
 ## 0.3.0: the console (planned)
@@ -260,8 +305,8 @@ slice before code is built on a failed assumption.
 | S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 1 | *Largely shown by a research probe with the git CLI.* Remaining: rejecting a ref from the pre-receive step with a deployment error; end-of-pack detection for clients that keep the connection open (tested with a non-CLI git client library); per-repository ref serialisation under concurrent pushes; the beta library wrapped behind an internal interface. |
 | S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). |
 | S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. |
-| S4 | Is the routing table swap really zero-downtime? | Wave 1, slice 2 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. |
-| S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 2, slice 4 | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
+| S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances and WebSockets in slice 3.* |
+| S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 4 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
 | S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 3 | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. |
 | S7 | Linux cgroup v2 delegation and Landlock applied by the exec helper. | Wave 6, slice 1 | Limits enforced, OOM detected and reported, filesystem rules effective. |
 
