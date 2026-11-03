@@ -27,6 +27,7 @@ type Config struct {
 	TLS         TLS        `toml:"tls"`
 	Proxy       Proxy      `toml:"proxy"`
 	Toolchains  Toolchains `toml:"toolchains"`
+	Containers  Containers `toml:"containers"`
 	Log         Log        `toml:"log"`
 
 	// Path is the file the configuration was read from.
@@ -68,6 +69,12 @@ type Proxy struct {
 	Trusted []string `toml:"trusted"`
 	// ExternalScheme is the scheme browsers see: "http" or "https".
 	ExternalScheme string `toml:"external_scheme"`
+}
+
+// Containers says which engine runs apps in containers: "auto" for Podman if
+// it is installed, or else Docker, or the path of a binary.
+type Containers struct {
+	Engine string `toml:"engine"`
 }
 
 // Toolchains says where build toolchains are downloaded from: mirrors of
@@ -191,6 +198,9 @@ func (c *Config) ApplyDefaults() {
 		} else {
 			c.Proxy.ExternalScheme = "http"
 		}
+	}
+	if c.Containers.Engine == "" {
+		c.Containers.Engine = "auto"
 	}
 	if c.Log.Level == "" {
 		c.Log.Level = "info"

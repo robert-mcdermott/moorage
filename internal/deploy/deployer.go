@@ -140,15 +140,29 @@ func (d *Deployer) Submit(ctx context.Context, app, env, by string, upload io.Re
 	}})
 }
 
+// SubmitImage queues the deployment of an image. upload holds no more than the
+// app's manifest, if it has one.
+func (d *Deployer) SubmitImage(ctx context.Context, app, env, by, image string, upload io.Reader) (store.Deployment, bool, error) {
+	return d.SubmitSource(ctx, app, env, by, Source{Type: SourceImage, Ref: image, Fill: func(dir string) (int, error) {
+		files, _, err := archive.Extract(upload, dir, archive.DefaultLimits)
+		return files, err
+	}})
+}
+
 // Source is a deployment's source code. Fill writes it into the build
 // directory and returns how many files it wrote.
 type Source struct {
-	// Type is "source-upload" or "git-push".
+	// Type is "source-upload", "git-push" or "image".
 	Type string
-	// Ref, Commit and Message describe a pushed commit.
+	// Ref, Commit and Message describe a pushed commit; for an image, Ref is
+	// its name.
 	Ref, Commit, Message string
 	Fill                 func(dir string) (files int, err error)
 }
+
+// SourceImage is the Source type of a deployment of an image: its source holds
+// no more than the app's manifest, if that.
+const SourceImage = "image"
 
 // SubmitSource is Submit for any source.
 func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src Source) (store.Deployment, bool, error) {
@@ -162,7 +176,7 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 		return store.Deployment{}, false, err
 	}
 	files, err := src.Fill(appDir)
-	if err == nil && files == 0 {
+	if err == nil && files == 0 && src.Type != SourceImage {
 		err = errors.New("the source contains no files")
 	}
 	if err != nil {
@@ -317,7 +331,11 @@ func (d *Deployer) run(dep store.Deployment) {
 		fail(err.Error(), nil)
 		return
 	}
-	res, err := d.opts.Builder.Build(ctx, build.Job{App: dep.App, Env: dep.Env, BuildID: dep.BuildID, Dir: dir, Log: logFile, Vars: vars, Redact: redact})
+	job := build.Job{App: dep.App, Env: dep.Env, BuildID: dep.BuildID, Dir: dir, Log: logFile, Vars: vars, Redact: redact}
+	if dep.SourceType == SourceImage {
+		job.Image = dep.SourceRef
+	}
+	res, err := d.opts.Builder.Build(ctx, job)
 	<-d.slots
 	os.RemoveAll(filepath.Join(d.opts.DataDir, "tmp", "build-"+dep.BuildID))
 	if err != nil {
@@ -332,7 +350,14 @@ func (d *Deployer) run(dep store.Deployment) {
 		}
 		return
 	}
-	build.Marker(logFile, "▸ built      %d files, %s in %s", res.Files, humanBytes(res.Size), time.Since(start).Round(100*time.Millisecond))
+	took := time.Since(start).Round(100 * time.Millisecond)
+	kind, ref := "dir", filepath.ToSlash(filepath.Join("builds", dep.App, dep.BuildID))
+	if res.Image != "" {
+		kind, ref = "image", res.Image
+		build.Marker(logFile, "▸ image      %s, %s in %s", res.Image, humanBytes(res.Size), took)
+	} else {
+		build.Marker(logFile, "▸ built      %d files, %s in %s", res.Files, humanBytes(res.Size), took)
+	}
 
 	planJSON, err := json.Marshal(res.Plan)
 	if err != nil {
@@ -345,13 +370,15 @@ func (d *Deployer) run(dep store.Deployment) {
 		return
 	}
 	b := store.Build{
-		ID: dep.BuildID, AppID: appID, SourceType: dep.SourceType, ArtifactKind: "dir",
-		ArtifactRef: filepath.ToSlash(filepath.Join("builds", dep.App, dep.BuildID)),
-		Plan:        planJSON, Files: res.Files, SizeBytes: res.Size, CreatedAt: time.Now(),
+		ID: dep.BuildID, AppID: appID, SourceType: dep.SourceType, ArtifactKind: kind,
+		ArtifactRef: ref, Plan: planJSON, Files: res.Files, SizeBytes: res.Size, CreatedAt: time.Now(),
 	}
 	if err := d.db.CreateBuild(ctx, b); err != nil {
 		fail(err.Error(), nil)
 		return
+	}
+	if res.Image != "" {
+		removeTree(dir) // the image holds what the source was for
 	}
 	rel, err := d.publish(ctx, dep, b, res.Plan, "deploy", nil, logFile)
 	if err != nil {
@@ -538,7 +565,14 @@ func (d *Deployer) collect(app string, keep int) {
 		return
 	}
 	for _, b := range builds {
-		if err := removeTree(filepath.Join(d.opts.DataDir, filepath.FromSlash(b.ArtifactRef))); err != nil {
+		if b.ArtifactKind == "image" {
+			// Another app may use the same image: it is pulled again if so.
+			if engine := d.opts.Builder.Engine; engine != nil {
+				if err := engine.RemoveImage(ctx, b.ArtifactRef); err != nil {
+					d.log.Warn("remove an old image", "app", app, "build", b.ID, "image", b.ArtifactRef, "err", err)
+				}
+			}
+		} else if err := removeTree(filepath.Join(d.opts.DataDir, filepath.FromSlash(b.ArtifactRef))); err != nil {
 			d.log.Error("remove a build", "app", app, "build", b.ID, "err", err)
 			continue
 		}

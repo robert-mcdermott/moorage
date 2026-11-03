@@ -20,6 +20,7 @@ how it works inside and where it is going.
 - [Python](python.md), with uv
 - [Node.js](node.md), with npm
 - [Static sites](static.md)
+- [In containers](containers.md): a `Containerfile`, or an image from a registry
 - [Anything else](other.md): your own build, a script, an app that is
   already built
 - [Variables and secrets](variables.md)
@@ -33,6 +34,7 @@ how it works inside and where it is going.
 | Command | What it does |
 |---|---|
 | `moor deploy [DIR]` | Builds and deploys the source in DIR; prints the app's URL |
+| `moor deploy --image REF` | Runs an image, pinned to its digest |
 | `moor git remote` | Adds the app's git remote: `git push moorage main` deploys |
 | `moor keys add` | Registers your SSH key, so that you can push over SSH |
 | `moor apps` | Lists the apps |

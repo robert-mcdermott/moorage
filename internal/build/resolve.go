@@ -34,12 +34,27 @@ func unresolved(format string, args ...any) error {
 // Toolchain versions are as requested; the build resolves them. It also
 // returns the manifest (nil without one).
 func Resolve(dir, goos string) (manifest.Plan, *manifest.Manifest, error) {
+	return ResolveImage(dir, goos, "")
+}
+
+// ResolveImage is Resolve for an image named when deploying, if image is not
+// empty: it runs as the manifest says, whatever the manifest's runtime.
+func ResolveImage(dir, goos, image string) (manifest.Plan, *manifest.Manifest, error) {
 	m, err := manifest.Load(dir)
 	if err != nil {
 		return manifest.Plan{}, nil, err
 	}
 	if m == nil {
 		m = &manifest.Manifest{}
+	}
+	if image != "" {
+		c := manifest.Container{}
+		if m.Container != nil {
+			c = *m.Container
+		}
+		c.Image = image
+		m.Container = &c
+		m.App.Runtime = "image"
 	}
 	r := &resolver{dir: dir, goos: goos, m: m}
 	plan, err := r.resolve()
@@ -70,6 +85,9 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 	}
 	r.plan = manifest.Plan{Kind: manifest.KindProcess, Runtime: runtime, Notes: r.plan.Notes, Deploy: m.Deploy, Env: m.Env, Static: m.Static}
 	r.plan.Path = []string{".moorage/bin"}
+	if runtime == "dockerfile" || runtime == "image" {
+		return r.containerRuntime(runtime)
+	}
 
 	var preset []manifest.Step
 	var err error
@@ -85,8 +103,6 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 	case "command", "binary":
 	case "bun", "deno":
 		return manifest.Plan{}, unresolved("the %s runtime is not available yet: use runtime = \"command\" with toolchains = [\"%s@system\"], or a node app", runtime, runtime)
-	case "dockerfile", "image":
-		return manifest.Plan{}, unresolved("the %s runtime needs containers, which arrive in 0.2.0", runtime)
 	default:
 		return manifest.Plan{}, unresolved("unknown runtime %q", runtime)
 	}
@@ -124,6 +140,80 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 		r.plan.Processes = nil
 		r.plan.Release = nil
 	} else if err := r.processes(); err != nil {
+		return manifest.Plan{}, err
+	}
+	r.plan.Defaults()
+	return r.plan, nil
+}
+
+// containerRuntime resolves an app that runs in a container: from an image of
+// its own, or from one somebody else built. What only the image can say is left
+// to the build.
+func (r *resolver) containerRuntime(runtime string) (manifest.Plan, error) {
+	m := r.m
+	cfg := manifest.Container{}
+	if m.Container != nil {
+		cfg = *m.Container
+	}
+	c := &manifest.ContainerPlan{Port: cfg.Port, User: cfg.User, Mount: manifest.DefaultMount}
+	if m.Storage != nil && m.Storage.Mount != "" {
+		c.Mount = m.Storage.Mount
+	}
+	if res := m.Resources; res != nil {
+		c.Memory, c.CPU, c.PIDs = int64(res.Memory), res.CPU, res.PIDs
+	}
+	if runtime == "image" {
+		if cfg.Image == "" {
+			return manifest.Plan{}, unresolved("the image runtime needs an image: set image under [container] in moorage.toml, or use moor deploy --image REF")
+		}
+		c.From = cfg.Image
+	} else {
+		c.File = cfg.File
+		if c.File == "" {
+			switch {
+			case exists(r.dir, "Containerfile"):
+				c.File = "Containerfile"
+			case exists(r.dir, "Dockerfile"):
+				c.File = "Dockerfile"
+			default:
+				return manifest.Plan{}, unresolved("the dockerfile runtime needs a Containerfile or a Dockerfile, and this app has neither; name another with file under [container]")
+			}
+		} else if !exists(r.dir, c.File) {
+			return manifest.Plan{}, unresolved("container.file: this app has no %s", c.File)
+		}
+		c.Context = cfg.Context
+		if c.Context == "" {
+			c.Context = "."
+		}
+		c.Target = cfg.Target
+		c.Args = cfg.Args
+	}
+	r.plan.Path = nil
+	r.plan.Container = c
+	if b := m.Build; b != nil {
+		r.plan.BuildTimeout = b.Timeout
+		if b.Command != "" || b.Pre != "" || b.Post != "" {
+			r.note("[build] commands are ignored: the image is the build")
+		}
+		if len(b.Env) > 0 && runtime == "dockerfile" {
+			args := merge(b.Env, c.Args)
+			c.Args = args
+		}
+	}
+	if len(m.App.Toolchains) > 0 {
+		r.note("app.toolchains is ignored: an image brings its own")
+	}
+	if m.Release != nil && (m.Release.Command != "" || m.Release.OnCreate != "") {
+		rel := *m.Release
+		r.plan.Release = &rel
+	}
+	if len(m.Processes) > 0 {
+		r.plan.Processes = clone(m.Processes)
+	} else {
+		// The web process runs what the image says to.
+		r.plan.Processes = map[string]manifest.Process{manifest.Web: {}}
+	}
+	if err := manifest.ValidateContainerProcesses(r.plan.Processes); err != nil {
 		return manifest.Plan{}, err
 	}
 	r.plan.Defaults()

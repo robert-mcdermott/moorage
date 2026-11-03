@@ -40,14 +40,15 @@ type Server struct {
 	auth     *auth.Service
 	runtime  Runtime
 	deployer *deploy.Deployer
+	keyring  RegistrySealer
 	log      *slog.Logger
 	// openapiDoc is the OpenAPI document, generated once.
 	openapiDoc func() []byte
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, log: log}
 	s.openapiDoc = sync.OnceValue(func() []byte { return openAPIDocument(s.routes()) })
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
@@ -108,6 +109,7 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var plan *manifest.Plan
+	image := ""
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
@@ -124,7 +126,13 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				problem(w, http.StatusBadRequest, "bad_request", "Send source alone, without a plan: the server works out how to build it.")
 				return
 			}
-			dep, created, err := s.deployer.Submit(r.Context(), app, env, who(r).Name, part)
+			var dep store.Deployment
+			var created bool
+			if image != "" {
+				dep, created, err = s.deployer.SubmitImage(r.Context(), app, env, who(r).Name, image, part)
+			} else {
+				dep, created, err = s.deployer.Submit(r.Context(), app, env, who(r).Name, part)
+			}
 			var invalid *deploy.InvalidUploadError
 			switch {
 			case errors.As(err, &invalid):
@@ -140,6 +148,17 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Location", "/api/v1/deployments/"+dep.ID)
 			writeJSON(w, http.StatusAccepted, d)
 			return
+		case apitypes.ImagePart:
+			data, err := io.ReadAll(io.LimitReader(part, 4096))
+			if err != nil {
+				problem(w, http.StatusBadRequest, "bad_request", err.Error())
+				return
+			}
+			image = string(data)
+			if err := manifest.ValidateImage(image); err != nil {
+				problem(w, http.StatusUnprocessableEntity, "invalid_image", err.Error())
+				return
+			}
 		case apitypes.PlanPart:
 			plan = &manifest.Plan{}
 			if err := json.NewDecoder(io.LimitReader(part, 1<<20)).Decode(plan); err != nil {

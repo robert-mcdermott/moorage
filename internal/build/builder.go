@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/ignore"
 	"github.com/robert-mcdermott/moorage/internal/ingress/static"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -29,6 +30,9 @@ type Builder struct {
 	// added to its environment.
 	Shell    []string
 	ShellEnv []string
+	// Engine builds and fetches images; without one, apps that run in
+	// containers cannot be built.
+	Engine *container.Engine
 }
 
 // Job is one build.
@@ -45,6 +49,8 @@ type Job struct {
 	// the log.
 	Vars   map[string]string
 	Redact []string
+	// Image, if set, is an image to run, named when deploying.
+	Image string
 }
 
 // Result is a finished build.
@@ -52,6 +58,9 @@ type Result struct {
 	Plan  manifest.Plan
 	Files int
 	Size  int64
+	// Image is the image that was built or fetched, for an app that runs in a
+	// container.
+	Image string
 }
 
 // Error reports a build that failed, with a message for the deployment.
@@ -72,7 +81,7 @@ func Marker(w io.Writer, format string, args ...any) {
 // ready to run: tidied, measured and read-only.
 func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 	appDir := filepath.Join(job.Dir, "app")
-	plan, _, err := Resolve(appDir, runtime.GOOS)
+	plan, _, err := ResolveImage(appDir, runtime.GOOS, job.Image)
 	if err != nil {
 		var u *UnresolvedError
 		if errors.As(err, &u) {
@@ -83,6 +92,9 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 	Marker(job.Log, "▸ detected   %s", describe(plan))
 	for _, n := range plan.Notes {
 		Marker(job.Log, "             %s", n)
+	}
+	if plan.Container != nil {
+		return b.buildImage(ctx, job, plan, appDir)
 	}
 
 	vars, err := b.environment(job, appDir)
@@ -170,8 +182,92 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 	return Result{Plan: plan, Files: files, Size: size}, nil
 }
 
+// buildImage builds an app's image, or fetches the one it names, and settles
+// what the plan left to it: which image exactly, and its port. An image named
+// by a tag is pinned to its digest, so that restarts and rollbacks run this
+// image and no other.
+func (b *Builder) buildImage(ctx context.Context, job Job, plan manifest.Plan, appDir string) (Result, error) {
+	if b.Engine == nil {
+		return Result{}, &Error{Msg: container.ErrNoEngine.Error(), Err: container.ErrNoEngine}
+	}
+	c := *plan.Container
+	timeout := plan.BuildTimeout.Std()
+	buildCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	out := logs.NewWriter(job.Log, logs.Stdout).Redact(job.Redact...)
+	errw := logs.NewWriter(job.Log, logs.Stderr).Redact(job.Redact...)
+	failed := func(what string, err error) (Result, error) {
+		out.Flush()
+		errw.Flush()
+		switch {
+		case errors.Is(buildCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
+			return Result{}, &Error{Msg: fmt.Sprintf("the build did not finish within %s ([build].timeout)", timeout), Err: err}
+		case ctx.Err() != nil:
+			return Result{}, ctx.Err()
+		}
+		return Result{}, &Error{Msg: what, Err: err}
+	}
+	var image string
+	if c.From != "" {
+		Marker(job.Log, "▸ pull       %s", c.From)
+		if err := b.Engine.Pull(buildCtx, c.From, out, errw); err != nil {
+			// An image on this server only, which no registry has.
+			if _, inspectErr := b.Engine.InspectImage(ctx, c.From); inspectErr != nil {
+				return failed(fmt.Sprintf("could not pull %s; a private registry needs its credentials on the server (moor registry login)", c.From), err)
+			}
+			out.Flush()
+			errw.Flush()
+			Marker(job.Log, "             could not pull it; using the copy on this server")
+		}
+		image = c.From
+	} else {
+		image = ImageTag(job.App, job.BuildID)
+		Marker(job.Log, "▸ build      %s build -f %s %s", b.Engine.Kind, c.File, c.Context)
+		err := b.Engine.Build(buildCtx, container.BuildSpec{
+			Dir: appDir, File: c.File, Context: c.Context, Target: c.Target, Tag: image,
+			Labels: map[string]string{"io.moorage.managed": "true", "io.moorage.app": job.App, "io.moorage.build": job.BuildID},
+			Args:   c.Args, Vars: job.Vars,
+		}, out, errw)
+		if err != nil {
+			return failed(fmt.Sprintf("the image did not build from %s", c.File), err)
+		}
+	}
+	out.Flush()
+	errw.Flush()
+	info, err := b.Engine.InspectImage(ctx, image)
+	if err != nil {
+		return Result{}, &Error{Msg: fmt.Sprintf("the engine cannot find the image %s: %v", image, err), Err: err}
+	}
+	c.Image = image
+	if c.From != "" {
+		c.Image = info.Pinned(c.From)
+		if c.Image != c.From {
+			Marker(job.Log, "             pinned to %s", c.Image)
+		}
+	}
+	if c.Port == 0 {
+		c.Port = info.FirstExposedPort()
+	}
+	if c.Port == 0 {
+		c.Port = manifest.DefaultContainerPort
+	}
+	plan.Container = &c
+	return Result{Plan: plan, Size: info.Size, Image: c.Image}, nil
+}
+
+// ImageTag is what a build's image is called.
+func ImageTag(app, buildID string) string {
+	return "localhost/moorage/" + app + ":" + strings.ToLower(buildID)
+}
+
 func describe(plan manifest.Plan) string {
 	s := plan.Runtime
+	if c := plan.Container; c != nil {
+		if c.From != "" {
+			return s + " · " + c.From
+		}
+		return s + " · " + c.File
+	}
 	for _, t := range plan.Toolchains {
 		v := t.Version
 		if v == "" {

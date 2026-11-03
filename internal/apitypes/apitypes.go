@@ -344,4 +344,20 @@ const (
 	PlanPart    = "plan"
 	ArchivePart = "archive"
 	SourcePart  = "source"
+	// ImagePart, before a source part, is an image to run instead of building
+	// the source, which then holds no more than the app's manifest.
+	ImagePart = "image"
 )
+
+// Registry is a container registry the server has credentials for.
+type Registry struct {
+	Host      string    `json:"host"`
+	Username  string    `json:"username"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// RegistryLogin is a container registry's credentials.
+type RegistryLogin struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}

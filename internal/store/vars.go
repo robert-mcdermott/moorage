@@ -232,9 +232,10 @@ func (db *DB) AddDataKey(ctx context.Context, appID string, sealed []byte) ([]by
 	return stored, err
 }
 
-// HasDataKeys reports whether any secret has been sealed.
-func (db *DB) HasDataKeys(ctx context.Context) (bool, error) {
+// HasSealed reports whether anything has been sealed with the master key: a
+// secret's data key, or a registry's password.
+func (db *DB) HasSealed(ctx context.Context) (bool, error) {
 	var n int
-	err := db.Reader.QueryRowContext(ctx, `SELECT count(*) FROM data_keys`).Scan(&n)
+	err := db.Reader.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM data_keys) + (SELECT count(*) FROM registries)`).Scan(&n)
 	return n > 0, err
 }

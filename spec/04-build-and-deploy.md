@@ -239,8 +239,10 @@ Output is streamed to the build log file and to every subscriber (git push,
 CLI, console) as it is produced.
 
 **Container runtimes** run `podman build` / `docker build` instead, tagging
-`localhost/moorage/<app>:<build-id>` with Moorage labels, and record the image
-ID as the build artifact. The engine's layer cache provides incremental builds.
+`localhost/moorage/<app>:<build-id>` with Moorage labels, and record that tag as
+the build artifact (the `image` runtime pulls instead, and records the image's
+digest). The source is removed once the image is built. The engine's layer cache
+provides incremental builds.
 
 ### 5. Package
 

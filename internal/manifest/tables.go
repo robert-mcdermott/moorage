@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Runtimes an app may name in [app].runtime.
@@ -252,6 +253,27 @@ func (m *Manifest) validateTables() []string {
 	if m.Resources != nil {
 		checkResources(&p, "resources", *m.Resources)
 	}
+	if c := m.Container; c != nil {
+		if c.Port < 0 || c.Port > 65535 {
+			add("container.port %d is not a port", c.Port)
+		}
+		if c.Image != "" && ValidateImage(c.Image) != nil {
+			add("container.image %q is not an image reference", c.Image)
+		}
+		for _, f := range []struct{ key, value string }{{"file", c.File}, {"context", c.Context}} {
+			if f.value != "" && (path.IsAbs(f.value) || strings.Contains(f.value, "..") || strings.Contains(f.value, `\`)) {
+				add("container.%s %q must be a path inside the app", f.key, f.value)
+			}
+		}
+		for name := range c.Args {
+			if !envName.MatchString(name) {
+				add("container.args: %q is not a valid argument name", name)
+			}
+		}
+	}
+	if s := m.Storage; s != nil && s.Mount != "" && (!path.IsAbs(s.Mount) || s.Mount == "/") {
+		add("storage.mount %q must be an absolute path inside the container, such as /data", s.Mount)
+	}
 	if m.Previews != nil {
 		if m.Previews.Access != "" && !oneOf(m.Previews.Access, accessModes) {
 			add("previews.access %q must be one of %s", m.Previews.Access, strings.Join(accessModes, ", "))
@@ -343,4 +365,12 @@ func oneOf(s string, options []string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateImage checks an image's name: it goes on the engine's command line.
+func ValidateImage(ref string) error {
+	if ref == "" || strings.HasPrefix(ref, "-") || strings.ContainsFunc(ref, unicode.IsSpace) {
+		return fmt.Errorf("%q is not an image reference, such as ghcr.io/acme/api:1.4", ref)
+	}
+	return nil
 }

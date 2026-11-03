@@ -176,6 +176,24 @@ func (k *Keyring) dataKey(ctx context.Context, appID string) (cipher.AEAD, error
 	return aead, nil
 }
 
+// registryAD binds a password to its registry.
+func registryAD(host string) []byte { return []byte("moorage registry\x00" + host) }
+
+// SealRegistry encrypts a container registry's password, with the master key:
+// it belongs to the server, not to an app.
+func (k *Keyring) SealRegistry(host, password string) []byte {
+	return seal(k.master, []byte(password), registryAD(host))
+}
+
+// OpenRegistry decrypts a container registry's password.
+func (k *Keyring) OpenRegistry(host string, sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, registryAD(host))
+	if err != nil {
+		return "", fmt.Errorf("the password for %s cannot be decrypted", host)
+	}
+	return string(plain), nil
+}
+
 // valueAD binds a value to its variable: the app, the scope (an
 // environment ID, or "" for all environments) and the name.
 func valueAD(appID, scope, name string) []byte {

@@ -150,6 +150,41 @@ An entry is a command (`worker = "python -m tasks.worker"`) or a table:
 Without `[processes]`, a `Procfile` (`name: command` lines) is used, and
 then the runtime's own `web` process.
 
+## `[container]`
+
+For `runtime = "dockerfile"` and `"image"`. See [Running apps in
+containers](containers.md).
+
+| Key | Default | Description |
+|---|---|---|
+| `file` | `Containerfile`, else `Dockerfile` | What to build the image from (`dockerfile`). |
+| `context` | `"."` | The build's context, in the app's directory (`dockerfile`). |
+| `target` | — | The stage of a multi-stage build to stop at (`dockerfile`). |
+| `args` | `{}` | Build arguments (`dockerfile`); `[build].env` adds to them. |
+| `image` | — | The image to run (`image`): `ghcr.io/acme/api:1.4`. `moor deploy --image` overrides it. |
+| `port` | the lowest the image exposes, else `8080` | Where the app listens inside the container. `$PORT` is set to it. |
+| `user` | the image's | Who to run as: `1000`, `1000:1000` or a name the image knows. |
+
+Of `[build]`, a container build uses `env` and `timeout`. Without `[processes]`,
+`web` runs what the image says to, and a `command` replaces the image's
+entrypoint and command.
+
+## `[resources]`
+
+Limits for each instance of an app in a container.
+
+| Key | Description |
+|---|---|
+| `memory` | Memory: `"512MiB"`. The kernel kills an instance that goes over it, and `moor ps --json` says so. |
+| `cpu` | CPU, in cores: `0.5`, `2`. |
+| `pids` | The most processes and threads. |
+
+## `[storage]`
+
+| Key | Default | Description |
+|---|---|---|
+| `mount` | `"/data"` | Where the environment's data directory appears inside a container. |
+
 ## `[release]`
 
 | Key | Default | Description |
@@ -216,16 +251,16 @@ Every process gets these variables; they cannot be overridden.
 
 | Variable | Example | Description |
 |---|---|---|
-| `PORT` | `24817` | Where the process listens (exposed processes). |
-| `HOST` | `127.0.0.1` | The address to listen on. |
+| `PORT` | `24817` | Where the process listens (exposed processes). In a container: the container's port. |
+| `HOST` | `127.0.0.1` | The address to listen on. In a container: `0.0.0.0`. |
 | `MOORAGE_APP`, `MOORAGE_ENV` | `tasks`, `production` | The app and its environment. |
 | `MOORAGE_RELEASE` | `v8` | The release. |
 | `MOORAGE_BUILD_ID` | `bld_…` | The build. |
 | `MOORAGE_URL` | `https://tasks.apps.example.com` | The app's public address. |
 | `MOORAGE_PROCESS`, `MOORAGE_INSTANCE`, `MOORAGE_INSTANCE_ID` | `web`, `1`, `ins_…` | Which instance this is. |
-| `MOORAGE_DATA_DIR` | `…/data/tasks/production` | A directory of the environment's that survives deploys, for the app's own files. |
-| `MOORAGE_BIN` | `…/.moorage/bin` | Where builds put binaries. |
-| `TMPDIR` | | A temporary directory of the instance's own, removed when it stops. |
+| `MOORAGE_DATA_DIR` | `…/data/tasks/production` | A directory of the environment's that survives deploys, for the app's own files. In a container: where it is mounted. |
+| `MOORAGE_BIN` | `…/.moorage/bin` | Where builds put binaries. Not in a container. |
+| `TMPDIR` | | A temporary directory of the instance's own, removed when it stops. Not in a container. |
 
 The app's directory is read-only once built: write to `$MOORAGE_DATA_DIR`
 or `$TMPDIR`.
@@ -255,9 +290,9 @@ and `moor manifest validate` warns that they have no effect yet:
 
 | Setting | Arrives |
 |---|---|
-| `runtime = "dockerfile"` or `"image"`, `[container]` | 0.2.0 (containers) |
 | `app.watch`, `app.root` | 0.2.0 (deploys by `git push`) |
 | `[vars]` | a later release (declared variables) |
-| `[[cron]]`, `[[routes]]`, `[resources]`, `[previews]`, `[environments]`, `[services]`, `processes.*.sleep` | later releases |
+| `[resources]` and `[storage]` outside a container | a later release |
+| `[[cron]]`, `[[routes]]`, `[previews]`, `[environments]`, `[services]`, `processes.*.sleep` | later releases |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

@@ -49,20 +49,22 @@ provisional until the corresponding Phase 0 spike reports back.
   interchangeable (different JSON shapes, human-formatted numbers). Their
   Docker-compatible REST APIs are close enough for lifecycle and observation,
   but the API service is not always running (rootless Podman in particular).
-- **Decision:** lifecycle (`build`, `pull`, `run`, `stop`, `rm`, `inspect`)
-  goes through the engine CLI with one shared code path. Observation goes
-  through a small adapter per engine: container CPU/memory read directly from
-  cgroups on Linux (shared with native instances), exits and OOM kills from
-  the engine's event stream parsed per engine, and the Docker-compatible REST
-  API whenever its socket is available (always the case for the VM-based
-  engines on macOS and Windows).
-- **Alternatives:** REST only (needs the API service everywhere); CLI only
-  (fragile parsing of two output dialects for metrics); vendor SDKs (large
-  dependency trees, Docker-specific).
+- **Decision:** lifecycle (`build`, `pull`, `run`, `start`, `stop`, `rm`) and
+  following a container (`wait`, `inspect`, `logs`) go through the engine CLI with
+  one shared code path. Exits and OOM kills come from `wait` and `inspect`, which
+  are the same on both engines, rather than from the engine's event stream, which
+  would need parsing per engine (changed in wave 2, slice 4; the plan was an
+  adapter for events). Metrics, in wave 5, go through a small adapter per engine:
+  container CPU/memory read directly from cgroups on Linux (shared with native
+  instances), and the Docker-compatible REST API whenever its socket is available
+  (always the case for the VM-based engines on macOS and Windows).
+- **Alternatives:** REST only (needs the API service everywhere); events parsed
+  per engine (a process per engine, or per container, to save a blocked `wait`,
+  and two output dialects); vendor SDKs (large dependency trees, Docker-specific).
 - **Consequences:** works out of the box with rootless Podman and Docker, and
-  every lifecycle action is a command an operator can reproduce by hand. The
-  adapters are covered by integration tests against each supported engine
-  version.
+  every lifecycle action is a command an operator can reproduce by hand. One `wait`
+  and one `logs` process run per container. All of it is covered by integration
+  tests against both engines in CI.
 
 ### D4 — Built-in git server (spike S1 — done)
 

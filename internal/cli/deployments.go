@@ -147,6 +147,9 @@ written. Fails if the deployment failed.`,
 // source says what a deployment deployed: for a push, the branch and the
 // commit.
 func source(d apitypes.Deployment) string {
+	if d.Source == "image" {
+		return "image " + d.Ref
+	}
 	if d.Commit == "" {
 		return d.Source
 	}

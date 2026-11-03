@@ -5,7 +5,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	stdlog "log"
@@ -26,6 +28,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	consolepages "github.com/robert-mcdermott/moorage/internal/console"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/platform"
@@ -224,7 +227,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 
 	// The master key is created with the first secret's data key, never
 	// once secrets exist: they could not be read with a new key.
-	sealed, err := db.HasDataKeys(ctx)
+	sealed, err := db.HasSealed(ctx)
 	if err != nil {
 		return err
 	}
@@ -252,6 +255,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Go: cfg.Toolchains.GoURL, Node: cfg.Toolchains.NodeURL, UV: cfg.Toolchains.UVURL, Python: cfg.Toolchains.PythonURL,
 	})
 	shell := []string{exe, "sh", "-c"}
+	engine, containers := findContainers(cfg, db, keyring, log)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
 		DataDir:       cfg.DataDir,
 		ShimCmd:       []string{exe, "shim"},
@@ -263,6 +267,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Trusted:       router.Trusted(),
 		ToolchainBins: toolchains.BinDirs,
 		Secrets:       keyring,
+		Containers:    containers,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)
@@ -277,7 +282,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	go runtime.Run(ctx)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
-		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv},
+		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
 		Runtime: runtime,
 		Reload:  router.Reload,
 		URL: func(app, env string) string {
@@ -306,7 +311,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: gitserver.NewRepos(layout.Repos), Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, log))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
@@ -456,4 +461,43 @@ func listenError(addr string, err error) error {
 		msg += "\n  another program is already listening there"
 	}
 	return errors.New(msg)
+}
+
+// findContainers finds the container engine, if the server has one. Without one
+// apps that need containers cannot be deployed, and everything else goes on.
+func findContainers(cfg config.Config, db *store.DB, keyring *secrets.Keyring, log *slog.Logger) (*container.Engine, *container.Driver) {
+	engine, err := container.Find(cfg.Containers.Engine)
+	if errors.Is(err, container.ErrNoEngine) {
+		log.Info("no container engine: apps can run natively, not in containers")
+		return nil, nil
+	}
+	if err != nil {
+		log.Warn("apps cannot run in containers", "err", err)
+		return nil, nil
+	}
+	engine.TmpDir = filepath.Join(cfg.DataDir, "tmp")
+	engine.Auth = func(ctx context.Context) ([]byte, error) {
+		registries, err := db.Registries(ctx)
+		if err != nil {
+			return nil, err
+		}
+		creds := make([]container.Credential, 0, len(registries))
+		for _, r := range registries {
+			password, err := keyring.OpenRegistry(r.Host, r.Sealed)
+			if err != nil {
+				return nil, err
+			}
+			creds = append(creds, container.Credential{Host: r.Host, Username: r.Username, Password: password})
+		}
+		return container.AuthFile(creds), nil
+	}
+	log.Info("apps can run in containers", "engine", engine.Kind, "path", engine.Bin)
+	return engine, container.New(engine, serverLabel(cfg), log)
+}
+
+// serverLabel tells this server's containers from any other's on the same
+// engine: each manages only its own.
+func serverLabel(cfg config.Config) string {
+	sum := sha256.Sum256([]byte(cfg.DataDir))
+	return hex.EncodeToString(sum[:6])
 }

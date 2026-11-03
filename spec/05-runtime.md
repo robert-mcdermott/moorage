@@ -89,9 +89,11 @@ assembled in layers, later layers winning:
 
 Secret values are decrypted only at instance start and passed to the process
 through its shim's standard input (native: the shim keeps them in memory to
-restart the app, and they are never written to disk) or through a temporary
-`0600` env-file that is removed after start (containers) — never on a command
-line where `ps` could show them.
+restart the app, and they are never written to disk) or through the environment
+of the engine's command line, as `-e NAME` (containers: no file, and a value may
+span lines) — never on a command line where `ps` could show them. A secret named
+as a variable that command line reads for itself (`PATH`, `DOCKER_HOST`…) cannot
+pass this way, and the deploy says so.
 
 ## Ports
 
@@ -250,31 +252,51 @@ it), so the console reports the protection that is actually in effect.
   ports without extra setup (privileged ports are never needed because the
   ingress owns 80/443). Running the engine as a separate unprivileged user is
   a Phase 3 option.
-- **One lifecycle, two observers:** the two CLIs accept the same lifecycle
-  commands and flags (`build`, `pull`, `run`, `stop`, `rm`, `inspect`), but
-  their machine-readable outputs for `ps`, `stats` and `events` differ in shape
-  and report human-formatted numbers. Lifecycle therefore goes through one
-  code path, and observation through a small adapter per engine (below).
+- **One lifecycle:** the two CLIs accept the same lifecycle commands and flags
+  (`build`, `pull`, `run`, `start`, `stop`, `rm`, `wait`, `inspect`, `logs`), so
+  everything goes through one code path. The two differ in the log driver's name
+  and options, and in nothing else that Moorage uses.
 - **Naming and labels:** `moorage-<app>-<env>-<process>-<n>-<short-id>`, with
-  labels `io.moorage.managed=true`, `io.moorage.app`, `io.moorage.env`,
-  `io.moorage.release`, `io.moorage.process`, `io.moorage.instance`. Anything
-  labelled as managed but unknown to the database is removed by the reconciler.
+  labels `io.moorage.managed=true`, `io.moorage.server` (each server manages only
+  its own, among any on the engine), `io.moorage.app`, `io.moorage.env`,
+  `io.moorage.release`, `io.moorage.process`, `io.moorage.instance`. Anything of
+  this server's unknown to the database is removed by the reconciler.
 - **Run flags:** detached, `--init`, `--restart=no` (Moorage owns restarts),
-  `-p 127.0.0.1:…`, `--env-file` (temporary, `0600`), data volume, resource
-  flags, `--stop-signal`, `--stop-timeout`, log size caps, and
-  `--security-opt no-new-privileges`.
-- **Observability:** on Linux, container CPU and memory are read straight
-  from each container's cgroup — the same code that measures native instances.
-  Exits and OOM kills come from the engine's event stream, filtered by Moorage
-  labels and parsed by the engine adapter. When the engine's API socket is
-  available (Docker; Podman with its API service enabled; the VM-based engines
-  on macOS and Windows), the Docker-compatible REST API is used for events and
-  stats instead of the CLI. Logs use `logs --follow --since` per instance,
-  resumed from the last seen timestamp after a daemon restart.
+  `-p 127.0.0.1:…`, `-e`, data volume, resource flags, `--stop-signal`,
+  `--stop-timeout`, log size caps, and `--security-opt no-new-privileges`. A
+  manifest's command replaces the image's entrypoint too (`--entrypoint`): an
+  entrypoint would be given it as arguments.
+- **Supervision:** a goroutine per container does what a shim does for a native
+  instance: `wait`, then `inspect` for the exit status and the OOM flag, then the
+  restart policy, with the same backoff and crash limit, then `start`. These are
+  the same on both engines, and need no parsing of `events` streams, which differ.
+  When the server stops, so do the goroutines; the containers run on, and a new
+  server adopts them. One that exited meanwhile goes through the policy.
+- **Logs:** `logs --follow --timestamps --since`, per instance, separating stdout
+  and stderr, into the instance's log file with secrets removed. Podman's timestamps
+  have a precision of a second, so a follower that starts again reads from the start
+  of the last recorded second, and skips lines already recorded that second, counted
+  per line, compared after redaction.
+- **Health:** a published port accepts connections before the app in the container
+  listens, and then closes them. A TCP check of a container therefore connects and
+  briefly reads: end of file or a reset means not ready; data, or silence, means
+  ready.
+- **One-off containers:** release commands run in the foreground, not `--rm`,
+  and the exit status is read from `inspect` afterwards: the CLI can report success
+  for a container somebody removed while it ran.
+- **Observability:** container CPU and memory are for wave 5, with metrics:
+  on Linux, read straight from each container's cgroup — the same code that
+  measures native instances — and elsewhere from the engine's REST API or `stats`,
+  with an adapter per engine for the differences in their output. Exits and OOM
+  kills are observed as above.
 - **Images:** builds are tagged `localhost/moorage/<app>:<build-id>`. For the
-  `image` runtime, the tag is resolved to a **digest** when the release is
-  created, so rollbacks and restarts run exactly the same image. Registry
-  credentials are stored as secrets and passed through a temporary auth file.
+  `image` runtime, the tag is resolved to a **digest** when the build is
+  recorded, so rollbacks and restarts run exactly the same image. Registry
+  credentials are sealed with the master key, and passed through a temporary
+  file (`DOCKER_CONFIG` and `REGISTRY_AUTH_FILE`) for as long as a command runs.
+- **Data:** the environment's data directory is bind-mounted, and is
+  world-writable, because the user in an image is whoever the image says; the
+  directories above it keep out the server's other users.
 
 ## Platform notes
 

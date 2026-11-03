@@ -257,7 +257,7 @@ type PackStats struct {
 // running and healthy.
 func (c *Client) Deploy(ctx context.Context, app, env, dir string, plan manifest.Plan, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
 	var d apitypes.Deployment
-	stats, err := c.upload(ctx, app, env, dir, &plan, skip, &d)
+	stats, err := c.upload(ctx, app, env, dir, &plan, "", skip, &d)
 	return d, stats, err
 }
 
@@ -266,19 +266,52 @@ func (c *Client) Deploy(ctx context.Context, app, env, dir string, plan manifest
 // with FollowDeployment.
 func (c *Client) DeploySource(ctx context.Context, app, env, dir string, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
 	var d apitypes.Deployment
-	stats, err := c.upload(ctx, app, env, dir, nil, skip, &d)
+	stats, err := c.upload(ctx, app, env, dir, nil, "", skip, &d)
 	return d, stats, err
+}
+
+// DeployImage asks the server to run an image, with the files of dir that skip
+// leaves (no more than the app's manifest), and returns the deployment as soon
+// as it is queued; follow it with FollowDeployment.
+func (c *Client) DeployImage(ctx context.Context, app, env, image, dir string, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
+	var d apitypes.Deployment
+	stats, err := c.upload(ctx, app, env, dir, nil, image, skip, &d)
+	return d, stats, err
+}
+
+// Registries lists the container registries the server has credentials for.
+func (c *Client) Registries(ctx context.Context) ([]apitypes.Registry, error) {
+	var out []apitypes.Registry
+	err := c.do(ctx, http.MethodGet, "/api/v1/registries", nil, "", &out)
+	return out, err
+}
+
+// RegistryLogin stores a container registry's credentials on the server.
+func (c *Client) RegistryLogin(ctx context.Context, host string, login apitypes.RegistryLogin) (apitypes.Registry, error) {
+	var out apitypes.Registry
+	err := c.post(ctx, http.MethodPut, "/api/v1/registries/"+url.PathEscape(host), login, &out)
+	return out, err
+}
+
+// RegistryLogout removes a container registry's credentials from the server.
+func (c *Client) RegistryLogout(ctx context.Context, host string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/registries/"+url.PathEscape(host), nil, "", nil)
 }
 
 // upload sends dir as a deploy: with a plan, a plan part and an archive
 // part; without one, a source part.
-func (c *Client) upload(ctx context.Context, app, env, dir string, plan *manifest.Plan, skip func(string, fs.DirEntry) bool, out any) (PackStats, error) {
+func (c *Client) upload(ctx context.Context, app, env, dir string, plan *manifest.Plan, image string, skip func(string, fs.DirEntry) bool, out any) (PackStats, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	var stats PackStats
 	go func() {
 		err := func() error {
 			field := apitypes.SourcePart
+			if image != "" {
+				if err := mw.WriteField(apitypes.ImagePart, image); err != nil {
+					return err
+				}
+			}
 			if plan != nil {
 				part, err := mw.CreateFormField(apitypes.PlanPart)
 				if err != nil {

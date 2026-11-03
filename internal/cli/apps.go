@@ -148,7 +148,7 @@ func firstOf(values ...string) string {
 func newDeployCmd() *cobra.Command {
 	var (
 		conn                     connection
-		app, env                 string
+		app, env, image          string
 		static, artifact, detach bool
 	)
 	cmd := &cobra.Command{
@@ -172,19 +172,33 @@ With --artifact, DIR (default: the current directory) holds an app that is
 ready to run, such as a compiled binary; the [processes] of moorage.toml in
 the current directory say how to run it.
 
+With --image, the server fetches an image and runs it in a container, pinned to
+the digest it has now. The moorage.toml in DIR (default: the current directory)
+is sent with it, if there is one, and no other file. A private registry needs its
+credentials on the server: see moor registry login.
+
 A new release takes over once its instances are healthy; until then the
 previous release keeps serving.`,
 		Example: `  moor deploy                       # build and deploy the current directory
   moor deploy ./api --app api
   moor deploy --static ./public --app docs
-  moor deploy --artifact ./dist --app api`,
+  moor deploy --artifact ./dist --app api
+  moor deploy --image ghcr.io/acme/api:1.4 --app api`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if static && artifact {
 				return usageError{errors.New("pass --static or --artifact, not both")}
 			}
+			if image != "" && (static || artifact) {
+				return usageError{errors.New("pass --image alone, without --static or --artifact")}
+			}
+			if image != "" {
+				if err := manifest.ValidateImage(image); err != nil {
+					return usageError{err}
+				}
+			}
 			if !static && !artifact {
-				return deploySource(cmd, &conn, app, env, firstOf(firstArg(args), "."), detach)
+				return deploySource(cmd, &conn, app, env, firstOf(firstArg(args), "."), image, detach)
 			}
 			appName, m, err := resolveApp(app)
 			if err != nil {
@@ -247,7 +261,7 @@ previous release keeps serving.`,
 var alwaysLeftOut = map[string]bool{".git": true, "node_modules": true, ".venv": true, "__pycache__": true, ".DS_Store": true}
 
 // deploySource uploads dir as source and follows its deployment.
-func deploySource(cmd *cobra.Command, conn *connection, appFlag, env, dir string, detach bool) error {
+func deploySource(cmd *cobra.Command, conn *connection, appFlag, env, dir, image string, detach bool) error {
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return fmt.Errorf("%s is not a directory", dir)
 	}
@@ -277,6 +291,23 @@ func deploySource(cmd *cobra.Command, conn *connection, appFlag, env, dir string
 		return err
 	}
 	out := cmd.OutOrStdout()
+	if image != "" {
+		d, _, err := c.DeployImage(cmd.Context(), appName, env, image, dir, func(rel string, d fs.DirEntry) bool {
+			return d.IsDir() || rel != manifest.FileName
+		})
+		if err != nil {
+			return err
+		}
+		if d.AppCreated {
+			fmt.Fprintf(out, "Created app %s.\n", d.App)
+		}
+		fmt.Fprintf(out, "Deployment %s of %s to %s on %s is %s.\n", d.ID, image, appName, c.Server(), d.Status)
+		if detach {
+			fmt.Fprintf(out, "\nFollow it with: moor deployments follow %s\n", d.ID)
+			return nil
+		}
+		return followDeployment(cmd, c, d.ID)
+	}
 	fmt.Fprintf(out, "Uploading %s to %s on %s\n", dir, appName, c.Server())
 	d, stats, err := c.DeploySource(cmd.Context(), appName, env, dir, skip)
 	if err != nil {
@@ -405,7 +436,11 @@ func newReleasesCmd() *cobra.Command {
 				if r.Current {
 					mark = "*"
 				}
-				fmt.Fprintf(w, "%s\tv%d\t%s\t%d\t%s\t%s\n", mark, r.Version, r.Reason, r.Files, humanBytes(r.Size), ago(r.CreatedAt))
+				files := "-"
+				if r.Files > 0 {
+					files = strconv.Itoa(r.Files)
+				}
+				fmt.Fprintf(w, "%s\tv%d\t%s\t%s\t%s\t%s\n", mark, r.Version, r.Reason, files, humanBytes(r.Size), ago(r.CreatedAt))
 			}
 			return w.Flush()
 		},

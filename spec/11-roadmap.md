@@ -546,6 +546,51 @@ directory, supervises it, and serves it on its own hostname.
    Docker, an observation adapter per engine, label-based adoption — and the
    `dockerfile` and `image` runtimes, with digests pinned at release and
    registry credentials. Runs spike S6.
+   - Done in slice 4:
+     - `internal/driver/container`: one code path over both command lines. A
+       goroutine per container does what a shim does for a native instance: it
+       follows the logs, waits, reads the exit status and the OOM flag, applies the
+       restart policy and its backoff, and starts the container again. Containers
+       outlive the server and are adopted by their labels; each server manages only
+       its own.
+     - The reconciler asks a small interface of its drivers, so rollouts, health
+       checks, the release command and `moor ps` are the same for containers.
+     - The `dockerfile` and `image` runtimes; `moor deploy --image`, with a pull
+       pinned to the digest; `[container]`, `[resources]` and `[storage]`; the
+       `[containers]` section of `server.toml`.
+     - `moor registry` and `/api/v1/registries`, with passwords sealed by the
+       master key and handed to the engine in a temporary file.
+     - `docs/containers.md`, and `examples/container-go`, a guestbook in an image
+       with one binary in it.
+     - Verified with a job per engine in CI: the driver alone, and whole deploys
+       through a server, covering builds, digests, release commands, secrets,
+       adoption with no output lost or recorded twice, OOM kills, crashes,
+       rollbacks and loopback publishing. Also with the binary and Podman on macOS,
+       by hand and through the examples check.
+   - Found by slice 4:
+     - An adapter per engine for events was not needed: `wait` and `inspect` say
+       the same on both, and a container's exit reaches the same code however it
+       was seen. Decision D3 now says so. Stats wait for wave 5, so spike S6 is
+       open until then.
+     - A published port accepts connections before the app in the container
+       listens, and closes them: a plain TCP health check called a container
+       ready at once. A TCP check of a container now reads briefly as well.
+     - Podman's log timestamps have a precision of a second, so `logs --since`
+       alone either repeats or loses lines when a follower starts again. The
+       driver counts each line of the last second recorded.
+     - The example showed that a manifest's command goes to an image's
+       entrypoint as arguments: `/guestbook migrate` ran as `/guestbook /guestbook
+       migrate`, started the server and never ended. A command now replaces the
+       entrypoint.
+     - `podman run --rm` reported success for a container removed while it ran, so
+       a release command could pass without having finished. One-off containers now
+       keep their record until `inspect` has read how they ended.
+     - The planned env-file for secrets turned out to be worse than `-e NAME`, with
+       the value in the command line's environment: nothing is written, and values
+       may span lines. The cost is names the command line reads for itself, which a
+       deploy refuses with a clear message.
+     - An image's user cannot be known beforehand, so the data directory is
+       world-writable, below directories that keep out other users of the server.
 5. **TLS and operations.** `moor trust` (installs the internal CA into the
    OS trust store; certificate issuance itself arrived in wave 1, slice 2);
    `moor server proxy-config nginx`; `moor server doctor` (DNS, ports, TLS, the
@@ -694,7 +739,7 @@ slice before code is built on a failed assumption.
 | S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. *Shown in slice 4 on macOS: seven sample apps built from source, deployed and rolled back, with partial versions resolved and every download verified (a CI job runs them on Linux and macOS); the Node.js checksum file's signature is checked in wave 6.* |
 | S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances in slice 3 (over 10,000 requests across a deploy, a rolling restart and a rollback, none failed; upgraded connections pass through).* |
 | S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 5 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
-| S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 4 | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. |
+| S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 4 (stats: wave 5) | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. *Slice 4: all but stats, with both engines in CI and Podman on macOS, by one code path: exits and OOM kills come from `wait` and `inspect`, not per-engine events (decision D3). Stats, with their adapters, remain for the metrics of wave 5.* |
 | S7 | Linux cgroup v2 delegation and Landlock applied by the exec helper. | Wave 6, slice 1 | Limits enforced, OOM detected and reported, filesystem rules effective. |
 
 ## Parking lot

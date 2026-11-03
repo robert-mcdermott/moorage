@@ -151,6 +151,7 @@ moor login https://moorage.apps.example.com
 | [Links](examples/go-stdlib): Go with only the standard library | A build from `go.mod` alone, a graceful stop, data two instances share |
 | [Poll](examples/node-express): Express and a Vite front end | The npm build, assets cached for good, variables from `[env]` |
 | [Handbook](examples/static-site): a static site | Clean URLs, a 404 page, headers and redirects |
+| [Guestbook](examples/container-go): a Go app in a container | A multi-stage Containerfile, an image with one binary, resource limits |
 
 ## Documentation
 

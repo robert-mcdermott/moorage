@@ -114,7 +114,12 @@ gets what it should.
 - Never logged; redacted from app, build and release-command logs at capture
   time (best effort: values of six characters or more, as they appear); not
   exposed to builds unless explicitly flagged; passed to processes without
-  appearing on command lines or on disk.
+  appearing on command lines or on disk. A container's engine keeps its
+  environment in the container's configuration, where those who can use the
+  engine can read it.
+- Container registry passwords are sealed with the master key itself, belonging
+  to the server rather than to an app, and reach the engine in a temporary `0600`
+  file for as long as a command runs.
 - Database backups contain only ciphertext — **the master key must be backed
   up separately**, and the backup tooling says so.
 - Gate passwords (Argon2id), share-link tokens, session IDs and API tokens are

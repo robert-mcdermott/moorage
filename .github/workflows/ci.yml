@@ -76,6 +76,29 @@ jobs:
       - name: Deploy and check the examples
         run: .github/scripts/examples-check.sh
 
+  containers:
+    # Runs apps in containers with each engine: the driver on its own, then
+    # deploys through a whole server. Hosted Ubuntu runners have both engines.
+    name: Containers (${{ matrix.engine }})
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [podman, docker]
+    runs-on: ubuntu-latest
+    env:
+      MOORAGE_TEST_CONTAINERS: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Versions
+        run: ${{ matrix.engine }} version
+      - name: The container driver
+        run: go test ./internal/driver/container -v -count=1 -timeout 10m
+      - name: Deploys in containers
+        run: go test ./internal/server -run 'TestContainer' -v -count=1 -timeout 15m
+
   service:
     # Installs the server as a system service (systemd, launchd), restarts it
     # with an app under load, and checks the app kept running (spike S2).

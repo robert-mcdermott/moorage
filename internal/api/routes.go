@@ -111,6 +111,12 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/users/{user}/invitation", perm: serverAdmin, handler: s.inviteUser, status: http.StatusCreated,
 			summary: "Make a new one-time link for a user to choose a password", response: apitypes.Invitation{}},
 
+		// Container registries.
+		{method: "GET", path: "/registries", perm: serverAdmin, handler: s.registries, summary: "List the container registries the server has credentials for", response: []apitypes.Registry{}},
+		{method: "PUT", path: "/registries/{host}", perm: serverAdmin, handler: s.setRegistry, summary: "Store the credentials of a container registry",
+			request: apitypes.RegistryLogin{}, response: apitypes.Registry{}},
+		{method: "DELETE", path: "/registries/{host}", perm: serverAdmin, handler: s.deleteRegistry, status: http.StatusNoContent, summary: "Forget the credentials of a container registry"},
+
 		// The server and its apps.
 		{method: "GET", path: "/server", perm: signedIn, handler: s.serverInfo, summary: "The server's version and the prefixes of the apps' git remotes", response: apitypes.ServerInfo{}},
 		{method: "GET", path: "/apps", perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},

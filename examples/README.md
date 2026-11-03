@@ -10,6 +10,7 @@ run it locally.
 | [`go-stdlib`](go-stdlib) | A link shortener, with only the standard library | A build from `go.mod` alone, `HOST` and `PORT`, a graceful stop, data that two instances can share during a deploy |
 | [`node-express`](node-express) | A live poll: an Express API and a Vite front end | `npm ci`, a build script, pruning, the start script, assets cached for good, variables from `[env]` |
 | [`static-site`](static-site) | A team handbook | Clean URLs, a 404 page, headers, redirects that keep old links working |
+| [`container-go`](container-go) | A guestbook, in an image with one binary in it | `runtime = "dockerfile"`, a multi-stage Containerfile, a user that is not root, resource limits, a release command with no shell. Needs Podman or Docker on the server |
 
 To try them, install Moorage on your own computer
 ([installing Moorage](../docs/install.md)):
@@ -28,8 +29,8 @@ Then, in another terminal, from an example's directory:
 moor deploy
 ```
 
-The app is at `http://<name>.localhost:8080`: `tasks`, `links`, `poll` or
-`handbook`. Chromium- and Firefox-based browsers open `*.localhost`
+The app is at `http://<name>.localhost:8080`: `tasks`, `links`, `poll`,
+`handbook` or `guestbook`. Chromium- and Firefox-based browsers open `*.localhost`
 addresses on their own; for `curl`, send the name as the `Host` header
 (`curl -H 'Host: tasks.localhost' http://127.0.0.1:8080/`).
 

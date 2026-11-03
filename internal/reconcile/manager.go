@@ -8,6 +8,7 @@ package reconcile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/driver/native"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -49,6 +51,19 @@ type Options struct {
 	ToolchainBins func(name, version string) []string
 	// Secrets opens the sealed values of secret variables.
 	Secrets Opener
+	// Containers runs apps in containers; without it, the server has no
+	// container engine.
+	Containers *container.Driver
+}
+
+// runner is what the manager asks of a driver about an instance it runs.
+type runner interface {
+	Status(id string) (shim.State, bool, error)
+	Restart(id string) error
+	Stop(id string, stopTimeout time.Duration) error
+	CleanupOrphan(st shim.State)
+	Remove(id string)
+	List() []string
 }
 
 // Opener decrypts the value of a secret variable.
@@ -92,6 +107,8 @@ type instance struct {
 	logFile   string
 	tmpDir    string
 	backend   *ingress.Backend // nil for a process that does not listen
+	run       runner           // the driver that runs it
+	container bool             // whether that is the container driver
 
 	stopHealth context.CancelFunc
 }
@@ -119,7 +136,12 @@ func New(db *store.DB, cfg config.Config, opts Options, log *slog.Logger) *Manag
 
 // Shutdown stops health checks. Instances keep running: a new server adopts
 // them.
-func (m *Manager) Shutdown() { m.cancel() }
+func (m *Manager) Shutdown() {
+	m.cancel()
+	if m.opts.Containers != nil {
+		m.opts.Containers.Shutdown()
+	}
+}
 
 // Pool returns the backend pool of an environment (ingress.PoolSource).
 func (m *Manager) Pool(app, env string) *ingress.Pool { return m.env(app, env).pool }
@@ -219,35 +241,56 @@ func (m *Manager) Adopt(ctx context.Context) error {
 	known := map[string]bool{}
 	for _, li := range lives {
 		known[li.ID] = true
-		st, alive, err := m.driver.Status(li.ID)
-		if err != nil || !alive {
-			if err == nil {
-				m.driver.CleanupOrphan(st)
-			}
-			m.driver.Remove(li.ID)
-			m.db.StopInstance(ctx, li.ID)
-			continue
-		}
 		plan, err := readPlan(li.Build)
 		if err != nil {
 			return err
 		}
-		es := m.env(li.App, li.Env)
 		in := &instance{
 			id: li.ID, process: li.Process, index: li.Index, releaseID: li.ReleaseID, version: li.Version,
 			buildID: li.Build.ID, port: li.Port, proc: plan.Processes[li.Process],
 			logFile: m.logFile(li.App, li.Env, li.Process, li.Index, li.ID), tmpDir: m.tmpDir(li.ID),
+			run: m.driver,
 		}
+		var st shim.State
+		if li.Driver == driverContainer {
+			in.container = true
+			if st, err = m.adoptContainer(ctx, li, plan, in); err != nil {
+				if !errors.Is(err, container.ErrNotFound) {
+					m.log.Warn("cannot adopt a container", "app", li.App, "instance", li.ID, "err", err)
+				}
+				m.db.StopInstance(ctx, li.ID)
+				continue
+			}
+			in.run = m.opts.Containers
+		} else {
+			var alive bool
+			st, alive, err = m.driver.Status(li.ID)
+			if err != nil || !alive {
+				if err == nil {
+					m.driver.CleanupOrphan(st)
+				}
+				m.driver.Remove(li.ID)
+				m.db.StopInstance(ctx, li.ID)
+				continue
+			}
+		}
+		es := m.env(li.App, li.Env)
 		if li.Port != 0 {
 			in.backend = ingress.NewBackend(li.ID, fmt.Sprintf("127.0.0.1:%d", li.Port))
 		}
 		es.add(in)
 		m.log.Info("adopted a running instance", "app", li.App, "env", li.Env, "instance", li.ID, "pid", st.AppPID)
 	}
-	for _, id := range m.driver.List() {
-		if !known[id] {
-			m.log.Warn("stopping an instance unknown to the database", "instance", id)
-			m.driver.Stop(id, 10*time.Second)
+	runners := []runner{m.driver}
+	if m.opts.Containers != nil {
+		runners = append(runners, m.opts.Containers)
+	}
+	for _, r := range runners {
+		for _, id := range r.List() {
+			if !known[id] {
+				m.log.Warn("stopping an instance unknown to the database", "instance", id)
+				r.Stop(id, 10*time.Second)
+			}
 		}
 	}
 	// Serve the current release of every adopted environment; instances of
@@ -323,14 +366,14 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 		if in.releaseID != rel.ID {
 			continue
 		}
-		st, alive, err := m.driver.Status(in.id)
+		st, alive, err := in.run.Status(in.id)
 		if err == nil && (alive || st.Final()) {
 			have[fmt.Sprintf("%s/%d", in.process, in.index)] = true
 			continue
 		}
-		m.log.Warn("an instance's shim is gone; replacing the instance", "app", es.app, "instance", in.id)
+		m.log.Warn("an instance's shim or container is gone; replacing the instance", "app", es.app, "instance", in.id)
 		if err == nil {
-			m.driver.CleanupOrphan(st)
+			in.run.CleanupOrphan(st)
 		}
 		m.retire(es, []*instance{in}, 0)
 	}
@@ -396,7 +439,7 @@ func (m *Manager) Instances(app, env string) []InstanceInfo {
 	var out []InstanceInfo
 	for _, in := range es.list() {
 		info := InstanceInfo{ID: in.id, Process: in.process, Index: in.index, Version: in.version, Port: in.port}
-		st, alive, err := m.driver.Status(in.id)
+		st, alive, err := in.run.Status(in.id)
 		switch {
 		case err != nil:
 			info.Status = "unknown"

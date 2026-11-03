@@ -192,6 +192,11 @@ external_scheme = {{q .Proxy.ExternalScheme}}
 # uv_url     = "https://github.com/astral-sh/uv/releases"
 # python_url = ""   # handed to uv as its Python mirror
 
+[containers]
+# What runs apps in containers: "auto" for Podman if it is installed, or else
+# Docker, or the path of a binary.
+engine = {{q .Containers.Engine}}
+
 [log]
 level  = {{q .Log.Level}}   # debug, info, warn or error
 format = {{q .Log.Format}}   # text or json

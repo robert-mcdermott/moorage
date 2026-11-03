@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -128,7 +129,14 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 	}
 	in := &instance{
 		id: ids.New(ids.Instance), process: name, index: index, releaseID: rel.ID, version: rel.Version,
-		buildID: build.ID, proc: proc,
+		buildID: build.ID, proc: proc, run: m.driver,
+	}
+	driver := driverNative
+	if plan.Container != nil {
+		if m.opts.Containers == nil {
+			return nil, container.ErrNoEngine
+		}
+		in.run, in.container, driver = m.opts.Containers, true, driverContainer
 	}
 	in.logFile = m.logFile(es.app, es.env, name, index, in.id)
 	in.tmpDir = m.tmpDir(in.id)
@@ -140,7 +148,7 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 		}
 		err = m.db.CreateInstance(ctx, store.Instance{
 			ID: in.id, EnvID: envID, ReleaseID: rel.ID, Process: name, Index: index,
-			Driver: "native", Port: in.port, CreatedAt: time.Now(),
+			Driver: driver, Port: in.port, CreatedAt: time.Now(),
 		})
 		m.release(in.port)
 		if err == nil {
@@ -155,13 +163,25 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 		in.backend.SetHealthy(false)
 	}
 	es.add(in)
-	spec, secretEnv, err := m.spec(ctx, es, rel, build, plan, in)
-	if err != nil {
-		return in, err
-	}
-	st, err := m.driver.Start(ctx, spec, secretEnv)
-	if err != nil {
-		return in, fmt.Errorf("start the %s process: %w", name, err)
+	var st shim.State
+	if in.container {
+		spec, err := m.containerSpec(ctx, es, rel, build, plan, in)
+		if err != nil {
+			return in, err
+		}
+		st, err = m.opts.Containers.Start(ctx, spec)
+		if err != nil {
+			return in, fmt.Errorf("start the %s process: %w", name, err)
+		}
+	} else {
+		spec, secretEnv, err := m.spec(ctx, es, rel, build, plan, in)
+		if err != nil {
+			return in, err
+		}
+		st, err = m.driver.Start(ctx, spec, secretEnv)
+		if err != nil {
+			return in, fmt.Errorf("start the %s process: %w", name, err)
+		}
 	}
 	if st.Final() {
 		return in, m.failure(in, fmt.Sprintf("the %s process could not start (exit status %d)", name, exitCode(st)))
@@ -237,20 +257,8 @@ func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release
 	for k, v := range plan.Env {
 		vars[k] = v
 	}
-	for _, v := range rel.Config {
-		if !v.Secret {
-			vars[v.Name] = v.Value
-			continue
-		}
-		if m.opts.Secrets == nil {
-			return nil, nil, fmt.Errorf("%s is a secret, and this server cannot decrypt secrets", v.Name)
-		}
-		value, err := m.opts.Secrets.Open(ctx, rel.AppID, v.Scope, v.Name, v.Sealed)
-		if err != nil {
-			return nil, nil, err
-		}
-		delete(vars, v.Name)
-		secrets[v.Name] = value
+	if err := m.addConfig(ctx, rel.AppID, rel.Config, vars, secrets); err != nil {
+		return nil, nil, err
 	}
 	var path []string
 	for _, t := range plan.Toolchains {
@@ -262,23 +270,49 @@ func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release
 		path = append(path, filepath.Join(dir, filepath.FromSlash(p)))
 	}
 	vars["PATH"] = oneoff.PrependPath(path, vars["PATH"])
-	host := app + "." + m.cfg.Domain
+	m.addMoorage(app, env, rel, build, "127.0.0.1", dataDir, vars, secrets)
+	vars["MOORAGE_BIN"] = filepath.Join(dir, ".moorage", "bin")
+	delete(secrets, "MOORAGE_BIN")
+	return vars, secrets, nil
+}
+
+// addConfig adds a release's variables: the values of secrets, decrypted, go to
+// secrets.
+func (m *Manager) addConfig(ctx context.Context, appID string, cfg []store.ConfigVar, vars, secrets map[string]string) error {
+	for _, v := range cfg {
+		if !v.Secret {
+			vars[v.Name] = v.Value
+			continue
+		}
+		if m.opts.Secrets == nil {
+			return fmt.Errorf("%s is a secret, and this server cannot decrypt secrets", v.Name)
+		}
+		value, err := m.opts.Secrets.Open(ctx, appID, v.Scope, v.Name, v.Sealed)
+		if err != nil {
+			return err
+		}
+		delete(vars, v.Name)
+		secrets[v.Name] = value
+	}
+	return nil
+}
+
+// addMoorage adds the variables Moorage sets, which nothing overrides.
+func (m *Manager) addMoorage(app, env string, rel store.Release, build store.Build, host, dataDir string, vars, secrets map[string]string) {
 	for k, v := range map[string]string{
-		"HOST":              "127.0.0.1",
+		"HOST":              host,
 		"MOORAGE_APP":       app,
 		"MOORAGE_ENV":       env,
 		"MOORAGE_ENV_KIND":  "production",
 		"MOORAGE_RELEASE":   "v" + strconv.Itoa(rel.Version),
 		"MOORAGE_BUILD_ID":  build.ID,
-		"MOORAGE_URL":       m.cfg.PublicURL(host),
+		"MOORAGE_URL":       m.cfg.PublicURL(app + "." + m.cfg.Domain),
 		"MOORAGE_BASE_PATH": "",
 		"MOORAGE_DATA_DIR":  dataDir,
-		"MOORAGE_BIN":       filepath.Join(dir, ".moorage", "bin"),
 	} {
 		vars[k] = v
 		delete(secrets, k)
 	}
-	return vars, secrets, nil
 }
 
 // RunOnce runs a command of a release once, as the release's processes
@@ -286,6 +320,9 @@ func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release
 // the release command of a deployment. Its output goes to log as log
 // lines, with the values of secrets removed.
 func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error {
+	if plan.Container != nil {
+		return m.runContainerOnce(ctx, app, env, rel, build, plan, command, timeout, log)
+	}
 	tmp := m.tmpDir("run-" + rel.ID)
 	defer os.RemoveAll(tmp)
 	vars, secrets, err := m.appEnv(ctx, app, env, rel, build, plan, tmp)
@@ -317,7 +354,7 @@ func (m *Manager) awaitReady(ctx context.Context, es *envState, in *instance) er
 	t := time.NewTicker(m.opts.Probe)
 	defer t.Stop()
 	for {
-		st, alive, err := m.driver.Status(in.id)
+		st, alive, err := in.run.Status(in.id)
 		if err != nil || !alive || st.Status != shim.Running || st.Restarts > 0 || st.LastExit != nil {
 			code := exitCode(st)
 			return m.failure(in, fmt.Sprintf("the %s process exited while starting (status %d)", in.process, code))
@@ -365,8 +402,8 @@ func (m *Manager) probe(es *envState, in *instance) bool {
 		if err != nil {
 			return false
 		}
-		conn.Close()
-		return true
+		defer conn.Close()
+		return !in.container || answers(conn, h.Timeout.Std())
 	}
 	req, err := http.NewRequest(http.MethodGet, "http://"+addr+h.Path, nil)
 	if err != nil {
@@ -391,6 +428,15 @@ func (m *Manager) probe(es *envState, in *instance) bool {
 	return strings.Contains(string(body), h.Expect)
 }
 
+// answers reports whether something is behind a published port: the engine
+// accepts connections to it whatever the container is doing, and closes them at
+// once if nothing in the container listens.
+func answers(conn net.Conn, timeout time.Duration) bool {
+	conn.SetReadDeadline(time.Now().Add(min(timeout, 300*time.Millisecond)))
+	_, err := conn.Read(make([]byte, 1))
+	return err == nil || errors.Is(err, os.ErrDeadlineExceeded)
+}
+
 // watch checks an instance's health until it is retired: after threshold
 // failures it gets no traffic, and after as many more it is restarted.
 func (m *Manager) watch(es *envState, in *instance) {
@@ -408,7 +454,7 @@ func (m *Manager) watch(es *envState, in *instance) {
 			case <-t.C:
 			}
 			ok := false
-			if st, alive, err := m.driver.Status(in.id); err == nil && alive && st.Status == shim.Running {
+			if st, alive, err := in.run.Status(in.id); err == nil && alive && st.Status == shim.Running {
 				ok = in.backend == nil || m.probe(es, in)
 			}
 			if ok {
@@ -430,7 +476,7 @@ func (m *Manager) watch(es *envState, in *instance) {
 				}
 			case 2 * h.Threshold:
 				m.log.Warn("instance still unhealthy; restarting it", "app", es.app, "instance", in.id)
-				m.driver.Restart(in.id)
+				in.run.Restart(in.id)
 				failures = h.Threshold
 			}
 		}
@@ -469,7 +515,7 @@ func (m *Manager) retire(es *envState, ins []*instance, drain time.Duration) {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			start := time.Now()
-			if err := m.driver.Stop(in.id, in.proc.StopTimeout.Std()); err != nil {
+			if err := in.run.Stop(in.id, in.proc.StopTimeout.Std()); err != nil {
 				m.log.Warn("stopping an instance", "instance", in.id, "err", err)
 			}
 			if took := time.Since(start); took > 5*time.Second {

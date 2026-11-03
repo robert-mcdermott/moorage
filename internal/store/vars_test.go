@@ -78,7 +78,7 @@ func TestVarsAndReleaseConfig(t *testing.T) {
 		t.Errorf("release with an earlier configuration: %+v %v", r2, err)
 	}
 
-	if has, _ := db.HasDataKeys(ctx); has {
+	if has, _ := db.HasSealed(ctx); has {
 		t.Error("data keys before any was added")
 	}
 	k1, _ := db.AddDataKey(ctx, appID, []byte("first"))

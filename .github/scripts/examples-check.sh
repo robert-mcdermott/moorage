@@ -20,10 +20,22 @@ export MOORAGE_CONFIG=$work/server.toml
 "$moor" server run > "$work/server.log" 2>&1 &
 server=$!
 
+# What runs container-go, if this machine has an engine for it.
+engine=$(command -v podman || command -v docker || true)
+
 # Apps outlive the server by design: stop the server, then each app's shim
-# (which stops its app), by the PID in its state file.
+# (which stops its app), by the PID in its state file, and the example's
+# containers by their label.
 cleanup() {
   kill "$server" 2> /dev/null && wait "$server" 2> /dev/null || true
+  if [ -n "$engine" ]; then
+    for container in $("$engine" ps -aq --filter label=io.moorage.app=guestbook); do
+      "$engine" rm -f "$container" > /dev/null || true
+    done
+    for image in $("$engine" images -q --filter label=io.moorage.app=guestbook); do
+      "$engine" image rm -f "$image" > /dev/null || true
+    done
+  fi
   for state in "$work"/data/run/shims/*.state.json; do
     [ -e "$state" ] || continue
     kill "$(sed -n 's/.*"shim_pid": *\([0-9]*\).*/\1/p' "$state")" 2> /dev/null || true
@@ -96,6 +108,22 @@ check "an old link redirects" 'contains "$(headers handbook /docs/onboarding)" "
 check "its own 404 page" '[ "$(code handbook /nope)" = 404 ] && contains "$(body handbook /nope)" "not in the handbook"'
 check "headers for every file" 'contains "$(headers handbook /)" "X-Frame-Options: DENY"'
 check "a cache lifetime for the stylesheet" 'contains "$(headers handbook /assets/style.css)" "Cache-Control: public, max-age=86400"'
+
+if [ -n "$engine" ]; then
+  echo "--- deploying container-go, with $engine"
+  (cd "$root/examples/container-go" && "$moor" deploy)
+  echo "--- guestbook (container-go)"
+  check "the page" 'contains "$(body guestbook /)" "<title>Guestbook</title>"'
+  check "says which release it is" 'contains "$(body guestbook /)" "Running v1 in a container"'
+  check "the release command ran, with no shell in the image" '[ -e "$work/data/data/guestbook/production/guestbook.version" ]'
+  check "takes an entry" '[ "$(code guestbook /sign -d "name=CI&message=from+the+check")" = 303 ]'
+  (cd "$root/examples/container-go" && "$moor" deploy)
+  check "the entry outlives the release" 'contains "$(body guestbook /)" "from the check"'
+  check "the new release serves" 'contains "$(body guestbook /)" "Running v2 in a container"'
+  check "runs as the image says" '[ "$("$engine" ps --filter label=io.moorage.app=guestbook --format "{{.Names}}" | xargs "$engine" inspect --format "{{.Config.User}}")" = 65532:65532 ]'
+else
+  echo "--- no container engine: skipping container-go"
+fi
 
 if [ "$failures" != 0 ]; then
   echo "$failures checks failed"
