@@ -11,7 +11,8 @@ nothing stays implicit for long.
 
 ## Why TOML
 
-- Unambiguous types (no "Norway problem", no significant indentation).
+- Unambiguous types (a bare `no` or `3.10` is never silently reinterpreted)
+  and no significant indentation.
 - Comfortable for Go, Python (`pyproject.toml`) and Rust developers alike.
 - Comments are supported, and there is good editor support with schema
   validation. Moorage publishes a JSON Schema (`moor manifest schema`) so
@@ -36,6 +37,9 @@ nothing stays implicit for long.
 5. **Commands** are strings interpreted by Moorage's embedded POSIX-compatible
    shell, so `&&`, `$VAR`, quoting and redirection behave identically on
    Linux, macOS and Windows (see [Runtime](05-runtime.md#command-execution)).
+   The *programs* a command calls must still exist on the host — stock
+   Windows has no `cp`, `grep` or `sed` — so portable manifests stick to the
+   toolchains' own commands.
 
 ## Quick examples
 
@@ -68,7 +72,7 @@ health = { path = "/healthz" }
 ```toml
 [app]
 runtime = "python"        # uv-managed; Python version from .python-version
-toolchains = ["node@22"]  # frontend build needs Node too
+toolchains = ["node@24"]  # frontend build needs Node too
 
 [build]
 post = "npm --prefix frontend ci && npm --prefix frontend run build"
@@ -175,6 +179,8 @@ command = "build/install/app/bin/app --port $PORT"
 | `runtime` | string | `"auto"` | `auto`, `static`, `go`, `python`, `node`, `bun`, `deno`, `binary`, `command`, `dockerfile`, `image`. |
 | `toolchains` | string[] | `[]` | Extra toolchains (`name@version`) on `PATH` during build and run, in addition to the runtime's own. Versions may be partial (`"22"`, `"3.13"`); the resolved exact version is recorded in the release. |
 | `root` | string | `"."` | Sub-directory containing the app (monorepos). The manifest is read from `<root>/moorage.toml`. |
+| `shell` | string | `"embedded"` | `embedded` (portable POSIX shell built into Moorage) or `system` (`/bin/sh -c`, or `cmd.exe /c` on Windows) for build and run commands. |
+| `watch` | string[] | `["**"]` | Path globs (relative to the repository root). A push whose changes match none of them is stored but not deployed — useful when several apps share one repository. |
 
 ### Runtime-specific tables
 
@@ -199,7 +205,7 @@ Preset `web`: `$MOORAGE_BIN/$binary`.
 | Key | Default | Description |
 |---|---|---|
 | `version` | `.python-version`, else `requires-python`, else latest stable | Python version (installed via uv). |
-| `manager` | `uv` if `pyproject.toml`; `uv-pip` if only `requirements.txt` | `uv` runs `uv sync --locked --no-dev`; `uv-pip` creates a venv and runs `uv pip install -r requirements.txt`. |
+| `manager` | `uv` if `pyproject.toml`; `uv-pip` if only `requirements.txt` | `uv` runs `uv sync --locked --no-dev` (without `--locked`, plus a reproducibility warning, when the repository has no `uv.lock`; a stale lock fails the build); `uv-pip` creates a venv and runs `uv pip install -r requirements.txt`. |
 | `groups` | `[]` | Extra dependency groups to install. |
 | `extras` | `[]` | Optional extras to install. |
 
@@ -229,8 +235,9 @@ an `index.html`, the app is treated as a static site.
 | `clean_urls` | `true` | `/about` serves `about.html`; `/about.html` redirects to `/about`. |
 | `not_found` | `"404.html"` if present | Page served with status 404. |
 | `trailing_slash` | `"auto"` | `auto`, `always`, `never`. |
+| `listing` | `false` | Generate directory listings (internal file shares, artifact sites). |
 | `[[static.headers]]` | — | `for = "/assets/*"`, `values = { "Cache-Control" = "…" }`. |
-| `[[static.redirects]]` | — | `from`, `to`, `status` (301/302/307/308, or 200 for a rewrite). `*` splats and `:name` placeholders are supported: `from = "/blog/:year/*"`, `to = "/posts/:year/:splat"`. |
+| `[[static.redirects]]` | — | `from`, `to`, `status` (301/302/307/308, or 200 for a rewrite), `force`. Rules are evaluated in order and the first match wins; an existing file shadows a rule unless `force = true`. `*` splats and `:name` placeholders are supported: `from = "/blog/:year/*"`, `to = "/posts/:year/:splat"`. |
 
 Hashed asset files (`*.[hash].js` etc.) automatically get long-lived
 immutable cache headers; HTML gets `no-cache`. Pre-compressed `.br`/`.gz`
@@ -274,12 +281,16 @@ traffic by default. A process can be given as a plain string
 | `stop_signal` | string | `"TERM"` | Signal sent on stop (`TERM`, `INT`, `QUIT`; Windows uses console break). |
 | `stop_timeout` | duration | `"30s"` | Time between stop signal and forced kill. |
 | `restart` | string | `"always"` | `always`, `on-failure`, `never`. |
+| `sleep` | bool | `true` | Whether this process is stopped when the environment sleeps. |
+| `protocol` | string | `"http"` | `http`, or `h2c` for cleartext HTTP/2 backends such as gRPC *(Phase 3)*. |
 
 **`health`**
 
 | Key | Default | Description |
 |---|---|---|
 | `path` | — | HTTP `GET` path; 2xx/3xx is healthy. Without it, a TCP connect to `$PORT` is used. |
+| `expect` | — | Optional text the HTTP response body must contain. |
+| `min_uptime` | `"5s"` | For non-exposed processes (workers): during a rollout, the new instance must stay running this long to count as healthy. |
 | `command` | — | Alternative: command run in the instance environment; exit 0 is healthy. |
 | `interval` | `"10s"` | Time between liveness checks. |
 | `timeout` | `"3s"` | Per-check timeout. |
@@ -295,8 +306,9 @@ aborts the deployment and leaves the current release serving.
 
 | Key | Default | Description |
 |---|---|---|
-| `command` | — | Command to run. |
-| `timeout` | `"10m"` | Time limit. |
+| `command` | — | Command to run on every deployment. |
+| `on_create` | — | Command run **once**, after the first successful deployment of each new environment. Ideal for seeding demo data into previews and customer sandboxes. |
+| `timeout` | `"10m"` | Time limit (each command). |
 
 ### `[deploy]`
 
@@ -342,6 +354,30 @@ prefix.
 Non-secret default environment variables, available at build and run time.
 Server-side variables with the same name win. Moorage also injects its own
 variables (see [Runtime → Environment](05-runtime.md#environment-variables)).
+
+### `[vars.<NAME>]`
+
+Declares variables the app **expects** without putting values in the
+repository. The console shows declared variables as a checklist per
+environment, and a deployment fails early, with a clear message, if a
+required variable is missing.
+
+```toml
+[vars.SECRET_KEY]
+generate = "secret"          # random value created once per environment, stored encrypted
+
+[vars.PAYMENTS_API_KEY]
+required = true
+secret = true
+description = "Sandbox key for the payments provider"
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `description` | — | Shown in the console and CLI. |
+| `required` | `false` | Deployment fails if unset. |
+| `secret` | `false` | Value must be stored as a secret. |
+| `generate` | — | `secret` (32 random bytes, URL-safe) or `uuid`: generated once per environment, so every preview gets its own value. |
 
 ### `[resources]`
 

@@ -81,6 +81,9 @@ as an internal "pages" service that can also run real applications.
 - **A CI system.** Builds are intentionally simple (one build command per app,
   run in a prepared toolchain environment). Test matrices, pipelines and
   artifact promotion workflows belong in your CI; Moorage accepts their output.
+- **Internet-facing first.** The initial target is internal (corporate)
+  networks. Internet-facing installations — public certificates, hardening for
+  public exposure — are designed for but come later.
 - **Production-scale autoscaling, multi-region, CDNs.** Out of scope.
 - **Replacing a database operations team.** Managed services (Postgres, Redis,
   …) are planned for convenience in dev/preview environments, not as
@@ -95,8 +98,10 @@ as an internal "pages" service that can also run real applications.
    simple. Advanced settings exist but stay out of the way until needed.
 3. **Every environment gets a URL immediately.** Routing, TLS and access
    control are automatic. No "now configure your proxy" step.
-4. **API-first.** The web console and the CLI are both clients of the same
-   public, versioned REST API. Anything the UI can do, a script can do.
+4. **API-first.** The CLI and automation use a public, versioned REST API;
+   the web console is rendered by the server from the same service layer, and
+   every console action has an API equivalent. Anything the UI can do, a
+   script can do.
 5. **Desired state + reconciliation.** The database records what *should* be
    running; a reconciler continuously converges reality toward it. Crashes,
    reboots and daemon upgrades heal themselves.
@@ -125,13 +130,14 @@ as an internal "pages" service that can also run real applications.
 |---|---|
 | **App** | A deployable unit, usually one source repository. Has a name that becomes part of its URL. |
 | **Environment** | A running copy of an app with its own URL, configuration, data and history. Every app has `production`; it may also have long-lived named environments (`staging`) and ephemeral **previews** (one per branch). |
-| **Deployment** | One attempt to build and roll out a source revision to an environment. Succeeds (creating a release) or fails. |
-| **Release** | The immutable result of a successful build plus its resolved configuration. Numbered `v1`, `v2`, … per environment. Rollback targets a release. |
+| **Build** | The immutable artifact produced from one source revision — a directory (native) or an image (container). Belongs to the app and can be shared by several environments. |
+| **Release** | A build plus a configuration snapshot for one environment. Numbered `v1`, `v2`, … per environment. Deploys, config changes, rollbacks and promotions each create a release. |
+| **Deployment** | The job that produces a release: build (or reuse a build), run the release command, roll out. Succeeds or fails. |
 | **Process type** | A named command declared in the manifest (`web`, `worker`, …). |
 | **Instance** | One running copy of a process type. `web` may have several instances. |
 | **Route** | A hostname (and optional path prefix) mapped to an environment. |
 | **Runtime** | How an app is built and started: `static`, `go`, `python`, `node`, `bun`, `deno`, `binary`, `command`, `dockerfile`, `image`. |
 | **Driver** | How instances are executed: `native` (a supervised OS process) or `container` (via Podman/Docker). |
-| **Toolchain** | A pinned language runtime/tool version (Go 1.26, Node 22, Python 3.13, uv …) that Moorage downloads, verifies and caches. |
+| **Toolchain** | A pinned language runtime/tool version (Go 1.27, Node 24, Python 3.13, uv …) that Moorage downloads, verifies and caches. |
 | **Shim** | A tiny supervisor process (`moor shim`, the same binary) that owns one running instance, captures its output and keeps it alive across daemon restarts. |
 | **Gate** | An access control policy in front of an environment: public, password, sign-in, share link, IP allowlist. |
