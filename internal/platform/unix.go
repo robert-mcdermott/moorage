@@ -46,6 +46,17 @@ func (l *Lock) Unlock() error {
 	return l.f.Close()
 }
 
+// DiskSpace returns how much of the filesystem holding path is free for this
+// user, and how big it is, in bytes.
+func DiskSpace(path string) (free, total uint64, err error) {
+	var st unix.Statfs_t
+	if err := unix.Statfs(path, &st); err != nil {
+		return 0, 0, err
+	}
+	size := uint64(st.Bsize)
+	return uint64(st.Bavail) * size, uint64(st.Blocks) * size, nil
+}
+
 // KillGroup sends SIGKILL to the process group pgid.
 func KillGroup(pgid int) error {
 	if pgid <= 1 {

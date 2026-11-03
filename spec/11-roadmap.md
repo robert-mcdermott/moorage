@@ -601,6 +601,41 @@ directory, supervises it, and serves it on its own hostname.
    `moor server proxy-config nginx`; `moor server doctor` (DNS, ports, TLS, the
    proxy path, the container engine, kernel features); the laptop-mode
    resolver helper. Completes spike S5.
+   - Done in slice 5:
+     - `moor trust`, by `internal/truststore`, with each system's own tools: the
+       keychain on macOS, the certificate store on Windows, the distribution's
+       anchors on Linux and the browsers' lists there. It finds the CA in the
+       server's files on its own machine, or asks the server, and then wants a
+       person or `--fingerprint` to confirm it. `--remove` and `--print` go with it.
+     - `moor server proxy-config nginx`, from `internal/config`.
+     - `moor server doctor`, in `internal/doctor`, with `--public-url` and
+       `/.moorage/proxy-check` to check the path through a proxy.
+     - `moor server resolver`, on macOS, with `internal/localdns` behind `listen.dns`.
+     - `moor server stop` stops a foreground server, by the PID in the data
+       directory's lock, and `--all` stops apps in containers too.
+     - `docs/tls.md`, `docs/proxy.md` and `docs/troubleshooting.md`.
+     - Verified with: the doctor against proxies that misbehave in each way it
+       looks for; tests of trust on a fake machine (no test here changes a real
+       store); a CI job per system that changes the real store on a runner it throws
+       away, with `moor`, a Go program using that store, as the client; the resolver
+       rule on a macOS runner; and a CI job behind a real nginx, with the doctor, a
+       deploy and an 8 MB push through it. By hand with the binary on macOS, with
+       the examples check using `moor server stop --all` to clean up.
+   - Found by slice 5:
+     - `moor server stop --all` did not know about containers, which slice 4 left
+       running. It does now.
+     - With a server tried out on the side, `moor server stop` would have stopped the
+       real service. It now acts on a service only if that runs this configuration.
+     - A `moor trust` that asks a server is trusting an unauthenticated answer. Beyond
+       the fingerprint, it can at least check that the server's own certificate comes
+       from the CA it offers, which catches much of what interception looks like.
+     - The hosts-file block for Windows needs a server that runs as a service with
+       rights to the file, so it waits for the Windows server of wave 7.
+     - The doctor warned of 63 GiB free on a large disk, for being under 10%. Space is
+       judged by what is free, not by the share.
+     - Checks on Firefox on macOS and Windows would need a person: `moor trust` says
+       it may keep its own list, and `--print` writes the certificate to import. Real
+       browsers are not part of CI: the Go client uses the same system verifier.
 6. **Release 0.2.0.**
 
 ## 0.3.0: the console (planned)
@@ -743,7 +778,7 @@ slice before code is built on a failed assumption.
 | S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 6) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. Slice 6: through `systemctl restart` and a launchd restart under load, the app keeps its process and none of its requests fail; shim private memory 4.4–5.3 MB on Linux. The Windows service comes with the Windows server (wave 7).* |
 | S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. *Shown in slice 4 on macOS: seven sample apps built from source, deployed and rolled back, with partial versions resolved and every download verified (a CI job runs them on Linux and macOS); the Node.js checksum file's signature is checked in wave 6.* |
 | S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances in slice 3 (over 10,000 requests across a deploy, a rolling restart and a rollback, none failed; upgraded connections pass through).* |
-| S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 5 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
+| S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 5 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. *Slice 2: issuance and renewal, with both a generated root and an intermediate chain. Slice 5: `moor trust` changes the real store on Linux, macOS and Windows runners, after which `moor`, using that store through each system's verifier, accepts the certificates (curl too on Linux), and `--remove` undoes it. Browsers themselves were not driven: the store and the verifier are theirs on macOS and Windows.* |
 | S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 4 (stats: wave 5) | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. *Slice 4: all but stats, with both engines in CI and Podman on macOS, by one code path: exits and OOM kills come from `wait` and `inspect`, not per-engine events (decision D3). Stats, with their adapters, remain for the metrics of wave 5.* |
 | S7 | Linux cgroup v2 delegation and Landlock applied by the exec helper. | Wave 6, slice 1 | Limits enforced, OOM detected and reported, filesystem rules effective. |
 

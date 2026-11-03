@@ -100,6 +100,39 @@ jobs:
         if: ${{ !cancelled() }}
         run: go test ./internal/server -run 'TestContainer' -v -count=1 -timeout 15m
 
+  trust:
+    # Puts the server's CA into each system's real trust store, and checks that
+    # what uses that store accepts its certificates. It also tries the resolver
+    # rule on macOS. The runner is thrown away afterwards.
+    name: Trust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Trust the CA, and take it back
+        shell: bash
+        run: .github/scripts/trust-check.sh
+
+  proxy:
+    # Runs a server behind a real nginx, with the configuration moor writes.
+    name: Behind nginx
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install nginx
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nginx
+      - name: Deploy and push through nginx
+        run: .github/scripts/proxy-check.sh
+
   service:
     # Installs the server as a system service (systemd, launchd), restarts it
     # with an app under load, and checks the app kept running (spike S2).

@@ -361,3 +361,16 @@ type RegistryLogin struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
+
+// ProxyCheck says what reached the server, for moor server doctor.
+type ProxyCheck struct {
+	// Peer is who connected, and Trusted whether that is a trusted proxy.
+	Peer           string `json:"peer"`
+	Trusted        bool   `json:"trusted"`
+	Host           string `json:"host"`
+	ForwardedFor   string `json:"forwarded_for,omitempty"`
+	ForwardedProto string `json:"forwarded_proto,omitempty"`
+	ForwardedHost  string `json:"forwarded_host,omitempty"`
+	// TLS says the connection reaching the server was TLS.
+	TLS bool `json:"tls,omitempty"`
+}

@@ -40,6 +40,9 @@ type Listen struct {
 	HTTP  string `toml:"http"`
 	HTTPS string `toml:"https"`
 	SSH   string `toml:"ssh"`
+	// DNS, if set, is a loopback address where the server answers DNS queries
+	// for its domain, for moor server resolver.
+	DNS string `toml:"dns"`
 }
 
 // TLS selects how Moorage terminates TLS, if at all.
@@ -249,6 +252,12 @@ func (c Config) Validate() error {
 		add("listen.http is required")
 	} else if err := checkListen(c.Listen.HTTP); err != nil {
 		add("listen.http: %v", err)
+	}
+	if c.Listen.DNS != "" {
+		host, _, err := net.SplitHostPort(c.Listen.DNS)
+		if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() {
+			add("listen.dns: %q must be a loopback address and a port, such as 127.0.0.1:15353: it answers only for this computer", c.Listen.DNS)
+		}
 	}
 	for _, l := range []struct{ name, addr string }{{"listen.https", c.Listen.HTTPS}, {"listen.ssh", c.Listen.SSH}} {
 		if l.addr != "" {

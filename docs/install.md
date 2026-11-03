@@ -65,8 +65,8 @@ sudo moor server init --domain apps.example.com
 
 Point a wildcard DNS record, `*.apps.example.com`, at the server. Browsers
 trust the certificates once they trust Moorage's CA, which every app serves
-at `/.moorage/ca.crt` (installing it with `moor trust` arrives in 0.2.0). To
-use your own certificates — a corporate wildcard, for instance — set
+at `/.moorage/ca.crt`, and `moor trust` installs ([TLS and trusting the
+server](tls.md)). To use your own certificates — a corporate wildcard, for instance — set
 `tls.mode = "files"` and list them under `[[tls.certificates]]`; an
 intermediate CA from your corporate CA can issue certificates instead
 (`tls.ca_cert`, `tls.ca_key`).
@@ -79,10 +79,13 @@ sudo moor server init --domain apps.example.com --behind-proxy
 ```
 
 The proxy must keep the `Host` header, pass WebSocket upgrades, not buffer
-responses, and allow long requests and large uploads.
+responses, and allow long requests and large uploads. `moor server proxy-config
+nginx` writes a configuration for nginx: see [Behind a TLS proxy](proxy.md).
 
 Every setting is explained in the file itself; `moor server run` checks it
-strictly and names the line of every problem.
+strictly and names the line of every problem. `moor server doctor` checks the
+rest, at any time, and says how to fix what it finds ([When something is
+wrong](troubleshooting.md)).
 
 ## 3. Run it as a service
 
@@ -111,7 +114,8 @@ sudo moor server restart
 Apps keep running while the server stops or restarts: each runs under a small
 supervisor of its own, and the server takes them over when it starts again.
 Requests to apps are refused for the moment the server restarts.
-`moor server stop --all` stops the apps too; `moor server uninstall` removes
+`moor server stop --all` stops the apps too, and also stops a server you started
+with `moor server run`; `moor server uninstall` removes
 the service and stops the apps, and leaves the configuration and data in
 place.
 

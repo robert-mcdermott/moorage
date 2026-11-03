@@ -149,9 +149,10 @@ environment, per app and server-wide.
 - **Console → System:** version, uptime, CPU/memory/disk, database size, job
   queue, certificate status, container engine status, installed toolchains,
   active warnings.
-- **`moor server doctor`:** checks wildcard DNS resolution, port reachability,
-  TLS configuration, container engine, cgroup delegation and Landlock
-  availability (Linux), clock synchronisation, free disk space, and prints the
-  fix for each problem found.
+- **`moor server doctor`:** checks the server, whether it is running or not:
+  wildcard DNS resolution, its listeners, TLS configuration, the container
+  engine, the data directory and its keys, cgroup v2 and Landlock availability
+  (Linux), clock synchronisation (Linux), free disk space, and apps reachable
+  beyond loopback, and prints the fix for each problem found.
 - Moorage logs structured JSON (`log/slog`) to `<data>/logs/server/` and to
   stderr (picked up by journald / launchd / the Windows event log).

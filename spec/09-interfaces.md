@@ -84,12 +84,15 @@ Observing
 Account
   moor keys [list|add|remove]
   moor tokens [list|create|revoke]
-  moor trust                          Trust the server's internal CA on this machine
+  moor trust [--server URL] [--fingerprint F] [--file F] [--print] [--remove]
+                                      Trust the server's internal CA on this machine
 
 Server administration
   moor server init|run|install|uninstall|start|stop|status
   moor server doctor|upgrade|backup|restore|config|rotate-key
   moor server proxy-config nginx      Print a config for running behind a TLS-terminating nginx
+  moor server resolver [install|remove]  Make *.localhost resolve for a local server (macOS)
+  moor registry [login|logout]        Credentials for private container registries
   moor server users [list|create|invite|role|disable|enable]
   moor toolchains [list|install|prune|import]
 

@@ -25,7 +25,8 @@ func newServerCmd() *cobra.Command {
 		Short: "Set up and run a Moorage server",
 	}
 	cmd.AddCommand(newServerUsersCmd(), newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
-		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd())
+		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd(), newServerDoctorCmd(),
+		newServerProxyConfigCmd(), newServerResolverCmd())
 	return cmd
 }
 
@@ -129,7 +130,8 @@ func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset
 	case len(c.Proxy.Trusted) > 0:
 		fmt.Fprintf(out, "Point your TLS proxy at http://%s for %s and *.%s. It must keep the\n", c.Listen.HTTP, c.ConsoleHost, c.Domain)
 		fmt.Fprintf(out, "Host header, pass WebSocket upgrades, not buffer responses, and allow long\n")
-		fmt.Fprintf(out, "requests and large uploads (see spec/06-ingress.md, \"Behind a TLS proxy\").\n\n")
+		fmt.Fprintf(out, "requests and large uploads. moor server proxy-config nginx prints a\n")
+		fmt.Fprintf(out, "configuration for nginx.\n\n")
 	case c.Domain != "localhost":
 		fmt.Fprintf(out, "Point a wildcard DNS record, *.%s, at this server.\n\n", c.Domain)
 	}
@@ -141,7 +143,7 @@ func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset
 	if platform.IsPrivileged() {
 		install = "sudo " + install
 	}
-	fmt.Fprintf(out, "Start the server with:\n\n  %s\n\nor install it as a service that starts with the computer:\n\n  %s\n", run, install)
+	fmt.Fprintf(out, "Start the server with:\n\n  %s\n\nor install it as a service that starts with the computer:\n\n  %s\n\nmoor server doctor checks the setup at any time.\n", run, install)
 }
 
 // claimURL is the first-run setup link.

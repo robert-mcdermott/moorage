@@ -95,6 +95,7 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request, app, who, service s
 		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 	}
 	w.Header().Set("Content-Type", "application/x-"+service+"-"+kind)
+	w.Header().Set("X-Accel-Buffering", "no") // a push's progress goes as it happens
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	out := &flushWriter{w: w}
 	protocol := r.Header.Get("Git-Protocol")

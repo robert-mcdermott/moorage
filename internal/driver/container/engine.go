@@ -65,6 +65,17 @@ func Find(setting string) (*Engine, error) {
 	return &Engine{Bin: bin, Kind: kind}, nil
 }
 
+// Check reports the engine's version, and whether it answers.
+func (e *Engine) Check(ctx context.Context) (version string, err error) {
+	out, err := e.output(ctx, nil, "--version")
+	if err != nil {
+		return "", err
+	}
+	version = strings.TrimSpace(string(out))
+	_, err = e.output(ctx, nil, "ps", "-q")
+	return version, err
+}
+
 // EngineError is a command of the engine that failed, with what it said.
 type EngineError struct {
 	Args   []string

@@ -10,6 +10,10 @@ how it works inside and where it is going.
   as a service, back it up.
 - [Accounts and access](accounts.md): claiming a server, signing in, users,
   API tokens and SSH keys.
+- [TLS and trusting the server](tls.md): the certificates, and `moor trust`.
+- [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
+- [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
+  everything, and logs.
 - The [examples](../examples/README.md): complete apps, ready to deploy.
 
 ## Deploying apps
@@ -37,6 +41,8 @@ how it works inside and where it is going.
 | `moor deploy --image REF` | Runs an image, pinned to its digest |
 | `moor git remote` | Adds the app's git remote: `git push moorage main` deploys |
 | `moor keys add` | Registers your SSH key, so that you can push over SSH |
+| `moor trust` | Trusts the server's CA on this machine |
+| `moor server doctor` | Checks the server and what it depends on, and says how to fix what it finds |
 | `moor apps` | Lists the apps |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
 | `moor releases` | Lists an app's releases |

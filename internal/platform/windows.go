@@ -51,6 +51,17 @@ func (l *Lock) Unlock() error {
 	return l.f.Close()
 }
 
+// DiskSpace returns how much of the volume holding path is free for this user,
+// and how big it is, in bytes.
+func DiskSpace(path string) (free, total uint64, err error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	err = windows.GetDiskFreeSpaceEx(p, &free, &total, nil)
+	return free, total, err
+}
+
 // KillGroup is not used on Windows, where Job Objects end process trees.
 func KillGroup(pgid int) error { return ErrUnsupported }
 

@@ -208,6 +208,9 @@ func LoadInternalCA(certsDir string, c config.Config, allow func(string) bool) (
 // PEM returns the CA certificate, for users to trust.
 func (ca *InternalCA) PEM() []byte { return ca.pem }
 
+// Certificate returns the CA certificate.
+func (ca *InternalCA) Certificate() *x509.Certificate { return ca.cert }
+
 // GetCertificate returns a certificate for the requested name, issuing one
 // when there is none or it is due for renewal.
 func (ca *InternalCA) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {

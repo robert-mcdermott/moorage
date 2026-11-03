@@ -266,10 +266,11 @@ offers three presets:
 ¹ Chromium- and Firefox-based browsers resolve `*.localhost` to the loopback
 address on their own, as does systemd-resolved on Linux. The macOS and Windows
 system resolvers do not, so other clients (Safari, CLI tools, scripts) need
-help: the `local` preset offers — opt-in, because it changes system
+help: `moor server resolver install` offers — opt-in, because it changes system
 configuration — a resolver rule on macOS (`/etc/resolver/localhost`) pointing
-at a tiny loopback-only DNS responder built into Moorage, or a managed block
-of hosts-file entries on Windows.
+at a tiny loopback-only DNS responder built into Moorage (`listen.dns`). On
+Windows, a managed block of hosts-file entries comes with the Windows server, in
+wave 7.
 
 A complete bootstrap file is a handful of lines:
 

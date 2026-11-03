@@ -41,6 +41,8 @@ type Router struct {
 
 	table atomic.Pointer[routeTable]
 
+	proxyChecks atomic.Int32 // the proxy checks under way
+
 	mu    sync.Mutex              // serialises Reload
 	sites map[string]*static.Site // by build ID, reused across reloads
 
@@ -247,6 +249,8 @@ func (rt *Router) platform(w http.ResponseWriter, r *http.Request) {
 		h.Set("Content-Type", "application/x-pem-file")
 		h.Set("Content-Disposition", `attachment; filename="moorage-ca.crt"`)
 		_, _ = w.Write(rt.caPEM)
+	case r.URL.Path == proxyCheckPrefix || strings.HasPrefix(r.URL.Path, proxyCheckPrefix+"/"):
+		rt.proxyCheck(w, r)
 	default:
 		notFound.ServeHTTP(w, r)
 	}

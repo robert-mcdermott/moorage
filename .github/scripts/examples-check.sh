@@ -18,28 +18,19 @@ moor=$work/moor
 sed -i.orig "s/127\.0\.0\.1:8080/127.0.0.1:$port/" "$work/server.toml"
 export MOORAGE_CONFIG=$work/server.toml
 "$moor" server run > "$work/server.log" 2>&1 &
-server=$!
 
 # What runs container-go, if this machine has an engine for it.
 engine=$(command -v podman || command -v docker || true)
 
-# Apps outlive the server by design: stop the server, then each app's shim
-# (which stops its app), by the PID in its state file, and the example's
-# containers by their label.
+# Apps outlive the server by design: moor server stop --all stops the server,
+# wherever it runs, and its apps, in containers or not.
 cleanup() {
-  kill "$server" 2> /dev/null && wait "$server" 2> /dev/null || true
+  "$moor" server stop --all || true
   if [ -n "$engine" ]; then
-    for container in $("$engine" ps -aq --filter label=io.moorage.app=guestbook); do
-      "$engine" rm -f "$container" > /dev/null || true
-    done
     for image in $("$engine" images -q --filter label=io.moorage.app=guestbook); do
       "$engine" image rm -f "$image" > /dev/null || true
     done
   fi
-  for state in "$work"/data/run/shims/*.state.json; do
-    [ -e "$state" ] || continue
-    kill "$(sed -n 's/.*"shim_pid": *\([0-9]*\).*/\1/p' "$state")" 2> /dev/null || true
-  done
   if [ "$status" != 0 ]; then
     echo "--- the server's log"
     tail -n 50 "$work/server.log"

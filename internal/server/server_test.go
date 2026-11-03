@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -246,5 +247,36 @@ func TestRunRefusesPathRouting(t *testing.T) {
 	cfg.Routing = "path"
 	if err := Run(context.Background(), cfg, quiet, Options{}); err == nil || !strings.Contains(err.Error(), "path") {
 		t.Errorf("path routing: %v", err)
+	}
+}
+
+// TestDNSResponder asks the server's DNS responder over the network, with Go's
+// own resolver.
+func TestDNSResponder(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Listen.DNS = "127.0.0.1:0"
+	addrs, _ := start(t, cfg)
+	if addrs.DNS == nil {
+		t.Fatal("no DNS address")
+	}
+	r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "udp", addrs.DNS.String())
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := r.LookupHost(ctx, "shop.localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(got, "127.0.0.1") {
+		t.Errorf("%v", got)
+	}
+	if _, err := r.LookupHost(ctx, "example.com"); err == nil {
+		t.Error("it answered for another domain")
+	}
+	// Off unless asked for.
+	other, _ := start(t, testConfig(t))
+	if other.DNS != nil {
+		t.Errorf("on by default: %v", other.DNS)
 	}
 }

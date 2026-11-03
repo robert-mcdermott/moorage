@@ -31,11 +31,13 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/localdns"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/secrets"
 	"github.com/robert-mcdermott/moorage/internal/store"
 	"github.com/robert-mcdermott/moorage/internal/toolchain"
+	"github.com/robert-mcdermott/moorage/internal/truststore"
 )
 
 // Layout names the files and directories inside a data directory
@@ -134,6 +136,8 @@ type Addrs struct {
 	HTTPS net.Addr
 	// SSH is nil when git pushes over SSH are off.
 	SSH net.Addr
+	// DNS is nil when the DNS responder is off.
+	DNS net.Addr
 }
 
 // Options adjust Run.
@@ -337,6 +341,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 				"certificate", filepath.Join(layout.Certs, "ca.crt"), "download", cfg.PublicURL(cfg.ConsoleHost)+"/.moorage/ca.crt")
 		}
 		router.SetCACert(ca.PEM())
+		log.Info("the internal CA; moor trust installs it on other machines", "fingerprint", "SHA-256 "+truststore.Fingerprint(ca.Certificate()))
 		tlsConfig = ingress.TLSConfig(ca)
 	}
 
@@ -399,6 +404,24 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 				served <- err
 			}
 		}()
+	}
+
+	if cfg.Listen.DNS != "" {
+		dnsConn, err := net.ListenPacket("udp", cfg.Listen.DNS)
+		if err != nil {
+			for _, s := range servers {
+				s.Close()
+			}
+			return listenError(cfg.Listen.DNS, err)
+		}
+		defer dnsConn.Close()
+		addrs.DNS = dnsConn.LocalAddr()
+		go func() {
+			if err := localdns.Serve(ctx, dnsConn, cfg.Domain, log); err != nil {
+				log.Error("the DNS responder stopped", "err", err)
+			}
+		}()
+		log.Info("answering DNS queries for the domain, on loopback", "dns", addrs.DNS.String(), "domain", cfg.Domain)
 	}
 
 	info := buildinfo.Get()
@@ -492,12 +515,12 @@ func findContainers(cfg config.Config, db *store.DB, keyring *secrets.Keyring, l
 		return container.AuthFile(creds), nil
 	}
 	log.Info("apps can run in containers", "engine", engine.Kind, "path", engine.Bin)
-	return engine, container.New(engine, serverLabel(cfg), log)
+	return engine, container.New(engine, ContainerLabel(cfg), log)
 }
 
-// serverLabel tells this server's containers from any other's on the same
+// ContainerLabel tells this server's containers from any other's on the same
 // engine: each manages only its own.
-func serverLabel(cfg config.Config) string {
+func ContainerLabel(cfg config.Config) string {
 	sum := sha256.Sum256([]byte(cfg.DataDir))
 	return hex.EncodeToString(sum[:6])
 }

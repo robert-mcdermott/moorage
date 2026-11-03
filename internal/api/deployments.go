@@ -116,6 +116,7 @@ func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", apitypes.NDJSONType)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
 	enc := json.NewEncoder(w)
 	write := func(l logs.Line) error {

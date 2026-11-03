@@ -50,7 +50,7 @@ func startContainers(t *testing.T, e *container.Engine) (config.Config, Addrs, f
 }
 
 func removeContainers(t *testing.T, e *container.Engine, cfg config.Config) {
-	out, err := exec.Command(e.Bin, "ps", "-aq", "--filter", "label=io.moorage.managed=true", "--filter", "label=io.moorage.server="+serverLabel(cfg)).Output()
+	out, err := exec.Command(e.Bin, "ps", "-aq", "--filter", "label=io.moorage.managed=true", "--filter", "label=io.moorage.server="+ContainerLabel(cfg)).Output()
 	if err != nil {
 		t.Logf("list the containers: %v", err)
 	}
@@ -119,7 +119,7 @@ exec httpd -f -p "$PORT" -h /www
 
 func containerName(t *testing.T, e *container.Engine, cfg config.Config, instance string) string {
 	t.Helper()
-	return engineOutput(t, e, "ps", "-a", "--filter", "label=io.moorage.server="+serverLabel(cfg), "--filter", "label=io.moorage.instance="+instance, "--format", "{{.Names}}")
+	return engineOutput(t, e, "ps", "-a", "--filter", "label=io.moorage.server="+ContainerLabel(cfg), "--filter", "label=io.moorage.instance="+instance, "--format", "{{.Names}}")
 }
 
 func appLog(t *testing.T, cfg config.Config, app string) string {

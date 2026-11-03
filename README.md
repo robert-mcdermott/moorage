@@ -140,8 +140,11 @@ to create the first account, then sign in from your own machine:
 moor login https://moorage.apps.example.com
 ```
 
-[Installing Moorage](docs/install.md) covers TLS and running behind nginx;
-[Accounts and access](docs/accounts.md) covers users, tokens and keys.
+`moor trust` makes browsers on your computer accept the server's certificates, and
+`moor server doctor` checks the setup and says how to fix what it finds.
+[Installing Moorage](docs/install.md) covers the rest, [TLS and trusting the
+server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, and
+[Accounts and access](docs/accounts.md) users, tokens and keys.
 
 ## Examples
 

@@ -282,7 +282,10 @@ external_scheme = "https"            # the scheme browsers see
   for the configured domains with all of the above; the console's System page
   lists the same requirements for other proxies.
 - `moor server doctor --public-url https://moorage.apps.example.com` checks
-  the whole path: forwarded headers arriving from a trusted address, WebSocket
-  upgrades, unbuffered streaming and timeouts.
+  the whole path: forwarded headers arriving from a trusted address, an app's
+  hostname, WebSocket upgrades, unbuffered streaming, large requests and (with
+  `--timeouts`) long silences. It asks `/.moorage/proxy-check`, which answers on
+  every hostname with nothing but what the caller sent, and limits how many of
+  its slower requests run at once.
 - `/.moorage/health` answers on every hostname for proxy and load-balancer
   health checks.
