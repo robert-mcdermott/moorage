@@ -46,6 +46,14 @@ func (l *Lock) Unlock() error {
 	return l.f.Close()
 }
 
+// AddressInUse reports whether an error says something else listens on an address.
+func AddressInUse(err error) bool { return errors.Is(err, unix.EADDRINUSE) }
+
+// AccessDenied reports whether an error says this user may not listen on an address.
+func AccessDenied(err error) bool {
+	return errors.Is(err, unix.EACCES) || errors.Is(err, os.ErrPermission)
+}
+
 // DiskSpace returns how much of the filesystem holding path is free for this
 // user, and how big it is, in bytes.
 func DiskSpace(path string) (free, total uint64, err error) {

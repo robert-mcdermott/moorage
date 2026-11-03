@@ -177,6 +177,9 @@ func (s System) installDarwin(cert *x509.Certificate, file string) (Result, erro
 	}
 	args = append(args, "-r", result, "-k", keychain, file)
 	if err := s.Run("security", args...); err != nil {
+		if s.Privileged {
+			return Result{}, fmt.Errorf("add it to %s: %w (macOS wants someone at the screen to confirm this: run it from a desktop session)", name, err)
+		}
 		return Result{}, fmt.Errorf("add it to %s: %w (without a window to ask for your password in, use sudo moor trust)", name, err)
 	}
 	return Result{Places: []string{name}, Notes: []string{"Firefox may keep its own list: if it does not trust the server, import the CA certificate (moor trust --print) in its settings."}}, nil

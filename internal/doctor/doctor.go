@@ -20,7 +20,6 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
@@ -194,10 +193,10 @@ func checkListeners(o Options, running bool) []Check {
 		case err == nil:
 			ln.Close()
 			checks = append(checks, Check{Name: l.name, Status: OK, Detail: "free: the server can listen on " + l.addr})
-		case errors.Is(err, syscall.EADDRINUSE):
+		case platform.AddressInUse(err):
 			checks = append(checks, Check{Name: l.name, Status: Fail, Detail: "something else is listening on " + l.addr,
 				Fix: "stop it, or change " + l.name + " in " + o.Config.Path})
-		case errors.Is(err, syscall.EACCES) || errors.Is(err, os.ErrPermission):
+		case platform.AccessDenied(err):
 			checks = append(checks, Check{Name: l.name, Status: Fail, Detail: "this user may not listen on " + l.addr,
 				Fix: "run the server as root, as moor server install does (or give it CAP_NET_BIND_SERVICE)"})
 		default:

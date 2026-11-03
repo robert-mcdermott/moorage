@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -478,9 +477,9 @@ func addrString(a net.Addr) string {
 func listenError(addr string, err error) error {
 	msg := fmt.Sprintf("listen on %s: %v", addr, err)
 	switch {
-	case errors.Is(err, syscall.EACCES), errors.Is(err, os.ErrPermission):
+	case platform.AccessDenied(err):
 		msg += "\n  ports below 1024 need extra privileges: run as root or grant CAP_NET_BIND_SERVICE (Linux), or use a port such as 8080"
-	case errors.Is(err, syscall.EADDRINUSE):
+	case platform.AddressInUse(err):
 		msg += "\n  another program is already listening there"
 	}
 	return errors.New(msg)

@@ -136,6 +136,10 @@ func TestMacOS(t *testing.T) {
 	if _, err := f.Install(ca); err == nil || !strings.Contains(err.Error(), "sudo moor trust") {
 		t.Errorf("%v", err)
 	}
+	f.Privileged = true
+	if _, err := f.Install(ca); err == nil || !strings.Contains(err.Error(), "at the screen") {
+		t.Errorf("%v", err)
+	}
 }
 
 func TestWindows(t *testing.T) {
