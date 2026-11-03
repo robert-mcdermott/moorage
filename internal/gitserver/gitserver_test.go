@@ -81,6 +81,12 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	f := &fixture{rc: &receiver{hold: map[string]chan struct{}{}}}
+	// The library's SSH client reads known_hosts to choose its host key
+	// algorithms, even with a host key callback: give it an empty one of
+	// the test's own (there is none on a fresh Windows runner).
+	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
+	os.WriteFile(knownHosts, nil, 0o600)
+	t.Setenv("SSH_KNOWN_HOSTS", knownHosts)
 	f.git = &Server{Repos: NewRepos(t.TempDir()), Receiver: f.rc}
 	host, err := LoadHostKey(filepath.Join(t.TempDir(), "keys", "ssh_host_ed25519_key"))
 	if err != nil {
@@ -109,6 +115,18 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(ts.Close)
 	f.httpURL = ts.URL
 	return f
+}
+
+// waitFor waits until cond holds, and fails the test after ten seconds.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (f *fixture) sshURL(app string) string { return "ssh://git@" + f.sshAddr + "/" + app + ".git" }
@@ -360,9 +378,10 @@ func TestConcurrentPushes(t *testing.T) {
 		_, err := w.push(f.sshURL("site"), f.sshAuth(f.client), func(o *git.PushOptions) { o.RefSpecs = []config.RefSpec{"refs/heads/main:refs/heads/main"} })
 		done <- err
 	}()
-	for p := f.rc.last(); p == nil || strings.TrimSpace(p.Updates[0].Message) != "two"; p = f.rc.last() {
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitFor(t, "the push to reach its deployment", func() bool {
+		p := f.rc.last()
+		return p != nil && strings.TrimSpace(p.Updates[0].Message) == "two"
+	})
 
 	// Another push to main is refused meanwhile; one to another branch is
 	// not held up.
@@ -407,9 +426,7 @@ func TestClientLeaves(t *testing.T) {
 	go func() {
 		done <- w.repo.PushContext(ctx, &git.PushOptions{RemoteName: "moorage", ClientOptions: []client.Option{f.sshAuth(f.client)}})
 	}()
-	for f.rc.last() == nil {
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitFor(t, "the push to reach its deployment", func() bool { return f.rc.last() != nil })
 	leave()
 	<-done
 	close(release)
