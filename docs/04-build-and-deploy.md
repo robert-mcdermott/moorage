@@ -311,7 +311,7 @@ notifications are emitted, and garbage collection is scheduled.
 | `moor redeploy [--no-cache]` | Rebuild the current commit (e.g. after a toolchain update) and roll out. | Build time |
 | `moor promote --from <env> --to <env>` | Release the exact build running in one environment (e.g. `staging`) to another (e.g. `production`). Warns if build-time variables differ. | Seconds |
 | `moor restart [process]` | Rolling restart of the current release. | Seconds |
-| `moor env set A=1 B=2` | New release with the same build and new configuration, rolled out. `--no-restart` stages the change for the next deploy. | Seconds |
+| `moor env set A=1 B=2` | New release with the same build and new configuration, rolled out; the release command does not run again. `--no-restart` stages the change for the next deploy. | Seconds |
 
 Rollback is unavailable only if the target build has been garbage-collected;
 the console greys out such releases.

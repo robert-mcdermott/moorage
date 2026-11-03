@@ -5,9 +5,11 @@
 package native
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -42,8 +44,10 @@ func (d *Driver) statePath(id string) string { return filepath.Join(d.dir, id+".
 func (d *Driver) shimLog(id string) string   { return filepath.Join(d.dir, id+".shim.log") }
 
 // Start writes the instance's spec and starts its shim, returning once the
-// shim has started the app (or failed to).
-func (d *Driver) Start(ctx context.Context, spec shim.Spec) (shim.State, error) {
+// shim has started the app (or failed to). secretEnv (KEY=value entries)
+// is added to the app's environment through the shim's standard input, so
+// it is never written to disk.
+func (d *Driver) Start(ctx context.Context, spec shim.Spec, secretEnv []string) (shim.State, error) {
 	if err := os.MkdirAll(d.dir, 0o700); err != nil {
 		return shim.State{}, err
 	}
@@ -51,6 +55,7 @@ func (d *Driver) Start(ctx context.Context, spec shim.Spec) (shim.State, error) 
 	rand.Read(token[:])
 	spec.Token = hex.EncodeToString(token[:])
 	spec.StateFile = d.statePath(spec.ID)
+	spec.StdinEnv = len(secretEnv) > 0
 	os.Remove(spec.StateFile)
 	if err := shim.WriteSpec(d.specPath(spec.ID), spec); err != nil {
 		return shim.State{}, err
@@ -64,6 +69,13 @@ func (d *Driver) Start(ctx context.Context, spec shim.Spec) (shim.State, error) 
 	cmd.Env = append(os.Environ(), d.shimEnv...)
 	cmd.Dir = spec.Dir
 	cmd.Stdout, cmd.Stderr = out, out
+	if spec.StdinEnv {
+		data, err := json.Marshal(secretEnv)
+		if err != nil {
+			return shim.State{}, err
+		}
+		cmd.Stdin = bytes.NewReader(data)
+	}
 	if err := cmd.Start(); err != nil {
 		return shim.State{}, fmt.Errorf("start the shim: %w", err)
 	}

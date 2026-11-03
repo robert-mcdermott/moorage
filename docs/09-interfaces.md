@@ -68,7 +68,7 @@ Running
 
 Configuration
   moor env [list]
-  moor env set KEY=VALUE … [--secret] [--build] [--production-only] [--no-restart]
+  moor env set KEY=VALUE … [--secret] [--build] [--all-envs] [--production-only] [--no-restart]
   moor env unset KEY … | import .env | export
   moor domains [list|add|rm|verify]
   moor access [show|set public|password|login|share] [--allow-cidr …]

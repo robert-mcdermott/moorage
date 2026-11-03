@@ -76,10 +76,31 @@ func (c *Client) Releases(ctx context.Context, app, env string) ([]apitypes.Rele
 // Rollback publishes an earlier release again; version 0 means the release
 // before the current one.
 func (c *Client) Rollback(ctx context.Context, app, env string, version int) (apitypes.Deployment, error) {
-	body, _ := json.Marshal(apitypes.RollbackRequest{Version: version})
+	return c.RollbackWith(ctx, app, env, apitypes.RollbackRequest{Version: version})
+}
+
+// RollbackWith publishes an earlier release again, as req says.
+func (c *Client) RollbackWith(ctx context.Context, app, env string, req apitypes.RollbackRequest) (apitypes.Deployment, error) {
+	body, _ := json.Marshal(req)
 	var d apitypes.Deployment
 	err := c.do(ctx, http.MethodPost, envPath(app, env, "rollback"), bytes.NewReader(body), "application/json", &d)
 	return d, err
+}
+
+// Vars lists an environment's variables (secrets without their values).
+func (c *Client) Vars(ctx context.Context, app, env string) ([]apitypes.Var, error) {
+	var out []apitypes.Var
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "vars"), nil, "", &out)
+	return out, err
+}
+
+// ChangeVars sets and unsets variables; unless ch.NoRestart, it returns once
+// the change is released.
+func (c *Client) ChangeVars(ctx context.Context, app, env string, ch apitypes.VarsChange) (apitypes.VarsResult, error) {
+	body, _ := json.Marshal(ch)
+	var out apitypes.VarsResult
+	err := c.do(ctx, http.MethodPatch, envPath(app, env, "vars"), bytes.NewReader(body), "application/json", &out)
+	return out, err
 }
 
 // PackStats describes what Deploy uploaded.

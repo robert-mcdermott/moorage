@@ -155,11 +155,11 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 		in.backend.SetHealthy(false)
 	}
 	es.add(in)
-	spec, err := m.spec(es, rel, build, plan, in)
+	spec, secretEnv, err := m.spec(ctx, es, rel, build, plan, in)
 	if err != nil {
 		return in, err
 	}
-	st, err := m.driver.Start(ctx, spec)
+	st, err := m.driver.Start(ctx, spec, secretEnv)
 	if err != nil {
 		return in, fmt.Errorf("start the %s process: %w", name, err)
 	}
@@ -177,10 +177,13 @@ func exitCode(st shim.State) int {
 }
 
 // spec builds what the shim needs to run an instance.
-func (m *Manager) spec(es *envState, rel store.Release, build store.Build, plan manifest.Plan, in *instance) (shim.Spec, error) {
-	vars, err := m.appEnv(es.app, es.env, rel, build, plan, in.tmpDir)
+// spec describes an instance for its shim. Secrets are returned apart, as
+// KEY=value entries, for the shim's standard input: the spec is written to
+// disk.
+func (m *Manager) spec(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan, in *instance) (shim.Spec, []string, error) {
+	vars, secrets, err := m.appEnv(ctx, es.app, es.env, rel, build, plan, in.tmpDir)
 	if err != nil {
-		return shim.Spec{}, err
+		return shim.Spec{}, nil, err
 	}
 	vars["MOORAGE_PROCESS"] = in.process
 	vars["MOORAGE_INSTANCE"] = strconv.Itoa(in.index)
@@ -200,7 +203,7 @@ func (m *Manager) spec(es *envState, rel store.Release, build store.Build, plan 
 		StopSignal:  in.proc.StopSignal,
 		StopTimeout: in.proc.StopTimeout.Std(),
 		BackoffMin:  m.opts.BackoffMin,
-	}, nil
+	}, oneoff.List(secrets), nil
 }
 
 // appDir is the directory a build's app runs in.
@@ -209,18 +212,20 @@ func (m *Manager) appDir(build store.Build) string {
 }
 
 // appEnv is the environment of an app's commands: the server's base
-// variables, the runtime's own, [env], and Moorage's (docs/05-runtime.md,
-// "Environment variables"), with the build's toolchains and tool
-// directories first on PATH.
-func (m *Manager) appEnv(app, env string, rel store.Release, build store.Build, plan manifest.Plan, tmpDir string) (map[string]string, error) {
+// variables, the runtime's own, [env], the release's variables, and
+// Moorage's (docs/05-runtime.md, "Environment variables"), with the build's
+// toolchains and tool directories first on PATH. The values of secret
+// variables are returned apart, decrypted.
+func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, tmpDir string) (vars, secrets map[string]string, err error) {
 	dir := m.appDir(build)
 	dataDir := filepath.Join(m.opts.DataDir, "data", app, env)
 	for _, d := range []string{dataDir, tmpDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	vars := oneoff.BaseEnv()
+	vars = oneoff.BaseEnv()
+	secrets = map[string]string{}
 	vars["HOME"] = dataDir
 	vars["TMPDIR"], vars["TEMP"], vars["TMP"] = tmpDir, tmpDir, tmpDir
 	for k, v := range plan.RunEnv {
@@ -231,6 +236,21 @@ func (m *Manager) appEnv(app, env string, rel store.Release, build store.Build, 
 	}
 	for k, v := range plan.Env {
 		vars[k] = v
+	}
+	for _, v := range rel.Config {
+		if !v.Secret {
+			vars[v.Name] = v.Value
+			continue
+		}
+		if m.opts.Secrets == nil {
+			return nil, nil, fmt.Errorf("%s is a secret, and this server cannot decrypt secrets", v.Name)
+		}
+		value, err := m.opts.Secrets.Open(ctx, rel.AppID, v.Scope, v.Name, v.Sealed)
+		if err != nil {
+			return nil, nil, err
+		}
+		delete(vars, v.Name)
+		secrets[v.Name] = value
 	}
 	var path []string
 	for _, t := range plan.Toolchains {
@@ -256,25 +276,36 @@ func (m *Manager) appEnv(app, env string, rel store.Release, build store.Build, 
 		"MOORAGE_BIN":       filepath.Join(dir, ".moorage", "bin"),
 	} {
 		vars[k] = v
+		delete(secrets, k)
 	}
-	return vars, nil
+	return vars, secrets, nil
 }
 
 // RunOnce runs a command of a release once, as the release's processes
 // would run (its directory and environment, no port), and waits for it:
-// the release command of a deployment.
-func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, stdout, stderr io.Writer) error {
+// the release command of a deployment. Its output goes to log as log
+// lines, with the values of secrets removed.
+func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error {
 	tmp := m.tmpDir("run-" + rel.ID)
 	defer os.RemoveAll(tmp)
-	vars, err := m.appEnv(app, env, rel, build, plan, tmp)
+	vars, secrets, err := m.appEnv(ctx, app, env, rel, build, plan, tmp)
 	if err != nil {
 		return err
 	}
 	vars["MOORAGE_PROCESS"] = "release"
+	values := make([]string, 0, len(secrets))
+	for k, v := range secrets {
+		vars[k] = v
+		values = append(values, v)
+	}
+	out := logs.NewWriter(log, logs.Stdout).Redact(values...)
+	errw := logs.NewWriter(log, logs.Stderr).Redact(values...)
+	defer out.Flush()
+	defer errw.Flush()
 	return oneoff.Run(ctx, oneoff.Command{
 		Command: command, Env: oneoff.List(vars), Dir: m.appDir(build),
 		Shell: m.opts.Shell, ShellEnv: m.opts.ShellEnv,
-		Stdout: stdout, Stderr: stderr, Timeout: timeout,
+		Stdout: out, Stderr: errw, Timeout: timeout,
 	})
 }
 

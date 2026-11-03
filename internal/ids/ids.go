@@ -24,6 +24,7 @@ const (
 	Instance   = "ins"
 	User       = "usr"
 	Token      = "tok"
+	Var        = "var"
 )
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

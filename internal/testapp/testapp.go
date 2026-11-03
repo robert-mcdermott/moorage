@@ -7,6 +7,7 @@
 //	TESTAPP_FAIL         exit with status 1 at once
 //	TESTAPP_START_DELAY  wait this long (a Go duration) before listening
 //	TESTAPP_IGNORE_TERM  ignore the stop signal (to test forced stops)
+//	TESTAPP_PRINT        print the value of this variable at start
 //
 // Paths: /health, /pid, /env?name=X, /headers, /slow?ms=N, /crash, /sick
 // (from then on /health fails), and /upgrade, which switches to an echo
@@ -32,6 +33,9 @@ var sick atomic.Bool
 // Main runs the app and returns its exit status.
 func Main() int {
 	fmt.Println("testapp starting, pid", os.Getpid())
+	if name := os.Getenv("TESTAPP_PRINT"); name != "" {
+		fmt.Printf("%s is %s\n", name, os.Getenv(name))
+	}
 	if os.Getenv("TESTAPP_FAIL") != "" {
 		fmt.Fprintln(os.Stderr, "testapp: failing as asked")
 		return 1

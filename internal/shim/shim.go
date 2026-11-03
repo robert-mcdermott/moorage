@@ -1,6 +1,7 @@
 package shim
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -32,11 +34,26 @@ func Main(args []string) int {
 		return 1
 	}
 	spec.defaults()
+	var secrets []string
+	if spec.StdinEnv {
+		var env []string
+		if err := json.NewDecoder(io.LimitReader(os.Stdin, 1<<20)).Decode(&env); err != nil {
+			fmt.Fprintln(os.Stderr, "moor shim: read the environment from standard input:", err)
+			return 1
+		}
+		for _, kv := range env {
+			if _, v, ok := strings.Cut(kv, "="); ok {
+				secrets = append(secrets, v)
+			}
+		}
+		spec.Env = append(spec.Env, env...)
+	}
 	s, err := newSupervisor(spec)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "moor shim:", err)
 		return 1
 	}
+	s.secrets = secrets
 	return s.run()
 }
 
@@ -55,6 +72,10 @@ type supervisor struct {
 
 	mu    sync.Mutex
 	state State
+
+	// secrets are the values of the environment that came on standard
+	// input, removed from the app's captured output.
+	secrets []string
 }
 
 func newSupervisor(spec Spec) (*supervisor, error) {
@@ -326,8 +347,8 @@ func (s *supervisor) start() (*proc, error) {
 	}
 	cmd.Dir = s.spec.Dir
 	p := &proc{cmd: cmd, done: make(chan struct{})}
-	p.out = logs.NewWriter(s.log, logs.Stdout)
-	p.errw = logs.NewWriter(s.log, logs.Stderr)
+	p.out = logs.NewWriter(s.log, logs.Stdout).Redact(s.secrets...)
+	p.errw = logs.NewWriter(s.log, logs.Stderr).Redact(s.secrets...)
 	cmd.Stdout, cmd.Stderr = p.out, p.errw
 	cmd.WaitDelay = 2 * time.Second // do not wait forever for descendants holding the output open
 	if err := startProcess(p); err != nil {

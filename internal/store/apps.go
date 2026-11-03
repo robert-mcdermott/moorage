@@ -43,6 +43,10 @@ type Release struct {
 	// Files and SizeBytes describe the build.
 	Files     int
 	SizeBytes int64
+	// AppID and Config are set when the release is created or is the
+	// current one: the variables it runs with, and the app they belong to.
+	AppID  string
+	Config []ConfigVar
 }
 
 // AppSummary describes an app and its production environment.
@@ -170,10 +174,17 @@ func (db *DB) RollbackBuild(ctx context.Context, app, env string, version int) (
 // it current: a release of a process app becomes current only once its
 // rollout succeeds.
 func (db *DB) CreateRelease(ctx context.Context, app, env, buildID, reason, by string) (Release, error) {
+	return db.CreateReleaseWith(ctx, app, env, buildID, reason, by, nil)
+}
+
+// CreateReleaseWith is CreateRelease with the given variables in place of
+// the environment's current ones, when cfg is not nil (a rollback that
+// restores an earlier release's configuration).
+func (db *DB) CreateReleaseWith(ctx context.Context, app, env, buildID, reason, by string, cfg []ConfigVar) (Release, error) {
 	var rel Release
 	err := db.write(ctx, func(tx *sql.Tx) error {
 		var err error
-		rel, err = createRelease(ctx, tx, app, env, buildID, reason, by, time.Now())
+		rel, err = createRelease(ctx, tx, app, env, buildID, reason, by, time.Now(), cfg)
 		return err
 	})
 	return rel, err
@@ -209,14 +220,14 @@ func (db *DB) CurrentRelease(ctx context.Context, app, env string) (Release, Bui
 	var r Release
 	var b Build
 	var by sql.NullString
-	var plan string
+	var plan, cfg string
 	var created, bcreated int64
-	err := db.Reader.QueryRowContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at,
+	err := db.Reader.QueryRowContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, e.app_id, r.config,
 			b.id, b.app_id, b.source_type, b.artifact_kind, b.artifact_ref, b.plan, b.files, b.size_bytes, b.created_at
 		FROM environments e JOIN apps a ON a.id = e.app_id
 		JOIN releases r ON r.id = e.current_release_id
 		JOIN builds b ON b.id = r.build_id
-		WHERE a.name = ? AND e.name = ?`, app, env).Scan(&r.ID, &r.Version, &r.BuildID, &r.Reason, &by, &created,
+		WHERE a.name = ? AND e.name = ?`, app, env).Scan(&r.ID, &r.Version, &r.BuildID, &r.Reason, &by, &created, &r.AppID, &cfg,
 		&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &bcreated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, b, fmt.Errorf("%s has nothing deployed to %s: %w", app, env, ErrNotFound)
@@ -226,6 +237,9 @@ func (db *DB) CurrentRelease(ctx context.Context, app, env string) (Release, Bui
 	}
 	r.CreatedBy, r.CreatedAt, r.Current = by.String, time.UnixMilli(created).UTC(), true
 	r.Files, r.SizeBytes = b.Files, b.SizeBytes
+	if err := json.Unmarshal([]byte(cfg), &r.Config); err != nil {
+		return r, b, err
+	}
 	b.Plan, b.CreatedAt = json.RawMessage(plan), time.UnixMilli(bcreated).UTC()
 	return r, b, nil
 }
@@ -246,7 +260,7 @@ func (db *DB) Build(ctx context.Context, id string) (Build, error) {
 }
 
 func publish(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, by string, now time.Time) (Release, error) {
-	rel, err := createRelease(ctx, tx, app, env, buildID, reason, by, now)
+	rel, err := createRelease(ctx, tx, app, env, buildID, reason, by, now, nil)
 	if err != nil {
 		return Release{}, err
 	}
@@ -257,8 +271,23 @@ func publish(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, by stri
 	return rel, nil
 }
 
-func createRelease(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, by string, now time.Time) (Release, error) {
+// createRelease records a new release of buildID. It runs with cfg, or
+// when cfg is nil, with the environment's variables as they are now.
+func createRelease(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, by string, now time.Time, cfg []ConfigVar) (Release, error) {
 	envID, _, err := envState(ctx, tx, app, env)
+	if err != nil {
+		return Release{}, err
+	}
+	var appID string
+	if err := tx.QueryRowContext(ctx, `SELECT app_id FROM environments WHERE id = ?`, envID).Scan(&appID); err != nil {
+		return Release{}, err
+	}
+	if cfg == nil {
+		if cfg, err = config(ctx, tx, appID, envID); err != nil {
+			return Release{}, err
+		}
+	}
+	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return Release{}, err
 	}
@@ -273,9 +302,11 @@ func createRelease(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, b
 		Reason:    reason,
 		CreatedBy: by,
 		CreatedAt: now,
+		AppID:     appID,
+		Config:    cfg,
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO releases (id, env_id, version, build_id, reason, created_by, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, rel.ID, envID, rel.Version, buildID, reason, nullString(by), now.UnixMilli()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO releases (id, env_id, version, build_id, reason, created_by, created_at, config)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, rel.ID, envID, rel.Version, buildID, reason, nullString(by), now.UnixMilli(), string(cfgJSON)); err != nil {
 		return Release{}, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT files, size_bytes FROM builds WHERE id = ?`, buildID).Scan(&rel.Files, &rel.SizeBytes); err != nil {

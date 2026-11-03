@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,5 +110,17 @@ func TestTailAndFollow(t *testing.T) {
 func TestParseForeignLine(t *testing.T) {
 	if l := Parse("not a log line"); !l.Time.IsZero() || l.Text != "not a log line" {
 		t.Errorf("Parse = %+v", l)
+	}
+}
+
+func TestWriterRedacts(t *testing.T) {
+	var out strings.Builder
+	w := NewWriter(&out, Stdout).Redact("hunter2-password", "abc")
+	io.WriteString(w, "connecting with hunter2-password\nshort abc stays\n")
+	io.WriteString(w, "tail hunter2-password")
+	w.Flush()
+	got := out.String()
+	if strings.Contains(got, "hunter2") || strings.Count(got, "[secret]") != 2 || !strings.Contains(got, "short abc stays") {
+		t.Errorf("redacted output:\n%s", got)
 	}
 }

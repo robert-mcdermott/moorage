@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -277,5 +278,104 @@ func TestManifestCommands(t *testing.T) {
 	code, out, _ = run(t, "manifest", "schema")
 	if code != 0 || !strings.Contains(out, `"title": "moorage.toml"`) {
 		t.Errorf("schema: %d", code)
+	}
+}
+
+func TestEnvCommands(t *testing.T) {
+	addr := startLocalServer(t)
+	src := t.TempDir()
+	quote := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace
+	os.WriteFile(filepath.Join(src, "moorage.toml"), []byte(`[app]
+runtime = "binary"
+
+[processes.web]
+command = "`+quote(testroles.AppCommand())+`"
+health = { path = "/health", interval = "100ms" }
+
+[env]
+TESTAPP_BODY = "from the manifest"
+`), 0o644)
+	if code, out, errOut := run(t, "deploy", src, "--app", "cfg"); code != 0 {
+		t.Fatalf("deploy: %s %s", out, errOut)
+	}
+
+	code, out, errOut := run(t, "env", "set", "TESTAPP_BODY=from the server", "MODE=fast", "--app", "cfg")
+	if code != 0 || !strings.Contains(out, "Set TESTAPP_BODY, MODE for production of cfg.") || !strings.Contains(out, "Released v2") {
+		t.Fatalf("env set: %d\n%s\n%s", code, out, errOut)
+	}
+	if body := fetch(t, addr, "cfg.localhost", "/"); body != "from the server" {
+		t.Errorf("served %q", body)
+	}
+	const secret = "pa55-word-from-stdin"
+	code, out, errOut = runWithInput(t, secret+"\n", "env", "set", "--secret", "DB_PASSWORD", "--app", "cfg")
+	if code != 0 || !strings.Contains(out, "DB_PASSWORD (secret)") {
+		t.Fatalf("env set --secret: %d\n%s\n%s", code, out, errOut)
+	}
+	if got := fetch(t, addr, "cfg.localhost", "/env?name=DB_PASSWORD"); got != secret {
+		t.Errorf("the app sees DB_PASSWORD=%q", got)
+	}
+
+	code, out, _ = run(t, "env", "--app", "cfg")
+	for _, want := range []string{"DB_PASSWORD", "(secret)", "MODE", "fast", "moorage.toml", "overridden"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("env lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, secret) {
+		t.Errorf("env shows the secret:\n%s", out)
+	}
+	code, out, _ = run(t, "env", "export", "--app", "cfg")
+	if code != 0 || !strings.Contains(out, `TESTAPP_BODY="from the server"`) || !strings.Contains(out, "# DB_PASSWORD is a secret") || strings.Contains(out, secret) {
+		t.Errorf("env export:\n%s", out)
+	}
+
+	dotenv := filepath.Join(t.TempDir(), "extra.env")
+	os.WriteFile(dotenv, []byte("# extra settings\nexport COLOR=blue\nGREETING=\"hello\\nworld\"\nRAW='$NOT_EXPANDED' # comment\n"), 0o644)
+	code, out, errOut = run(t, "env", "import", dotenv, "--app", "cfg", "--no-restart")
+	if code != 0 || !strings.Contains(out, "Set COLOR, GREETING, RAW") || !strings.Contains(out, "Not released") {
+		t.Errorf("env import: %d\n%s\n%s", code, out, errOut)
+	}
+	code, out, _ = run(t, "env", "unset", "MODE", "NOPE", "--app", "cfg")
+	if code != 0 || !strings.Contains(out, "Unset 1 variable") || !strings.Contains(out, "Released v4") {
+		t.Errorf("env unset: %d\n%s", code, out)
+	}
+	if got := fetch(t, addr, "cfg.localhost", "/env?name=GREETING"); got != "hello\nworld" {
+		t.Errorf("GREETING=%q", got)
+	}
+	if got := fetch(t, addr, "cfg.localhost", "/env?name=RAW"); got != "$NOT_EXPANDED" {
+		t.Errorf("RAW=%q", got)
+	}
+
+	code, out, _ = run(t, "rollback", "v1", "--with-config", "--app", "cfg")
+	if code != 0 || fetch(t, addr, "cfg.localhost", "/") != "from the manifest" {
+		t.Errorf("rollback --with-config: %d\n%s", code, out)
+	}
+	if code, _, errOut = run(t, "env", "set", "PORT=1", "--app", "cfg"); code != 1 || !strings.Contains(errOut, "set by Moorage") {
+		t.Errorf("env set PORT: %d %s", code, errOut)
+	}
+	if code, _, errOut = run(t, "env", "set", "NOVALUE", "--app", "cfg"); code != 2 {
+		t.Errorf("env set NOVALUE: %d %s", code, errOut)
+	}
+}
+
+func TestParseDotenv(t *testing.T) {
+	vars, err := parseDotenv(strings.NewReader("B=2\nA = 1 # one\nexport C='x y'\nD=\"q\\\"t\"\nB=3\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][2]string{{"A", "1"}, {"B", "3"}, {"C", "x y"}, {"D", `q"t`}}
+	if fmt.Sprint(vars) != fmt.Sprint(want) {
+		t.Errorf("parsed %v, want %v", vars, want)
+	}
+	for _, bad := range []string{"NOEQUALS\n", "A=\"open\n", "=1\n", "A='x' y\n"} {
+		if _, err := parseDotenv(strings.NewReader(bad)); err == nil {
+			t.Errorf("parsed %q", bad)
+		}
+	}
+	for _, v := range []string{"plain", "with space", `quo"te`, "$dollar", "multi\nline", ""} {
+		got, err := parseDotenv(strings.NewReader("X=" + dotenvQuote(v) + "\n"))
+		if err != nil || len(got) != 1 || got[0][1] != v {
+			t.Errorf("round trip of %q: %v %v", v, got, err)
+		}
 	}
 }

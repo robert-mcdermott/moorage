@@ -100,7 +100,9 @@ MOORAGE_CONFIG=~/moorage-dev/server.toml ./moor deploy testdata/apps/python
 ```
 
 `moor manifest explain DIR` shows what the server will do with an app
-before you deploy it. [testdata/apps](testdata/apps) has a small app for
+before you deploy it. `moor env set NAME=value` (or `--secret NAME`, which
+asks for the value and keeps it encrypted) configures an app; every change
+is rolled out as a new release. [testdata/apps](testdata/apps) has a small app for
 each runtime.
 
 An app that is already built is deployed with `--artifact` and the

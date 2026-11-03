@@ -25,6 +25,11 @@ type Spec struct {
 	// directly; anything else runs in the embedded shell through Shell.
 	Command string   `json:"command"`
 	Env     []string `json:"env"`
+	// StdinEnv says that more of the environment — secrets — comes on the
+	// shim's standard input as a JSON array of KEY=value, so that it is
+	// never written to disk. The shim also removes those values from the
+	// app's captured output.
+	StdinEnv bool `json:"stdin_env,omitempty"`
 	// Shell is the program and arguments that run a command that is not
 	// simple; the command is appended. ShellEnv is added to its environment.
 	Shell    []string `json:"shell"`

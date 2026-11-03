@@ -29,7 +29,13 @@ import (
 type Runtime interface {
 	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
 	Retire(app, env string)
-	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, stdout, stderr io.Writer) error
+	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error
+}
+
+// Keyring seals and opens the values of secret variables.
+type Keyring interface {
+	Seal(ctx context.Context, appID, scope, name, value string) ([]byte, error)
+	Open(ctx context.Context, appID, scope, name string, sealed []byte) (string, error)
 }
 
 // Options configure a Deployer.
@@ -39,6 +45,8 @@ type Options struct {
 	Runtime Runtime
 	// Reload makes the router pick up a new release.
 	Reload func(context.Context) error
+	// Secrets seals and opens secret variables.
+	Secrets Keyring
 	// URL returns an environment's address, for the log.
 	URL func(app, env string) string
 	// Builds bounds how many builds run at once (default: half the CPUs).
@@ -243,7 +251,13 @@ func (d *Deployer) run(dep store.Deployment) {
 	d.db.SetDeploymentStatus(ctx, dep.ID, store.Building)
 	start := time.Now()
 	dir := filepath.Join(d.opts.DataDir, "builds", dep.App, dep.BuildID)
-	res, err := d.opts.Builder.Build(ctx, build.Job{App: dep.App, Env: dep.Env, BuildID: dep.BuildID, Dir: dir, Log: logFile})
+	vars, redact, err := d.buildVars(ctx, dep.App, dep.Env)
+	if err != nil {
+		<-d.slots
+		fail(err.Error(), nil)
+		return
+	}
+	res, err := d.opts.Builder.Build(ctx, build.Job{App: dep.App, Env: dep.Env, BuildID: dep.BuildID, Dir: dir, Log: logFile, Vars: vars, Redact: redact})
 	<-d.slots
 	os.RemoveAll(filepath.Join(d.opts.DataDir, "tmp", "build-"+dep.BuildID))
 	if err != nil {
@@ -279,7 +293,7 @@ func (d *Deployer) run(dep store.Deployment) {
 		fail(err.Error(), nil)
 		return
 	}
-	rel, err := d.publish(ctx, dep, b, res.Plan, "deploy", logFile)
+	rel, err := d.publish(ctx, dep, b, res.Plan, "deploy", nil, logFile)
 	if err != nil {
 		var rollout *reconcile.RolloutError
 		switch {
@@ -304,12 +318,44 @@ type releaseError struct{ msg string }
 
 func (e *releaseError) Error() string { return e.msg }
 
+// buildVars returns the environment's variables flagged for builds, with
+// secrets decrypted, and the secrets' values (to remove from the log).
+func (d *Deployer) buildVars(ctx context.Context, app, env string) (map[string]string, []string, error) {
+	cfg, err := d.db.Config(ctx, app, env)
+	if err != nil {
+		return nil, nil, err
+	}
+	vars := map[string]string{}
+	var redact []string
+	for _, v := range cfg {
+		if !v.Build {
+			continue
+		}
+		if !v.Secret {
+			vars[v.Name] = v.Value
+			continue
+		}
+		appID, _, err := d.db.Scope(ctx, app, env)
+		if err != nil {
+			return nil, nil, err
+		}
+		value, err := d.opts.Secrets.Open(ctx, appID, v.Scope, v.Name, v.Sealed)
+		if err != nil {
+			return nil, nil, err
+		}
+		vars[v.Name] = value
+		redact = append(redact, value)
+	}
+	return vars, redact, nil
+}
+
 // publish makes build the environment's current release: it runs the
 // release command, rolls the release out (for process apps) and switches
 // the router to it. A process app's release becomes current only once its
 // instances are healthy; if anything fails, the release is removed and the
-// previous one keeps serving. log, if set, receives progress.
-func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Build, plan manifest.Plan, reason string, log io.Writer) (store.Release, error) {
+// previous one keeps serving. The release runs with cfg, or with the
+// environment's variables when cfg is nil. log, if set, receives progress.
+func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Build, plan manifest.Plan, reason string, cfg []store.ConfigVar, log io.Writer) (store.Release, error) {
 	if log == nil {
 		log = io.Discard
 	}
@@ -320,7 +366,7 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 
 	_, _, prevErr := d.db.CurrentRelease(ctx, dep.App, dep.Env)
 	firstRelease := errors.Is(prevErr, store.ErrNotFound)
-	rel, err := d.db.CreateRelease(ctx, dep.App, dep.Env, b.ID, reason, dep.CreatedBy)
+	rel, err := d.db.CreateReleaseWith(ctx, dep.App, dep.Env, b.ID, reason, dep.CreatedBy, cfg)
 	if err != nil {
 		return rel, err
 	}
@@ -363,10 +409,7 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 }
 
 func (d *Deployer) runOnce(ctx context.Context, dep store.Deployment, rel store.Release, b store.Build, plan manifest.Plan, command string, log io.Writer) error {
-	out, errw := logs.NewWriter(log, logs.Stdout), logs.NewWriter(log, logs.Stderr)
-	defer out.Flush()
-	defer errw.Flush()
-	return d.opts.Runtime.RunOnce(ctx, dep.App, dep.Env, rel, b, plan, command, plan.Release.Timeout.Std(), out, errw)
+	return d.opts.Runtime.RunOnce(ctx, dep.App, dep.Env, rel, b, plan, command, plan.Release.Timeout.Std(), log)
 }
 
 func formation(plan manifest.Plan) string {
@@ -378,20 +421,34 @@ func formation(plan manifest.Plan) string {
 	return strings.Join(parts, " · ")
 }
 
-// Publish publishes a build that needs no building (an upload, or the build
-// of an earlier release) at once, recording it as a deployment.
-func (d *Deployer) Publish(ctx context.Context, app, env, by, sourceType, reason string, b store.Build, plan manifest.Plan) (store.Release, store.Deployment, error) {
-	if reason == "rollback" {
+// PublishRequest asks for a build that needs no building to be released.
+type PublishRequest struct {
+	App, Env, By string
+	// Source is the deployment's source type; Reason the release's.
+	Source, Reason string
+	Build          store.Build
+	Plan           manifest.Plan
+	// Config, if not nil, replaces the environment's variables (a rollback
+	// that restores an earlier release's configuration).
+	Config []store.ConfigVar
+}
+
+// Publish publishes a build that needs no building (an upload, the build
+// of an earlier release, or the current build with new variables) at once,
+// recording it as a deployment.
+func (d *Deployer) Publish(ctx context.Context, req PublishRequest) (store.Release, store.Deployment, error) {
+	app, env, b, plan := req.App, req.Env, req.Build, req.Plan
+	if req.Reason == "rollback" || req.Reason == "config" {
 		plan.Release = nil // release commands run once, when a build is first deployed
 	}
 	dep := store.Deployment{
-		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: sourceType, Status: store.RollingOut,
-		BuildID: b.ID, CreatedBy: by, CreatedAt: time.Now().UTC(), StartedAt: time.Now().UTC(),
+		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: req.Source, Status: store.RollingOut,
+		BuildID: b.ID, CreatedBy: req.By, CreatedAt: time.Now().UTC(), StartedAt: time.Now().UTC(),
 	}
 	if err := d.db.CreateDeployment(ctx, dep); err != nil {
 		return store.Release{}, dep, err
 	}
-	rel, err := d.publish(ctx, dep, b, plan, reason, nil)
+	rel, err := d.publish(ctx, dep, b, plan, req.Reason, req.Config, nil)
 	if err != nil {
 		var rollout *reconcile.RolloutError
 		if errors.As(err, &rollout) {

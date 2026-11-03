@@ -3,10 +3,12 @@ package native
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,7 +79,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 func TestStartStatusStop(t *testing.T) {
 	d, spec, port := setup(t)
-	st, err := d.Start(context.Background(), spec)
+	st, err := d.Start(context.Background(), spec, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +122,7 @@ func TestStartFailure(t *testing.T) {
 	d, spec, _ := setup(t)
 	spec.Command = "no-such-program-for-moorage"
 	spec.Restart = "never"
-	st, err := d.Start(context.Background(), spec)
+	st, err := d.Start(context.Background(), spec, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +133,7 @@ func TestStartFailure(t *testing.T) {
 
 func TestDeadShimLeavesNoApp(t *testing.T) {
 	d, spec, port := setup(t)
-	st, err := d.Start(context.Background(), spec)
+	st, err := d.Start(context.Background(), spec, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,4 +151,43 @@ func TestDeadShimLeavesNoApp(t *testing.T) {
 	last, _, _ := d.Status(spec.ID)
 	d.CleanupOrphan(last)
 	waitFor(t, "the app to be gone", func() bool { return !serving(port) })
+}
+
+func TestSecretsStayOffDisk(t *testing.T) {
+	d, spec, port := setup(t)
+	const secret = "s3cr3t-api-key"
+	spec.Env = append(spec.Env, "TESTAPP_PRINT=API_KEY")
+	if _, err := d.Start(context.Background(), spec, []string{"API_KEY=" + secret}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Stop(spec.ID, time.Second) })
+	waitFor(t, "the app", func() bool { return serving(port) })
+	envValue := func() string {
+		res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/env?name=API_KEY", port))
+		if err != nil {
+			return ""
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+	if got := envValue(); got != secret {
+		t.Fatalf("the app sees API_KEY=%q", got)
+	}
+	// The shim keeps the secret in memory: a restarted app has it too.
+	if err := d.Restart(spec.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the restarted app", func() bool { return serving(port) && envValue() == secret })
+
+	for _, f := range []string{d.specPath(spec.ID), d.statePath(spec.ID), d.shimLog(spec.ID), spec.LogFile} {
+		data, _ := os.ReadFile(f)
+		if strings.Contains(string(data), secret) {
+			t.Errorf("%s holds the secret:\n%s", filepath.Base(f), data)
+		}
+	}
+	log, _ := os.ReadFile(spec.LogFile)
+	if !strings.Contains(string(log), "API_KEY is [secret]") {
+		t.Errorf("the app's printed secret was not redacted:\n%s", log)
+	}
 }

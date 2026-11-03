@@ -56,6 +56,8 @@ func New(db *store.DB, cfg config.Config, dataDir string, tokenHash [32]byte, ru
 	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/rollback", s.rollback)
 	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/restart", s.restart)
 	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/instances", s.instances)
+	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/vars", s.vars)
+	mux.HandleFunc("PATCH /api/v1/apps/{app}/envs/{env}/vars", s.changeVars)
 	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/logs", s.logs)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusNotFound, "not_found", "There is no such API endpoint.")
@@ -166,7 +168,9 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				s.internal(w, err)
 				return
 			}
-			rel, dep, err := s.deployer.Publish(r.Context(), app, env, "admin", plan.Kind+"-upload", "deploy", build, *plan)
+			rel, dep, err := s.deployer.Publish(r.Context(), deploy.PublishRequest{
+				App: app, Env: env, By: "admin", Source: plan.Kind + "-upload", Reason: "deploy", Build: build, Plan: *plan,
+			})
 			if s.publishFailed(w, err) {
 				return
 			}
@@ -236,7 +240,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	buildID, _, err := s.db.RollbackBuild(r.Context(), app, env, req.Version)
+	buildID, version, err := s.db.RollbackBuild(r.Context(), app, env, req.Version)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", err.Error())
@@ -255,7 +259,19 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	rel, dep, err := s.deployer.Publish(r.Context(), app, env, "admin", "rollback", "rollback", build, plan)
+	var cfg []store.ConfigVar
+	if req.WithConfig {
+		if cfg, err = s.db.ReleaseConfig(r.Context(), app, env, version); err != nil {
+			s.internal(w, err)
+			return
+		}
+		if cfg == nil {
+			cfg = []store.ConfigVar{} // that release ran without server variables
+		}
+	}
+	rel, dep, err := s.deployer.Publish(r.Context(), deploy.PublishRequest{
+		App: app, Env: env, By: "admin", Source: "rollback", Reason: "rollback", Build: build, Plan: plan, Config: cfg,
+	})
 	if s.publishFailed(w, err) {
 		return
 	}

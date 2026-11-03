@@ -40,6 +40,11 @@ type Job struct {
 	Dir string
 	// Log receives the build's output as log lines.
 	Log io.Writer
+	// Vars are the server's variables flagged for builds; they override
+	// [env] and [build.env]. Redact lists values (secrets) to keep out of
+	// the log.
+	Vars   map[string]string
+	Redact []string
 }
 
 // Result is a finished build.
@@ -99,13 +104,17 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 	for k, v := range plan.BuildEnv {
 		vars[k] = v
 	}
+	for k, v := range job.Vars {
+		vars[k] = v
+	}
 	vars["PATH"] = oneoff.PrependPath(path, vars["PATH"])
 
 	if len(plan.Steps) > 0 {
 		timeout := plan.BuildTimeout.Std()
 		buildCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		out, errw := logs.NewWriter(job.Log, logs.Stdout), logs.NewWriter(job.Log, logs.Stderr)
+		out := logs.NewWriter(job.Log, logs.Stdout).Redact(job.Redact...)
+		errw := logs.NewWriter(job.Log, logs.Stderr).Redact(job.Redact...)
 		for _, step := range plan.Steps {
 			Marker(job.Log, "▸ %-10s %s", step.Name, step.Command)
 			start := time.Now()

@@ -294,6 +294,48 @@ directory, supervises it, and serves it on its own hostname.
    configuration change a release.
    - Done when: setting a variable rolls out a new release without
      downtime, and secrets are encrypted at rest and never printed.
+   - Done (slice 5):
+     - Variables set on the server, for one environment or for every
+       environment of an app (`--all-envs`; an environment's own value
+       wins), override the manifest's `[env]`. `--build` makes a variable
+       available to builds too. Variables can be set before the first
+       deploy, which then uses them.
+     - Secrets are sealed with AES-256-GCM under a data key per app, with
+       the app, the scope and the name as associated data; data keys are
+       sealed by the master key in `keys/master.key` (`0600`), or a file
+       named by `MOORAGE_MASTER_KEY_FILE`, or a systemd credential. The
+       master key is generated with the first server start; a server whose
+       database holds secrets refuses to start without the key that sealed
+       them, or with another one.
+     - Every release records the variables it runs with (secrets sealed).
+       A change of variables makes a new release of the current build,
+       rolled out like a deploy (the release command does not run again);
+       `--no-restart` keeps it for the next deploy. `moor rollback` keeps
+       the current variables, and `--with-config` restores the earlier
+       release's.
+     - Secrets reach apps through their shim's standard input and stay in
+       its memory: no file of the server holds one in the clear (the
+       database, its WAL, specs and logs were searched in tests and with the
+       real binary). Values are redacted from app, build and release-command
+       logs. The API never returns them.
+     - `moor env` (list, with each variable's source and whether it is
+       overridden), `env set` (a secret's value read from standard input,
+       or asked for without echo), `env unset`, `env import` (a `.env`
+       file) and `env export`; the API's `GET` and `PATCH
+       /apps/{app}/envs/{env}/vars`.
+     - Verified by tests (a change of variables under load: 3,585 requests,
+       none failed; secrets after restarts of the app and of the server; a
+       missing master key), the race detector, `go vet` for Linux and
+       Windows, the six builds, and the real binary.
+   - Found by slice 5:
+     - Not yet: revealing a secret (with the audit log, wave 4), `moor server
+       rotate-key` (wave 6, with lifecycle), `--production-only` (with
+       previews, wave 4) and declared variables (`[vars]`, wave 5).
+     - Redaction is best effort: a secret shorter than six characters, or
+       printed in pieces or encoded, is not caught.
+     - A changed `--build` variable reaches the app with its next build; a
+       way to rebuild the current commit (`moor redeploy`) comes with the
+       console's deployment actions (wave 3).
 6. **Release 0.1.0.** Service installation (systemd with cgroup delegation,
    launchd); install and per-runtime quick-start documentation; version
    0.1.0, its CHANGELOG section and this roadmap; pull request `wave1` →

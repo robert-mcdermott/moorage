@@ -160,11 +160,41 @@ type Writer struct {
 	now    func() time.Time
 	mu     sync.Mutex
 	buf    []byte
+	redact *strings.Replacer
 }
 
 // NewWriter returns a Writer for stream.
 func NewWriter(dst io.Writer, stream string) *Writer {
 	return &Writer{dst: dst, stream: stream, now: time.Now}
+}
+
+// MinRedacted is the length below which Redact leaves a value alone: shorter
+// values would mangle ordinary output.
+const MinRedacted = 6
+
+// Redact makes the writer replace each of values with [secret] wherever it
+// appears in a line (best effort: a value split across MaxLine is missed).
+func (w *Writer) Redact(values ...string) *Writer {
+	var pairs []string
+	for _, v := range values {
+		if len(v) >= MinRedacted {
+			pairs = append(pairs, v, "[secret]")
+		}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.redact = nil
+	if len(pairs) > 0 {
+		w.redact = strings.NewReplacer(pairs...)
+	}
+	return w
+}
+
+func (w *Writer) line(s string) string {
+	if w.redact != nil {
+		s = w.redact.Replace(s)
+	}
+	return Format(w.now(), w.stream, s)
 }
 
 func (w *Writer) Write(p []byte) (int, error) {
@@ -182,7 +212,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 		}
 		line := strings.TrimSuffix(string(w.buf[:end]), "\r")
 		w.buf = w.buf[next:]
-		if _, err := io.WriteString(w.dst, Format(w.now(), w.stream, line)); err != nil {
+		if _, err := io.WriteString(w.dst, w.line(line)); err != nil {
 			return len(p), err
 		}
 	}
@@ -193,7 +223,7 @@ func (w *Writer) Flush() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.buf) > 0 {
-		io.WriteString(w.dst, Format(w.now(), w.stream, strings.TrimSuffix(string(w.buf), "\r")))
+		io.WriteString(w.dst, w.line(strings.TrimSuffix(string(w.buf), "\r")))
 		w.buf = nil
 	}
 }

@@ -47,6 +47,13 @@ type Options struct {
 	Trusted []netip.Prefix
 	// ToolchainBins returns the PATH directories of an installed toolchain.
 	ToolchainBins func(name, version string) []string
+	// Secrets opens the sealed values of secret variables.
+	Secrets Opener
+}
+
+// Opener decrypts the value of a secret variable.
+type Opener interface {
+	Open(ctx context.Context, appID, scope, name string, sealed []byte) (string, error)
 }
 
 // Manager runs the instances of every process app.

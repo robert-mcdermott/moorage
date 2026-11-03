@@ -386,11 +386,15 @@ func newReleasesCmd() *cobra.Command {
 func newRollbackCmd() *cobra.Command {
 	var conn connection
 	var app, env string
+	var withConfig bool
 	cmd := &cobra.Command{
 		Use:   "rollback [vN]",
 		Short: "Serve an earlier release again",
 		Long: `Publish an earlier release again, as a new release. Without a version, the
-release before the current one. No rebuild is needed: it takes seconds.`,
+release before the current one. No rebuild is needed: it takes seconds.
+
+The new release runs with the current variables; --with-config restores
+the variables the earlier release ran with.`,
 		Example: `  moor rollback --app docs
   moor rollback v3 --app docs`,
 		Args: cobra.MaximumNArgs(1),
@@ -411,7 +415,7 @@ release before the current one. No rebuild is needed: it takes seconds.`,
 			if err != nil {
 				return err
 			}
-			d, err := c.Rollback(cmd.Context(), appName, env, version)
+			d, err := c.RollbackWith(cmd.Context(), appName, env, apitypes.RollbackRequest{Version: version, WithConfig: withConfig})
 			if err != nil {
 				return err
 			}
@@ -422,6 +426,7 @@ release before the current one. No rebuild is needed: it takes seconds.`,
 	conn.addFlags(cmd)
 	cmd.Flags().StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
 	cmd.Flags().StringVar(&env, "env", names.Production, "environment")
+	cmd.Flags().BoolVar(&withConfig, "with-config", false, "restore the variables the earlier release ran with")
 	return cmd
 }
 

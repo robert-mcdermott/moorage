@@ -26,6 +26,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
+	"github.com/robert-mcdermott/moorage/internal/secrets"
 	"github.com/robert-mcdermott/moorage/internal/store"
 	"github.com/robert-mcdermott/moorage/internal/toolchain"
 )
@@ -50,6 +51,9 @@ type Layout struct {
 	// AdminToken holds the bootstrap admin token, readable only by the
 	// server's user.
 	AdminToken string
+	// MasterKey seals the data keys of secrets (unless the key is given
+	// elsewhere: see secrets.LoadMasterKey).
+	MasterKey string
 }
 
 // NewLayout returns the layout of the data directory root.
@@ -71,6 +75,7 @@ func NewLayout(root string) Layout {
 		Backups:    at("backups"),
 		LockFile:   at("run", "moor.lock"),
 		AdminToken: at("keys", "admin-token"),
+		MasterKey:  at("keys", "master.key"),
 	}
 }
 
@@ -187,6 +192,24 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		log.Info("bootstrap admin token written; the CLI on this machine finds it, other machines pass it with --token", "file", layout.AdminToken)
 	}
 
+	// The master key is created with the first secret's data key, never
+	// once secrets exist: they could not be read with a new key.
+	sealed, err := db.HasDataKeys(ctx)
+	if err != nil {
+		return err
+	}
+	masterKey, err := secrets.LoadMasterKey(layout.MasterKey, os.Getenv, !sealed)
+	if err != nil {
+		return err
+	}
+	if masterKey.Created {
+		log.Info("generated the master key that encrypts secrets; back it up apart from the database", "file", masterKey.Path)
+	}
+	keyring, err := secrets.Open(ctx, masterKey, db)
+	if err != nil {
+		return err
+	}
+
 	exe := opts.Executable
 	if exe == "" {
 		if exe, err = os.Executable(); err != nil {
@@ -209,6 +232,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Tick:          opts.Tick,
 		Trusted:       router.Trusted(),
 		ToolchainBins: toolchains.BinDirs,
+		Secrets:       keyring,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)
@@ -230,6 +254,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 			return cfg.PublicURL(app + "." + cfg.Domain)
 		},
 		GCMinAge: opts.GCMinAge,
+		Secrets:  keyring,
 	}, log)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.

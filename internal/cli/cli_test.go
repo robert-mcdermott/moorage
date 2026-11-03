@@ -14,8 +14,14 @@ import (
 
 func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
+	return runWithInput(t, "", args...)
+}
+
+// runWithInput runs the command line with input on its standard input.
+func runWithInput(t *testing.T, input string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
 	var out, errOut bytes.Buffer
-	code = Main(args, &out, &errOut)
+	code = mainWith(args, strings.NewReader(input), &out, &errOut)
 	return code, out.String(), errOut.String()
 }
 

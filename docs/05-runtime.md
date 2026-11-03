@@ -88,8 +88,10 @@ assembled in layers, later layers winning:
 | `MOORAGE_BIN` | `<build>/.moorage/bin` | Where runtime presets put built binaries. |
 
 Secret values are decrypted only at instance start and passed to the process
-directly (native) or through a temporary `0600` env-file that is removed after
-start (containers) — never on a command line where `ps` could show them.
+through its shim's standard input (native: the shim keeps them in memory to
+restart the app, and they are never written to disk) or through a temporary
+`0600` env-file that is removed after start (containers) — never on a command
+line where `ps` could show them.
 
 ## Ports
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -30,7 +31,12 @@ func (e usageError) Unwrap() error { return e.error }
 // Main runs the command line with args (without the program name) and
 // returns the process exit status.
 func Main(args []string, stdout, stderr io.Writer) int {
+	return mainWith(args, os.Stdin, stdout, stderr)
+}
+
+func mainWith(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	root := newRoot(stdout, stderr)
+	root.SetIn(stdin)
 	root.SetArgs(args)
 	cmd, err := root.ExecuteContextC(context.Background())
 	if err == nil {
@@ -59,7 +65,7 @@ The moor binary is both the server and the command line that talks to it.`,
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
-	root.AddCommand(newVersionCmd(), newServerCmd(), newDeployCmd(), newAppsCmd(), newReleasesCmd(), newRollbackCmd(), newDeploymentsCmd(), newManifestCmd(), newPsCmd(), newLogsCmd(), newRestartCmd())
+	root.AddCommand(newVersionCmd(), newServerCmd(), newDeployCmd(), newAppsCmd(), newReleasesCmd(), newRollbackCmd(), newDeploymentsCmd(), newEnvCmd(), newManifestCmd(), newPsCmd(), newLogsCmd(), newRestartCmd())
 	return root
 }
 

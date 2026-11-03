@@ -303,8 +303,8 @@ Runs **once per deployment**, after the build and before any new instance
 receives traffic, using the new release and the environment's runtime
 configuration. Typical use: database migrations. A failing release command
 aborts the deployment and leaves the current release serving. A rollback
-publishes a build that was already released, so it does not run the release
-command again.
+or a change of variables publishes a build that was already released, so it
+does not run the release command again.
 
 | Key | Default | Description |
 |---|---|---|
