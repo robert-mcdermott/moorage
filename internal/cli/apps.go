@@ -41,13 +41,22 @@ func (c *connection) addFlags(cmd *cobra.Command) {
 // server configured on this machine, over its loopback address, with its
 // admin token when this user can read it.
 func (c *connection) client() (*client.Client, error) {
-	serverURL := firstOf(c.server, os.Getenv("MOOR_SERVER"))
-	token := firstOf(c.token, os.Getenv("MOOR_TOKEN"))
+	serverURL, token, err := c.resolve()
+	if err != nil {
+		return nil, err
+	}
+	return client.New(serverURL, token, firstOf(c.caCert, os.Getenv("MOOR_CA_CERT")))
+}
+
+// resolve returns the server's URL and the token to use.
+func (c *connection) resolve() (serverURL, token string, err error) {
+	serverURL = firstOf(c.server, os.Getenv("MOOR_SERVER"))
+	token = firstOf(c.token, os.Getenv("MOOR_TOKEN"))
 	if serverURL == "" || token == "" {
 		localURL, localToken, err := localServer()
 		if serverURL == "" {
 			if err != nil {
-				return nil, fmt.Errorf("no server to talk to: pass --server and --token, or set MOOR_SERVER and MOOR_TOKEN (%v)", err)
+				return "", "", fmt.Errorf("no server to talk to: pass --server and --token, or set MOOR_SERVER and MOOR_TOKEN (%v)", err)
 			}
 			serverURL = localURL
 		}
@@ -55,7 +64,7 @@ func (c *connection) client() (*client.Client, error) {
 			token = localToken
 		}
 	}
-	return client.New(serverURL, token, firstOf(c.caCert, os.Getenv("MOOR_CA_CERT")))
+	return serverURL, token, nil
 }
 
 // localServer returns the loopback URL of the server configured on this
@@ -85,8 +94,9 @@ func localServer() (url, token string, err error) {
 	return "http://" + net.JoinHostPort(host, port), token, nil
 }
 
-// resolveApp picks the app from --app, $MOOR_APP or [app].name in the
-// current directory's moorage.toml, which it also returns.
+// resolveApp picks the app from --app, $MOOR_APP, [app].name in the
+// current directory's moorage.toml (which it also returns), or the app of
+// the repository's moorage git remote.
 func resolveApp(flag string) (string, *manifest.Manifest, error) {
 	m, err := manifest.Load(".")
 	if err != nil {
@@ -97,7 +107,10 @@ func resolveApp(flag string) (string, *manifest.Manifest, error) {
 		app = m.App.Name
 	}
 	if app == "" {
-		return "", m, errors.New("which app? pass --app NAME, set MOOR_APP, or set name under [app] in moorage.toml")
+		app = remoteApp(defaultRemote)
+	}
+	if app == "" {
+		return "", m, errors.New("which app? pass --app NAME, set MOOR_APP, set name under [app] in moorage.toml, or add a git remote with moor git remote")
 	}
 	return app, m, names.ValidateApp(app)
 }

@@ -146,6 +146,12 @@ Then deploy an app from its source directory:
 moor deploy --app hello
 ```
 
+Or push it with git, over SSH (port 2222, `listen.ssh` in `server.toml`)
+or HTTPS: register your SSH key once with `moor keys add`, add the app's
+remote with `moor git remote`, and `git push moorage main`
+([Deploying with git push](git.md)). Open port 2222 in the firewall, beside
+80 and 443, for pushes from other machines.
+
 The quick starts show each kind of app: [Go](go.md), [Python](python.md),
 [Node.js](node.md), [static sites](static.md) and
 [anything else](other.md). [Variables and secrets](variables.md)

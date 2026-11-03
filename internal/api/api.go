@@ -59,6 +59,10 @@ func New(db *store.DB, cfg config.Config, dataDir string, tokenHash [32]byte, ru
 	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/vars", s.vars)
 	mux.HandleFunc("PATCH /api/v1/apps/{app}/envs/{env}/vars", s.changeVars)
 	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/logs", s.logs)
+	mux.HandleFunc("GET /api/v1/server", s.serverInfo)
+	mux.HandleFunc("GET /api/v1/me/ssh-keys", s.sshKeys)
+	mux.HandleFunc("POST /api/v1/me/ssh-keys", s.addSSHKey)
+	mux.HandleFunc("DELETE /api/v1/me/ssh-keys/{key}", s.removeSSHKey)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusNotFound, "not_found", "There is no such API endpoint.")
 	})

@@ -32,9 +32,14 @@ type Deployment struct {
 	App        string
 	Env        string
 	SourceType string
-	Status     string
-	BuildID    string
-	ReleaseID  string
+	// SourceRef, SourceCommit and SourceMessage say what a push deployed:
+	// its ref, its commit and the first line of the commit's message.
+	SourceRef     string
+	SourceCommit  string
+	SourceMessage string
+	Status        string
+	BuildID       string
+	ReleaseID     string
 	// Version is the release's number, once there is a release.
 	Version    int
 	Error      string
@@ -52,9 +57,10 @@ func (db *DB) CreateDeployment(ctx context.Context, d Deployment) error {
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO deployments (id, env_id, source_type, status, build_id, created_by, created_at, started_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, d.ID, envID, d.SourceType, d.Status, nullString(d.BuildID), nullString(d.CreatedBy),
-			d.CreatedAt.UnixMilli(), nullTime(d.StartedAt))
+		_, err = tx.ExecContext(ctx, `INSERT INTO deployments (id, env_id, source_type, source_ref, source_commit, source_message,
+			status, build_id, created_by, created_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			d.ID, envID, d.SourceType, nullString(d.SourceRef), nullString(d.SourceCommit), nullString(d.SourceMessage),
+			d.Status, nullString(d.BuildID), nullString(d.CreatedBy), d.CreatedAt.UnixMilli(), nullTime(d.StartedAt))
 		return err
 	})
 }
@@ -113,20 +119,21 @@ func (db *DB) InterruptDeployments(ctx context.Context) (int, error) {
 	return int(n), err
 }
 
-const deploymentColumns = `SELECT d.id, a.name, e.name, d.source_type, d.status, d.build_id, d.release_id, r.version,
+const deploymentColumns = `SELECT d.id, a.name, e.name, d.source_type, d.source_ref, d.source_commit, d.source_message, d.status, d.build_id, d.release_id, r.version,
 	d.error, d.output, d.created_by, d.created_at, d.started_at, d.finished_at
 	FROM deployments d JOIN environments e ON e.id = d.env_id JOIN apps a ON a.id = e.app_id
 	LEFT JOIN releases r ON r.id = d.release_id`
 
 func scanDeployment(row interface{ Scan(...any) error }) (Deployment, error) {
 	var d Deployment
-	var buildID, releaseID, errMsg, output, by sql.NullString
+	var buildID, releaseID, errMsg, output, by, ref, commit, message sql.NullString
 	var version, started, finished sql.NullInt64
 	var created int64
-	if err := row.Scan(&d.ID, &d.App, &d.Env, &d.SourceType, &d.Status, &buildID, &releaseID, &version,
+	if err := row.Scan(&d.ID, &d.App, &d.Env, &d.SourceType, &ref, &commit, &message, &d.Status, &buildID, &releaseID, &version,
 		&errMsg, &output, &by, &created, &started, &finished); err != nil {
 		return Deployment{}, err
 	}
+	d.SourceRef, d.SourceCommit, d.SourceMessage = ref.String, commit.String, message.String
 	d.BuildID, d.ReleaseID, d.Version, d.Error, d.CreatedBy = buildID.String, releaseID.String, int(version.Int64), errMsg.String, by.String
 	if output.Valid {
 		json.Unmarshal([]byte(output.String), &d.Output)

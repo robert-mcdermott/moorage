@@ -18,6 +18,9 @@ binary with its state in SQLite, and everything else is built in.
 
 ## What it does
 
+- **Deploys with `git push`,** over SSH or HTTPS, to a repository on the
+  server: the push shows the build as it happens, and fails if the deploy
+  does. Or upload a directory with `moor deploy`.
 - **Builds from source.** Go (from `go.mod`), Python (with uv, from
   `pyproject.toml` and `uv.lock`), Node.js (with npm), static sites, or the
   build command you give it. A `moorage.toml` is optional.
@@ -98,6 +101,22 @@ moor logs -f
 
 ```bash
 moor rollback --with-config
+```
+
+To deploy your own app with git, register your SSH key once, then, in the
+app's repository, add its remote and push
+([deploying with git push](docs/git.md)):
+
+```bash
+moor keys add
+```
+
+```bash
+moor git remote
+```
+
+```bash
+git push moorage main
 ```
 
 ## On a server

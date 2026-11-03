@@ -94,6 +94,35 @@ func (c *Client) Vars(ctx context.Context, app, env string) ([]apitypes.Var, err
 	return out, err
 }
 
+// ServerInfo describes the server, with the prefixes of the git remotes.
+func (c *Client) ServerInfo(ctx context.Context) (apitypes.ServerInfo, error) {
+	var out apitypes.ServerInfo
+	err := c.do(ctx, http.MethodGet, "/api/v1/server", nil, "", &out)
+	return out, err
+}
+
+// SSHKeys lists the keys that may push over SSH.
+func (c *Client) SSHKeys(ctx context.Context) ([]apitypes.SSHKey, error) {
+	var out []apitypes.SSHKey
+	err := c.do(ctx, http.MethodGet, "/api/v1/me/ssh-keys", nil, "", &out)
+	return out, err
+}
+
+// AddSSHKey registers a public key, in authorized_keys format.
+func (c *Client) AddSSHKey(ctx context.Context, k apitypes.NewSSHKey) (apitypes.SSHKey, error) {
+	body, _ := json.Marshal(k)
+	var out apitypes.SSHKey
+	err := c.do(ctx, http.MethodPost, "/api/v1/me/ssh-keys", bytes.NewReader(body), "application/json", &out)
+	return out, err
+}
+
+// RemoveSSHKey removes the key with this name or fingerprint.
+func (c *Client) RemoveSSHKey(ctx context.Context, which string) (apitypes.SSHKey, error) {
+	var out apitypes.SSHKey
+	err := c.do(ctx, http.MethodDelete, "/api/v1/me/ssh-keys/"+url.PathEscape(which), nil, "", &out)
+	return out, err
+}
+
 // ChangeVars sets and unsets variables; unless ch.NoRestart, it returns once
 // the change is released.
 func (c *Client) ChangeVars(ctx context.Context, app, env string, ch apitypes.VarsChange) (apitypes.VarsResult, error) {

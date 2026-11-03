@@ -26,6 +26,7 @@ func testConfig(t *testing.T) config.Config {
 		t.Fatal(err)
 	}
 	cfg.Listen.HTTP = "127.0.0.1:0" // let the OS choose a free port
+	cfg.Listen.SSH = ""             // the git tests turn it on
 	return cfg
 }
 

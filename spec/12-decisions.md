@@ -64,7 +64,7 @@ provisional until the corresponding Phase 0 spike reports back.
   adapters are covered by integration tests against each supported engine
   version.
 
-### D4 — Built-in git server (spike S1 — largely de-risked)
+### D4 — Built-in git server (spike S1 — done)
 
 - **Decision:** accept pushes over an embedded SSH server and Smart HTTP using
   the server-side support in the next major version of the pure-Go git
@@ -86,6 +86,12 @@ provisional until the corresponding Phase 0 spike reports back.
   - ref status is settled *before* post-receive hooks run, so a deployment
     that must be able to fail the push runs in the pre-receive step (see
     [Build and deploy → Live output](04-build-and-deploy.md#live-output)).
+- **Handled in wave 2, slice 2:** the library is pinned at `v6.0.0-beta.1`
+  and used by `internal/gitserver` only; ref updates are serialised per
+  repository; Moorage reads the push's request itself and ends it at the
+  pack's checksum; the deployment runs in the pre-receive step, which can
+  refuse only a whole push, so a failed deploy rejects every ref of its
+  push.
 - **Alternatives:** require system `git` and hook into the host's `sshd`
   (forced commands in `authorized_keys`) — proven, but adds host dependencies,
   is Unix-centric and couples Moorage to host SSH configuration.

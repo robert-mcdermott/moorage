@@ -25,6 +25,7 @@ const (
 	User       = "usr"
 	Token      = "tok"
 	Var        = "var"
+	SSHKey     = "key"
 )
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

@@ -134,6 +134,24 @@ func (d *Deployer) envLock(app, env string) *sync.Mutex {
 // it does not exist, once the upload is known to be good. A newer
 // submission supersedes one still queued for the same environment.
 func (d *Deployer) Submit(ctx context.Context, app, env, by string, upload io.Reader) (store.Deployment, bool, error) {
+	return d.SubmitSource(ctx, app, env, by, Source{Type: "source-upload", Fill: func(dir string) (int, error) {
+		files, _, err := archive.Extract(upload, dir, archive.DefaultLimits)
+		return files, err
+	}})
+}
+
+// Source is a deployment's source code. Fill writes it into the build
+// directory and returns how many files it wrote.
+type Source struct {
+	// Type is "source-upload" or "git-push".
+	Type string
+	// Ref, Commit and Message describe a pushed commit.
+	Ref, Commit, Message string
+	Fill                 func(dir string) (files int, err error)
+}
+
+// SubmitSource is Submit for any source.
+func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src Source) (store.Deployment, bool, error) {
 	if err := names.ValidateApp(app); err != nil {
 		return store.Deployment{}, false, err
 	}
@@ -143,9 +161,9 @@ func (d *Deployer) Submit(ctx context.Context, app, env, by string, upload io.Re
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		return store.Deployment{}, false, err
 	}
-	files, _, err := archive.Extract(upload, appDir, archive.DefaultLimits)
+	files, err := src.Fill(appDir)
 	if err == nil && files == 0 {
-		err = errors.New("the upload contains no files")
+		err = errors.New("the source contains no files")
 	}
 	if err != nil {
 		os.RemoveAll(dir)
@@ -157,7 +175,8 @@ func (d *Deployer) Submit(ctx context.Context, app, env, by string, upload io.Re
 		return store.Deployment{}, false, err
 	}
 	dep := store.Deployment{
-		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: "source-upload", Status: store.Queued,
+		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: src.Type,
+		SourceRef: src.Ref, SourceCommit: src.Commit, SourceMessage: src.Message, Status: store.Queued,
 		BuildID: buildID, CreatedBy: by, CreatedAt: time.Now().UTC(),
 	}
 	if err := d.db.CreateDeployment(ctx, dep); err != nil {
@@ -166,6 +185,44 @@ func (d *Deployer) Submit(ctx context.Context, app, env, by string, upload io.Re
 	}
 	d.enqueue(dep)
 	return dep, created, nil
+}
+
+// Follow passes a deployment's log lines to fn as they are written, until
+// the deployment ends or ctx is done, and returns the deployment as it
+// ended.
+func (d *Deployer) Follow(ctx context.Context, id string, fn func(logs.Line) error) (store.Deployment, error) {
+	dep, err := d.db.Deployment(ctx, id)
+	if err != nil {
+		return dep, err
+	}
+	f := logs.FollowFromStart(LogPath(d.opts.DataDir, dep.App, dep.ID))
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		// The status is read before the log: a deployment writes its last
+		// line before it records its end.
+		finished := store.Final(dep.Status)
+		lines, err := f.Read()
+		if err != nil {
+			return dep, err
+		}
+		for _, l := range lines {
+			if err := fn(l); err != nil {
+				return dep, err
+			}
+		}
+		if finished {
+			return dep, nil
+		}
+		select {
+		case <-ctx.Done():
+			return dep, ctx.Err()
+		case <-tick.C:
+		}
+		if dep, err = d.db.Deployment(ctx, id); err != nil {
+			return dep, err
+		}
+	}
 }
 
 func (d *Deployer) enqueue(dep store.Deployment) {
@@ -241,6 +298,9 @@ func (d *Deployer) run(dep store.Deployment) {
 		d.log.Warn("deployment failed", "app", dep.App, "env", dep.Env, "deployment", dep.ID, "err", msg)
 	}
 	build.Marker(logFile, "moorage  %s · %s · %s", dep.App, dep.Env, dep.ID)
+	if dep.SourceCommit != "" {
+		build.Marker(logFile, "▸ source     %s @ %.7s  %s", strings.TrimPrefix(dep.SourceRef, "refs/heads/"), dep.SourceCommit, dep.SourceMessage)
+	}
 
 	select {
 	case d.slots <- struct{}{}:

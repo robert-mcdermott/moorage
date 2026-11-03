@@ -27,11 +27,15 @@ type Release struct {
 // Deployment is the job that produces a release: a deploy, a rollback. A
 // finished deployment that went live carries the release now serving.
 type Deployment struct {
-	ID         string    `json:"id"`
-	App        string    `json:"app"`
-	Env        string    `json:"env"`
-	URL        string    `json:"url"`
-	Source     string    `json:"source"`
+	ID     string `json:"id"`
+	App    string `json:"app"`
+	Env    string `json:"env"`
+	URL    string `json:"url"`
+	Source string `json:"source"`
+	// Ref, Commit and Message say what a push deployed.
+	Ref        string    `json:"ref,omitempty"`
+	Commit     string    `json:"commit,omitempty"`
+	Message    string    `json:"message,omitempty"`
 	Status     string    `json:"status"`
 	Build      string    `json:"build,omitempty"`
 	AppCreated bool      `json:"app_created,omitempty"`
@@ -111,6 +115,36 @@ type VarsResult struct {
 	NotSet     []string `json:"not_set,omitempty"`
 	// Deployment is the deployment that released the change, if any.
 	Deployment *Deployment `json:"deployment,omitempty"`
+}
+
+// SSHKey is a public key that may push over SSH.
+type SSHKey struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Fingerprint string    `json:"fingerprint"`
+	PublicKey   string    `json:"public_key"`
+	CreatedAt   time.Time `json:"created_at"`
+	LastUsedAt  time.Time `json:"last_used_at,omitzero"`
+}
+
+// NewSSHKey registers a public key, in authorized_keys format. Name
+// defaults to the key's comment.
+type NewSSHKey struct {
+	Name      string `json:"name,omitempty"`
+	PublicKey string `json:"public_key"`
+}
+
+// ServerInfo describes the server.
+type ServerInfo struct {
+	Version string  `json:"version"`
+	Git     GitInfo `json:"git"`
+}
+
+// GitInfo gives the prefixes of the apps' git remotes: an app's remote is
+// <prefix>/<app>.git. SSH is empty when pushes over SSH are off.
+type GitInfo struct {
+	SSH  string `json:"ssh,omitempty"`
+	HTTP string `json:"http"`
 }
 
 // Problem is an RFC 9457 error document. Output, when present, holds the

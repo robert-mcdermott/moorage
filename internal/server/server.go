@@ -14,8 +14,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/robert-mcdermott/moorage/internal/api"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -23,6 +26,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
@@ -54,6 +58,8 @@ type Layout struct {
 	// MasterKey seals the data keys of secrets (unless the key is given
 	// elsewhere: see secrets.LoadMasterKey).
 	MasterKey string
+	// SSHHostKey is the git server's SSH host key.
+	SSHHostKey string
 }
 
 // NewLayout returns the layout of the data directory root.
@@ -76,6 +82,7 @@ func NewLayout(root string) Layout {
 		LockFile:   at("run", "moor.lock"),
 		AdminToken: at("keys", "admin-token"),
 		MasterKey:  at("keys", "master.key"),
+		SSHHostKey: at("keys", "ssh_host_ed25519_key"),
 	}
 }
 
@@ -119,6 +126,8 @@ func (l Layout) Prepare() error {
 type Addrs struct {
 	HTTP  net.Addr
 	HTTPS net.Addr
+	// SSH is nil when git pushes over SSH are off.
+	SSH net.Addr
 }
 
 // Options adjust Run.
@@ -259,8 +268,15 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.
 	defer deployer.Shutdown()
+	// The git server: Smart HTTP on the console's hostname, SSH on its own
+	// port. Until accounts arrive, the admin token and the registered SSH
+	// keys may push.
+	git := &gitserver.Server{Repos: gitserver.NewRepos(layout.Repos), Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
 	console := http.NewServeMux()
 	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, tokenHash, runtime, deployer, log))
+	console.Handle("/git/", &gitserver.HTTP{Git: git, Password: func(_ *http.Request, _, password string) (string, bool) {
+		return "admin", auth.Matches(strings.TrimSpace(password), tokenHash)
+	}})
 	console.Handle("/", ingress.Placeholder())
 	router.SetConsole(console)
 
@@ -294,7 +310,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	errorLog := slog.NewLogLogger(log.Handler(), slog.LevelWarn)
 	var httpHandler http.Handler = router
 	servers := []*http.Server{}
-	served := make(chan error, 2)
+	served := make(chan error, 3)
 
 	if tlsConfig != nil {
 		httpsLn, err := net.Listen("tcp", cfg.Listen.HTTPS)
@@ -314,14 +330,47 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	servers = append(servers, httpSrv)
 	go func() { served <- httpSrv.Serve(httpLn) }()
 
+	var sshSrv *gitserver.SSH
+	if cfg.Listen.SSH != "" {
+		hostKey, err := gitserver.LoadHostKey(layout.SSHHostKey)
+		if err != nil {
+			return fmt.Errorf("the SSH host key: %w", err)
+		}
+		sshLn, err := net.Listen("tcp", cfg.Listen.SSH)
+		if err != nil {
+			for _, s := range servers {
+				s.Close()
+			}
+			return listenError(cfg.Listen.SSH, err)
+		}
+		addrs.SSH = sshLn.Addr()
+		sshSrv = &gitserver.SSH{
+			Git: git, HostKey: hostKey,
+			Key: func(ctx context.Context, key ssh.PublicKey) (string, bool) {
+				_, err := db.SSHKeyByFingerprint(ctx, ssh.FingerprintSHA256(key))
+				return "admin", err == nil
+			},
+			Used: func(fingerprint string) {
+				if k, err := db.SSHKeyByFingerprint(ctx, fingerprint); err == nil {
+					db.TouchSSHKey(ctx, k.ID)
+				}
+			},
+		}
+		go func() {
+			if err := sshSrv.Serve(sshLn); err != nil {
+				served <- err
+			}
+		}()
+	}
+
 	info := buildinfo.Get()
 	log.Info("moorage server started",
 		"version", info.Version, "commit", info.Commit,
 		"config", cfg.Path, "data_dir", cfg.DataDir, "domain", cfg.Domain,
 		"http", addrs.HTTP.String(), "https", addrString(addrs.HTTPS), "tls", cfg.TLS.Mode,
 		"console", cfg.PublicURL(cfg.ConsoleHost))
-	if cfg.Listen.SSH != "" {
-		log.Warn("git pushes over SSH arrive in wave 2; listen.ssh is not served yet", "ssh", cfg.Listen.SSH)
+	if addrs.SSH != nil {
+		log.Info("git pushes over SSH", "ssh", addrs.SSH.String(), "host_key", ssh.FingerprintSHA256(sshSrv.HostKey.PublicKey()))
 	}
 	if opts.Ready != nil {
 		opts.Ready(addrs)
@@ -334,6 +383,9 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		runErr = fmt.Errorf("HTTP server: %w", err)
 	}
 	log.Info("moorage server stopping")
+	if sshSrv != nil {
+		sshSrv.Close()
+	}
 	shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	for _, s := range servers {

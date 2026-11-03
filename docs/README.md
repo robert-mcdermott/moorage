@@ -12,6 +12,8 @@ how it works inside and where it is going.
 
 ## Deploying apps
 
+- [With git push](git.md): the production branch deploys, and the push
+  shows the build
 - [Go](go.md)
 - [Python](python.md), with uv
 - [Node.js](node.md), with npm
@@ -28,6 +30,8 @@ how it works inside and where it is going.
 | Command | What it does |
 |---|---|
 | `moor deploy [DIR]` | Builds and deploys the source in DIR; prints the app's URL |
+| `moor git remote` | Adds the app's git remote: `git push moorage main` deploys |
+| `moor keys add` | Registers your SSH key, so that you can push over SSH |
 | `moor apps` | Lists the apps |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
 | `moor releases` | Lists an app's releases |
@@ -39,17 +43,19 @@ how it works inside and where it is going.
 | `moor manifest explain` | Shows how Moorage will build and run the app |
 | `moor server status` | Shows the server and its service |
 
-An app is chosen with `--app`, `$MOOR_APP` or `[app].name` in the
-`moorage.toml` of the current directory.
+An app is chosen with `--app`, `$MOOR_APP`, `[app].name` in the
+`moorage.toml` of the current directory, or the repository's `moorage` git
+remote.
 
 ## How Moorage works, in brief
 
 - **The server** is the `moor` binary, run as a service. It keeps its state
   in one SQLite database and one data directory, and answers every app's
   hostname (`<app>.<domain>`) itself.
-- **A deploy** uploads the app's source. The server works out how to build
-  it, installs the toolchains it needs (checked against their published
-  checksums) and builds it in the directory it will run from.
+- **A deploy** uploads the app's source, or pushes it to the app's git
+  repository on the server. The server works out how to build it, installs
+  the toolchains it needs (checked against their published checksums) and
+  builds it in the directory it will run from.
 - **A release** is a build with its variables. A new release takes over only
   once its instances answer their health checks; the old ones finish their
   requests first. `moor rollback` brings an earlier release back.

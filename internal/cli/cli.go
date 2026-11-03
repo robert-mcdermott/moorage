@@ -65,7 +65,7 @@ The moor binary is both the server and the command line that talks to it.`,
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
-	root.AddCommand(newVersionCmd(), newServerCmd(), newDeployCmd(), newAppsCmd(), newReleasesCmd(), newRollbackCmd(), newDeploymentsCmd(), newEnvCmd(), newManifestCmd(), newPsCmd(), newLogsCmd(), newRestartCmd())
+	root.AddCommand(newVersionCmd(), newServerCmd(), newDeployCmd(), newAppsCmd(), newReleasesCmd(), newRollbackCmd(), newDeploymentsCmd(), newEnvCmd(), newManifestCmd(), newPsCmd(), newLogsCmd(), newRestartCmd(), newGitCmd(), newKeysCmd())
 	return root
 }
 

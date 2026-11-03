@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
@@ -17,6 +16,7 @@ import (
 func (s *Server) deploymentDoc(d store.Deployment) apitypes.Deployment {
 	doc := apitypes.Deployment{
 		ID: d.ID, App: d.App, Env: d.Env, URL: s.appURL(d.App), Source: d.SourceType, Status: d.Status,
+		Ref: d.SourceRef, Commit: d.SourceCommit, Message: d.SourceMessage,
 		Build: d.BuildID, Error: d.Error, Output: d.Output, CreatedBy: d.CreatedBy,
 		CreatedAt: d.CreatedAt, StartedAt: d.StartedAt, FinishedAt: d.FinishedAt,
 	}
@@ -96,36 +96,32 @@ func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	flusher, _ := w.(http.Flusher)
 	enc := json.NewEncoder(w)
-	f := logs.FollowFromStart(deploy.LogPath(s.dataDir, d.App, d.ID))
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		// The deployment's status is read before its log: a deployment
-		// writes its last line before it records its end.
-		finished := store.Final(d.Status)
-		lines, err := f.Read()
+	write := func(l logs.Line) error {
+		return enc.Encode(apitypes.LogLine{Time: l.Time, Stream: l.Stream, Text: l.Text})
+	}
+	if !follow {
+		lines, err := logs.FollowFromStart(deploy.LogPath(s.dataDir, d.App, d.ID)).Read()
 		if err != nil {
 			s.log.Error("read a deployment log", "deployment", d.ID, "err", err)
 			return
 		}
 		for _, l := range lines {
-			if err := enc.Encode(apitypes.LogLine{Time: l.Time, Stream: l.Stream, Text: l.Text}); err != nil {
+			if write(l) != nil {
 				return
 			}
+		}
+		return
+	}
+	_, err := s.deployer.Follow(r.Context(), d.ID, func(l logs.Line) error {
+		if err := write(l); err != nil {
+			return err
 		}
 		if flusher != nil {
 			flusher.Flush()
 		}
-		if finished || !follow {
-			return
-		}
-		select {
-		case <-r.Context().Done():
-			return
-		case <-tick.C:
-		}
-		if d, err = s.db.Deployment(r.Context(), d.ID); err != nil {
-			return
-		}
+		return nil
+	})
+	if err != nil && r.Context().Err() == nil {
+		s.log.Error("follow a deployment log", "deployment", d.ID, "err", err)
 	}
 }

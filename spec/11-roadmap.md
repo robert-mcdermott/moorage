@@ -424,9 +424,9 @@ directory, supervises it, and serves it on its own hostname.
        doctor` and the other operations of slice 5.
      - `moor manifest validate` said declared variables (`[vars]`) arrive
        in the next release; they come with wave 5. Fixed.
-     - A first Python deploy takes about two minutes on a fresh server,
-       most of it downloading uv, Python and the dependencies; later
-       deploys reuse them.
+     - A first Python deploy on a fresh server mostly downloads uv, Python
+       and the dependencies: about two minutes on a home connection, four or
+       five seconds on CI's runners. Later deploys reuse them.
 2. **Git server.** First the open items of spike S1 (rejecting a ref from the
    pre-receive step, detecting the end of the pack, serialising ref updates
    per repository); then the embedded SSH server (git exec requests only,
@@ -434,9 +434,60 @@ directory, supervises it, and serves it on its own hostname.
    deploys of the production branch with streamed progress; a failed deploy
    failing the push; push to create; push options and `[skip deploy]`;
    `moor git remote` and `moor git credential`.
+   - Done (slice 2):
+     - Spike S1's open items. A push's request is read by Moorage itself
+       and handed to the git library ended at the pack's trailing checksum,
+       so a client that keeps its side open gets its answer (shown with a
+       client that does, which waits forever without it); pushes larger than
+       1 GiB are refused. Ref updates are serialised per repository, and a
+       branch whose push is deploying refuses a second push until it ends;
+       builds run outside the lock. The library's pre-receive hook refuses
+       a whole push: a failed deploy rejects every ref of its push, with the
+       deployment's ID. The library is used by `internal/gitserver` only, a
+       test checks it, and pinned at `v6.0.0-beta.1`.
+     - The SSH server (`golang.org/x/crypto/ssh`): session channels and
+       `exec` requests for `git-receive-pack` and `git-upload-pack` only;
+       the user comes from the permissions of the key the client signed
+       with; an Ed25519 host key in `keys/`. Smart HTTP at `/git/<app>.git`
+       on the console's hostname, with the API token as the password.
+     - Bare repositories under `repos/`; push to create; the production
+       branch is the repository's default branch (`main`, or the first
+       branch the first push creates); other branches and tags are kept;
+       the production branch cannot be deleted. The commit's tree is written
+       into the build directory as an upload would be (no symbolic links or
+       submodules; LFS pointers warned about), and the deployment records
+       its ref, commit and message. Progress is the deployment's log, as
+       `remote:` lines; a client that leaves does not stop the deploy, and
+       the branch moves if it succeeds. Push options `skip-deploy`,
+       `detach` and `env=production`; `[skip deploy]`.
+     - `moor keys` (`add`, `remove`), brought forward from slice 3: until
+       accounts, every key is the administrator's. `moor git remote`
+       (`--http`), `moor git credential`, and commands that find the app
+       from the `moorage` remote. `/api/v1/server` gives the remotes'
+       prefixes; `/api/v1/me/ssh-keys` the keys.
+     - Verified by tests of the library's client over SSH and HTTP
+       (pushes, clones, refusals, concurrent pushes, a client that leaves,
+       the default branch, the export, a push with the connection held open)
+       and of the git and ssh command lines against the whole server (a
+       deploy by push, a failed one, `[skip deploy]`, another branch, HTTPS
+       with the token, clones over both), with the race detector; and with
+       the binary on macOS: `moor keys add`, `moor git remote`, pushes over
+       SSH and over HTTPS through `moor git credential`.
+   - Found by slice 2:
+     - The library's own client closes its side after the pack, as the git
+       command line does; the end of the pack matters for clients that do
+       not, which the tests imitate.
+     - git hands a working credential to every configured helper, so a
+       keychain helper would keep the API token and answer with it after it
+       changes. `moor git remote --http` clears the other helpers for the
+       server's git URL, as `gh` does for its hosts.
+     - The `local` preset listens for SSH on 127.0.0.1:2222 since 0.1.0, so
+       servers from 0.1.0 start serving git over SSH once upgraded; the
+       tests' servers turn it off unless they test it.
 3. **Accounts.** Users, sessions, scoped API tokens and SSH keys, replacing
    wave 1's bootstrap token; the first-run claim URL; CLI browser login
-   (`moor login`, `logout`, `whoami`, `context`); `moor keys`, `moor tokens`;
+   (`moor login`, `logout`, `whoami`, `context`); keys per user (`moor keys`
+   arrived in slice 2, every key the administrator's), `moor tokens`;
    the OpenAPI contract with problem+json errors and cursor pagination.
 4. **Containers.** The container driver — one CLI lifecycle for Podman and
    Docker, an observation adapter per engine, label-based adoption — and the
@@ -584,7 +635,7 @@ slice before code is built on a failed assumption.
 
 | # | Question | Slice | Done when |
 |---|---|---|---|
-| S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 2 | *Largely shown by a research probe with the git CLI.* Remaining: rejecting a ref from the pre-receive step with a deployment error; end-of-pack detection for clients that keep the connection open (tested with a non-CLI git client library); per-repository ref serialisation under concurrent pushes; the beta library wrapped behind an internal interface. |
+| S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 2 | *Largely shown by a research probe with the git CLI. Slice 2: a failed deploy rejects the push with the deployment's ID (the hook refuses every ref of a push); the end of the pack is found by Moorage, so a client that keeps its side open gets its answer (tested with such a client, and with the library's own client, which closes its side); ref updates serialised per repository, with a second push to a deploying branch refused; the library behind `internal/gitserver`, checked by a test. Done.* |
 | S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 6) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. Slice 6: through `systemctl restart` and a launchd restart under load, the app keeps its process and none of its requests fail; shim private memory 4.4–5.3 MB on Linux. The Windows service comes with the Windows server (wave 7).* |
 | S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. *Shown in slice 4 on macOS: seven sample apps built from source, deployed and rolled back, with partial versions resolved and every download verified (a CI job runs them on Linux and macOS); the Node.js checksum file's signature is checked in wave 6.* |
 | S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances in slice 3 (over 10,000 requests across a deploy, a rolling restart and a rollback, none failed; upgraded connections pass through).* |
