@@ -18,4 +18,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body.encode())
 
 
-http.server.ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
+server = http.server.ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler)
+print(f"listening on 127.0.0.1:{server.server_port}", flush=True)
+server.serve_forever()
