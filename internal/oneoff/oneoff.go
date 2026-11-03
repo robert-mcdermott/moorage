@@ -1,5 +1,5 @@
 // Package oneoff runs a manifest command once and waits for it: a build
-// step or a release command (docs/04-build-and-deploy.md). The command and
+// step or a release command (spec/04-build-and-deploy.md). The command and
 // everything it starts are killed together when it is cancelled or runs out
 // of time.
 package oneoff

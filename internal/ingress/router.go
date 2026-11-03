@@ -1,7 +1,7 @@
 // Package ingress is Moorage's front door: it matches each request's
 // hostname to an app and serves it, answers platform endpoints, terminates
 // TLS, and hands console and API requests to the console handler
-// (docs/06-ingress.md).
+// (spec/06-ingress.md).
 package ingress
 
 import (

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Links</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <h1>Links</h1>
+    <p class="lede">Short addresses for long links.</p>
+
+    <form method="post" action="/links">
+      <label for="url">Link</label>
+      <input id="url" name="url" type="url" placeholder="https://example.com/a/long/page" value="{{.URL}}" required>
+      <label for="code">Short name <span class="hint">(optional)</span></label>
+      <div class="code">
+        <span>{{.Base}}/</span>
+        <input id="code" name="code" maxlength="32" pattern="[A-Za-z0-9_\-]+" value="{{.Code}}">
+      </div>
+      <button type="submit">Shorten</button>
+    </form>
+
+    {{with .Error}}<p class="message error" role="alert">{{.}}</p>{{end}}
+    {{with .Created}}<p class="message" role="status">Added <a href="{{$.Base}}/{{.}}">{{$.Base}}/{{.}}</a></p>{{end}}
+
+    {{if .Links}}
+    <table>
+      <thead><tr><th>Short address</th><th>Leads to</th><th class="n">Visits</th></tr></thead>
+      <tbody>
+      {{range .Links}}
+        <tr>
+          <td><a href="{{$.Base}}/{{.Code}}">/{{.Code}}</a></td>
+          <td class="url">{{.URL}}</td>
+          <td class="n">{{.Visits}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="empty">No links yet.</p>
+    {{end}}
+
+    <footer>Release {{.Release}}</footer>
+  </main>
+</body>
+</html>

@@ -118,7 +118,7 @@ func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset
 	case len(c.Proxy.Trusted) > 0:
 		fmt.Fprintf(out, "Point your TLS proxy at http://%s for %s and *.%s. It must keep the\n", c.Listen.HTTP, c.ConsoleHost, c.Domain)
 		fmt.Fprintf(out, "Host header, pass WebSocket upgrades, not buffer responses, and allow long\n")
-		fmt.Fprintf(out, "requests and large uploads (see docs/06-ingress.md, \"Behind a TLS proxy\").\n\n")
+		fmt.Fprintf(out, "requests and large uploads (see spec/06-ingress.md, \"Behind a TLS proxy\").\n\n")
 	case c.Domain != "localhost":
 		fmt.Fprintf(out, "Point a wildcard DNS record, *.%s, at this server.\n\n", c.Domain)
 	}

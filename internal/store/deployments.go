@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Deployment statuses (docs/04-build-and-deploy.md, "Pipeline").
+// Deployment statuses (spec/04-build-and-deploy.md, "Pipeline").
 const (
 	Queued     = "queued"
 	Building   = "building"

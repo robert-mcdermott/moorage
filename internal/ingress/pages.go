@@ -4,10 +4,11 @@ import (
 	"html/template"
 	"net/http"
 
+	"github.com/robert-mcdermott/moorage/internal/brand"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 )
 
-// page is a small platform page (docs/06-ingress.md, "Platform pages").
+// page is a small platform page (spec/06-ingress.md, "Platform pages").
 type page struct {
 	Status  int
 	Title   string
@@ -22,7 +23,7 @@ func (p page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Robots-Tag", "noindex")
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:")
 	w.WriteHeader(p.Status)
 	if r.Method == http.MethodHead {
 		return
@@ -30,7 +31,9 @@ func (p page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = pageTemplate.Execute(w, struct {
 		page
 		Version string
-	}{p, buildinfo.Version})
+		Icon    template.HTML
+		Favicon template.URL
+	}{p, buildinfo.Version, brand.Icon(), brand.FaviconURL()})
 }
 
 func noSuchApp(name string) page {
@@ -93,17 +96,20 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>{{.Title}}</title>
+<link rel="icon" href="{{.Favicon}}">
 <style>
-:root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1f24; --muted: #5e6470; --accent: #2a6f97; }
-@media (prefers-color-scheme: dark) { :root { --bg: #15171c; --fg: #e8e9ec; --muted: #9aa0ab; --accent: #6fb3d9; } }
+:root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1f24; --muted: #5e6470; --brand: #08264c; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15171c; --fg: #e8e9ec; --muted: #9aa0ab; --brand: #e6ebf2; } }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
        display: flex; align-items: center; justify-content: center; padding: 0 1rem; }
 main { max-width: 34rem; }
 h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
 p { margin: 0 0 1rem; color: var(--muted); }
-footer { font-size: .8rem; color: var(--muted); border-top: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); padding-top: .75rem; }
-footer span { color: var(--accent); font-weight: 600; }
+footer { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--muted);
+         border-top: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); padding-top: .75rem; }
+footer span, footer svg { display: block; width: 1.25rem; height: 1.25rem; }
+footer strong { color: var(--brand); }
 </style>
 </head>
 <body>
@@ -113,7 +119,7 @@ footer span { color: var(--accent); font-weight: 600; }
 {{- if .Detail}}
 <p>{{.Detail}}</p>
 {{- end}}
-<footer><span>Moorage</span> {{.Version}}</footer>
+<footer><span aria-hidden="true">{{.Icon}}</span><strong>Moorage</strong> {{.Version}}</footer>
 </main>
 </body>
 </html>

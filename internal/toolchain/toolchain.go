@@ -1,6 +1,6 @@
 // Package toolchain installs the language toolchains builds need — Go,
 // Node.js, uv and Python — into the data directory, on demand and always
-// verified (docs/04-build-and-deploy.md, "Toolchain manager"). A version
+// verified (spec/04-build-and-deploy.md, "Toolchain manager"). A version
 // may be partial ("24", "1.26"); it is resolved to the newest matching
 // release, and the exact version is recorded in the build.
 package toolchain

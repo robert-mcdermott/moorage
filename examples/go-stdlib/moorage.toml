@@ -1,0 +1,11 @@
+# How Moorage builds and runs this app. The Go version comes from go.mod;
+# Moorage builds the binary and runs it as the web process.
+[app]
+name = "links"
+
+[processes.web]
+# A new release takes traffic only once this answers.
+health = { path = "/healthz" }
+# On a deploy, the old instance gets SIGTERM and this long to finish its
+# requests (main.go does) before it is killed.
+stop_timeout = "30s"

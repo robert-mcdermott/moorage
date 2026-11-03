@@ -1,6 +1,6 @@
 // Package shell runs manifest commands with an embedded POSIX-compatible
 // shell, so that a command string behaves the same on Linux, macOS and
-// Windows (docs/05-runtime.md, "Command execution").
+// Windows (spec/05-runtime.md, "Command execution").
 package shell
 
 import (

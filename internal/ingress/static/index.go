@@ -1,6 +1,6 @@
 // Package static serves a published directory of files: a static site, or
 // the static part of an app. Its rules come from the manifest's [static]
-// table (docs/03-manifest.md).
+// table (spec/03-manifest.md).
 package static
 
 import (

@@ -1,6 +1,6 @@
 // Package deploy turns uploads into builds and builds into releases: it
 // stores uploaded sites and artifacts, builds uploaded source, and runs the
-// deployments that publish them (docs/04-build-and-deploy.md).
+// deployments that publish them (spec/04-build-and-deploy.md).
 package deploy
 
 import (

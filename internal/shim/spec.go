@@ -1,6 +1,6 @@
 // Package shim supervises one app instance in its own small process
 // (`moor shim`), so that apps keep running while the Moorage server
-// restarts (docs/02-architecture.md, "Shims"). The shim starts the app,
+// restarts (spec/02-architecture.md, "Shims"). The shim starts the app,
 // writes its output to the instance's log file, restarts it with backoff
 // when it exits, records its state in a file, and takes commands — status,
 // signal, restart, stop — from the server over a loopback connection

@@ -148,7 +148,7 @@ moor deploy --app hello
 
 The quick starts show each kind of app: [Go](go.md), [Python](python.md),
 [Node.js](node.md), [static sites](static.md) and
-[anything else](other.md). [Variables and secrets](configuration.md)
+[anything else](other.md). [Variables and secrets](variables.md)
 configure apps.
 
 ## Back up

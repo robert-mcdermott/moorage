@@ -1,4 +1,4 @@
-// Package api is Moorage's REST API under /api/v1 (docs/09-interfaces.md).
+// Package api is Moorage's REST API under /api/v1 (spec/09-interfaces.md).
 // Until accounts arrive (wave 2), every request needs the bootstrap admin
 // token as a bearer token.
 package api

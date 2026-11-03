@@ -64,3 +64,6 @@ Files whose names carry a content hash (`app.3f2a9c1b.js`) are cached as
 immutable, HTML is revalidated, and pre-compressed `.br` and `.gz` files are
 served to browsers that accept them. `listing = true` lists directories, for
 file shares.
+
+A complete site: the [Handbook example](../examples/static-site), with clean
+URLs, a 404 page, headers and redirects.

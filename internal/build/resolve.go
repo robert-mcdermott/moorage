@@ -1,7 +1,7 @@
 // Package build turns an app's source into a build: it resolves how to
 // build and run the app (its manifest, detection and the runtime presets),
 // installs the toolchains it needs and runs the build in the build's final
-// directory (docs/04-build-and-deploy.md).
+// directory (spec/04-build-and-deploy.md).
 package build
 
 import (

@@ -74,3 +74,6 @@ moor deploy
   first with an `index.html`) is served as a static site, with the rules of
   `[static]` (see [static sites](static.md)): single-page apps set
   `spa = true`.
+
+A complete app: the [Poll example](../examples/node-express), an Express API
+with a Vite front end.

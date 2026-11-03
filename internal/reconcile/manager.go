@@ -2,7 +2,7 @@
 // driver, waits for them to become healthy, switches traffic to them and
 // drains the ones they replace, checks their health, replaces instances
 // whose shim died, and adopts running instances after the server restarts
-// (docs/02-architecture.md, "Desired state and reconciliation").
+// (spec/02-architecture.md, "Desired state and reconciliation").
 package reconcile
 
 import (

@@ -32,7 +32,7 @@ import (
 )
 
 // Layout names the files and directories inside a data directory
-// (docs/02-architecture.md, "On-disk layout").
+// (spec/02-architecture.md, "On-disk layout").
 type Layout struct {
 	Root       string
 	Database   string

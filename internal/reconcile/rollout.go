@@ -213,7 +213,7 @@ func (m *Manager) appDir(build store.Build) string {
 
 // appEnv is the environment of an app's commands: the server's base
 // variables, the runtime's own, [env], the release's variables, and
-// Moorage's (docs/05-runtime.md, "Environment variables"), with the build's
+// Moorage's (spec/05-runtime.md, "Environment variables"), with the build's
 // toolchains and tool directories first on PATH. The values of secret
 // variables are returned apart, decrypted.
 func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, tmpDir string) (vars, secrets map[string]string, err error) {

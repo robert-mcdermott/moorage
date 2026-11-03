@@ -1,0 +1,15 @@
+# How Moorage builds and runs this app: npm ci, the build script (vite build),
+# npm prune --omit=dev, then the start script (node server.js). Node.js comes
+# from engines in package.json.
+[app]
+name = "poll"
+
+[processes.web]
+# A new release takes traffic only once this answers.
+health = { path = "/healthz" }
+
+[env]
+# Change them on the server, without a new build:
+#   moor env set POLL_QUESTION="Tabs or spaces?" POLL_OPTIONS="Tabs,Spaces"
+POLL_QUESTION = "What do you deploy most?"
+POLL_OPTIONS = "Go,Python,Node.js,Static sites"

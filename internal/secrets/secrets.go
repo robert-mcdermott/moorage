@@ -1,5 +1,5 @@
 // Package secrets encrypts the values of secret variables
-// (docs/08-security.md, "Secrets"; decision D16). Each value is sealed with
+// (spec/08-security.md, "Secrets"; decision D16). Each value is sealed with
 // AES-256-GCM under its app's data key, with the app, the scope and the
 // variable's name as associated data, so a ciphertext cannot be moved to
 // another variable. Data keys are themselves sealed by the master key, which

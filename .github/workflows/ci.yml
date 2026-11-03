@@ -59,6 +59,23 @@ jobs:
           MOORAGE_TEST_BUILDS: '1'
         run: go test ./internal/server -run TestSampleApps -v -timeout 20m
 
+  examples:
+    # Deploys every app of examples/ with the moor binary, from the app's
+    # directory, and checks its pages and its API.
+    name: Examples (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Deploy and check the examples
+        run: .github/scripts/examples-check.sh
+
   service:
     # Installs the server as a system service (systemd, launchd), restarts it
     # with an app under load, and checks the app kept running (spike S2).

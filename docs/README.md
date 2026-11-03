@@ -1,34 +1,57 @@
-# Moorage Design Documentation
+# Moorage documentation
 
-Moorage is a self-hosted, single-binary application deployment platform:
-push code, get a URL, watch it run. These documents describe the design of
-the first versions. To install and use Moorage, read the
-[guide](guide/README.md).
+How to install Moorage, run it, and deploy apps to it. This documentation
+describes Moorage 0.1.0; the [design documents](../spec/README.md) describe
+how it works inside and where it is going.
 
-| # | Document | What it covers |
-|---|---|---|
-| 1 | [Vision, goals and principles](01-vision.md) | What Moorage is for, who uses it, non-goals, principles, glossary |
-| 2 | [Architecture](02-architecture.md) | Components, process model (daemon + shims), reconciliation, on-disk layout, cross-platform matrix, code layout, dependencies |
-| 3 | [App manifest — `moorage.toml`](03-manifest.md) | The repository file that tells Moorage how to build and run an app; detection rules |
-| 4 | [Build and deploy](04-build-and-deploy.md) | Deployment sources, the built-in git server, the build pipeline, toolchains, zero-downtime rollouts, rollback, previews |
-| 5 | [Runtime](05-runtime.md) | Drivers, command execution, environment variables, ports, health, restarts, limits, isolation, sleep/wake, cron |
-| 6 | [Ingress, routing and TLS](06-ingress.md) | Hostnames, path routing, proxying, certificates, access gates, platform pages, static serving |
-| 7 | [Observability](07-observability.md) | Status model, logs, metrics, events, notifications, diagnostics |
-| 8 | [Security](08-security.md) | Threat model, privileges, authentication, authorisation, secrets, isolation, supply chain, audit |
-| 9 | [Interfaces](09-interfaces.md) | CLI command tree, REST API conventions and resources, web console |
-| 10 | [Data model](10-data-model.md) | SQLite schema, identifiers, files on disk, sizing |
-| 11 | [Roadmap](11-roadmap.md) | Waves, slices and releases; spikes; risks; engineering practices |
-| 12 | [Decisions and open questions](12-decisions.md) | Key design decisions with alternatives, and questions still open |
+## Start here
 
-## Reading order
+- [Installing Moorage](install.md): get `moor`, configure the server, run it
+  as a service, back it up.
+- The [examples](../examples/README.md): complete apps, ready to deploy.
 
-- **Evaluating the idea:** 1 → 2 → 11.
-- **Writing an app for Moorage:** 3 → 5 (environment variables, health checks).
-- **Operating a server:** 2 → 6 → 8 → 7.
-- **Building Moorage:** all of them, then 12.
+## Deploying apps
 
-## Conventions
+- [Go](go.md)
+- [Python](python.md), with uv
+- [Node.js](node.md), with npm
+- [Static sites](static.md)
+- [Anything else](other.md): your own build, a script, an app that is
+  already built
+- [Variables and secrets](variables.md)
 
-- *(Phase N)* marks features that are designed but scheduled after the first
-  releases; the [roadmap](11-roadmap.md) maps phases onto waves and releases.
-- Example domains use `apps.example.com`; example app names are fictional.
+## Reference
+
+- [`moorage.toml`](manifest.md): every setting of the app manifest.
+- The command line: every command has `--help`; the common ones are below.
+
+| Command | What it does |
+|---|---|
+| `moor deploy [DIR]` | Builds and deploys the source in DIR; prints the app's URL |
+| `moor apps` | Lists the apps |
+| `moor deployments` | Lists an app's deployments; `show` and `follow` one |
+| `moor releases` | Lists an app's releases |
+| `moor rollback [vN]` | Serves an earlier release again, in a moment |
+| `moor ps` | Lists the app's instances: status, health, port, PID |
+| `moor logs [-f]` | Shows the app's output |
+| `moor restart` | Replaces the instances without downtime |
+| `moor env` | Lists and changes variables and secrets |
+| `moor manifest explain` | Shows how Moorage will build and run the app |
+| `moor server status` | Shows the server and its service |
+
+An app is chosen with `--app`, `$MOOR_APP` or `[app].name` in the
+`moorage.toml` of the current directory.
+
+## How Moorage works, in brief
+
+- **The server** is the `moor` binary, run as a service. It keeps its state
+  in one SQLite database and one data directory, and answers every app's
+  hostname (`<app>.<domain>`) itself.
+- **A deploy** uploads the app's source. The server works out how to build
+  it, installs the toolchains it needs (checked against their published
+  checksums) and builds it in the directory it will run from.
+- **A release** is a build with its variables. A new release takes over only
+  once its instances answer their health checks; the old ones finish their
+  requests first. `moor rollback` brings an earlier release back.
+- **Each instance** runs under a small supervisor of its own, which restarts
+  it when it fails and keeps it running while the server restarts.

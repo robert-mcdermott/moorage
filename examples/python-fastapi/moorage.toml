@@ -1,0 +1,19 @@
+# How Moorage builds and runs this app. Python and the dependencies come from
+# .python-version, pyproject.toml and uv.lock: uv installs them on the server.
+[app]
+name = "tasks"
+
+[processes.web]
+# --proxy-headers: Moorage's proxy says, in X-Forwarded-* headers, how the
+# browser reached the app (HTTPS, its address).
+command = "uvicorn tasks.main:app --host 127.0.0.1 --port $PORT --proxy-headers"
+# A new release takes traffic only once this answers.
+health = { path = "/healthz" }
+
+[release]
+# Runs once per deployment, before the new release takes traffic. If it
+# fails, the deployment fails and the previous release keeps serving.
+command = "python -m tasks.migrate"
+
+[env]
+TASKS_TITLE = "Tasks"

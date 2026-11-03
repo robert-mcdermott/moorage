@@ -61,7 +61,7 @@ func Lint(m *Manifest) []string {
 		notYet("[[routes]]", "path routes arrive in a later release")
 	}
 	if len(m.Vars) > 0 {
-		notYet("[vars]", "declared variables arrive in the next release")
+		notYet("[vars]", "declared variables arrive in a later release")
 	}
 	if m.Resources != nil {
 		notYet("[resources]", "limits arrive in a later release")

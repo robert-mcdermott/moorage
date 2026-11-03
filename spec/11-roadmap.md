@@ -347,9 +347,10 @@ directory, supervises it, and serves it on its own hostname.
        (`AbandonProcessGroup`, restarted when it fails), system-wide as root
        or for the current user, running the `moor` binary where it was
        installed from with the `PATH` it was installed with.
-     - The guide (`docs/guide/`): installation, quick starts for Go, Python,
-       Node.js, static sites and other apps, and variables and secrets, with
-       every example checked with `moor manifest explain`.
+     - The guide (`docs/guide/`, moved up to `docs/` in wave 2): installation,
+       quick starts for Go, Python, Node.js, static sites and other apps, and
+       variables and secrets, with every example checked with
+       `moor manifest explain`.
      - Version 0.1.0 and its CHANGELOG section; this roadmap.
      - Verified by unit tests of the generated unit and plist and of the
        commands they drive, and in CI, where the server is installed as a
@@ -377,27 +378,76 @@ directory, supervises it, and serves it on its own hostname.
 
 ### Wave 2
 
-1. **Git server.** First the open items of spike S1 (rejecting a ref from the
+1. **Documentation and examples.** The design documents, roadmap and
+   decisions move to `spec/`, and `docs/` holds the documentation for people
+   who run Moorage and deploy apps to it: installation, the quick starts, a
+   reference for `moorage.toml` as the current release implements it, and
+   variables and secrets. A README that says what Moorage is, what works
+   today and how to start. Examples in `examples/`, each small but
+   realistic, with its own README: a Python app with uv, FastAPI and
+   uvicorn and a web UI; a Go app with only the standard library; an
+   Express API with a Vite front end; a static site with serving rules.
+   - Done when: every example deploys from its directory with
+     `moor deploy` and answers its pages and its API in CI on Linux and
+     macOS, and no link in the README, `docs/` or `spec/` points at a file
+     that does not exist.
+   - Done (slice 1):
+     - `spec/` holds the design documents, the roadmap and the decisions;
+       `docs/` holds the documentation for people who run Moorage and deploy
+       to it, with an index and a reference for `moorage.toml` written from
+       the code (what 0.1.0 acts on, the variables it sets, detection, and
+       what is accepted but not acted on yet).
+     - The README: what Moorage is, what it does today, a quick start on
+       one's own computer with an example, a server in two commands, the
+       examples, the documentation and the status.
+     - Four examples, each with a README: Tasks (FastAPI, uvicorn, a web
+       page, SQLite, migrations as the release command), Links (Go's
+       standard library, a graceful stop, an append-only data file two
+       instances can share), Poll (Express and a Vite front end) and
+       Handbook (a static site with clean URLs, a 404 page, headers and
+       redirects).
+     - The logo: SVG versions of the concept, the icon redrawn from its
+       measured geometry and the wordmark traced, with a variant for dark
+       backgrounds; the icon in the server's own pages and as their favicon
+       (`internal/brand`, kept identical to `docs/assets` by a test).
+     - Verified by `.github/scripts/examples-check.sh`, which deploys the
+       four examples with the binary to a server of its own and makes 24
+       checks of their pages and APIs (a variable change and a rollback
+       included), locally on macOS and in a new CI job on Linux and macOS;
+       and by a test that every link and heading anchor in the README, the
+       changelog, `docs/`, `spec/` and `examples/` exists.
+   - Found by slice 1:
+     - Without a service, nothing stops the apps of a server run in the
+       foreground: `moor server stop --all` goes through the service
+       manager, so the examples check stops each app's shim by its PID.
+       Stopping a foreground server's apps belongs with `moor server
+       doctor` and the other operations of slice 5.
+     - `moor manifest validate` said declared variables (`[vars]`) arrive
+       in the next release; they come with wave 5. Fixed.
+     - A first Python deploy takes about two minutes on a fresh server,
+       most of it downloading uv, Python and the dependencies; later
+       deploys reuse them.
+2. **Git server.** First the open items of spike S1 (rejecting a ref from the
    pre-receive step, detecting the end of the pack, serialising ref updates
    per repository); then the embedded SSH server (git exec requests only,
    authorised on the verified key) and Smart HTTP; bare repositories;
    deploys of the production branch with streamed progress; a failed deploy
    failing the push; push to create; push options and `[skip deploy]`;
    `moor git remote` and `moor git credential`.
-2. **Accounts.** Users, sessions, scoped API tokens and SSH keys, replacing
+3. **Accounts.** Users, sessions, scoped API tokens and SSH keys, replacing
    wave 1's bootstrap token; the first-run claim URL; CLI browser login
    (`moor login`, `logout`, `whoami`, `context`); `moor keys`, `moor tokens`;
    the OpenAPI contract with problem+json errors and cursor pagination.
-3. **Containers.** The container driver — one CLI lifecycle for Podman and
+4. **Containers.** The container driver — one CLI lifecycle for Podman and
    Docker, an observation adapter per engine, label-based adoption — and the
    `dockerfile` and `image` runtimes, with digests pinned at release and
    registry credentials. Runs spike S6.
-4. **TLS and operations.** `moor trust` (installs the internal CA into the
+5. **TLS and operations.** `moor trust` (installs the internal CA into the
    OS trust store; certificate issuance itself arrived in wave 1, slice 2);
    `moor server proxy-config nginx`; `moor server doctor` (DNS, ports, TLS, the
    proxy path, the container engine, kernel features); the laptop-mode
    resolver helper. Completes spike S5.
-5. **Release 0.2.0.**
+6. **Release 0.2.0.**
 
 ## 0.3.0: the console (planned)
 
@@ -534,12 +584,12 @@ slice before code is built on a failed assumption.
 
 | # | Question | Slice | Done when |
 |---|---|---|---|
-| S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 1 | *Largely shown by a research probe with the git CLI.* Remaining: rejecting a ref from the pre-receive step with a deployment error; end-of-pack detection for clients that keep the connection open (tested with a non-CLI git client library); per-repository ref serialisation under concurrent pushes; the beta library wrapped behind an internal interface. |
+| S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 2 | *Largely shown by a research probe with the git CLI.* Remaining: rejecting a ref from the pre-receive step with a deployment error; end-of-pack detection for clients that keep the connection open (tested with a non-CLI git client library); per-repository ref serialisation under concurrent pushes; the beta library wrapped behind an internal interface. |
 | S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 6) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. Slice 6: through `systemctl restart` and a launchd restart under load, the app keeps its process and none of its requests fail; shim private memory 4.4–5.3 MB on Linux. The Windows service comes with the Windows server (wave 7).* |
 | S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. *Shown in slice 4 on macOS: seven sample apps built from source, deployed and rolled back, with partial versions resolved and every download verified (a CI job runs them on Linux and macOS); the Node.js checksum file's signature is checked in wave 6.* |
 | S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances in slice 3 (over 10,000 requests across a deploy, a rolling restart and a rollback, none failed; upgraded connections pass through).* |
-| S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 4 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
-| S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 3 | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. |
+| S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 5 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
+| S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 4 | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. |
 | S7 | Linux cgroup v2 delegation and Landlock applied by the exec helper. | Wave 6, slice 1 | Limits enforced, OOM detected and reported, filesystem rules effective. |
 
 ## Parking lot

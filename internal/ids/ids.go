@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Prefixes of the entities in the data model (docs/10-data-model.md).
+// Prefixes of the entities in the data model (spec/10-data-model.md).
 const (
 	App        = "app"
 	Env        = "env"

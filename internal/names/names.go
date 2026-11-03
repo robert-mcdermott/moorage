@@ -1,5 +1,5 @@
 // Package names checks the names of apps and environments, which become
-// parts of hostnames (docs/06-ingress.md, "Hostnames").
+// parts of hostnames (spec/06-ingress.md, "Hostnames").
 package names
 
 import (

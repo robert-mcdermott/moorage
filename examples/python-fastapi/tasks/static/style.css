@@ -1,0 +1,117 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --fg: #1b1f27;
+  --muted: #646b78;
+  --line: #e2e5ea;
+  --accent: #2f6fdf;
+  --accent-fg: #ffffff;
+  --danger: #c0392b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418;
+    --card: #1a1e24;
+    --fg: #e7e9ed;
+    --muted: #9aa1ad;
+    --line: #2b313a;
+    --accent: #6e9cf0;
+    --accent-fg: #0d1117;
+    --danger: #ef7b6f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+main {
+  max-width: 36rem;
+  margin: 3rem auto;
+  padding: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+h1 { margin: 0 0 1rem; font-size: 1.6rem; }
+#summary { margin: 0; color: var(--muted); font-size: .9rem; }
+
+form { display: flex; gap: .5rem; }
+
+input[name="title"] {
+  flex: 1;
+  padding: .6rem .75rem;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+button {
+  padding: .55rem 1rem;
+  font: inherit;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:disabled { opacity: .4; cursor: default; }
+
+button.quiet, nav button {
+  padding: .3rem .6rem;
+  color: var(--muted);
+  background: none;
+  font-size: .9rem;
+}
+
+nav { display: flex; gap: .25rem; margin: 1rem 0 .5rem; }
+nav button[aria-pressed="true"] { color: var(--fg); background: var(--bg); }
+#clear { margin-left: auto; }
+
+ul { list-style: none; margin: 0; padding: 0; }
+
+li {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .6rem .25rem;
+  border-top: 1px solid var(--line);
+}
+
+li label { flex: 1; overflow-wrap: anywhere; }
+li.done label { color: var(--muted); text-decoration: line-through; }
+li button.quiet { opacity: 0; }
+li:hover button.quiet, li button.quiet:focus { opacity: 1; color: var(--danger); }
+input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+
+#empty { color: var(--muted); text-align: center; padding: 1rem 0; }
+#error { color: var(--danger); }
+
+footer {
+  margin-top: 1.5rem;
+  padding-top: .75rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

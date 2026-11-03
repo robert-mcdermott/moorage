@@ -1,0 +1,65 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fbfaf7;
+  --fg: #22211d;
+  --muted: #6b6860;
+  --line: #e6e3db;
+  --accent: #b5532a;
+  --code: #f1eee6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141311;
+    --fg: #ebe8e1;
+    --muted: #a29e94;
+    --line: #2c2a26;
+    --accent: #ee8f62;
+    --code: #1f1d1a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 17px/1.65 Charter, "Iowan Old Style", Georgia, serif;
+}
+
+header, main, footer { max-width: 42rem; margin: 0 auto; padding: 0 1.25rem; }
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header .name { font-weight: 700; color: var(--fg); text-decoration: none; }
+nav { display: flex; gap: 1.1rem; font-size: .95rem; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover, nav a[aria-current="page"] { color: var(--accent); }
+
+main { padding-top: 2rem; padding-bottom: 3rem; }
+h1, h2 { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.25; }
+h1 { font-size: 2rem; margin: 0 0 1rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 .5rem; }
+a { color: var(--accent); }
+.lede { font-size: 1.15rem; color: var(--muted); }
+
+code { font: .88em ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--code); padding: .1em .3em; border-radius: 4px; }
+pre { background: var(--code); padding: .9rem 1rem; border-radius: 8px; overflow-x: auto; }
+pre code { padding: 0; background: none; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; padding: 0; list-style: none; }
+.cards li { border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+.cards a { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-weight: 600; }
+.cards p { margin: .35rem 0 0; color: var(--muted); font-size: .95rem; }
+
+footer { padding-bottom: 2rem; color: var(--muted); font: .85rem system-ui, -apple-system, "Segoe UI", sans-serif; }

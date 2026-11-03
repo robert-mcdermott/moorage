@@ -96,3 +96,6 @@ moor logs -f
 ```bash
 moor rollback
 ```
+
+A complete app: the [Links example](../examples/go-stdlib), a link shortener
+with only the standard library.

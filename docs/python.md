@@ -99,6 +99,9 @@ Apps built on the standard library's `http.server`:
 - `HTTPServer` looks up the name of the address it binds. On some machines
   that reverse lookup of 127.0.0.1 takes half a minute, and each new instance
   takes as long to start. Override `server_bind`, as the sample in
-  `testdata/apps/python` does.
+  [`testdata/apps/python`](../testdata/apps/python) does.
 
 Production servers (uvicorn, gunicorn, hypercorn) have neither problem.
+
+A complete app: the [Tasks example](../examples/python-fastapi), FastAPI with
+a web page, SQLite and migrations.
