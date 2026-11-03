@@ -75,6 +75,10 @@ var plistTemplate = template.Must(template.New("plist").Parse(`<?xml version="1.
 		<key>SuccessfulExit</key>
 		<false/>
 	</dict>
+	<!-- launchd starts a job at most once in this many seconds (10 by
+	     default), restarts included: apps are unreachable meanwhile. -->
+	<key>ThrottleInterval</key>
+	<integer>2</integer>
 	<!-- Apps run under small supervisors (shims) that outlive the server:
 	     when the server stops, launchd must leave them running, and the
 	     server adopts them when it starts again. -->

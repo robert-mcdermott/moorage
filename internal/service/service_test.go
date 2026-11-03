@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -30,6 +31,9 @@ func (r *recorder) run(name string, args ...string) ([]byte, error) {
 }
 
 func spec(t *testing.T) Spec {
+	if runtime.GOOS == "windows" {
+		t.Skip("systemd and launchd services use Unix paths, which are not absolute on Windows")
+	}
 	dir := t.TempDir()
 	return Spec{
 		Exe: "/opt/moor tools/moor", Config: "/etc/moorage/server.toml", DataDir: filepath.Join(dir, "data"),
@@ -105,6 +109,7 @@ func TestLaunchd(t *testing.T) {
 		"<string>io.moorage.server</string>", "<string>/opt/moor tools/moor</string>",
 		"<string>/Library/Application Support/Moorage/server.toml</string>",
 		"<key>AbandonProcessGroup</key>\n\t<true/>", "<key>SuccessfulExit</key>\n\t\t<false/>",
+		"<key>ThrottleInterval</key>\n\t<integer>2</integer>",
 		"<string>/usr/local/bin:/usr/bin:/bin</string>", "launchd.log</string>",
 	} {
 		if !strings.Contains(string(data), want) {

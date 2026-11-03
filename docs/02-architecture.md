@@ -104,8 +104,9 @@ there are no orphans, and the reconciler starts a fresh instance:
 
 Shims must stay small: the `shim` code path avoids touching heavy packages,
 and package `init()` functions across the codebase must be cheap. Budget:
-**≤ 5 MB private RSS per shim** (validated in the Phase 0 spike; fallback is
-one shim per environment instead of per instance).
+**≤ 5 MB private RSS per shim** (measured in wave 1 at 5.3 MB on Linux and
+6.2 MB on macOS, just above it; fallback is one shim per environment instead
+of per instance).
 
 ### Linux: service unit and cgroup layout
 
