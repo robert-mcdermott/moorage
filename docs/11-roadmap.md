@@ -356,7 +356,7 @@ directory, supervises it, and serves it on its own hostname.
        service on Linux and macOS, restarted with an app under load, and
        uninstalled: the app keeps its process and none of its requests fail
        (2,789 during the restart on Linux, 632 on macOS), and the router is
-       back within 3 s (in 20 ms on Linux).
+       back within 3 s (one or two requests refused on either system).
    - Found by slice 6:
      - Installing a real service changes the machine it runs on, so the
        service is exercised on CI's throwaway runners rather than on
@@ -368,10 +368,10 @@ directory, supervises it, and serves it on its own hostname.
        router down for 6 s. The plist sets `ThrottleInterval` to 2 s, like
        the unit's `RestartSec`, and CI fails if the router is down for over
        3 s.
-     - A shim's private memory on Linux is 5.3 MB (17.7 MB resident, most of
-       it the binary's pages shared with the server), like the 6.2 MB on
-       macOS just above the 5 MB target. One shim per environment remains
-       the fallback if the cost matters.
+     - A shim's private memory on Linux is 4.4 to 5.3 MB across CI runs
+       (about 17 MB resident, most of it the binary's pages shared with the
+       server): around the 5 MB target, with 6.2 MB on macOS. One shim per
+       environment remains the fallback if the cost matters.
 
 ## 0.2.0: push to deploy (planned)
 
@@ -535,7 +535,7 @@ slice before code is built on a failed assumption.
 | # | Question | Slice | Done when |
 |---|---|---|---|
 | S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 1 | *Largely shown by a research probe with the git CLI.* Remaining: rejecting a ref from the pre-receive step with a deployment error; end-of-pack detection for clients that keep the connection open (tested with a non-CLI git client library); per-repository ref serialisation under concurrent pushes; the beta library wrapped behind an internal interface. |
-| S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 6) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. Slice 6: through `systemctl restart` and a launchd restart under load, the app keeps its process and none of its requests fail; shim private memory 5.3 MB on Linux. The Windows service comes with the Windows server (wave 7).* |
+| S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 6) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. Slice 6: through `systemctl restart` and a launchd restart under load, the app keeps its process and none of its requests fail; shim private memory 4.4–5.3 MB on Linux. The Windows service comes with the Windows server (wave 7).* |
 | S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. *Shown in slice 4 on macOS: seven sample apps built from source, deployed and rolled back, with partial versions resolved and every download verified (a CI job runs them on Linux and macOS); the Node.js checksum file's signature is checked in wave 6.* |
 | S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances in slice 3 (over 10,000 requests across a deploy, a rolling restart and a rollback, none failed; upgraded connections pass through).* |
 | S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 4 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
@@ -564,7 +564,7 @@ slice before code is built on a failed assumption.
 | Risk | Why it matters | What Moorage does |
 |---|---|---|
 | The git library's server side is in beta | Pushes are the main way in | Pinned and wrapped behind an internal interface; tested with the git CLI and another client library; fallback to `git receive-pack` when the binary is present |
-| Shim memory per instance | Many small apps on one VM | Measured in wave 1: 5.3 MB private on Linux, 6.2 MB on macOS (target ≤ 5 MB); fallback to one shim per environment |
+| Shim memory per instance | Many small apps on one VM | Measured in wave 1: 4.4–5.3 MB private on Linux, 6.2 MB on macOS (target ≤ 5 MB); fallback to one shim per environment |
 | Kernel and service-manager variety | cgroup delegation and Landlock vary across distributions | Best-effort controls with the effective protection reported; `doctor` checks |
 | Windows parity | Process control differs the most there | CI on Windows from wave 1; Windows server support completed in wave 7 |
 | Builds competing with apps | One VM runs both | Builds get limits, a lower CPU weight and a timeout |

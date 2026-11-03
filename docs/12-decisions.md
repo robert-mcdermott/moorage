@@ -20,7 +20,7 @@ provisional until the corresponding Phase 0 spike reports back.
   but Linux-only); a separate long-lived supervisor daemon (one process
   instead of N, but upgrading it still restarts every app).
 - **Consequences:** a few MB of memory per instance (measured in wave 1:
-  5.3 MB private on Linux and a 6.2 MB physical footprint on macOS, against
+  4.4–5.3 MB private on Linux and a 6.2 MB physical footprint on macOS, against
   a 5 MB target);
   package `init()` code must stay cheap; fallback to one shim per environment
   if the per-instance cost matters in practice. The control channel is a
