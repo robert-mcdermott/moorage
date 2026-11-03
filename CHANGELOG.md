@@ -1,0 +1,8 @@
+# Changelog
+
+## Unreleased
+
+### Added
+
+- **The `moor` binary and a server that starts (wave 1, slice 1).** `moor version` prints the version, commit and platform (`--json` too). `moor server init` writes `server.toml` from a preset: `local` (this computer only, `*.localhost` on 127.0.0.1:8080, plain HTTP) or `lan` (a server on your network: ports 80, 443 and 2222 with Moorage's own CA, or, with `--behind-proxy`, plain HTTP on 127.0.0.1:8080 behind a TLS-terminating proxy such as nginx). It goes to `--config`, `$MOORAGE_CONFIG` or a default location — system-wide when run as root or an elevated Administrator, per-user otherwise — and the file explains every setting. `moor server run` reads it strictly: an unknown key, a syntax error or an invalid value is reported with its line, and every problem at once. The server prepares its data directory (private directories for keys, certificates, runtime state and backups), takes a lock so that only one server uses it, opens the SQLite database in WAL mode and applies migrations — after taking a snapshot of a database that already had a schema, keeping the three newest — and answers `GET /.moorage/health` on every hostname. It refuses a database migrated by a newer `moor`, and shuts down gracefully on interrupt or SIGTERM. Only the HTTP listener is served so far; HTTPS and SSH come in later slices.
+- Continuous integration: formatting, `go vet` and the tests on Linux, macOS and Windows (with the race detector on Linux), a build of all six targets (Linux, macOS and Windows on amd64 and arm64) with cgo disabled, and `govulncheck`. Pushing a `v*` tag builds the binaries with their SHA-256 checksums and drafts a GitHub release from this changelog.

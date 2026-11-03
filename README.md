@@ -23,7 +23,9 @@ deploy apps with `git push` and share a live URL in seconds.
   release history.
 - **Cross-platform.** Linux first; macOS and Windows supported.
 
-> **Status:** design phase. See the [design documentation](docs/README.md).
+> **Status:** in development. Wave 1 (release 0.1.0) is under way — see the
+> [roadmap](docs/11-roadmap.md), the [changelog](CHANGELOG.md) and the
+> [design documentation](docs/README.md).
 
 ## What it will feel like
 
@@ -43,6 +45,37 @@ git switch -c feature/new-pricing
 git push moorage feature/new-pricing   # → https://my-app--feature-new-pricing.apps.example.com
 moor share --env . --expires 7d        # expiring link to this branch's preview
 ```
+
+## Development
+
+Moorage needs Go 1.26 or newer and nothing else: every build is pure Go
+(`CGO_ENABLED=0`), for Linux, macOS and Windows on amd64 and arm64.
+
+```bash
+go build ./cmd/moor
+```
+
+```bash
+go test ./...
+```
+
+To try the server on this computer:
+
+```bash
+./moor server init --preset local --config ~/moorage-dev/server.toml --data-dir ~/moorage-dev/data
+```
+
+```bash
+./moor server run --config ~/moorage-dev/server.toml
+```
+
+```bash
+curl http://127.0.0.1:8080/.moorage/health
+```
+
+Work is planned in waves and slices: each wave has a `waveN` branch and ends
+in a release (see the [roadmap](docs/11-roadmap.md)). Changes are recorded in
+the [changelog](CHANGELOG.md).
 
 ## Documentation
 

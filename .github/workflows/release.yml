@@ -1,0 +1,67 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 checks that the tag, the version in the code and
+# CHANGELOG.md agree, runs the tests, builds the six binaries with their
+# checksums, and drafts a GitHub release whose notes are the version's
+# CHANGELOG section. Review the draft and publish it.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and draft the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Release binaries are built with a Go release that still gets
+          # security fixes; CI tests the minimum version in go.mod.
+          go-version: stable
+      - name: The tag matches the version
+        run: |
+          version="$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/buildinfo/buildinfo.go)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the version in internal/buildinfo/buildinfo.go ($version)."
+            exit 1
+          fi
+          if ! grep -q "^## $version " CHANGELOG.md; then
+            echo "CHANGELOG.md has no section for $version."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Tests
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          mkdir dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            suffix=""
+            if [ "$os" = windows ]; then suffix=".exe"; fi
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w" -o "dist/moor-$os-$arch$suffix" ./cmd/moor
+          done
+          cd dist && sha256sum moor-* > SHA256SUMS && cat SHA256SUMS
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Relative links in the changelog point into the repository; on a
+          # release page they would resolve against the release URL, so they
+          # become links to the tagged files.
+          awk -v heading="## $VERSION " 'index($0, heading) == 1 { found = 1; next } /^## / && found { exit } found' CHANGELOG.md |
+            sed -E "s#\]\(([^):#]+)\)#](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/\1)#g" > notes.md
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --draft --title "Moorage $VERSION" --notes-file notes.md
+          fi

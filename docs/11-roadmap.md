@@ -53,6 +53,21 @@ directory, supervises it, and serves it on its own hostname.
      CI, all six targets build with `CGO_ENABLED=0`, and
      `moor server init --preset local` followed by `moor server run` answers on
      `/.moorage/health`.
+   - Done (slice 1): `moor version`, `moor server init` (presets `local` and
+     `lan`, `--behind-proxy`) and `moor server run`; strict `server.toml`
+     parsing that names the line of every problem; system-wide or per-user
+     default locations; the data directory with private subdirectories and a
+     lock against a second server; SQLite in WAL mode with one writer and
+     read-only readers, forward-only migrations, snapshots before migrating
+     (three kept) and refusal of a newer schema; typed ULID identifiers;
+     `/.moorage/health`; CI (format, vet, tests on three operating systems, the
+     race detector on Linux, six cgo-free builds, `govulncheck`) and the release
+     workflow. Verified locally on macOS (tests with the race detector, the six
+     builds, `go vet` for Linux and Windows, an end-to-end run of the binary);
+     Linux and Windows run in CI once the branch is pushed.
+   - Found by slice 1: the server log goes to stderr only for now (journald
+     and launchd capture it); the rotating file log under `logs/server/` comes
+     with the log manager in slice 3.
 2. **Ingress and static sites.** The routing table with atomic swaps;
    hostname routing under the base domain; static serving with the `[static]`
    rules (SPA fallback, clean URLs, headers, redirects); platform pages; TLS
