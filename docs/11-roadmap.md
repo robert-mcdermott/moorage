@@ -275,6 +275,14 @@ directory, supervises it, and serves it on its own hostname.
      - `TestDeadShimIsReplaced` failed once under the race detector on a
        loaded macOS machine (the replaced app still answered on its port for
        30 seconds) and passed in every later run; to be watched in CI.
+     - In CI on macOS, a sample app served by Python's single-threaded
+       `HTTPServer` held each rollout for the whole drain (30 seconds): the
+       proxy's HTTP client may open a connection to a backend and leave it
+       idle, and a server that handles one connection at a time waits on it
+       before answering anyone else. The samples now use
+       `ThreadingHTTPServer`, as `python -m http.server` does; the per-runtime
+       quick-start documentation (slice 6) warns about servers that handle
+       one connection at a time.
 5. **Configuration.** Variables and encrypted secrets (`moor env`), every
    configuration change a release.
    - Done when: setting a variable rolls out a new release without

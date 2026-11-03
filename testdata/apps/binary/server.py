@@ -18,4 +18,4 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body.encode())
 
 
-http.server.HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()

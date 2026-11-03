@@ -23,4 +23,4 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main():
     port = int(os.environ["PORT"])
     print(f"listening on 127.0.0.1:{port}")
-    http.server.HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
