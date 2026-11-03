@@ -16,7 +16,7 @@ the first versions.
 | 8 | [Security](08-security.md) | Threat model, privileges, authentication, authorisation, secrets, isolation, supply chain, audit |
 | 9 | [Interfaces](09-interfaces.md) | CLI command tree, REST API conventions and resources, web console |
 | 10 | [Data model](10-data-model.md) | SQLite schema, identifiers, files on disk, sizing |
-| 11 | [Roadmap](11-roadmap.md) | Phases, spikes, exit criteria, engineering practices |
+| 11 | [Roadmap](11-roadmap.md) | Waves, slices and releases; spikes; risks; engineering practices |
 | 12 | [Decisions and open questions](12-decisions.md) | Key design decisions with alternatives, and questions still open |
 
 ## Reading order
@@ -28,5 +28,6 @@ the first versions.
 
 ## Conventions
 
-- *(Phase N)* marks features that are designed but scheduled after the MVP.
+- *(Phase N)* marks features that are designed but scheduled after the first
+  releases; the [roadmap](11-roadmap.md) maps phases onto waves and releases.
 - Example domains use `apps.example.com`; example app names are fictional.
