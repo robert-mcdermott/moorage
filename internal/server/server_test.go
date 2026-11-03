@@ -65,6 +65,7 @@ func testOptions(ready func(Addrs)) Options {
 		ShellEnv:   testroles.ShellEnv,
 		BackoffMin: 50 * time.Millisecond,
 		Tick:       200 * time.Millisecond,
+		GCMinAge:   time.Millisecond,
 	}
 }
 

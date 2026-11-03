@@ -65,11 +65,13 @@ assembled in layers, later layers winning:
 1. A minimal base: `PATH` (toolchains, project tool directories, then a
    standard system path), `HOME` (the data directory), `LANG=C.UTF-8`, `TZ`,
    `TMPDIR` (a per-instance temporary directory).
-2. The manifest's `[env]`.
-3. The manifest's `[environments.<env>].env` (or `[environments.preview]`).
-4. Server-side app variables (all environments).
-5. Server-side environment-scoped variables.
-6. Variables injected by Moorage (cannot be overridden):
+2. The runtime's own variables: `PYTHONUNBUFFERED=1` and `VIRTUAL_ENV`
+   (the build's `.venv`) for Python, `NODE_ENV=production` for Node.js.
+3. The manifest's `[env]`.
+4. The manifest's `[environments.<env>].env` (or `[environments.preview]`).
+5. Server-side app variables (all environments).
+6. Server-side environment-scoped variables.
+7. Variables injected by Moorage (cannot be overridden):
 
 | Variable | Example | Notes |
 |---|---|---|

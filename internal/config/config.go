@@ -19,14 +19,15 @@ import (
 
 // Config is the content of server.toml.
 type Config struct {
-	DataDir     string `toml:"data_dir"`
-	Domain      string `toml:"domain"`
-	ConsoleHost string `toml:"console_host"`
-	Routing     string `toml:"routing"`
-	Listen      Listen `toml:"listen"`
-	TLS         TLS    `toml:"tls"`
-	Proxy       Proxy  `toml:"proxy"`
-	Log         Log    `toml:"log"`
+	DataDir     string     `toml:"data_dir"`
+	Domain      string     `toml:"domain"`
+	ConsoleHost string     `toml:"console_host"`
+	Routing     string     `toml:"routing"`
+	Listen      Listen     `toml:"listen"`
+	TLS         TLS        `toml:"tls"`
+	Proxy       Proxy      `toml:"proxy"`
+	Toolchains  Toolchains `toml:"toolchains"`
+	Log         Log        `toml:"log"`
 
 	// Path is the file the configuration was read from.
 	Path string `toml:"-"`
@@ -67,6 +68,20 @@ type Proxy struct {
 	Trusted []string `toml:"trusted"`
 	// ExternalScheme is the scheme browsers see: "http" or "https".
 	ExternalScheme string `toml:"external_scheme"`
+}
+
+// Toolchains says where build toolchains are downloaded from: mirrors of
+// the official locations, for proxies and air-gapped networks. Empty
+// values mean the official ones.
+type Toolchains struct {
+	// GoURL serves Go's download index and files (as https://go.dev/dl/).
+	GoURL string `toml:"go_url"`
+	// NodeURL serves Node.js releases (as https://nodejs.org/dist/).
+	NodeURL string `toml:"node_url"`
+	// UVURL serves uv's releases (as https://github.com/astral-sh/uv/releases).
+	UVURL string `toml:"uv_url"`
+	// PythonURL serves the Python builds uv installs.
+	PythonURL string `toml:"python_url"`
 }
 
 // Log configures the server's own log.
@@ -268,6 +283,12 @@ func (c Config) Validate() error {
 	}
 	if !oneOf(c.Proxy.ExternalScheme, schemes) {
 		add("proxy.external_scheme %q must be one of %s", c.Proxy.ExternalScheme, list(schemes))
+	}
+
+	for key, u := range map[string]string{"go_url": c.Toolchains.GoURL, "node_url": c.Toolchains.NodeURL, "uv_url": c.Toolchains.UVURL, "python_url": c.Toolchains.PythonURL} {
+		if u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+			add("toolchains.%s %q must be an http:// or https:// URL", key, u)
+		}
 	}
 
 	if !oneOf(c.Log.Level, logLevels) {

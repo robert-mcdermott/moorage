@@ -1,0 +1,12 @@
+{
+  "name": "sample-node-static",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A sample site built with Node.js and served as static files",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.js"
+  }
+}

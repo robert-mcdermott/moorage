@@ -28,9 +28,7 @@ const MaxUpload = 1 << 30
 
 // Runtime runs process apps.
 type Runtime interface {
-	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
 	Restart(ctx context.Context, app, env string) error
-	Retire(app, env string)
 	Instances(app, env string) []reconcile.InstanceInfo
 }
 
@@ -41,17 +39,19 @@ type Server struct {
 	dataDir   string
 	tokenHash [32]byte
 	runtime   Runtime
-	// reload makes the router pick up a new release.
-	reload func(context.Context) error
-	log    *slog.Logger
+	deployer  *deploy.Deployer
+	log       *slog.Logger
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, tokenHash [32]byte, runtime Runtime, reload func(context.Context) error, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, tokenHash: tokenHash, runtime: runtime, reload: reload, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, tokenHash [32]byte, runtime Runtime, deployer *deploy.Deployer, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, tokenHash: tokenHash, runtime: runtime, deployer: deployer, log: log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/apps", s.listApps)
 	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/deployments", s.deploy)
+	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/deployments", s.deployments)
+	mux.HandleFunc("GET /api/v1/deployments/{id}", s.deployment)
+	mux.HandleFunc("GET /api/v1/deployments/{id}/log", s.deploymentLog)
 	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/releases", s.releases)
 	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/rollback", s.rollback)
 	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/restart", s.restart)
@@ -120,6 +120,27 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch part.FormName() {
+		case apitypes.SourcePart:
+			if plan != nil {
+				problem(w, http.StatusBadRequest, "bad_request", "Send source alone, without a plan: the server works out how to build it.")
+				return
+			}
+			dep, created, err := s.deployer.Submit(r.Context(), app, env, "admin", part)
+			var invalid *deploy.InvalidUploadError
+			switch {
+			case errors.As(err, &invalid):
+				problem(w, http.StatusUnprocessableEntity, "invalid_upload", err.Error())
+				return
+			case err != nil:
+				s.internal(w, err)
+				return
+			}
+			s.log.Info("deployment queued", "app", app, "env", env, "deployment", dep.ID)
+			d := s.deploymentDoc(dep)
+			d.AppCreated = created
+			w.Header().Set("Location", "/api/v1/deployments/"+dep.ID)
+			writeJSON(w, http.StatusAccepted, d)
+			return
 		case apitypes.PlanPart:
 			plan = &manifest.Plan{}
 			if err := json.NewDecoder(io.LimitReader(part, 1<<20)).Decode(plan); err != nil {
@@ -145,48 +166,21 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				s.internal(w, err)
 				return
 			}
-			rel, err := s.publish(r.Context(), app, env, build, *plan, "deploy")
+			rel, dep, err := s.deployer.Publish(r.Context(), app, env, "admin", plan.Kind+"-upload", "deploy", build, *plan)
 			if s.publishFailed(w, err) {
 				return
 			}
 			s.log.Info("deployed", "app", app, "env", env, "release", rel.Version, "build", build.ID, "kind", plan.Kind)
-			writeJSON(w, http.StatusCreated, apitypes.Deployment{
-				App: app, Env: env, URL: s.appURL(app), AppCreated: created, Release: release(rel),
-			})
+			d := s.deploymentDoc(dep)
+			d.AppCreated = created
+			d.Release = s.releaseDoc(rel)
+			writeJSON(w, http.StatusCreated, d)
 			return
 		default:
 			problem(w, http.StatusBadRequest, "bad_request", "Unexpected form field "+part.FormName()+".")
 			return
 		}
 	}
-}
-
-// publish makes build the environment's current release. A process app's
-// release becomes current only once its instances are running and healthy;
-// if they are not, the release is removed and the previous one keeps
-// serving.
-func (s *Server) publish(ctx context.Context, app, env string, build store.Build, plan manifest.Plan, reason string) (store.Release, error) {
-	rel, err := s.db.CreateRelease(ctx, app, env, build.ID, reason, "admin")
-	if err != nil {
-		return rel, err
-	}
-	if plan.Kind == manifest.KindProcess {
-		if err := s.runtime.Rollout(ctx, app, env, rel, build, plan); err != nil {
-			s.db.DeleteRelease(context.WithoutCancel(ctx), rel.ID)
-			return rel, err
-		}
-	}
-	if err := s.db.MakeCurrent(ctx, rel.ID); err != nil {
-		return rel, err
-	}
-	rel.Current = true
-	if err := s.reload(ctx); err != nil {
-		return rel, err
-	}
-	if plan.Kind == manifest.KindStatic {
-		s.runtime.Retire(app, env) // processes of an earlier release are no longer needed
-	}
-	return rel, nil
 }
 
 // publishFailed answers a failed publish, reporting false if it did not
@@ -261,12 +255,14 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	rel, err := s.publish(r.Context(), app, env, build, plan, "rollback")
+	rel, dep, err := s.deployer.Publish(r.Context(), app, env, "admin", "rollback", "rollback", build, plan)
 	if s.publishFailed(w, err) {
 		return
 	}
 	s.log.Info("rolled back", "app", app, "env", env, "release", rel.Version, "build", rel.BuildID)
-	writeJSON(w, http.StatusOK, apitypes.Deployment{App: app, Env: env, URL: s.appURL(app), Release: release(rel)})
+	d := s.deploymentDoc(dep)
+	d.Release = s.releaseDoc(rel)
+	writeJSON(w, http.StatusOK, d)
 }
 
 func (s *Server) restart(w http.ResponseWriter, r *http.Request) {

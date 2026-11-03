@@ -1,0 +1,6 @@
+[app]
+name = "sample-go"
+
+# The go runtime builds the main package and runs the binary as web.
+[processes.web]
+health = { path = "/health" }

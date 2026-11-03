@@ -59,6 +59,13 @@ go build ./cmd/moor
 go test ./...
 ```
 
+The sample apps are built from source with real toolchains (downloaded on
+the first run) by:
+
+```bash
+MOORAGE_TEST_BUILDS=1 go test ./internal/server -run TestSampleApps -v
+```
+
 To try the server on this computer:
 
 ```bash
@@ -83,7 +90,20 @@ MOORAGE_CONFIG=~/moorage-dev/server.toml ./moor deploy --static ./some-site --ap
 Chromium- and Firefox-based browsers resolve `hello.localhost` on their own: open
 `http://hello.localhost:8080`.
 
-An app that is ready to run is deployed with `--artifact` and the
+Deploy an app from its source: the server works out how to build it (Go,
+Python with uv, Node.js with npm, a static site, or what `moorage.toml`
+says), downloads and verifies the toolchains it needs, builds it and starts
+it. The build is shown as it happens:
+
+```bash
+MOORAGE_CONFIG=~/moorage-dev/server.toml ./moor deploy testdata/apps/python
+```
+
+`moor manifest explain DIR` shows what the server will do with an app
+before you deploy it. [testdata/apps](testdata/apps) has a small app for
+each runtime.
+
+An app that is already built is deployed with `--artifact` and the
 `[processes]` of its `moorage.toml`, for example:
 
 ```toml

@@ -1,9 +1,9 @@
 // Package manifest reads moorage.toml, the file in an app's repository that
 // tells Moorage how to build and run it (docs/03-manifest.md).
 //
-// This release reads [app], [static], [processes], [deploy] and [env]. The
-// other tables are accepted but not checked until the features they
-// configure arrive; unknown top-level keys are already errors.
+// Every table of manifest version 1 is parsed and checked; Lint reports the
+// ones whose features have not arrived yet. Unknown keys are errors, except
+// in top-level tables named x-<something>, which are left to other tools.
 package manifest
 
 import (
@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -36,23 +37,23 @@ type Manifest struct {
 	Processes    map[string]Process `toml:"-"`
 	RawProcesses map[string]any     `toml:"processes"`
 
-	// Tables configuring features of later releases, accepted unchecked.
-	Go           any `toml:"go"`
-	Python       any `toml:"python"`
-	Node         any `toml:"node"`
-	Bun          any `toml:"bun"`
-	Deno         any `toml:"deno"`
-	Container    any `toml:"container"`
-	Build        any `toml:"build"`
-	Release      any `toml:"release"`
-	Cron         any `toml:"cron"`
-	Routes       any `toml:"routes"`
-	Vars         any `toml:"vars"`
-	Resources    any `toml:"resources"`
-	Storage      any `toml:"storage"`
-	Previews     any `toml:"previews"`
-	Environments any `toml:"environments"`
-	Services     any `toml:"services"`
+	Go        *Go        `toml:"go"`
+	Python    *Python    `toml:"python"`
+	Node      *JS        `toml:"node"`
+	Bun       *JS        `toml:"bun"`
+	Deno      *JS        `toml:"deno"`
+	Container *Container `toml:"container"`
+	Build     *Build     `toml:"build"`
+	Release   *Release   `toml:"release"`
+
+	Cron         []Cron                 `toml:"cron"`
+	Routes       []Route                `toml:"routes"`
+	Vars         map[string]Var         `toml:"vars"`
+	Resources    *Resources             `toml:"resources"`
+	Storage      *Storage               `toml:"storage"`
+	Previews     *Previews              `toml:"previews"`
+	Environments map[string]Environment `toml:"environments"`
+	Services     map[string]Service     `toml:"services"`
 }
 
 // App is the [app] table.
@@ -84,7 +85,9 @@ func Parse(data []byte, name string) (*Manifest, error) {
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&m); err != nil {
-		return nil, decodeError(name, err)
+		if err = withoutToolTables(err); err != nil {
+			return nil, decodeError(name, err)
+		}
 	}
 	if m.Version != 0 && m.Version != 1 {
 		return nil, fmt.Errorf("%s: version %d is not supported (this moor reads version 1)", name, m.Version)
@@ -99,7 +102,7 @@ func Parse(data []byte, name string) (*Manifest, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
-		if err := ValidateProcesses(procs); err != nil {
+		if err := validateProcesses(procs, false); err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
 		m.Processes = procs
@@ -107,12 +110,35 @@ func Parse(data []byte, name string) (*Manifest, error) {
 	if err := m.Deploy.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	for k := range m.Env {
-		if !envName.MatchString(k) {
-			return nil, fmt.Errorf("%s: env: %q is not a valid variable name", name, k)
-		}
+	var problems []string
+	checkEnv(&problems, "env", m.Env)
+	problems = append(problems, m.validateTables()...)
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return nil, fmt.Errorf("%s:\n  - %s", name, strings.Join(problems, "\n  - "))
 	}
 	return &m, nil
+}
+
+// withoutToolTables drops the unknown keys that sit in x-* tables, which
+// belong to other tools; it returns nil if no other unknown key remains.
+func withoutToolTables(err error) error {
+	var strict *toml.StrictMissingError
+	if !errors.As(err, &strict) {
+		return err
+	}
+	var kept []toml.DecodeError
+	for _, e := range strict.Errors {
+		if key := e.Key(); len(key) > 0 && strings.HasPrefix(key[0], "x-") {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	strict.Errors = kept
+	return strict
 }
 
 func decodeError(name string, err error) error {

@@ -39,6 +39,13 @@ func Run() {
 		os.Exit(shell.Main(args))
 	case "app":
 		os.Exit(testapp.Main())
+	case "sleep":
+		if len(args) == 1 {
+			if d, err := time.ParseDuration(args[0]); err == nil {
+				time.Sleep(d)
+				os.Exit(0)
+			}
+		}
 	}
 	os.Exit(2)
 }
@@ -50,6 +57,16 @@ func AppCommand() string {
 		panic(err)
 	}
 	return "MOOR_TEST_ROLE=app '" + exe + "'"
+}
+
+// SleepCommand is a manifest command that takes d to finish (a slow
+// build step).
+func SleepCommand(d time.Duration) string {
+	exe, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	return "MOOR_TEST_ROLE=sleep '" + exe + "' " + d.String()
 }
 
 // StopInstances stops every instance a server with this data directory left

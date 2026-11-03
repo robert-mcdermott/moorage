@@ -1,0 +1,6 @@
+[app]
+name = "sample-node-static"
+
+# There is no start script: the build's dist/ is served as a static site.
+[static]
+clean_urls = true

@@ -189,12 +189,97 @@ directory, supervises it, and serves it on its own hostname.
 4. **Builds.** Manifest v1 (parse, validate, `explain`, JSON Schema);
    detection; the `go`, `python` (uv), `node`, `command` and `binary`
    runtimes; the toolchain manager (Go, Node, uv and Python, all verified);
-   in-place builds with streamed logs; `moor deploy` of a directory; the
-   release command; `moor rollback`; variables and encrypted secrets, every
-   configuration change a release. Runs spike S3.
+   in-place builds with streamed logs; `moor deploy` of a directory;
+   deployments as persisted jobs; the release command; `moor rollback` of
+   built apps; garbage collection of builds beyond `keep_releases`. Runs
+   spike S3.
    - Done when: a sample app for each runtime (`testdata/apps/`) deploys by
      upload in CI on Linux and macOS and rolls back in seconds.
-5. **Release 0.1.0.** Service installation (systemd with cgroup delegation,
+   - Done (slice 4):
+     - Manifest version 1: every table is typed and checked, with every
+       problem reported at once; top-level `x-*` tables are left to other
+       tools. Warnings name values that look like credentials and settings
+       accepted but not acted on yet. `moor manifest validate`, `explain`
+       (the plan the server will make) and `schema` (a JSON Schema kept in
+       step with the Go types by a test).
+     - Detection and the runtime presets: `go` (the version from `go.mod`,
+       the main package, `GOTOOLCHAIN=local`, cgo off), `python` (`uv sync
+       --locked`, or a virtual environment and `requirements.txt`; the
+       version from `.python-version` or `requires-python`; the project's one
+       script, or uvicorn, Django or Flask apps found in the code), `node`
+       (`npm ci`, the build script, pruning; the version from `.nvmrc`,
+       `.node-version` or `engines.node`, else the current LTS; the start
+       script run directly, or the build's `dist/` served as a static site),
+       `static`, `command` and `binary`; a `Procfile`; extra toolchains, and
+       `name@system` for the server's own.
+     - The toolchain manager: Go (the download index and its SHA-256), Node.js
+       (the release index and `SHASUMS256.txt`), uv (release assets and their
+       `.sha256`; static builds on Linux) and Python (installed by uv into the
+       toolchain directory, with no links in `bin` directories and nothing in
+       the Windows registry). Partial versions and npm-style ranges resolve to
+       the newest matching release; an installed version is used when the
+       provider cannot be reached; installs are locked per toolchain and
+       renamed into place; mirrors are set under `[toolchains]` in
+       `server.toml`.
+     - In-place builds: the source is unpacked where the build stays, and the
+       build runs there with the toolchains and the project's tool
+       directories first on `PATH`, shared caches, `CI=true` and Moorage's
+       variables, within `[build].timeout`; a cancelled or timed-out step is
+       killed with everything it started. `[build].exclude` and `.moorignore`
+       are pruned and the files made read-only. Shell builtins (`exit`,
+       `echo`, `cd`) now always run in the embedded shell.
+     - Deployments are persisted jobs (`queued`, `building`, `releasing`,
+       `rolling_out`, then `live`, `failed` or `superseded`), one per
+       environment at a time; a newer deployment supersedes one still queued;
+       builds run at most half the CPUs at once; deployments a stopped server
+       interrupted are marked failed. Their logs are written to
+       `logs/deployments/` and followed through the API as NDJSON. Uploads
+       and rollbacks are recorded as deployments too.
+     - The release command runs once per deployment as a one-off of the new
+       release (not on a rollback); a failing one leaves the previous release
+       serving. `on_create` runs after the first release of an environment.
+     - `moor deploy [DIR]` uploads source (honouring `.gitignore` and
+       `.moorignore`) and prints the build as it happens; `--detach`, or
+       Ctrl-C, leaves it running. `moor deployments`, `deployments show` and
+       `deployments follow`.
+     - Garbage collection: builds that none of an environment's last
+       `keep_releases` releases, no current release and no running
+       deployment uses are removed after each deployment (their rows stay,
+       and a rollback to one says why it cannot); failed builds are kept a
+       day for inspection.
+     - Spike S3: seven sample apps (`go`, `python`, `node`, `node-static`,
+       `command`, `binary`, `static`) are built from source with toolchains
+       downloaded and verified, deployed, changed, and rolled back in 0.2 to
+       0.3 seconds; partial versions resolved as expected (`go 1.26` to
+       1.26.10, `3.13` to 3.13.18, `24`, `>=22` to the 26.13.0 LTS). Python's
+       virtual environment and editable install work from the build's final
+       directory. With the real binary, the Python sample went from `moor
+       deploy` on a fresh server (uv and Python downloaded) to live in 3.4
+       seconds, and nothing was written outside the data directory. A CI job
+       builds the sample apps on Linux and macOS.
+   - Found by slice 4:
+     - Node.js 25 and later no longer ship corepack, so pnpm and yarn need
+       toolchains of their own; Node apps build with npm for now.
+     - `SHASUMS256.txt` of Node.js is fetched over HTTPS from the official
+       site, but its OpenPGP signature is not checked yet: it goes with the
+       provenance checks of wave 6. A partial uv version would need the
+       release list from GitHub's API; uv takes an exact version or the
+       latest.
+     - Not yet: the build sandbox (a build user, cgroup limits, lower
+       priority) comes with Linux isolation (wave 6); build reuse by key with
+       git pushes (wave 2); cancelling and retrying deployments with the
+       console's deployment actions (wave 3); `moor toolchains` and pruning,
+       a periodic sweep of old build directories and the disk guard (wave 6).
+       Deployment logs are followed as NDJSON, like app logs; server-sent
+       events arrive with the console's event stream (wave 3).
+     - `TestDeadShimIsReplaced` failed once under the race detector on a
+       loaded macOS machine (the replaced app still answered on its port for
+       30 seconds) and passed in every later run; to be watched in CI.
+5. **Configuration.** Variables and encrypted secrets (`moor env`), every
+   configuration change a release.
+   - Done when: setting a variable rolls out a new release without
+     downtime, and secrets are encrypted at rest and never printed.
+6. **Release 0.1.0.** Service installation (systemd with cgroup delegation,
    launchd); install and per-runtime quick-start documentation; version
    0.1.0, its CHANGELOG section and this roadmap; pull request `wave1` →
    `main`; tag `v0.1.0`; release.
@@ -265,7 +350,7 @@ directory, supervises it, and serves it on its own hostname.
 ### Wave 5
 
 1. **Processes.** Workers, scaling, cron jobs, one-off runs (`moor run`),
-   `on_create` seeding, declared and generated variables, `watch` paths.
+   declared and generated variables, `watch` paths.
 2. **Metrics.** Collection (cgroups, process sampling, engine statistics,
    the ingress), tiered storage, console charts with deploy markers,
    sparklines, the Prometheus endpoint.
@@ -361,8 +446,8 @@ slice before code is built on a failed assumption.
 | # | Question | Slice | Done when |
 |---|---|---|---|
 | S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 1 | *Largely shown by a research probe with the git CLI.* Remaining: rejecting a ref from the pre-receive step with a deployment error; end-of-pack detection for clients that keep the connection open (tested with a non-CLI git client library); per-repository ref serialisation under concurrent pushes; the beta library wrapped behind an internal interface. |
-| S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 5) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. The service managers' part comes with service installation.* |
-| S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. |
+| S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 6) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. The service managers' part comes with service installation.* |
+| S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. *Shown in slice 4 on macOS: seven sample apps built from source, deployed and rolled back, with partial versions resolved and every download verified (a CI job runs them on Linux and macOS); the Node.js checksum file's signature is checked in wave 6.* |
 | S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances in slice 3 (over 10,000 requests across a deploy, a rolling restart and a rollback, none failed; upgraded connections pass through).* |
 | S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 4 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
 | S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 3 | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. |

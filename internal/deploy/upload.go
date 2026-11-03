@@ -1,19 +1,19 @@
-// Package deploy turns uploaded content into builds (docs/04-build-and-deploy.md).
+// Package deploy turns uploads into builds and builds into releases: it
+// stores uploaded sites and artifacts, builds uploaded source, and runs the
+// deployments that publish them (docs/04-build-and-deploy.md).
 package deploy
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/archive"
+	"github.com/robert-mcdermott/moorage/internal/build"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress/static"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -76,7 +76,7 @@ func Upload(ctx context.Context, db *store.DB, dataDir, app string, plan manifes
 			return store.Build{}, false, err
 		}
 	}
-	if err := makeReadOnly(contentDir); err != nil {
+	if err := build.MakeReadOnly(contentDir); err != nil {
 		return store.Build{}, false, err
 	}
 	if err := os.Rename(partial, final); err != nil {
@@ -124,23 +124,4 @@ func CleanPartial(dataDir string) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// makeReadOnly removes write permission from the files under dir, so a
-// published build cannot be changed by accident. Executables stay
-// executable.
-func makeReadOnly(dir string) error {
-	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if err := os.Chmod(p, info.Mode().Perm()&^0o222); err != nil {
-			return fmt.Errorf("make %s read-only: %w", strings.TrimPrefix(p, dir), err)
-		}
-		return nil
-	})
 }

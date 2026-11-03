@@ -184,6 +184,14 @@ trusted = {{list .Proxy.Trusted}}
 # The scheme browsers use to reach Moorage: "https" or "http".
 external_scheme = {{q .Proxy.ExternalScheme}}
 
+[toolchains]
+# Builds download Go, Node.js, uv and Python on demand, and verify them.
+# Mirrors of the official locations, for proxies and air-gapped networks:
+# go_url     = "https://go.dev/dl/"
+# node_url   = "https://nodejs.org/dist/"
+# uv_url     = "https://github.com/astral-sh/uv/releases"
+# python_url = ""   # handed to uv as its Python mirror
+
 [log]
 level  = {{q .Log.Level}}   # debug, info, warn or error
 format = {{q .Log.Format}}   # text or json

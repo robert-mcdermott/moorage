@@ -24,13 +24,40 @@ type Release struct {
 	Current   bool      `json:"current"`
 }
 
-// Deployment is the result of a deploy or rollback: the release now serving.
+// Deployment is the job that produces a release: a deploy, a rollback. A
+// finished deployment that went live carries the release now serving.
 type Deployment struct {
-	App        string  `json:"app"`
-	Env        string  `json:"env"`
-	URL        string  `json:"url"`
-	AppCreated bool    `json:"app_created,omitempty"`
-	Release    Release `json:"release"`
+	ID         string    `json:"id"`
+	App        string    `json:"app"`
+	Env        string    `json:"env"`
+	URL        string    `json:"url"`
+	Source     string    `json:"source"`
+	Status     string    `json:"status"`
+	Build      string    `json:"build,omitempty"`
+	AppCreated bool      `json:"app_created,omitempty"`
+	Release    *Release  `json:"release,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	Output     []string  `json:"output,omitempty"`
+	CreatedBy  string    `json:"created_by,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	StartedAt  time.Time `json:"started_at,omitzero"`
+	FinishedAt time.Time `json:"finished_at,omitzero"`
+}
+
+// Deployment statuses: queued, building, releasing and rolling_out while it
+// runs; live, failed, superseded or canceled once it has finished.
+const (
+	StatusLive   = "live"
+	StatusFailed = "failed"
+)
+
+// Finished reports whether the deployment has ended.
+func (d Deployment) Finished() bool {
+	switch d.Status {
+	case "live", "failed", "superseded", "canceled":
+		return true
+	}
+	return false
 }
 
 // RollbackRequest asks for an earlier release to be published again; with
@@ -87,8 +114,11 @@ type LogLine struct {
 const (
 	ProblemType = "application/problem+json"
 	NDJSONType  = "application/x-ndjson"
-	// PlanPart and ArchivePart are the multipart form fields of a deploy:
-	// the plan (manifest.Plan) as JSON, then the gzip-compressed tar.
+	// PlanPart and ArchivePart are the multipart form fields of the deploy
+	// of an upload that needs no build: the plan (manifest.Plan) as JSON,
+	// then the gzip-compressed tar. SourcePart alone is source for the
+	// server to build.
 	PlanPart    = "plan"
 	ArchivePart = "archive"
+	SourcePart  = "source"
 )

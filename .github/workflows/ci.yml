@@ -40,6 +40,25 @@ jobs:
         if: runner.os == 'Linux'
         run: go test -race ./...
 
+  samples:
+    # Builds and deploys every sample app of testdata/apps from source, with
+    # toolchains downloaded and verified on each run.
+    name: Sample apps (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build, deploy and roll back the sample apps
+        env:
+          MOORAGE_TEST_BUILDS: '1'
+        run: go test ./internal/server -run TestSampleApps -v -timeout 20m
+
   build:
     name: Build all targets without cgo
     runs-on: ubuntu-latest

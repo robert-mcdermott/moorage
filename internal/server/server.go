@@ -19,6 +19,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/api"
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/build"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
@@ -26,6 +27,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/toolchain"
 )
 
 // Layout names the files and directories inside a data directory
@@ -129,6 +131,9 @@ type Options struct {
 	BackoffMin time.Duration
 	// Tick, if set, overrides how often dead instances are looked for.
 	Tick time.Duration
+	// GCMinAge, if set, overrides how old a build must be before garbage
+	// collection may remove it (tests shorten it).
+	GCMinAge time.Duration
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully. The
@@ -168,6 +173,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	if err := deploy.CleanPartial(cfg.DataDir); err != nil {
 		log.Warn("could not remove half-written builds", "err", err)
 	}
+	if n, err := db.InterruptDeployments(ctx); err != nil {
+		return err
+	} else if n > 0 {
+		log.Warn("deployments interrupted by the last stop were marked failed", "count", n)
+	}
 
 	tokenHash, created, err := auth.BootstrapToken(ctx, db, layout.AdminToken)
 	if err != nil {
@@ -185,15 +195,20 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	}
 	router := ingress.NewRouter(cfg, db, cfg.DataDir, log)
 	defer router.Close()
+	toolchains := toolchain.New(filepath.Join(cfg.DataDir, "toolchains"), filepath.Join(cfg.DataDir, "cache"), toolchain.Sources{
+		Go: cfg.Toolchains.GoURL, Node: cfg.Toolchains.NodeURL, UV: cfg.Toolchains.UVURL, Python: cfg.Toolchains.PythonURL,
+	})
+	shell := []string{exe, "sh", "-c"}
 	runtime := reconcile.New(db, cfg, reconcile.Options{
-		DataDir:    cfg.DataDir,
-		ShimCmd:    []string{exe, "shim"},
-		ShimEnv:    opts.ShimEnv,
-		Shell:      []string{exe, "sh", "-c"},
-		ShellEnv:   opts.ShellEnv,
-		BackoffMin: opts.BackoffMin,
-		Tick:       opts.Tick,
-		Trusted:    router.Trusted(),
+		DataDir:       cfg.DataDir,
+		ShimCmd:       []string{exe, "shim"},
+		ShimEnv:       opts.ShimEnv,
+		Shell:         shell,
+		ShellEnv:      opts.ShellEnv,
+		BackoffMin:    opts.BackoffMin,
+		Tick:          opts.Tick,
+		Trusted:       router.Trusted(),
+		ToolchainBins: toolchains.BinDirs,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)
@@ -206,8 +221,21 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return err
 	}
 	go runtime.Run(ctx)
+	deployer := deploy.New(db, deploy.Options{
+		DataDir: cfg.DataDir,
+		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv},
+		Runtime: runtime,
+		Reload:  router.Reload,
+		URL: func(app, env string) string {
+			return cfg.PublicURL(app + "." + cfg.Domain)
+		},
+		GCMinAge: opts.GCMinAge,
+	}, log)
+	// Running builds are stopped (and recorded as failed) before the
+	// database closes.
+	defer deployer.Shutdown()
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, tokenHash, runtime, router.Reload, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, tokenHash, runtime, deployer, log))
 	console.Handle("/", ingress.Placeholder())
 	router.SetConsole(console)
 

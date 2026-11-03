@@ -165,7 +165,11 @@ func (rt *Router) loadSite(b store.Build, plan manifest.Plan) (*static.Site, err
 	if plan.Static != nil {
 		rules = *plan.Static
 	}
-	return static.NewSite(filepath.Join(dir, "site"), idx, rules, notFound), nil
+	root := "site" // an uploaded site; a built one names its directory
+	if plan.Root != "" {
+		root = plan.Root
+	}
+	return static.NewSite(filepath.Join(dir, filepath.FromSlash(root)), idx, rules, notFound), nil
 }
 
 // ServeHTTP routes a request.

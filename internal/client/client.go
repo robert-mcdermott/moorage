@@ -95,19 +95,40 @@ type PackStats struct {
 // while it is sent. For an app, Deploy returns once the new release is
 // running and healthy.
 func (c *Client) Deploy(ctx context.Context, app, env, dir string, plan manifest.Plan, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
+	var d apitypes.Deployment
+	stats, err := c.upload(ctx, app, env, dir, &plan, skip, &d)
+	return d, stats, err
+}
+
+// DeploySource uploads the source under dir for the server to build and
+// deploy, and returns the deployment as soon as it is queued; follow it
+// with FollowDeployment.
+func (c *Client) DeploySource(ctx context.Context, app, env, dir string, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
+	var d apitypes.Deployment
+	stats, err := c.upload(ctx, app, env, dir, nil, skip, &d)
+	return d, stats, err
+}
+
+// upload sends dir as a deploy: with a plan, a plan part and an archive
+// part; without one, a source part.
+func (c *Client) upload(ctx context.Context, app, env, dir string, plan *manifest.Plan, skip func(string, fs.DirEntry) bool, out any) (PackStats, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	var stats PackStats
 	go func() {
 		err := func() error {
-			part, err := mw.CreateFormField(apitypes.PlanPart)
-			if err != nil {
-				return err
+			field := apitypes.SourcePart
+			if plan != nil {
+				part, err := mw.CreateFormField(apitypes.PlanPart)
+				if err != nil {
+					return err
+				}
+				if err := json.NewEncoder(part).Encode(plan); err != nil {
+					return err
+				}
+				field = apitypes.ArchivePart
 			}
-			if err := json.NewEncoder(part).Encode(plan); err != nil {
-				return err
-			}
-			part, err = mw.CreateFormFile(apitypes.ArchivePart, "upload.tar.gz")
+			part, err := mw.CreateFormFile(field, "upload.tar.gz")
 			if err != nil {
 				return err
 			}
@@ -119,10 +140,53 @@ func (c *Client) Deploy(ctx context.Context, app, env, dir string, plan manifest
 		}()
 		pw.CloseWithError(err)
 	}()
-	var d apitypes.Deployment
-	err := c.do(ctx, http.MethodPost, envPath(app, env, "deployments"), pr, mw.FormDataContentType(), &d)
+	err := c.do(ctx, http.MethodPost, envPath(app, env, "deployments"), pr, mw.FormDataContentType(), out)
 	pr.Close()
-	return d, stats, err
+	return stats, err
+}
+
+// Deployment returns a deployment.
+func (c *Client) Deployment(ctx context.Context, id string) (apitypes.Deployment, error) {
+	var d apitypes.Deployment
+	err := c.do(ctx, http.MethodGet, "/api/v1/deployments/"+url.PathEscape(id), nil, "", &d)
+	return d, err
+}
+
+// Deployments lists an environment's latest deployments, newest first.
+func (c *Client) Deployments(ctx context.Context, app, env string, limit int) ([]apitypes.Deployment, error) {
+	var out []apitypes.Deployment
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "deployments")+"?limit="+strconv.Itoa(limit), nil, "", &out)
+	return out, err
+}
+
+// FollowDeployment calls fn with each line of a deployment's log, as it is
+// written, until the deployment ends (or ctx does), and returns the
+// deployment as it ended.
+func (c *Client) FollowDeployment(ctx context.Context, id string, fn func(apitypes.LogLine) error) (apitypes.Deployment, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+"/api/v1/deployments/"+url.PathEscape(id)+"/log?follow=true", nil)
+	if err != nil {
+		return apitypes.Deployment{}, err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return apitypes.Deployment{}, err
+	}
+	dec := json.NewDecoder(res.Body)
+	for {
+		var l apitypes.LogLine
+		if err := dec.Decode(&l); err != nil {
+			res.Body.Close()
+			if !errors.Is(err, io.EOF) {
+				return apitypes.Deployment{}, err
+			}
+			break
+		}
+		if err := fn(l); err != nil {
+			res.Body.Close()
+			return apitypes.Deployment{}, err
+		}
+	}
+	return c.Deployment(ctx, id)
 }
 
 // DeployStatic deploys the files under dir as a static site with rules.

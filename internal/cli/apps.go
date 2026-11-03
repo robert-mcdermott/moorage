@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -15,8 +16,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/client"
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/ignore"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/server"
@@ -110,9 +113,9 @@ func firstOf(values ...string) string {
 
 func newDeployCmd() *cobra.Command {
 	var (
-		conn             connection
-		app, env         string
-		static, artifact bool
+		conn                     connection
+		app, env                 string
+		static, artifact, detach bool
 	)
 	cmd := &cobra.Command{
 		Use:   "deploy [DIR]",
@@ -120,23 +123,34 @@ func newDeployCmd() *cobra.Command {
 		Long: `Deploy to an app's production environment. The app is created if it does
 not exist yet.
 
+Without a flag, DIR (default: the current directory) is source: it is
+uploaded, leaving out what .gitignore and .moorignore exclude, and the server
+builds it as moorage.toml says (or as it detects: Go, Python, Node.js, a
+static site), runs the release command, and rolls the new release out. The
+build's output is shown as it happens; Ctrl-C stops following, not the
+deployment.
+
 With --static, the files under DIR are uploaded and served as they are,
 following the [static] rules of moorage.toml in the current directory.
 DIR defaults to [static].dir in moorage.toml, or the current directory.
 
 With --artifact, DIR (default: the current directory) holds an app that is
 ready to run, such as a compiled binary; the [processes] of moorage.toml in
-the current directory say how to run it. The new release takes over once
-its instances are healthy; until then the previous release keeps serving.
+the current directory say how to run it.
 
-Building apps from their source arrives in a later release.`,
-		Example: `  moor deploy --static ./public --app docs
-  moor deploy --artifact ./dist --app api
-  moor deploy --static              # with [app].name and [static].dir in moorage.toml`,
+A new release takes over once its instances are healthy; until then the
+previous release keeps serving.`,
+		Example: `  moor deploy                       # build and deploy the current directory
+  moor deploy ./api --app api
+  moor deploy --static ./public --app docs
+  moor deploy --artifact ./dist --app api`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if static == artifact {
-				return usageError{errors.New("pass --static (a directory of files served as they are) or --artifact (an app ready to run); building from source arrives in a later release")}
+			if static && artifact {
+				return usageError{errors.New("pass --static or --artifact, not both")}
+			}
+			if !static && !artifact {
+				return deploySource(cmd, &conn, app, env, firstOf(firstArg(args), "."), detach)
 			}
 			appName, m, err := resolveApp(app)
 			if err != nil {
@@ -189,9 +203,100 @@ Building apps from their source arrives in a later release.`,
 	f := cmd.Flags()
 	f.BoolVar(&static, "static", false, "upload a directory of files and serve them as they are")
 	f.BoolVar(&artifact, "artifact", false, "upload an app that is ready to run and run its [processes]")
+	f.BoolVar(&detach, "detach", false, "return once the deployment is queued, without following it")
 	f.StringVar(&app, "app", "", "app to deploy to (default: $MOOR_APP or [app].name in moorage.toml)")
 	f.StringVar(&env, "env", names.Production, "environment to deploy to")
 	return cmd
+}
+
+// alwaysLeftOut are never uploaded as source: the server makes its own.
+var alwaysLeftOut = map[string]bool{".git": true, "node_modules": true, ".venv": true, "__pycache__": true, ".DS_Store": true}
+
+// deploySource uploads dir as source and follows its deployment.
+func deploySource(cmd *cobra.Command, conn *connection, appFlag, env, dir string, detach bool) error {
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	m, err := manifest.Load(dir)
+	if err != nil {
+		return err
+	}
+	appName := firstOf(appFlag, os.Getenv("MOOR_APP"))
+	if appName == "" && m != nil {
+		appName = m.App.Name
+	}
+	if appName == "" {
+		return errors.New("which app? pass --app NAME, set MOOR_APP, or set name under [app] in moorage.toml")
+	}
+	if err := names.ValidateApp(appName); err != nil {
+		return err
+	}
+	ignored, err := ignore.ForTree(dir, ".gitignore", ".moorignore")
+	if err != nil {
+		return err
+	}
+	skip := func(rel string, d fs.DirEntry) bool {
+		return alwaysLeftOut[d.Name()] || ignored.Match(rel, d.IsDir())
+	}
+	c, err := conn.client()
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Uploading %s to %s on %s\n", dir, appName, c.Server())
+	d, stats, err := c.DeploySource(cmd.Context(), appName, env, dir, skip)
+	if err != nil {
+		return err
+	}
+	if len(stats.Skipped) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "left out %d symbolic links (only regular files are uploaded): %s\n", len(stats.Skipped), strings.Join(firstN(stats.Skipped, 3), ", "))
+	}
+	if d.AppCreated {
+		fmt.Fprintf(out, "Created app %s.\n", d.App)
+	}
+	fmt.Fprintf(out, "Uploaded %d files (%s); deployment %s is %s.\n", stats.Files, humanBytes(stats.Bytes), d.ID, d.Status)
+	if detach {
+		fmt.Fprintf(out, "\nFollow it with: moor deployments follow %s\n", d.ID)
+		return nil
+	}
+	return followDeployment(cmd, c, d.ID)
+}
+
+// followDeployment prints a deployment's log until it ends, and fails if
+// the deployment did. Ctrl-C stops following; the deployment continues.
+func followDeployment(cmd *cobra.Command, c *client.Client, id string) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+	out := cmd.OutOrStdout()
+	d, err := c.FollowDeployment(ctx, id, func(l apitypes.LogLine) error {
+		if l.Stream == "M" {
+			fmt.Fprintln(out, l.Text)
+		} else {
+			fmt.Fprintln(out, "             "+l.Text)
+		}
+		return nil
+	})
+	if ctx.Err() != nil {
+		fmt.Fprintf(out, "\nStopped following; the deployment continues. Follow it again with: moor deployments follow %s\n", id)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	switch d.Status {
+	case apitypes.StatusLive:
+		return nil
+	case apitypes.StatusFailed:
+		return fmt.Errorf("deployment %s failed: %s", d.ID, d.Error)
+	}
+	return fmt.Errorf("deployment %s ended %s: %s", d.ID, d.Status, d.Error)
+}
+
+func firstN(s []string, n int) []string {
+	if len(s) > n {
+		return append(s[:n:n], "…")
+	}
+	return s
 }
 
 func newAppsCmd() *cobra.Command {

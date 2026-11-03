@@ -141,7 +141,7 @@ LOG_LEVEL = "info"
 func TestParseProcessErrors(t *testing.T) {
 	for data, want := range map[string]string{
 		"[processes.web]\ncomand = \"x\"\n":                           "unknown key comand",
-		"[processes.web]\ninstances = 3\n":                            "processes.web.command is required",
+		"[processes.worker]\ninstances = 3\n":                         "processes.worker.command is required",
 		"[processes]\nWeb = \"x\"\n":                                  "process name",
 		"[processes.web]\ncommand = \"x\"\nrestart = \"sometimes\"\n": "restart",
 		"[processes.web]\ncommand = \"x\"\nstop_timeout = \"soon\"\n": "duration",
@@ -153,5 +153,142 @@ func TestParseProcessErrors(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Parse(%q): %v, want an error mentioning %q", data, err, want)
 		}
+	}
+}
+
+func TestParseFullManifest(t *testing.T) {
+	data := []byte(`
+version = 1
+
+[app]
+name = "acme-portal"
+runtime = "python"
+toolchains = ["node@24"]
+
+[python]
+version = "3.13"
+groups = ["web"]
+
+[build]
+post = "npm --prefix frontend ci"
+timeout = "15m"
+exclude = ["tests/**"]
+env = { VITE_MODE = "production" }
+
+[processes.web]
+command = "uvicorn app.main:app --port $PORT"
+health = { path = "/api/health" }
+
+[processes]
+worker = "python -m app.worker"
+
+[release]
+command = "alembic upgrade head"
+on_create = "python -m app.seed"
+
+[[cron]]
+name = "cleanup"
+schedule = "0 3 * * *"
+command = "python -m app.cleanup"
+
+[[routes]]
+path = "/api/"
+process = "web"
+
+[vars.SECRET_KEY]
+generate = "secret"
+
+[resources]
+memory = "512MiB"
+cpu = 0.5
+
+[previews]
+ttl = "5d"
+access = "login"
+
+[environments.staging]
+branch = "develop"
+processes.web.instances = 2
+sleep_after = "off"
+
+[services.db]
+type = "postgres"
+version = "17"
+
+[x-editor]
+anything = { goes = true }
+`)
+	m, err := Parse(data, "moorage.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Python.Version != "3.13" || m.Build.Timeout.Std() != 15*time.Minute || m.Release.OnCreate == "" {
+		t.Errorf("tables: %+v %+v %+v", m.Python, m.Build, m.Release)
+	}
+	if m.Resources.Memory != 512<<20 || len(m.Cron) != 1 || len(m.Routes) != 1 || m.Vars["SECRET_KEY"].Generate != "secret" {
+		t.Errorf("tables: %+v %+v %+v %+v", m.Resources, m.Cron, m.Routes, m.Vars)
+	}
+	if *m.Environments["staging"].Processes["web"].Instances != 2 || m.Services["db"].Type != "postgres" {
+		t.Errorf("environments and services: %+v %+v", m.Environments, m.Services)
+	}
+	if len(m.Processes) != 2 {
+		t.Errorf("processes: %+v", m.Processes)
+	}
+	warnings := strings.Join(Lint(m), "\n")
+	for _, want := range []string{"[[cron]]", "[[routes]]", "[vars]", "[resources]", "[previews]", "[environments]", "[services]"} {
+		if !strings.Contains(warnings, want) {
+			t.Errorf("no warning about %s:\n%s", want, warnings)
+		}
+	}
+}
+
+func TestParseReportsEveryProblem(t *testing.T) {
+	data := []byte(`
+[app]
+runtime = "cobol"
+toolchains = ["node"]
+
+[python]
+manager = "pip"
+
+[[cron]]
+name = "x"
+schedule = "every day"
+command = "true"
+
+[[routes]]
+path = "api"
+
+[env]
+"BAD-NAME" = "1"
+`)
+	_, err := Parse(data, "moorage.toml")
+	if err == nil {
+		t.Fatal("parsed")
+	}
+	for _, want := range []string{"app.runtime", "app.toolchains", "python.manager", "schedule", "must start with /", "give either", "BAD-NAME"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("no problem about %s in:\n%v", want, err)
+		}
+	}
+}
+
+func TestLintSecrets(t *testing.T) {
+	m, err := Parse([]byte(`
+[env]
+LOG_LEVEL = "info"
+API_TOKEN = "abc"
+OPAQUE = "q8Zr2LxP0vN4mKs7TbW1yHd9"
+FROM_SERVER = "$DATABASE_URL"
+`), "moorage.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := strings.Join(Lint(m), "\n")
+	if !strings.Contains(w, "env.API_TOKEN") || !strings.Contains(w, "env.OPAQUE") {
+		t.Errorf("warnings:\n%s", w)
+	}
+	if strings.Contains(w, "LOG_LEVEL") || strings.Contains(w, "FROM_SERVER") {
+		t.Errorf("false positives:\n%s", w)
 	}
 }

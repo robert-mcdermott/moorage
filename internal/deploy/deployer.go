@@ -1,0 +1,501 @@
+package deploy
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/robert-mcdermott/moorage/internal/archive"
+	"github.com/robert-mcdermott/moorage/internal/build"
+	"github.com/robert-mcdermott/moorage/internal/ids"
+	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/observe/logs"
+	"github.com/robert-mcdermott/moorage/internal/reconcile"
+	"github.com/robert-mcdermott/moorage/internal/store"
+)
+
+// Runtime runs the processes of releases.
+type Runtime interface {
+	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
+	Retire(app, env string)
+	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, stdout, stderr io.Writer) error
+}
+
+// Options configure a Deployer.
+type Options struct {
+	DataDir string
+	Builder *build.Builder
+	Runtime Runtime
+	// Reload makes the router pick up a new release.
+	Reload func(context.Context) error
+	// URL returns an environment's address, for the log.
+	URL func(app, env string) string
+	// Builds bounds how many builds run at once (default: half the CPUs).
+	Builds int
+	// GCMinAge protects new builds from garbage collection (default: a
+	// minute), so that one being published is never collected.
+	GCMinAge time.Duration
+	// FailedBuildAge is how long the directory of a failed build is kept
+	// for inspection (default: a day).
+	FailedBuildAge time.Duration
+}
+
+// Deployer runs deployments: it publishes uploaded builds at once, and
+// builds and publishes source in the background, one deployment per
+// environment at a time.
+type Deployer struct {
+	db   *store.DB
+	opts Options
+	log  *slog.Logger
+
+	ctx    context.Context // ends when the server shuts down
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	slots  chan struct{} // build slots
+
+	mu     sync.Mutex
+	queues map[string]*queue      // by app/env
+	locks  map[string]*sync.Mutex // the release phase of an environment
+}
+
+type queue struct {
+	running bool
+	next    *store.Deployment
+}
+
+// New returns a deployer.
+func New(db *store.DB, opts Options, log *slog.Logger) *Deployer {
+	if opts.Builds <= 0 {
+		opts.Builds = max(1, runtime.NumCPU()/2)
+	}
+	if opts.GCMinAge == 0 {
+		opts.GCMinAge = time.Minute
+	}
+	if opts.FailedBuildAge == 0 {
+		opts.FailedBuildAge = 24 * time.Hour
+	}
+	if opts.URL == nil {
+		opts.URL = func(app, env string) string { return "" }
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Deployer{
+		db: db, opts: opts, log: log, ctx: ctx, cancel: cancel,
+		slots:  make(chan struct{}, opts.Builds),
+		queues: map[string]*queue{},
+		locks:  map[string]*sync.Mutex{},
+	}
+}
+
+// Shutdown stops the running deployments (they are recorded as failed)
+// and waits for them to finish recording.
+func (d *Deployer) Shutdown() {
+	d.cancel()
+	d.wg.Wait()
+}
+
+// LogPath is a deployment's log file.
+func LogPath(dataDir, app, id string) string {
+	return filepath.Join(dataDir, "logs", "deployments", app, id+".log")
+}
+
+func (d *Deployer) envLock(app, env string) *sync.Mutex {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := app + "/" + env
+	l := d.locks[key]
+	if l == nil {
+		l = &sync.Mutex{}
+		d.locks[key] = l
+	}
+	return l
+}
+
+// Submit stores uploaded source (a gzip-compressed tar stream) as a new
+// build directory of app and queues its deployment. The app is created if
+// it does not exist, once the upload is known to be good. A newer
+// submission supersedes one still queued for the same environment.
+func (d *Deployer) Submit(ctx context.Context, app, env, by string, upload io.Reader) (store.Deployment, bool, error) {
+	if err := names.ValidateApp(app); err != nil {
+		return store.Deployment{}, false, err
+	}
+	buildID := ids.New(ids.Build)
+	dir := filepath.Join(d.opts.DataDir, "builds", app, buildID)
+	appDir := filepath.Join(dir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		return store.Deployment{}, false, err
+	}
+	files, _, err := archive.Extract(upload, appDir, archive.DefaultLimits)
+	if err == nil && files == 0 {
+		err = errors.New("the upload contains no files")
+	}
+	if err != nil {
+		os.RemoveAll(dir)
+		return store.Deployment{}, false, &InvalidUploadError{err}
+	}
+	_, created, err := d.db.EnsureApp(ctx, app)
+	if err != nil {
+		os.RemoveAll(dir)
+		return store.Deployment{}, false, err
+	}
+	dep := store.Deployment{
+		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: "source-upload", Status: store.Queued,
+		BuildID: buildID, CreatedBy: by, CreatedAt: time.Now().UTC(),
+	}
+	if err := d.db.CreateDeployment(ctx, dep); err != nil {
+		os.RemoveAll(dir)
+		return store.Deployment{}, false, err
+	}
+	d.enqueue(dep)
+	return dep, created, nil
+}
+
+func (d *Deployer) enqueue(dep store.Deployment) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := dep.App + "/" + dep.Env
+	q := d.queues[key]
+	if q == nil {
+		q = &queue{}
+		d.queues[key] = q
+	}
+	if !q.running {
+		q.running = true
+		d.start(dep)
+		return
+	}
+	if q.next != nil {
+		d.supersede(*q.next, dep.ID)
+	}
+	q.next = &dep
+}
+
+// start runs a deployment in the background; called with d.mu held.
+func (d *Deployer) start(dep store.Deployment) {
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.run(dep)
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		q := d.queues[dep.App+"/"+dep.Env]
+		if q.next != nil && d.ctx.Err() == nil {
+			next := *q.next
+			q.next = nil
+			d.start(next)
+			return
+		}
+		if q.next != nil {
+			d.finish(*q.next, store.Canceled, "the server stopped before the deployment started", nil)
+			q.next = nil
+		}
+		q.running = false
+	}()
+}
+
+func (d *Deployer) supersede(dep store.Deployment, by string) {
+	d.finish(dep, store.Superseded, "superseded by "+by, nil)
+	os.RemoveAll(filepath.Join(d.opts.DataDir, "builds", dep.App, dep.BuildID))
+}
+
+func (d *Deployer) finish(dep store.Deployment, status, msg string, output []string) {
+	if err := d.db.FinishDeployment(context.Background(), dep.ID, status, msg, output); err != nil {
+		d.log.Error("record the end of a deployment", "deployment", dep.ID, "err", err)
+	}
+}
+
+// run builds and publishes a queued deployment.
+func (d *Deployer) run(dep store.Deployment) {
+	ctx := d.ctx
+	logFile, err := logs.Open(LogPath(d.opts.DataDir, dep.App, dep.ID), 0, 0)
+	if err != nil {
+		d.finish(dep, store.Failed, "cannot write the deployment log: "+err.Error(), nil)
+		return
+	}
+	defer logFile.Close()
+	fail := func(msg string, output []string) {
+		build.Marker(logFile, "✘ failed     %s", msg)
+		if output == nil {
+			output = lastOutput(logFile.Path, 20)
+		}
+		logFile.Close()
+		d.finish(dep, store.Failed, msg, output)
+		d.log.Warn("deployment failed", "app", dep.App, "env", dep.Env, "deployment", dep.ID, "err", msg)
+	}
+	build.Marker(logFile, "moorage  %s · %s · %s", dep.App, dep.Env, dep.ID)
+
+	select {
+	case d.slots <- struct{}{}:
+	case <-ctx.Done():
+		fail("interrupted: the server stopped", nil)
+		return
+	}
+	d.db.SetDeploymentStatus(ctx, dep.ID, store.Building)
+	start := time.Now()
+	dir := filepath.Join(d.opts.DataDir, "builds", dep.App, dep.BuildID)
+	res, err := d.opts.Builder.Build(ctx, build.Job{App: dep.App, Env: dep.Env, BuildID: dep.BuildID, Dir: dir, Log: logFile})
+	<-d.slots
+	os.RemoveAll(filepath.Join(d.opts.DataDir, "tmp", "build-"+dep.BuildID))
+	if err != nil {
+		var be *build.Error
+		switch {
+		case ctx.Err() != nil:
+			fail("interrupted: the server stopped", nil)
+		case errors.As(err, &be):
+			fail(be.Msg, nil)
+		default:
+			fail("the build failed: "+err.Error(), nil)
+		}
+		return
+	}
+	build.Marker(logFile, "▸ built      %d files, %s in %s", res.Files, humanBytes(res.Size), time.Since(start).Round(100*time.Millisecond))
+
+	planJSON, err := json.Marshal(res.Plan)
+	if err != nil {
+		fail(err.Error(), nil)
+		return
+	}
+	appID, _, err := d.db.EnsureApp(ctx, dep.App)
+	if err != nil {
+		fail(err.Error(), nil)
+		return
+	}
+	b := store.Build{
+		ID: dep.BuildID, AppID: appID, SourceType: dep.SourceType, ArtifactKind: "dir",
+		ArtifactRef: filepath.ToSlash(filepath.Join("builds", dep.App, dep.BuildID)),
+		Plan:        planJSON, Files: res.Files, SizeBytes: res.Size, CreatedAt: time.Now(),
+	}
+	if err := d.db.CreateBuild(ctx, b); err != nil {
+		fail(err.Error(), nil)
+		return
+	}
+	rel, err := d.publish(ctx, dep, b, res.Plan, "deploy", logFile)
+	if err != nil {
+		var rollout *reconcile.RolloutError
+		switch {
+		case errors.As(err, &rollout):
+			fail(rollout.Message+"; the previous release keeps serving", rollout.Output)
+		case ctx.Err() != nil:
+			fail("interrupted: the server stopped", nil)
+		default:
+			fail(err.Error(), nil)
+		}
+		return
+	}
+	build.Marker(logFile, "✔ live       v%d  %s  (%s)", rel.Version, d.opts.URL(dep.App, dep.Env), time.Since(dep.CreatedAt).Round(100*time.Millisecond))
+	logFile.Close()
+	d.finish(dep, store.Live, "", nil)
+	d.log.Info("deployed", "app", dep.App, "env", dep.Env, "release", rel.Version, "build", b.ID, "deployment", dep.ID)
+	d.collect(dep.App, res.Plan.Deploy.KeepReleases)
+}
+
+// releaseError reports a failed release command.
+type releaseError struct{ msg string }
+
+func (e *releaseError) Error() string { return e.msg }
+
+// publish makes build the environment's current release: it runs the
+// release command, rolls the release out (for process apps) and switches
+// the router to it. A process app's release becomes current only once its
+// instances are healthy; if anything fails, the release is removed and the
+// previous one keeps serving. log, if set, receives progress.
+func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Build, plan manifest.Plan, reason string, log io.Writer) (store.Release, error) {
+	if log == nil {
+		log = io.Discard
+	}
+	plan.Defaults()
+	lock := d.envLock(dep.App, dep.Env)
+	lock.Lock()
+	defer lock.Unlock()
+
+	_, _, prevErr := d.db.CurrentRelease(ctx, dep.App, dep.Env)
+	firstRelease := errors.Is(prevErr, store.ErrNotFound)
+	rel, err := d.db.CreateRelease(ctx, dep.App, dep.Env, b.ID, reason, dep.CreatedBy)
+	if err != nil {
+		return rel, err
+	}
+	d.db.SetDeploymentRelease(ctx, dep.ID, rel.ID)
+	abandon := func(err error) (store.Release, error) {
+		d.db.DeleteRelease(context.WithoutCancel(ctx), rel.ID)
+		return rel, err
+	}
+	if plan.Release != nil && plan.Release.Command != "" {
+		d.db.SetDeploymentStatus(ctx, dep.ID, store.Releasing)
+		build.Marker(log, "▸ release    v%d: %s", rel.Version, plan.Release.Command)
+		if err := d.runOnce(ctx, dep, rel, b, plan, plan.Release.Command, log); err != nil {
+			return abandon(&releaseError{"the release command failed: " + err.Error()})
+		}
+	}
+	d.db.SetDeploymentStatus(ctx, dep.ID, store.RollingOut)
+	if plan.Kind == manifest.KindProcess {
+		build.Marker(log, "▸ rollout    %s", formation(plan))
+		if err := d.opts.Runtime.Rollout(ctx, dep.App, dep.Env, rel, b, plan); err != nil {
+			return abandon(err)
+		}
+	}
+	if err := d.db.MakeCurrent(ctx, rel.ID); err != nil {
+		return rel, err
+	}
+	rel.Current = true
+	if err := d.opts.Reload(ctx); err != nil {
+		return rel, err
+	}
+	if plan.Kind == manifest.KindStatic {
+		d.opts.Runtime.Retire(dep.App, dep.Env) // processes of an earlier release are no longer needed
+	}
+	if firstRelease && plan.Release != nil && plan.Release.OnCreate != "" {
+		build.Marker(log, "▸ on_create  %s", plan.Release.OnCreate)
+		if err := d.runOnce(ctx, dep, rel, b, plan, plan.Release.OnCreate, log); err != nil {
+			build.Marker(log, "             on_create failed (%v); the release is live", err)
+		}
+	}
+	return rel, nil
+}
+
+func (d *Deployer) runOnce(ctx context.Context, dep store.Deployment, rel store.Release, b store.Build, plan manifest.Plan, command string, log io.Writer) error {
+	out, errw := logs.NewWriter(log, logs.Stdout), logs.NewWriter(log, logs.Stderr)
+	defer out.Flush()
+	defer errw.Flush()
+	return d.opts.Runtime.RunOnce(ctx, dep.App, dep.Env, rel, b, plan, command, plan.Release.Timeout.Std(), out, errw)
+}
+
+func formation(plan manifest.Plan) string {
+	var parts []string
+	for _, name := range manifest.SortedProcesses(plan.Processes) {
+		p := plan.Processes[name]
+		parts = append(parts, fmt.Sprintf("%s ×%d", name, *p.Instances))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// Publish publishes a build that needs no building (an upload, or the build
+// of an earlier release) at once, recording it as a deployment.
+func (d *Deployer) Publish(ctx context.Context, app, env, by, sourceType, reason string, b store.Build, plan manifest.Plan) (store.Release, store.Deployment, error) {
+	if reason == "rollback" {
+		plan.Release = nil // release commands run once, when a build is first deployed
+	}
+	dep := store.Deployment{
+		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: sourceType, Status: store.RollingOut,
+		BuildID: b.ID, CreatedBy: by, CreatedAt: time.Now().UTC(), StartedAt: time.Now().UTC(),
+	}
+	if err := d.db.CreateDeployment(ctx, dep); err != nil {
+		return store.Release{}, dep, err
+	}
+	rel, err := d.publish(ctx, dep, b, plan, reason, nil)
+	if err != nil {
+		var rollout *reconcile.RolloutError
+		if errors.As(err, &rollout) {
+			d.finish(dep, store.Failed, rollout.Message, rollout.Output)
+		} else {
+			d.finish(dep, store.Failed, err.Error(), nil)
+		}
+		return rel, dep, err
+	}
+	d.finish(dep, store.Live, "", nil)
+	dep.Status, dep.ReleaseID, dep.Version = store.Live, rel.ID, rel.Version
+	d.collect(app, plan.Deploy.KeepReleases)
+	return rel, dep, nil
+}
+
+// collect removes the builds of app that are kept for no release (beyond
+// keep per environment), and the directories of failed builds once they are
+// old enough.
+func (d *Deployer) collect(app string, keep int) {
+	ctx := context.Background()
+	if keep <= 0 {
+		keep = 5
+	}
+	builds, err := d.db.CollectableBuilds(ctx, app, keep, d.opts.GCMinAge)
+	if err != nil {
+		d.log.Error("garbage collection", "app", app, "err", err)
+		return
+	}
+	for _, b := range builds {
+		if err := removeTree(filepath.Join(d.opts.DataDir, filepath.FromSlash(b.ArtifactRef))); err != nil {
+			d.log.Error("remove a build", "app", app, "build", b.ID, "err", err)
+			continue
+		}
+		d.db.MarkCollected(ctx, b.ID)
+		d.log.Info("removed an old build", "app", app, "build", b.ID)
+	}
+	known, err := d.db.BuildIDs(ctx, app)
+	if err != nil {
+		return
+	}
+	entries, _ := os.ReadDir(filepath.Join(d.opts.DataDir, "builds", app))
+	for _, e := range entries {
+		id := e.Name()
+		_, created, err := ids.Parse(id)
+		if err != nil || known[id] || !e.IsDir() || time.Since(created) < d.opts.FailedBuildAge {
+			continue
+		}
+		if active, _ := d.activeBuild(ctx, id); active {
+			continue
+		}
+		if err := removeTree(filepath.Join(d.opts.DataDir, "builds", app, id)); err == nil {
+			d.log.Info("removed a failed build", "app", app, "build", id)
+		}
+	}
+}
+
+func (d *Deployer) activeBuild(ctx context.Context, buildID string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, q := range d.queues {
+		if q.next != nil && q.next.BuildID == buildID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// removeTree removes a build directory, whose files are read-only.
+func removeTree(dir string) error {
+	if runtime.GOOS == "windows" {
+		filepath.WalkDir(dir, func(p string, de fs.DirEntry, err error) error {
+			if err == nil && !de.IsDir() {
+				os.Chmod(p, 0o644)
+			}
+			return nil
+		})
+	}
+	return os.RemoveAll(dir)
+}
+
+// lastOutput returns the last n lines of a log's output, for a failed
+// deployment's record.
+func lastOutput(path string, n int) []string {
+	lines, _ := logs.Tail(path, 200)
+	var out []string
+	for _, l := range lines {
+		if l.Stream == logs.Stdout || l.Stream == logs.Stderr {
+			out = append(out, l.Text)
+		}
+	}
+	if len(out) > n {
+		out = out[len(out)-n:]
+	}
+	return out
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
+}

@@ -310,3 +310,8 @@ func (f *Follower) Read() ([]Line, error) {
 	}
 	return out, nil
 }
+
+// FollowFromStart follows path from its beginning.
+func FollowFromStart(path string) *Follower {
+	return &Follower{Path: path}
+}

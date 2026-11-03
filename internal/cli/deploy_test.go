@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -131,10 +132,16 @@ func TestDeployStaticEndToEnd(t *testing.T) {
 	}
 }
 
-func TestDeployNeedsStaticAndApp(t *testing.T) {
+func TestDeployChecksFlagsAndApp(t *testing.T) {
 	startLocalServer(t)
-	if code, _, errOut := run(t, "deploy", t.TempDir(), "--app", "docs"); code != exitUsage || !strings.Contains(errOut, "--static") {
-		t.Errorf("deploy without --static: %d %s", code, errOut)
+	if code, _, errOut := run(t, "deploy", t.TempDir(), "--static", "--artifact", "--app", "docs"); code != exitUsage || !strings.Contains(errOut, "not both") {
+		t.Errorf("deploy --static --artifact: %d %s", code, errOut)
+	}
+	if code, _, errOut := run(t, "deploy", t.TempDir(), "--app", "docs"); code != exitError || !strings.Contains(errOut, "no files") {
+		t.Errorf("deploy of an empty directory: %d %s", code, errOut)
+	}
+	if code, _, errOut := run(t, "deploy", t.TempDir()); code != exitError || !strings.Contains(errOut, "which app") {
+		t.Errorf("source deploy without an app: %d %s", code, errOut)
 	}
 	if code, _, errOut := run(t, "deploy", "--static", t.TempDir()); code != exitError || !strings.Contains(errOut, "which app") {
 		t.Errorf("deploy without an app: %d %s", code, errOut)
@@ -174,5 +181,101 @@ func TestDeployArtifactEndToEnd(t *testing.T) {
 	}
 	if code, _, errOut = run(t, "deploy", "--artifact", "--static"); code != exitUsage {
 		t.Errorf("deploy with both modes: %d %s", code, errOut)
+	}
+}
+
+func TestDeploySourceEndToEnd(t *testing.T) {
+	addr := startLocalServer(t)
+	src := t.TempDir()
+	quote := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace
+	manifest := `[app]
+name = "builder"
+runtime = "command"
+
+[build]
+command = 'echo built > built.txt'
+
+[processes.web]
+command = "` + quote(testroles.AppCommand()) + `"
+health = { path = "/health", interval = "100ms" }
+
+[env]
+TESTAPP_BODY = "built from source"
+`
+	os.WriteFile(filepath.Join(src, "moorage.toml"), []byte(manifest), 0o644)
+	os.WriteFile(filepath.Join(src, ".gitignore"), []byte("secret.txt\n"), 0o644)
+	os.WriteFile(filepath.Join(src, "secret.txt"), []byte("not for the server"), 0o644)
+	os.MkdirAll(filepath.Join(src, "node_modules", "x"), 0o755)
+	os.WriteFile(filepath.Join(src, "node_modules", "x", "index.js"), []byte("left out"), 0o644)
+
+	code, out, errOut := run(t, "deploy", src)
+	if code != 0 {
+		t.Fatalf("deploy: %d\n%s\n%s", code, out, errOut)
+	}
+	for _, want := range []string{"Created app builder.", "Uploaded 2 files", "▸ build      echo built > built.txt", "✔ live       v1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("deploy output lacks %q:\n%s", want, out)
+		}
+	}
+	if body := fetch(t, addr, "builder.localhost", "/"); body != "built from source" {
+		t.Errorf("served %q", body)
+	}
+
+	code, out, _ = run(t, "deployments", "--app", "builder")
+	if code != 0 || !strings.Contains(out, "source-upload") || !strings.Contains(out, "live") {
+		t.Errorf("deployments: %d\n%s", code, out)
+	}
+	id := strings.Fields(strings.Split(out, "\n")[1])[0]
+	code, out, _ = run(t, "deployments", "show", id)
+	if code != 0 || !regexp.MustCompile(`Status +live`).MatchString(out) || !regexp.MustCompile(`Release +v1`).MatchString(out) {
+		t.Errorf("deployments show: %d\n%s", code, out)
+	}
+	code, out, _ = run(t, "deployments", "follow", id)
+	if code != 0 || !strings.Contains(out, "✔ live") {
+		t.Errorf("deployments follow: %d\n%s", code, out)
+	}
+
+	// A failing build fails the command, with the build's output on screen.
+	os.WriteFile(filepath.Join(src, "moorage.toml"), []byte(strings.Replace(manifest, "echo built > built.txt", "echo oops && exit 7", 1)), 0o644)
+	code, out, errOut = run(t, "deploy", src)
+	if code != 1 || !strings.Contains(out, "             oops") || !strings.Contains(errOut, "exited with status 7") {
+		t.Errorf("failed deploy: %d\n%s\n%s", code, out, errOut)
+	}
+
+	code, out, _ = run(t, "deploy", src, "--detach")
+	if code != 0 || !strings.Contains(out, "moor deployments follow dep_") {
+		t.Errorf("detached deploy: %d\n%s", code, out)
+	}
+}
+
+func TestManifestCommands(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/hello\n\ngo 1.26.1\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644)
+
+	code, out, _ := run(t, "manifest", "validate", dir)
+	if code != 0 || !strings.Contains(out, "There is no") {
+		t.Errorf("validate without a manifest: %d %s", code, out)
+	}
+	code, out, _ = run(t, "manifest", "explain", dir, "--os", "linux")
+	for _, want := range []string{"runtime     go", "go 1.26  (go.mod go line)", `-o "$MOORAGE_BIN/hello" .`, `web: "$MOORAGE_BIN/hello"`} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("explain lacks %q: %d\n%s", want, code, out)
+		}
+	}
+
+	os.WriteFile(filepath.Join(dir, "moorage.toml"), []byte("[env]\nAPI_TOKEN = \"abc\"\n[[cron]]\nname = \"x\"\nschedule = \"@daily\"\ncommand = \"true\"\n"), 0o644)
+	code, out, errOut := run(t, "manifest", "validate", dir)
+	if code != 0 || !strings.Contains(out, "valid (2 warnings)") || !strings.Contains(errOut, "env.API_TOKEN looks like a credential") {
+		t.Errorf("validate with warnings: %d\n%s\n%s", code, out, errOut)
+	}
+	os.WriteFile(filepath.Join(dir, "moorage.toml"), []byte("[app]\nruntime = \"cobol\"\n"), 0o644)
+	if code, _, errOut = run(t, "manifest", "validate", dir); code != 1 || !strings.Contains(errOut, "app.runtime") {
+		t.Errorf("invalid manifest: %d %s", code, errOut)
+	}
+
+	code, out, _ = run(t, "manifest", "schema")
+	if code != 0 || !strings.Contains(out, `"title": "moorage.toml"`) {
+		t.Errorf("schema: %d", code)
 	}
 }

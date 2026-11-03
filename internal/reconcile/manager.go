@@ -45,6 +45,8 @@ type Options struct {
 	BackoffMin time.Duration
 	// Trusted lists the proxies whose forwarded headers apps may see.
 	Trusted []netip.Prefix
+	// ToolchainBins returns the PATH directories of an installed toolchain.
+	ToolchainBins func(name, version string) []string
 }
 
 // Manager runs the instances of every process app.

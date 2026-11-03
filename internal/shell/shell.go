@@ -18,9 +18,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// Simple reports whether command is a single simple command — a program,
-// its arguments and optional VAR=value assignments in front, without pipes,
-// lists, redirections or command substitutions — and if so returns the
+// Simple reports whether command is a single simple command — a program
+// (not a shell builtin), its arguments and optional VAR=value assignments
+// in front, without pipes, lists, redirections or command substitutions —
+// and if so returns the
 // program's resolved path, its arguments (argv[0] first) and the
 // environment to run it with: env plus the assignments. Words are expanded
 // against env, and globs against the working directory dir.
@@ -69,7 +70,8 @@ func Simple(command string, env []string, dir string) (path string, argv, runEnv
 	if err != nil {
 		return "", nil, nil, false, err
 	}
-	if len(argv) == 0 {
+	if len(argv) == 0 || interp.IsBuiltin(argv[0]) {
+		// A builtin (exit, cd, echo…) only exists in the shell.
 		return "", nil, nil, false, nil
 	}
 	path, err = interp.LookPathDir(dir, expand.ListEnviron(runEnv...), argv[0])

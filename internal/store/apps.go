@@ -26,6 +26,8 @@ type Build struct {
 	Files        int
 	SizeBytes    int64
 	CreatedAt    time.Time
+	// Collected reports that garbage collection removed the build's files.
+	Collected bool
 }
 
 // Release puts a build into an environment.
@@ -150,9 +152,14 @@ func (db *DB) RollbackBuild(ctx context.Context, app, env string, version int) (
 		if version == current {
 			return fmt.Errorf("v%d is already the current release of %s", version, app)
 		}
-		err = tx.QueryRowContext(ctx, `SELECT build_id FROM releases WHERE env_id = ? AND version = ?`, envID, version).Scan(&buildID)
+		var collected sql.NullInt64
+		err = tx.QueryRowContext(ctx, `SELECT r.build_id, b.collected_at FROM releases r JOIN builds b ON b.id = r.build_id
+			WHERE r.env_id = ? AND r.version = ?`, envID, version).Scan(&buildID, &collected)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%s has no release v%d: %w", app, version, ErrNotFound)
+		}
+		if err == nil && collected.Valid {
+			return fmt.Errorf("the build of v%d was removed to save space ([deploy].keep_releases keeps the last releases); deploy it again instead", version)
 		}
 		return err
 	})
@@ -228,12 +235,13 @@ func (db *DB) Build(ctx context.Context, id string) (Build, error) {
 	var b Build
 	var plan string
 	var created int64
-	err := db.Reader.QueryRowContext(ctx, `SELECT id, app_id, source_type, artifact_kind, artifact_ref, plan, files, size_bytes, created_at
-		FROM builds WHERE id = ?`, id).Scan(&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &created)
+	var collected sql.NullInt64
+	err := db.Reader.QueryRowContext(ctx, `SELECT id, app_id, source_type, artifact_kind, artifact_ref, plan, files, size_bytes, created_at, collected_at
+		FROM builds WHERE id = ?`, id).Scan(&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &created, &collected)
 	if errors.Is(err, sql.ErrNoRows) {
 		return b, fmt.Errorf("build %s: %w", id, ErrNotFound)
 	}
-	b.Plan, b.CreatedAt = json.RawMessage(plan), time.UnixMilli(created).UTC()
+	b.Plan, b.CreatedAt, b.Collected = json.RawMessage(plan), time.UnixMilli(created).UTC(), collected.Valid
 	return b, err
 }
 

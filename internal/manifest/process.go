@@ -133,7 +133,11 @@ func (d *Deploy) Defaults() {
 }
 
 // ValidateProcesses checks the processes of a plan, reporting every problem.
-func ValidateProcesses(procs map[string]Process) error {
+func ValidateProcesses(procs map[string]Process) error { return validateProcesses(procs, true) }
+
+// validateProcesses checks processes; in a manifest, web may leave its
+// command to the runtime's preset.
+func validateProcesses(procs map[string]Process, requireWebCommand bool) error {
 	var p []string
 	add := func(format string, args ...any) { p = append(p, fmt.Sprintf(format, args...)) }
 	if len(procs) == 0 {
@@ -145,7 +149,7 @@ func ValidateProcesses(procs map[string]Process) error {
 		if !processName.MatchString(name) {
 			add("%s: a process name must be lowercase letters, digits and hyphens, starting with a letter", at)
 		}
-		if strings.TrimSpace(proc.Command) == "" {
+		if strings.TrimSpace(proc.Command) == "" && (requireWebCommand || name != Web) {
 			add("%s.command is required", at)
 		}
 		if proc.Instances != nil && (*proc.Instances < 0 || *proc.Instances > 20) {

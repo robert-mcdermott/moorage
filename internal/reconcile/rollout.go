@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +17,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
+	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/shim"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -179,56 +178,21 @@ func exitCode(st shim.State) int {
 
 // spec builds what the shim needs to run an instance.
 func (m *Manager) spec(es *envState, rel store.Release, build store.Build, plan manifest.Plan, in *instance) (shim.Spec, error) {
-	dir := filepath.Join(m.opts.DataDir, filepath.FromSlash(build.ArtifactRef), "app")
-	dataDir := filepath.Join(m.opts.DataDir, "data", es.app, es.env)
-	for _, d := range []string{dataDir, in.tmpDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			return shim.Spec{}, err
-		}
+	vars, err := m.appEnv(es.app, es.env, rel, build, plan, in.tmpDir)
+	if err != nil {
+		return shim.Spec{}, err
 	}
-	host := es.app + "." + m.cfg.Domain
-	vars := map[string]string{}
-	for _, k := range baseVars() {
-		if v, ok := os.LookupEnv(k); ok {
-			vars[k] = v
-		}
-	}
-	vars["HOME"] = dataDir
-	vars["TMPDIR"], vars["TEMP"], vars["TMP"] = in.tmpDir, in.tmpDir, in.tmpDir
-	for k, v := range plan.Env {
-		vars[k] = v
-	}
-	injected := map[string]string{
-		"HOST":                "127.0.0.1",
-		"MOORAGE_APP":         es.app,
-		"MOORAGE_ENV":         es.env,
-		"MOORAGE_ENV_KIND":    "production",
-		"MOORAGE_RELEASE":     "v" + strconv.Itoa(rel.Version),
-		"MOORAGE_BUILD_ID":    build.ID,
-		"MOORAGE_URL":         m.cfg.PublicURL(host),
-		"MOORAGE_BASE_PATH":   "",
-		"MOORAGE_PROCESS":     in.process,
-		"MOORAGE_INSTANCE":    strconv.Itoa(in.index),
-		"MOORAGE_INSTANCE_ID": in.id,
-		"MOORAGE_DATA_DIR":    dataDir,
-		"MOORAGE_BIN":         filepath.Join(dir, ".moorage", "bin"),
-	}
+	vars["MOORAGE_PROCESS"] = in.process
+	vars["MOORAGE_INSTANCE"] = strconv.Itoa(in.index)
+	vars["MOORAGE_INSTANCE_ID"] = in.id
 	if in.port != 0 {
-		injected["PORT"] = strconv.Itoa(in.port)
+		vars["PORT"] = strconv.Itoa(in.port)
 	}
-	for k, v := range injected {
-		vars[k] = v
-	}
-	env := make([]string, 0, len(vars))
-	for k, v := range vars {
-		env = append(env, k+"="+v)
-	}
-	sort.Strings(env)
 	return shim.Spec{
 		ID:          in.id,
-		Dir:         dir,
+		Dir:         m.appDir(build),
 		Command:     in.proc.Command,
-		Env:         env,
+		Env:         oneoff.List(vars),
 		Shell:       m.opts.Shell,
 		ShellEnv:    m.opts.ShellEnv,
 		LogFile:     in.logFile,
@@ -239,13 +203,79 @@ func (m *Manager) spec(es *envState, rel store.Release, build store.Build, plan 
 	}, nil
 }
 
-// baseVars are taken from the server's environment: what programs need to
-// run at all (instances do not inherit the rest).
-func baseVars() []string {
-	if runtime.GOOS == "windows" {
-		return []string{"PATH", "PATHEXT", "SystemRoot", "SystemDrive", "WINDIR", "ComSpec", "ProgramData", "ProgramFiles", "USERPROFILE", "APPDATA", "LOCALAPPDATA"}
+// appDir is the directory a build's app runs in.
+func (m *Manager) appDir(build store.Build) string {
+	return filepath.Join(m.opts.DataDir, filepath.FromSlash(build.ArtifactRef), "app")
+}
+
+// appEnv is the environment of an app's commands: the server's base
+// variables, the runtime's own, [env], and Moorage's (docs/05-runtime.md,
+// "Environment variables"), with the build's toolchains and tool
+// directories first on PATH.
+func (m *Manager) appEnv(app, env string, rel store.Release, build store.Build, plan manifest.Plan, tmpDir string) (map[string]string, error) {
+	dir := m.appDir(build)
+	dataDir := filepath.Join(m.opts.DataDir, "data", app, env)
+	for _, d := range []string{dataDir, tmpDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return nil, err
+		}
 	}
-	return []string{"PATH", "LANG", "TZ", "USER", "LOGNAME"}
+	vars := oneoff.BaseEnv()
+	vars["HOME"] = dataDir
+	vars["TMPDIR"], vars["TEMP"], vars["TMP"] = tmpDir, tmpDir, tmpDir
+	for k, v := range plan.RunEnv {
+		vars[k] = v
+	}
+	for k, v := range plan.DirEnv {
+		vars[k] = filepath.Join(dir, filepath.FromSlash(v))
+	}
+	for k, v := range plan.Env {
+		vars[k] = v
+	}
+	var path []string
+	for _, t := range plan.Toolchains {
+		if t.Version != "system" && m.opts.ToolchainBins != nil {
+			path = append(path, m.opts.ToolchainBins(t.Name, t.Version)...)
+		}
+	}
+	for _, p := range plan.Path {
+		path = append(path, filepath.Join(dir, filepath.FromSlash(p)))
+	}
+	vars["PATH"] = oneoff.PrependPath(path, vars["PATH"])
+	host := app + "." + m.cfg.Domain
+	for k, v := range map[string]string{
+		"HOST":              "127.0.0.1",
+		"MOORAGE_APP":       app,
+		"MOORAGE_ENV":       env,
+		"MOORAGE_ENV_KIND":  "production",
+		"MOORAGE_RELEASE":   "v" + strconv.Itoa(rel.Version),
+		"MOORAGE_BUILD_ID":  build.ID,
+		"MOORAGE_URL":       m.cfg.PublicURL(host),
+		"MOORAGE_BASE_PATH": "",
+		"MOORAGE_DATA_DIR":  dataDir,
+		"MOORAGE_BIN":       filepath.Join(dir, ".moorage", "bin"),
+	} {
+		vars[k] = v
+	}
+	return vars, nil
+}
+
+// RunOnce runs a command of a release once, as the release's processes
+// would run (its directory and environment, no port), and waits for it:
+// the release command of a deployment.
+func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, stdout, stderr io.Writer) error {
+	tmp := m.tmpDir("run-" + rel.ID)
+	defer os.RemoveAll(tmp)
+	vars, err := m.appEnv(app, env, rel, build, plan, tmp)
+	if err != nil {
+		return err
+	}
+	vars["MOORAGE_PROCESS"] = "release"
+	return oneoff.Run(ctx, oneoff.Command{
+		Command: command, Env: oneoff.List(vars), Dir: m.appDir(build),
+		Shell: m.opts.Shell, ShellEnv: m.opts.ShellEnv,
+		Stdout: stdout, Stderr: stderr, Timeout: timeout,
+	})
 }
 
 // awaitReady waits until a new instance is healthy: an exposed process
