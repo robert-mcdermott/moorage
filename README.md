@@ -83,6 +83,17 @@ MOORAGE_CONFIG=~/moorage-dev/server.toml ./moor deploy --static ./some-site --ap
 Chromium- and Firefox-based browsers resolve `hello.localhost` on their own: open
 `http://hello.localhost:8080`.
 
+An app that is ready to run is deployed with `--artifact` and the
+`[processes]` of its `moorage.toml`, for example:
+
+```toml
+[app]
+name = "pyweb"
+
+[processes.web]
+command = "python3 -m http.server $PORT --bind 127.0.0.1 --directory public"
+```
+
 Work is planned in waves and slices: each wave has a `waveN` branch and ends
 in a release (see the [roadmap](docs/11-roadmap.md)). Changes are recorded in
 the [changelog](CHANGELOG.md).

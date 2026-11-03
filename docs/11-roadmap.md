@@ -128,6 +128,64 @@ directory, supervises it, and serves it on its own hostname.
    `moor ps`, `moor logs -f`, `moor restart`. Runs spike S2.
    - Done when: an app keeps serving through daemon restarts, killing a shim
      leaves no orphan, and a rolling restart under load fails no requests.
+   - Done (slice 3):
+     - `[processes]`, `[deploy]` and `[env]` in the manifest; `moor deploy
+       --artifact` uploads an app that is ready to run (a compiled binary, a
+       script for an interpreter on the host) and runs its processes.
+     - The shim (`moor shim`): starts the app (a simple command directly,
+       anything else through the embedded shell, `moor sh -c`), writes its
+       output to a rotated log with a timestamp and stream per line, restarts
+       it with backoff, slows down a crash loop, stops it with its stop signal
+       and kills it after the stop timeout, and takes commands over a loopback
+       port guarded by a secret. No orphans: a parent-death signal on Linux, a
+       Job Object on Windows, and on macOS the server kills an app whose shim
+       died (identified by PID and start time).
+     - The reconciler: ports picked at random and reserved in the database;
+       TCP or HTTP health checks; rolling and recreate rollouts that switch
+       traffic to exactly the new instances, then drain and stop the old ones;
+       a release becomes current only once its instances are healthy (a
+       failed one is removed, the previous release keeps serving, and the
+       error shows the app's last output); unhealthy instances get no traffic
+       and are restarted; dead shims are replaced; after a server restart,
+       running instances are adopted before the listeners open, and missing
+       ones are started.
+     - The proxy: power-of-two-choices load balancing on requests in flight,
+       one retry on another instance when a connection is refused, upgrades
+       and streaming passed through, `X-Forwarded-*`, `Forwarded` and
+       `X-Request-Id` set by Moorage (kept from trusted proxies only),
+       `X-Moorage-*` headers from clients removed, and an access log per
+       environment. The server's own log is also written to a rotated file.
+     - `moor ps`, `moor logs [-f]` and `moor restart`; the API's instances,
+       logs (NDJSON) and restart endpoints.
+     - Spike S2: in tests and with the real binary running a Python app, the
+       app kept serving on its own port while the server was down, and the new
+       server adopted it (same PID). Spike S4 for instances: 10,000 to 58,000
+       requests across a deploy, a rolling restart and a rollback, none
+       failed; upgraded connections pass through. Verified by tests on macOS
+       (with the race detector), `go vet` for Linux and Windows, the six
+       builds, and the real binary.
+   - Found by slice 3:
+     - A shim's physical footprint is 6.2 MB on macOS (12.6 MB resident,
+       counting shared executable pages), above the 5 MB target. Linux
+       figures come from CI; one shim per environment is the fallback if the
+       cost matters.
+     - UNIX socket paths are limited to about 104 bytes on macOS, too short
+       for deep data directories: shims take commands on a loopback port with
+       a per-shim secret instead.
+     - Python buffers its standard output when it is not a terminal, so its
+       prints reach the log late: the Python runtime (slice 4) sets
+       `PYTHONUNBUFFERED=1`.
+     - On Windows the app joins its Job Object right after it starts; a child
+       started in that instant escapes the job. Creating the process inside
+       the job closes the gap (wave 7).
+     - Right after a crash, until the next health check, the restarted process
+       may not listen yet; with one instance a request can get the
+       "unavailable" page for a moment.
+     - The router is part of the server, so a server restart refuses
+       connections for a moment even though apps keep running; listener
+       hand-off is in Ideas. Log files of stopped instances are kept;
+       retention arrives with observability (wave 5). Health checks by command
+       are not supported yet.
 4. **Builds.** Manifest v1 (parse, validate, `explain`, JSON Schema);
    detection; the `go`, `python` (uv), `node`, `command` and `binary`
    runtimes; the toolchain manager (Go, Node, uv and Python, all verified);
@@ -303,9 +361,9 @@ slice before code is built on a failed assumption.
 | # | Question | Slice | Done when |
 |---|---|---|---|
 | S1 | Can we receive `git push` in-process over SSH and HTTP and stream live progress back to the client? | Wave 2, slice 1 | *Largely shown by a research probe with the git CLI.* Remaining: rejecting a ref from the pre-receive step with a deployment error; end-of-pack detection for clients that keep the connection open (tested with a non-CLI git client library); per-repository ref serialisation under concurrent pushes; the beta library wrapped behind an internal interface. |
-| S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). |
+| S2 | Do shims keep apps alive across daemon restarts on all three OSes, without orphans? | Wave 1, slice 3 (and service installation in slice 5) | `systemctl restart` (with `KillMode=process` and delegation), a launchd restart and a Windows service restart under load drop no requests; killing a shim kills its app on every OS; shim RSS measured (target ≤ 5 MB). *Slice 3: apps outlive the server and are adopted (tests, and the real binary with a Python app); a killed shim leaves no app behind on any OS (tests); footprint 6.2 MB on macOS. The service managers' part comes with service installation.* |
 | S3 | Do in-place builds work for uv/Python, Node and Go, including partial toolchain versions? | Wave 1, slice 4 | Sample apps build and run from their final directory; toolchain downloads verified. |
-| S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances and WebSockets in slice 3.* |
+| S4 | Is the routing table swap really zero-downtime? | Wave 1, slices 2–3 | Rolling replacement under 200 req/s load with zero failed requests; WebSockets pass through. *Static sites shown in slice 2 (2,046 requests across 12 swaps, none failed); proxied instances in slice 3 (over 10,000 requests across a deploy, a rolling restart and a rollback, none failed; upgraded connections pass through).* |
 | S5 | Does the internal CA work end to end — an auto-generated root and a provided intermediate — for browsers and CLI tools? | Wave 1, slice 2 (issuance), wave 2, slice 4 (`moor trust`) | Certificates issued on demand for routed hostnames only, renewed, trusted after `moor trust` or through the corporate chain. |
 | S6 | Container driver: shared CLI lifecycle plus per-engine observation adapters. | Wave 2, slice 3 | Run, label-based adoption, exit and OOM events, cgroup-based stats on Linux and REST-based stats elsewhere, `logs --since`, rootless loopback port publishing — on current Podman and Docker releases. |
 | S7 | Linux cgroup v2 delegation and Landlock applied by the exec helper. | Wave 6, slice 1 | Limits enforced, OOM detected and reported, filesystem rules effective. |

@@ -7,10 +7,10 @@ package ingress
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,6 +22,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress/static"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -35,27 +36,54 @@ type Router struct {
 	log     *slog.Logger
 	console http.Handler
 	caPEM   []byte
+	pools   PoolSource
+	trusted []netip.Prefix
 
 	table atomic.Pointer[routeTable]
 
 	mu    sync.Mutex              // serialises Reload
 	sites map[string]*static.Site // by build ID, reused across reloads
+
+	logsMu     sync.Mutex
+	accessLogs map[string]*logs.File // by "app/env"
+}
+
+// PoolSource provides the backend pool of an environment of a process app.
+type PoolSource interface {
+	Pool(app, env string) *Pool
 }
 
 type routeTable struct {
 	generation uint64
-	// sites maps a hostname to the site it serves.
-	sites map[string]*static.Site
+	// routes maps a hostname to what serves it.
+	routes map[string]route
 	// apps holds every app name, deployed or not.
 	apps map[string]bool
 }
 
+type route struct {
+	app, env string
+	handler  http.Handler
+}
+
 // NewRouter returns a router with an empty table; call Reload to fill it.
 func NewRouter(cfg config.Config, db *store.DB, dataDir string, log *slog.Logger) *Router {
-	rt := &Router{cfg: cfg, db: db, dataDir: dataDir, log: log, console: running, sites: map[string]*static.Site{}}
-	rt.table.Store(&routeTable{sites: map[string]*static.Site{}, apps: map[string]bool{}})
+	rt := &Router{cfg: cfg, db: db, dataDir: dataDir, log: log, console: running,
+		sites: map[string]*static.Site{}, accessLogs: map[string]*logs.File{}}
+	for _, t := range cfg.Proxy.Trusted {
+		if p, err := config.ParseTrusted(t); err == nil {
+			rt.trusted = append(rt.trusted, p)
+		}
+	}
+	rt.table.Store(&routeTable{routes: map[string]route{}, apps: map[string]bool{}})
 	return rt
 }
+
+// SetPools sets where the pools of process apps come from.
+func (rt *Router) SetPools(ps PoolSource) { rt.pools = ps }
+
+// Trusted returns the trusted proxy prefixes.
+func (rt *Router) Trusted() []netip.Prefix { return rt.trusted }
 
 // SetConsole sets the handler for the console hostname (and for requests
 // addressed to the server by IP address or as localhost).
@@ -80,38 +108,54 @@ func (rt *Router) Reload(ctx context.Context) error {
 		return err
 	}
 	old := rt.table.Load()
-	next := &routeTable{generation: old.generation + 1, sites: map[string]*static.Site{}, apps: map[string]bool{}}
+	next := &routeTable{generation: old.generation + 1, routes: map[string]route{}, apps: map[string]bool{}}
 	for _, n := range appNames {
 		next.apps[n] = true
 	}
 	used := map[string]*static.Site{}
-	for _, route := range routes {
-		if route.Env != names.Production {
+	for _, r := range routes {
+		if r.Env != names.Production {
 			continue // other environments arrive with previews
 		}
-		site := rt.sites[route.Build.ID]
-		if site == nil {
-			if site, err = rt.loadSite(route.Build); err != nil {
-				rt.log.Error("cannot serve build", "app", route.App, "build", route.Build.ID, "err", err)
-				continue
-			}
+		var plan manifest.Plan
+		if err := json.Unmarshal(r.Build.Plan, &plan); err != nil {
+			rt.log.Error("cannot read a build's plan", "app", r.App, "build", r.Build.ID, "err", err)
+			continue
 		}
-		used[route.Build.ID] = site
-		next.sites[route.App+"."+rt.cfg.Domain] = site
+		var h http.Handler
+		switch plan.Kind {
+		case manifest.KindStatic:
+			site := rt.sites[r.Build.ID]
+			if site == nil {
+				if site, err = rt.loadSite(r.Build, plan); err != nil {
+					rt.log.Error("cannot serve build", "app", r.App, "build", r.Build.ID, "err", err)
+					continue
+				}
+			}
+			used[r.Build.ID] = site
+			h = site
+		case manifest.KindProcess:
+			web, ok := plan.Processes[manifest.Web]
+			switch {
+			case !ok || (web.Expose != nil && !*web.Expose):
+				h = noWebProcess(r.App)
+			case rt.pools == nil:
+				h = unavailable(r.App)
+			default:
+				h = rt.pools.Pool(r.App, r.Env)
+			}
+		default:
+			rt.log.Error("build plan kind not served by this version", "app", r.App, "kind", plan.Kind)
+			continue
+		}
+		next.routes[r.App+"."+rt.cfg.Domain] = route{app: r.App, env: r.Env, handler: h}
 	}
 	rt.sites = used
 	rt.table.Store(next)
 	return nil
 }
 
-func (rt *Router) loadSite(b store.Build) (*static.Site, error) {
-	var plan manifest.Plan
-	if err := json.Unmarshal(b.Plan, &plan); err != nil {
-		return nil, fmt.Errorf("read plan: %w", err)
-	}
-	if plan.Kind != "static" {
-		return nil, fmt.Errorf("plan kind %q is not served by this version", plan.Kind)
-	}
+func (rt *Router) loadSite(b store.Build, plan manifest.Plan) (*static.Site, error) {
 	dir := filepath.Join(rt.dataDir, filepath.FromSlash(b.ArtifactRef))
 	idx, err := static.ReadIndex(filepath.Join(dir, "index.json"))
 	if err != nil {
@@ -136,8 +180,8 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := rt.table.Load()
-	if s := t.sites[host]; s != nil {
-		s.ServeHTTP(w, r)
+	if rte, ok := t.routes[host]; ok {
+		rt.serveApp(w, r, rte)
 		return
 	}
 	if app, ok := rt.appOf(host); ok {

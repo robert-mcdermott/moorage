@@ -39,20 +39,56 @@ type RollbackRequest struct {
 	Version int `json:"version,omitempty"`
 }
 
-// Problem is an RFC 9457 error document.
+// Problem is an RFC 9457 error document. Output, when present, holds the
+// last lines of a failing instance's log.
 type Problem struct {
-	Type   string `json:"type,omitempty"`
-	Title  string `json:"title"`
-	Status int    `json:"status"`
-	Detail string `json:"detail,omitempty"`
-	Code   string `json:"code,omitempty"`
+	Type   string   `json:"type,omitempty"`
+	Title  string   `json:"title"`
+	Status int      `json:"status"`
+	Detail string   `json:"detail,omitempty"`
+	Code   string   `json:"code,omitempty"`
+	Output []string `json:"output,omitempty"`
 }
 
-// Content types.
+// Instance is one running copy of a process.
+type Instance struct {
+	ID        string    `json:"id"`
+	Process   string    `json:"process"`
+	Index     int       `json:"index"`
+	Release   int       `json:"release"`
+	Port      int       `json:"port,omitempty"`
+	Status    string    `json:"status"`
+	Healthy   bool      `json:"healthy"`
+	PID       int       `json:"pid,omitempty"`
+	Restarts  int       `json:"restarts"`
+	StartedAt time.Time `json:"started_at,omitempty"`
+	LastExit  *Exit     `json:"last_exit,omitempty"`
+}
+
+// Exit is how an instance's app last ended.
+type Exit struct {
+	Code   int       `json:"code"`
+	Signal string    `json:"signal,omitempty"`
+	At     time.Time `json:"at"`
+}
+
+// LogLine is one line of an app's log. Stream is "O" (stdout), "E"
+// (stderr) or "M" (a note from Moorage).
+type LogLine struct {
+	Time     time.Time `json:"time"`
+	Instance string    `json:"instance"`
+	Process  string    `json:"process"`
+	Index    int       `json:"index"`
+	Stream   string    `json:"stream"`
+	Text     string    `json:"text"`
+}
+
+// Content types and form fields.
 const (
 	ProblemType = "application/problem+json"
-	// StaticPart and ArchivePart are the multipart form fields of a static
-	// deploy: the [static] rules as JSON, then the gzip-compressed tar.
-	StaticPart  = "static"
+	NDJSONType  = "application/x-ndjson"
+	// PlanPart and ArchivePart are the multipart form fields of a deploy:
+	// the plan (manifest.Plan) as JSON, then the gzip-compressed tar.
+	PlanPart    = "plan"
 	ArchivePart = "archive"
 )

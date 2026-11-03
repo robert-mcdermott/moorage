@@ -83,7 +83,9 @@ spawns the app. The shim:
   then `exec`s the app, leaving the shim itself unrestricted; Windows: a Job
   Object);
 - records the app's PID, start time and exit statuses in a small state file;
-- serves a control socket (`run/shims/<instance>.sock`) speaking newline-
+- takes commands from the server on a loopback TCP port, guarded by a per-shim
+  secret (UNIX socket paths are too short on macOS for deep data directories),
+  speaking newline-
   delimited JSON: `status`, `signal`, `stop`, `wait`;
 - exits when the app is stopped on purpose.
 
@@ -222,7 +224,8 @@ elevated Administrator on Windows), per-user otherwise (laptop mode):
   builds/<app>/<build-id>/        immutable build outputs (built in place)
   data/<app>/<env>/               persistent data directories
   logs/
-    apps/<app>/<env>/<instance>.log[.N]
+    apps/<app>/<env>/<process>.<index>.<instance>.log[.N]
+    router/<app>/<env>.log[.N]   access logs
     builds/<deployment>.log
     server/moorage.log
   toolchains/<name>/<version>/    verified runtimes (go, node, uv, python, …)
@@ -231,7 +234,8 @@ elevated Administrator on Windows), per-user otherwise (laptop mode):
   backups/                        database snapshots taken before migrating; later, backups (0700)
   run/                            (0700)
     moor.lock                     held by the running server: one server per data directory
-    shims/<instance>.sock|.json   shim control sockets and state files
+    shims/<instance>.spec.json    what a shim runs (0600: the environment may hold secrets)
+    shims/<instance>.state.json   a shim's state and control address
     moor.sock                     local admin socket (root/service user only)
   tmp/                            (0700)
 ```
@@ -370,6 +374,7 @@ internal/
   config/                 server.toml: presets, strict parsing, validation, writing
   ids/                    typed, sortable identifiers (prefix + ULID)
   server/                 wiring, lifecycle, startup/adoption/shutdown
+  shell/                  the embedded POSIX shell for manifest commands (`moor sh -c`)
   api/                    REST handlers, auth middleware, SSE/WebSocket, OpenAPI
   apitypes/               the API's JSON documents, shared by server and CLI
   archive/                packing uploads; safe extraction (no escapes, links or excess)
@@ -396,6 +401,7 @@ internal/
   notify/                 webhook, chat, email channels
   scheduler/              cron, TTL, sleep, GC
   platform/               OS-specific code behind build tags (linux, darwin, windows)
+  testapp/, testroles/    test helpers: an app to deploy, and test binaries playing moor's helper modes
 schema/                   JSON Schema for moorage.toml
 docs/
 ```

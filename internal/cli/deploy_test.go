@@ -14,7 +14,14 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/server"
+	"github.com/robert-mcdermott/moorage/internal/testroles"
 )
+
+// The test binary plays the shims, the shell and the apps.
+func TestMain(m *testing.M) {
+	testroles.Run()
+	os.Exit(m.Run())
+}
 
 // startLocalServer runs a server configured as the one "on this machine"
 // (through MOORAGE_CONFIG) and returns its HTTP address.
@@ -47,7 +54,11 @@ func startLocalServer(t *testing.T) string {
 	ready := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- server.Run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), server.Options{Ready: func(server.Addrs) { close(ready) }})
+		done <- server.Run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), server.Options{
+			Ready:    func(server.Addrs) { close(ready) },
+			ShimEnv:  testroles.ShimEnv,
+			ShellEnv: testroles.ShellEnv,
+		})
 	}()
 	select {
 	case <-ready:
@@ -129,5 +140,38 @@ func TestDeployNeedsStaticAndApp(t *testing.T) {
 	}
 	if code, _, errOut := run(t, "apps", "--server", "http://127.0.0.1:1", "--token", "moor_x"); code != exitError || !strings.Contains(errOut, "cannot reach") {
 		t.Errorf("unreachable server: %d %s", code, errOut)
+	}
+}
+
+func TestDeployArtifactEndToEnd(t *testing.T) {
+	addr := startLocalServer(t)
+	project := t.TempDir()
+	command := strings.NewReplacer(`\\`, `\\\\`, `"`, `\\"`).Replace(testroles.AppCommand())
+	manifestText := "[app]\nname = \"shop\"\n\n[processes.web]\ncommand = \"" + command + "\"\nhealth = { path = \"/health\" }\n"
+	os.WriteFile(filepath.Join(project, "moorage.toml"), []byte(manifestText), 0o644)
+	os.WriteFile(filepath.Join(project, "README"), []byte("the app is the test binary"), 0o644)
+	t.Chdir(project)
+
+	code, out, errOut := run(t, "deploy", "--artifact")
+	if code != 0 || !strings.Contains(out, "Deployed shop v1") {
+		t.Fatalf("deploy --artifact: %d %s %s", code, out, errOut)
+	}
+	if body := fetch(t, addr, "shop.localhost", "/"); body != "hello from v1" {
+		t.Errorf("served %q", body)
+	}
+	code, out, _ = run(t, "ps")
+	if code != 0 || !strings.Contains(out, "web.1") || !strings.Contains(out, "running") || !strings.Contains(out, "healthy") {
+		t.Errorf("ps: %d\n%s", code, out)
+	}
+	code, out, _ = run(t, "logs", "-n", "20")
+	if code != 0 || !strings.Contains(out, "web.1   listening on") || !strings.Contains(out, "web.1 * started (pid") {
+		t.Errorf("logs: %d\n%s", code, out)
+	}
+	code, out, errOut = run(t, "restart")
+	if code != 0 || !strings.Contains(out, "Restarted shop.") || !strings.Contains(out, "web.1") {
+		t.Errorf("restart: %d %s %s", code, out, errOut)
+	}
+	if code, _, errOut = run(t, "deploy", "--artifact", "--static"); code != exitUsage {
+		t.Errorf("deploy with both modes: %d %s", code, errOut)
 	}
 }

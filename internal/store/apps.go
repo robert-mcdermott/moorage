@@ -121,7 +121,18 @@ func (db *DB) Publish(ctx context.Context, app, env, buildID, reason, by string)
 // Rollback publishes again the build of an earlier release: version, or
 // when version is 0, the release before the current one.
 func (db *DB) Rollback(ctx context.Context, app, env string, version int, by string) (Release, error) {
-	var rel Release
+	buildID, _, err := db.RollbackBuild(ctx, app, env, version)
+	if err != nil {
+		return Release{}, err
+	}
+	return db.Publish(ctx, app, env, buildID, "rollback", by)
+}
+
+// RollbackBuild finds the build a rollback publishes again: that of
+// release version, or when version is 0, of the release before the current
+// one. It returns the build and the version it came from.
+func (db *DB) RollbackBuild(ctx context.Context, app, env string, version int) (string, int, error) {
+	var buildID string
 	err := db.write(ctx, func(tx *sql.Tx) error {
 		envID, current, err := envState(ctx, tx, app, env)
 		if err != nil {
@@ -139,21 +150,106 @@ func (db *DB) Rollback(ctx context.Context, app, env string, version int, by str
 		if version == current {
 			return fmt.Errorf("v%d is already the current release of %s", version, app)
 		}
-		var buildID string
 		err = tx.QueryRowContext(ctx, `SELECT build_id FROM releases WHERE env_id = ? AND version = ?`, envID, version).Scan(&buildID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%s has no release v%d: %w", app, version, ErrNotFound)
 		}
-		if err != nil {
-			return err
-		}
-		rel, err = publish(ctx, tx, app, env, buildID, "rollback", by, time.Now())
+		return err
+	})
+	return buildID, version, err
+}
+
+// CreateRelease creates the next release of an environment without making
+// it current: a release of a process app becomes current only once its
+// rollout succeeds.
+func (db *DB) CreateRelease(ctx context.Context, app, env, buildID, reason, by string) (Release, error) {
+	var rel Release
+	err := db.write(ctx, func(tx *sql.Tx) error {
+		var err error
+		rel, err = createRelease(ctx, tx, app, env, buildID, reason, by, time.Now())
 		return err
 	})
 	return rel, err
 }
 
+// MakeCurrent makes a release its environment's current one.
+func (db *DB) MakeCurrent(ctx context.Context, releaseID string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE environments SET current_release_id = ?
+			WHERE id = (SELECT env_id FROM releases WHERE id = ?)`, releaseID, releaseID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return fmt.Errorf("release %s: %w", releaseID, ErrNotFound)
+		}
+		return nil
+	})
+}
+
+// DeleteRelease removes a release that never became current, such as one
+// whose rollout failed, with the instances it had.
+func (db *DB) DeleteRelease(ctx context.Context, releaseID string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `DELETE FROM releases WHERE id = ?
+			AND id NOT IN (SELECT current_release_id FROM environments WHERE current_release_id IS NOT NULL)`, releaseID)
+		return err
+	})
+}
+
+// CurrentRelease returns an environment's current release and its build.
+func (db *DB) CurrentRelease(ctx context.Context, app, env string) (Release, Build, error) {
+	var r Release
+	var b Build
+	var by sql.NullString
+	var plan string
+	var created, bcreated int64
+	err := db.Reader.QueryRowContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at,
+			b.id, b.app_id, b.source_type, b.artifact_kind, b.artifact_ref, b.plan, b.files, b.size_bytes, b.created_at
+		FROM environments e JOIN apps a ON a.id = e.app_id
+		JOIN releases r ON r.id = e.current_release_id
+		JOIN builds b ON b.id = r.build_id
+		WHERE a.name = ? AND e.name = ?`, app, env).Scan(&r.ID, &r.Version, &r.BuildID, &r.Reason, &by, &created,
+		&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &bcreated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, b, fmt.Errorf("%s has nothing deployed to %s: %w", app, env, ErrNotFound)
+	}
+	if err != nil {
+		return r, b, err
+	}
+	r.CreatedBy, r.CreatedAt, r.Current = by.String, time.UnixMilli(created).UTC(), true
+	r.Files, r.SizeBytes = b.Files, b.SizeBytes
+	b.Plan, b.CreatedAt = json.RawMessage(plan), time.UnixMilli(bcreated).UTC()
+	return r, b, nil
+}
+
+// Build returns a build.
+func (db *DB) Build(ctx context.Context, id string) (Build, error) {
+	var b Build
+	var plan string
+	var created int64
+	err := db.Reader.QueryRowContext(ctx, `SELECT id, app_id, source_type, artifact_kind, artifact_ref, plan, files, size_bytes, created_at
+		FROM builds WHERE id = ?`, id).Scan(&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return b, fmt.Errorf("build %s: %w", id, ErrNotFound)
+	}
+	b.Plan, b.CreatedAt = json.RawMessage(plan), time.UnixMilli(created).UTC()
+	return b, err
+}
+
 func publish(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, by string, now time.Time) (Release, error) {
+	rel, err := createRelease(ctx, tx, app, env, buildID, reason, by, now)
+	if err != nil {
+		return Release{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE environments SET current_release_id = ? WHERE id = (SELECT env_id FROM releases WHERE id = ?)`, rel.ID, rel.ID); err != nil {
+		return Release{}, err
+	}
+	rel.Current = true
+	return rel, nil
+}
+
+func createRelease(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, by string, now time.Time) (Release, error) {
 	envID, _, err := envState(ctx, tx, app, env)
 	if err != nil {
 		return Release{}, err
@@ -169,13 +265,9 @@ func publish(ctx context.Context, tx *sql.Tx, app, env, buildID, reason, by stri
 		Reason:    reason,
 		CreatedBy: by,
 		CreatedAt: now,
-		Current:   true,
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO releases (id, env_id, version, build_id, reason, created_by, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`, rel.ID, envID, rel.Version, buildID, reason, nullString(by), now.UnixMilli()); err != nil {
-		return Release{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE environments SET current_release_id = ? WHERE id = ?`, rel.ID, envID); err != nil {
 		return Release{}, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT files, size_bytes FROM builds WHERE id = ?`, buildID).Scan(&rel.Files, &rel.SizeBytes); err != nil {

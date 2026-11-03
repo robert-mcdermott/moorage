@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/server"
 )
@@ -165,9 +166,14 @@ location used by 'moor server init'.`,
 			if err := cfg.Validate(); err != nil {
 				return err
 			}
+			logFile, err := logs.Open(filepath.Join(cfg.DataDir, "logs", "server", "moorage.log"), logs.DefaultMaxSize, logs.DefaultKeep)
+			if err != nil {
+				return fmt.Errorf("open the server log: %w", err)
+			}
+			defer logFile.Close()
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return server.Run(ctx, cfg, newLogger(cmd.ErrOrStderr(), cfg.Log), server.Options{})
+			return server.Run(ctx, cfg, newLogger(cmd.ErrOrStderr(), cfg.Log, logFile), server.Options{})
 		},
 	}
 	f := cmd.Flags()

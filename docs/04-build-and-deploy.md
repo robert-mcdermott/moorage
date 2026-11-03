@@ -38,7 +38,7 @@ production deploy skips straight to the release phase.
 | **Git push over HTTPS** | Same, with an API token via `moor git credential` helper | Networks that block SSH |
 | **Directory upload** | `moor deploy` (tars the working directory, honouring `.gitignore` and `.moorignore`) | Quick iteration, repos hosted elsewhere, no git at all |
 | **Static upload** | `moor deploy --static ./site`, or drag a folder into the console | Docs, reports, SPAs |
-| **Artifact upload** | `moor deploy --artifact app.tar.gz` / `--binary ./server` | Binaries built in CI |
+| **Artifact upload** | `moor deploy --artifact [DIR]`: an app ready to run (a compiled binary, a script for an interpreter on the host), run with the manifest's `[processes]` | Binaries built in CI |
 | **Image** | `moor deploy --image registry/app:tag` | Images built in CI |
 | **Remote repository** *(Phase 3)* | Connect a repository URL; deploy on webhook (GitHub, GitLab, Gitea, generic HMAC) or by polling | Code hosted on a forge, PR previews with status checks |
 | **API** | `POST /api/v1/apps/{app}/envs/{env}/deployments` | Anything else |

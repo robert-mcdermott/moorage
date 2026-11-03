@@ -50,3 +50,20 @@ func LockFile(path string) (*Lock, error) {
 func (l *Lock) Unlock() error {
 	return l.f.Close()
 }
+
+// KillGroup is not used on Windows, where Job Objects end process trees.
+func KillGroup(pgid int) error { return ErrUnsupported }
+
+// Alive reports whether a process with this PID exists.
+func Alive(pid int) bool {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(h)
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+		return false
+	}
+	return code == 259 // STILL_ACTIVE
+}

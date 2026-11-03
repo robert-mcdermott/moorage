@@ -15,6 +15,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/testroles"
 )
 
 func testConfig(t *testing.T) config.Config {
@@ -29,6 +30,24 @@ func testConfig(t *testing.T) config.Config {
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
+// The test binary plays the shims, the shell and the apps.
+func TestMain(m *testing.M) {
+	testroles.Run()
+	os.Exit(m.Run())
+}
+
+// testOptions makes the server run its helpers from the test binary, with
+// short delays.
+func testOptions(ready func(Addrs)) Options {
+	return Options{
+		Ready:      ready,
+		ShimEnv:    testroles.ShimEnv,
+		ShellEnv:   testroles.ShellEnv,
+		BackoffMin: 50 * time.Millisecond,
+		Tick:       200 * time.Millisecond,
+	}
+}
+
 // start runs a server and returns its addresses and a function that stops
 // it and returns Run's error.
 func start(t *testing.T, cfg config.Config) (Addrs, func() error) {
@@ -37,7 +56,7 @@ func start(t *testing.T, cfg config.Config) (Addrs, func() error) {
 	ready := make(chan Addrs, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, cfg, quiet, Options{Ready: func(a Addrs) { ready <- a }})
+		done <- Run(ctx, cfg, quiet, testOptions(func(a Addrs) { ready <- a }))
 	}()
 	select {
 	case addrs := <-ready:

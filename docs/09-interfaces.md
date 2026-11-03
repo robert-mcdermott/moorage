@@ -45,7 +45,7 @@ Apps
   moor open                           Open the environment URL in a browser
 
 Deploying
-  moor deploy [--static dir | --artifact file | --binary file | --image ref | --ref git-ref] [--detach]
+  moor deploy [DIR] [--static | --artifact | --image ref | --ref git-ref] [--detach]
   moor deployments [list|show|follow|cancel|retry]
   moor builds [list|inspect <id>]     Inspect a (failed) build directory
   moor releases [list|show|diff]

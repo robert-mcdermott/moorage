@@ -51,6 +51,24 @@ func nothingDeployed(name string) page {
 	}
 }
 
+func unavailable(name string) page {
+	return page{
+		Status:  http.StatusServiceUnavailable,
+		Title:   name + " is unavailable",
+		Heading: "“" + name + "” is not available right now",
+		Message: "No instance of the app is ready to answer. It may be starting, restarting or failing; try again in a moment.",
+	}
+}
+
+func noWebProcess(name string) page {
+	return page{
+		Status:  http.StatusNotFound,
+		Title:   name + " has no web process",
+		Heading: "“" + name + "” does not serve web pages",
+		Message: "The app runs, but it has no web process to answer requests.",
+	}
+}
+
 var notFound = page{
 	Status:  http.StatusNotFound,
 	Title:   "Not found",

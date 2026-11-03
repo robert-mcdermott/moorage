@@ -24,6 +24,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/platform"
+	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -117,6 +118,17 @@ type Addrs struct {
 type Options struct {
 	// Ready, if set, is called once the server accepts connections.
 	Ready func(Addrs)
+	// Executable runs this program's other modes (`moor shim`, `moor sh`);
+	// it defaults to the running executable. ShimEnv and ShellEnv are added
+	// to those modes' environments (tests use them).
+	Executable string
+	ShimEnv    []string
+	ShellEnv   []string
+	// BackoffMin, if set, overrides the first delay before an app is
+	// restarted (tests shorten it).
+	BackoffMin time.Duration
+	// Tick, if set, overrides how often dead instances are looked for.
+	Tick time.Duration
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully. The
@@ -165,12 +177,37 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		log.Info("bootstrap admin token written; the CLI on this machine finds it, other machines pass it with --token", "file", layout.AdminToken)
 	}
 
+	exe := opts.Executable
+	if exe == "" {
+		if exe, err = os.Executable(); err != nil {
+			return err
+		}
+	}
 	router := ingress.NewRouter(cfg, db, cfg.DataDir, log)
+	defer router.Close()
+	runtime := reconcile.New(db, cfg, reconcile.Options{
+		DataDir:    cfg.DataDir,
+		ShimCmd:    []string{exe, "shim"},
+		ShimEnv:    opts.ShimEnv,
+		Shell:      []string{exe, "sh", "-c"},
+		ShellEnv:   opts.ShellEnv,
+		BackoffMin: opts.BackoffMin,
+		Tick:       opts.Tick,
+		Trusted:    router.Trusted(),
+	}, log)
+	defer runtime.Shutdown()
+	router.SetPools(runtime)
+	// Instances that kept running while the server was down are taken over
+	// before the listeners open, so their traffic resumes at once.
+	if err := runtime.Adopt(ctx); err != nil {
+		return err
+	}
 	if err := router.Reload(ctx); err != nil {
 		return err
 	}
+	go runtime.Run(ctx)
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, tokenHash, router.Reload, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, tokenHash, runtime, router.Reload, log))
 	console.Handle("/", ingress.Placeholder())
 	router.SetConsole(console)
 

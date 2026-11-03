@@ -19,11 +19,20 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 // MaxUpload bounds the size of an upload's request body.
 const MaxUpload = 1 << 30
+
+// Runtime runs process apps.
+type Runtime interface {
+	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
+	Restart(ctx context.Context, app, env string) error
+	Retire(app, env string)
+	Instances(app, env string) []reconcile.InstanceInfo
+}
 
 // Server serves the API.
 type Server struct {
@@ -31,19 +40,23 @@ type Server struct {
 	cfg       config.Config
 	dataDir   string
 	tokenHash [32]byte
+	runtime   Runtime
 	// reload makes the router pick up a new release.
 	reload func(context.Context) error
 	log    *slog.Logger
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, tokenHash [32]byte, reload func(context.Context) error, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, tokenHash: tokenHash, reload: reload, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, tokenHash [32]byte, runtime Runtime, reload func(context.Context) error, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, tokenHash: tokenHash, runtime: runtime, reload: reload, log: log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/apps", s.listApps)
 	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/deployments", s.deploy)
 	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/releases", s.releases)
 	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/rollback", s.rollback)
+	mux.HandleFunc("POST /api/v1/apps/{app}/envs/{env}/restart", s.restart)
+	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/instances", s.instances)
+	mux.HandleFunc("GET /api/v1/apps/{app}/envs/{env}/logs", s.logs)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusNotFound, "not_found", "There is no such API endpoint.")
 	})
@@ -86,7 +99,7 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "multipart/form-data" {
-		problem(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Send the deploy as multipart/form-data with a static part and an archive part.")
+		problem(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Send the deploy as multipart/form-data with a plan part and an archive part.")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, MaxUpload)
@@ -95,7 +108,7 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	var rules manifest.Static
+	var plan *manifest.Plan
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
@@ -107,17 +120,22 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch part.FormName() {
-		case apitypes.StaticPart:
-			if err := json.NewDecoder(io.LimitReader(part, 1<<20)).Decode(&rules); err != nil {
-				problem(w, http.StatusBadRequest, "bad_request", "The static part is not valid JSON: "+err.Error())
+		case apitypes.PlanPart:
+			plan = &manifest.Plan{}
+			if err := json.NewDecoder(io.LimitReader(part, 1<<20)).Decode(plan); err != nil {
+				problem(w, http.StatusBadRequest, "bad_request", "The plan part is not valid JSON: "+err.Error())
 				return
 			}
-			if err := rules.Validate(); err != nil {
-				problem(w, http.StatusUnprocessableEntity, "invalid_static_rules", err.Error())
+			if err := plan.Validate(); err != nil {
+				problem(w, http.StatusUnprocessableEntity, "invalid_plan", err.Error())
 				return
 			}
 		case apitypes.ArchivePart:
-			res, err := deploy.Static(r.Context(), s.db, s.dataDir, app, env, rules, part, "admin")
+			if plan == nil {
+				problem(w, http.StatusBadRequest, "missing_plan", "Send the plan part before the archive.")
+				return
+			}
+			build, created, err := deploy.Upload(r.Context(), s.db, s.dataDir, app, *plan, part)
 			var invalid *deploy.InvalidUploadError
 			switch {
 			case errors.As(err, &invalid):
@@ -127,13 +145,13 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				s.internal(w, err)
 				return
 			}
-			if err := s.reload(r.Context()); err != nil {
-				s.internal(w, err)
+			rel, err := s.publish(r.Context(), app, env, build, *plan, "deploy")
+			if s.publishFailed(w, err) {
 				return
 			}
-			s.log.Info("deployed", "app", app, "env", env, "release", res.Release.Version, "build", res.Release.BuildID, "files", res.Release.Files)
+			s.log.Info("deployed", "app", app, "env", env, "release", rel.Version, "build", build.ID, "kind", plan.Kind)
 			writeJSON(w, http.StatusCreated, apitypes.Deployment{
-				App: app, Env: env, URL: s.appURL(app), AppCreated: res.AppCreated, Release: release(res.Release),
+				App: app, Env: env, URL: s.appURL(app), AppCreated: created, Release: release(rel),
 			})
 			return
 		default:
@@ -141,6 +159,54 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// publish makes build the environment's current release. A process app's
+// release becomes current only once its instances are running and healthy;
+// if they are not, the release is removed and the previous one keeps
+// serving.
+func (s *Server) publish(ctx context.Context, app, env string, build store.Build, plan manifest.Plan, reason string) (store.Release, error) {
+	rel, err := s.db.CreateRelease(ctx, app, env, build.ID, reason, "admin")
+	if err != nil {
+		return rel, err
+	}
+	if plan.Kind == manifest.KindProcess {
+		if err := s.runtime.Rollout(ctx, app, env, rel, build, plan); err != nil {
+			s.db.DeleteRelease(context.WithoutCancel(ctx), rel.ID)
+			return rel, err
+		}
+	}
+	if err := s.db.MakeCurrent(ctx, rel.ID); err != nil {
+		return rel, err
+	}
+	rel.Current = true
+	if err := s.reload(ctx); err != nil {
+		return rel, err
+	}
+	if plan.Kind == manifest.KindStatic {
+		s.runtime.Retire(app, env) // processes of an earlier release are no longer needed
+	}
+	return rel, nil
+}
+
+// publishFailed answers a failed publish, reporting false if it did not
+// fail.
+func (s *Server) publishFailed(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	var rollout *reconcile.RolloutError
+	if errors.As(err, &rollout) {
+		w.Header().Set("Content-Type", apitypes.ProblemType)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(apitypes.Problem{
+			Title: "Deployment failed", Status: http.StatusUnprocessableEntity, Code: "rollout_failed",
+			Detail: rollout.Message + "; the previous release keeps serving", Output: rollout.Output,
+		})
+		return true
+	}
+	s.internal(w, err)
+	return true
 }
 
 func (s *Server) releases(w http.ResponseWriter, r *http.Request) {
@@ -176,7 +242,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	rel, err := s.db.Rollback(r.Context(), app, env, req.Version, "admin")
+	buildID, _, err := s.db.RollbackBuild(r.Context(), app, env, req.Version)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", err.Error())
@@ -185,12 +251,68 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusConflict, "cannot_roll_back", err.Error())
 		return
 	}
-	if err := s.reload(r.Context()); err != nil {
+	build, err := s.db.Build(r.Context(), buildID)
+	if err != nil {
 		s.internal(w, err)
+		return
+	}
+	var plan manifest.Plan
+	if err := json.Unmarshal(build.Plan, &plan); err != nil {
+		s.internal(w, err)
+		return
+	}
+	rel, err := s.publish(r.Context(), app, env, build, plan, "rollback")
+	if s.publishFailed(w, err) {
 		return
 	}
 	s.log.Info("rolled back", "app", app, "env", env, "release", rel.Version, "build", rel.BuildID)
 	writeJSON(w, http.StatusOK, apitypes.Deployment{App: app, Env: env, URL: s.appURL(app), Release: release(rel)})
+}
+
+func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	err := s.runtime.Restart(r.Context(), app, env)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		problem(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	case err != nil:
+		var rollout *reconcile.RolloutError
+		if errors.As(err, &rollout) {
+			s.publishFailed(w, err)
+			return
+		}
+		problem(w, http.StatusConflict, "cannot_restart", err.Error())
+		return
+	}
+	s.log.Info("restarted", "app", app, "env", env)
+	writeJSON(w, http.StatusOK, s.instanceList(app, env))
+}
+
+func (s *Server) instances(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, s.instanceList(app, env))
+}
+
+func (s *Server) instanceList(app, env string) []apitypes.Instance {
+	out := []apitypes.Instance{}
+	for _, in := range s.runtime.Instances(app, env) {
+		ai := apitypes.Instance{
+			ID: in.ID, Process: in.Process, Index: in.Index, Release: in.Version, Port: in.Port,
+			Status: in.Status, Healthy: in.Healthy, PID: in.PID, Restarts: in.Restarts, StartedAt: in.StartedAt,
+		}
+		if in.LastExit != nil {
+			ai.LastExit = &apitypes.Exit{Code: in.LastExit.Code, Signal: in.LastExit.Signal, At: in.LastExit.At}
+		}
+		out = append(out, ai)
+	}
+	return out
 }
 
 // target reads and checks the {app} and {env} path values.

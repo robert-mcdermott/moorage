@@ -291,7 +291,7 @@ traffic by default. A process can be given as a plain string
 | `path` | — | HTTP `GET` path; 2xx/3xx is healthy. Without it, a TCP connect to `$PORT` is used. |
 | `expect` | — | Optional text the HTTP response body must contain. |
 | `min_uptime` | `"5s"` | For non-exposed processes (workers): during a rollout, the new instance must stay running this long to count as healthy. |
-| `command` | — | Alternative: command run in the instance environment; exit 0 is healthy. |
+| `command` | — | Alternative: command run in the instance environment; exit 0 is healthy *(not supported yet)*. |
 | `interval` | `"10s"` | Time between liveness checks. |
 | `timeout` | `"3s"` | Per-check timeout. |
 | `startup` | `"60s"` | How long a new instance may take to become healthy during a deploy. |

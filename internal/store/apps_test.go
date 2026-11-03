@@ -102,3 +102,73 @@ func TestSettings(t *testing.T) {
 		t.Errorf("setting: %v %v %+v", found, err, v)
 	}
 }
+
+func TestReleaseLifecycleAndInstances(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	appID, _, _ := db.EnsureApp(ctx, "shop")
+	b1, b2 := addBuild(t, db, appID), addBuild(t, db, appID)
+	r1, err := db.Publish(ctx, "shop", "production", b1, "deploy", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A new release is not current until made so.
+	r2, err := db.CreateRelease(ctx, "shop", "production", b2, "deploy", "")
+	if err != nil || r2.Version != 2 || r2.Current {
+		t.Fatalf("CreateRelease: %+v %v", r2, err)
+	}
+	if cur, _, err := db.CurrentRelease(ctx, "shop", "production"); err != nil || cur.ID != r1.ID {
+		t.Errorf("current before MakeCurrent: %+v %v", cur, err)
+	}
+	envID, err := db.EnvID(ctx, "shop", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Instance{ID: ids.New(ids.Instance), EnvID: envID, ReleaseID: r2.ID, Process: "web", Index: 1, Driver: "native", Port: 24001, CreatedAt: time.Now()}
+	if err := db.CreateInstance(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	dup := in
+	dup.ID = ids.New(ids.Instance)
+	if err := db.CreateInstance(ctx, dup); err == nil {
+		t.Error("two live instances got the same port")
+	}
+	if ports, _ := db.LivePorts(ctx); !ports[24001] {
+		t.Errorf("live ports = %v", ports)
+	}
+	live, err := db.LiveInstances(ctx)
+	if err != nil || len(live) != 1 || live[0].App != "shop" || live[0].Version != 2 || live[0].Build.ID != b2 {
+		t.Errorf("live instances = %+v %v", live, err)
+	}
+	// A failed rollout: the release and its instances go away.
+	if err := db.DeleteRelease(ctx, r2.ID); err != nil {
+		t.Fatal(err)
+	}
+	if live, _ := db.LiveInstances(ctx); len(live) != 0 {
+		t.Errorf("instances of a deleted release remain: %+v", live)
+	}
+	if err := db.DeleteRelease(ctx, r1.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cur, _, err := db.CurrentRelease(ctx, "shop", "production"); err != nil || cur.ID != r1.ID {
+		t.Errorf("the current release was deleted: %+v %v", cur, err)
+	}
+
+	r3, _ := db.CreateRelease(ctx, "shop", "production", b2, "deploy", "")
+	if err := db.MakeCurrent(ctx, r3.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cur, b, _ := db.CurrentRelease(ctx, "shop", "production"); cur.ID != r3.ID || b.ID != b2 {
+		t.Errorf("current after MakeCurrent: %+v", cur)
+	}
+	in2 := Instance{ID: ids.New(ids.Instance), EnvID: envID, ReleaseID: r3.ID, Process: "web", Index: 1, Driver: "native", Port: 24001, CreatedAt: time.Now()}
+	if err := db.CreateInstance(ctx, in2); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StopInstance(ctx, in2.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ports, _ := db.LivePorts(ctx); ports[24001] {
+		t.Error("a stopped instance still reserves its port")
+	}
+}

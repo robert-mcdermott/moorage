@@ -59,18 +59,23 @@ The moor binary is both the server and the command line that talks to it.`,
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
-	root.AddCommand(newVersionCmd(), newServerCmd(), newDeployCmd(), newAppsCmd(), newReleasesCmd(), newRollbackCmd())
+	root.AddCommand(newVersionCmd(), newServerCmd(), newDeployCmd(), newAppsCmd(), newReleasesCmd(), newRollbackCmd(), newPsCmd(), newLogsCmd(), newRestartCmd())
 	return root
 }
 
 // newLogger returns the server's logger, writing to w at the configured
-// level and format (both already validated).
-func newLogger(w io.Writer, c config.Log) *slog.Logger {
+// level and format (both already validated) and, when file is set, also as
+// JSON to that rotated log file.
+func newLogger(w io.Writer, c config.Log, file io.Writer) *slog.Logger {
 	var level slog.Level
 	_ = level.UnmarshalText([]byte(c.Level))
 	opts := &slog.HandlerOptions{Level: level}
+	var h slog.Handler = slog.NewTextHandler(w, opts)
 	if c.Format == "json" {
-		return slog.New(slog.NewJSONHandler(w, opts))
+		h = slog.NewJSONHandler(w, opts)
 	}
-	return slog.New(slog.NewTextHandler(w, opts))
+	if file != nil {
+		h = slog.NewMultiHandler(h, slog.NewJSONHandler(file, opts))
+	}
+	return slog.New(h)
 }

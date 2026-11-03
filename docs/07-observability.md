@@ -32,8 +32,9 @@ notifications can react to them.
 ### Storage
 
 - **Plain files**, one per instance, so they can be read with ordinary tools:
-  `logs/apps/<app>/<env>/<instance>.log`. Each line is
-  `<RFC 3339 timestamp> <O|E> <message>` (stdout/stderr). Over-long lines are
+  `logs/apps/<app>/<env>/<process>.<index>.<instance>.log`. Each line is
+  `<RFC 3339 timestamp> <O|E|M> <message>` (stdout, stderr, or a note from
+  Moorage such as a start, an exit or a restart). Over-long lines are
   split with a continuation marker.
 - Size-based rotation (default 10 MiB × 5 files per instance) plus age-based
   cleanup for stopped instances (default 14 days). Build logs are kept as long

@@ -1,5 +1,4 @@
-// Package deploy turns uploaded content into builds and releases
-// (docs/04-build-and-deploy.md).
+// Package deploy turns uploaded content into builds (docs/04-build-and-deploy.md).
 package deploy
 
 import (
@@ -25,30 +24,34 @@ import (
 // partialSuffix marks a build directory still being written.
 const partialSuffix = ".partial"
 
-// StaticResult describes a published static deploy.
-type StaticResult struct {
-	Release    store.Release
-	AppCreated bool
-}
+// Content directories inside a build: a static site's files, or an app's.
+const (
+	SiteDir = "site"
+	AppDir  = "app"
+)
 
-// Static publishes an uploaded directory (a gzip-compressed tar stream) as
-// a new build of app and makes it the current release of env. The app is
-// created if it does not exist. Nothing is published unless the whole
-// upload is valid.
-func Static(ctx context.Context, db *store.DB, dataDir, app, env string, rules manifest.Static, upload io.Reader, by string) (StaticResult, error) {
-	if err := rules.Validate(); err != nil {
-		return StaticResult{}, err
-	}
+// Upload stores an uploaded directory (a gzip-compressed tar stream) as a
+// new build of app, following plan, and creates the app if it does not
+// exist. Nothing is stored unless the whole upload is valid. It reports
+// whether the app was created.
+func Upload(ctx context.Context, db *store.DB, dataDir, app string, plan manifest.Plan, upload io.Reader) (store.Build, bool, error) {
 	if err := names.ValidateApp(app); err != nil {
-		return StaticResult{}, err
+		return store.Build{}, false, err
+	}
+	if err := plan.Validate(); err != nil {
+		return store.Build{}, false, &InvalidUploadError{err}
+	}
+	content := AppDir
+	if plan.Kind == manifest.KindStatic {
+		content = SiteDir
 	}
 	buildID := ids.New(ids.Build)
 	ref := filepath.ToSlash(filepath.Join("builds", app, buildID))
 	final := filepath.Join(dataDir, filepath.FromSlash(ref))
 	partial := final + partialSuffix
-	siteDir := filepath.Join(partial, "site")
-	if err := os.MkdirAll(siteDir, 0o755); err != nil {
-		return StaticResult{}, err
+	contentDir := filepath.Join(partial, content)
+	if err := os.MkdirAll(contentDir, 0o755); err != nil {
+		return store.Build{}, false, err
 	}
 	ok := false
 	defer func() {
@@ -57,25 +60,27 @@ func Static(ctx context.Context, db *store.DB, dataDir, app, env string, rules m
 		}
 	}()
 
-	files, size, err := archive.Extract(upload, siteDir, archive.DefaultLimits)
+	files, size, err := archive.Extract(upload, contentDir, archive.DefaultLimits)
 	if err != nil {
-		return StaticResult{}, &InvalidUploadError{err}
+		return store.Build{}, false, &InvalidUploadError{err}
 	}
 	if files == 0 {
-		return StaticResult{}, &InvalidUploadError{errors.New("the upload contains no files")}
+		return store.Build{}, false, &InvalidUploadError{errors.New("the upload contains no files")}
 	}
-	idx, err := static.BuildIndex(siteDir)
-	if err != nil {
-		return StaticResult{}, err
+	if plan.Kind == manifest.KindStatic {
+		idx, err := static.BuildIndex(contentDir)
+		if err != nil {
+			return store.Build{}, false, err
+		}
+		if err := idx.WriteIndex(filepath.Join(partial, "index.json")); err != nil {
+			return store.Build{}, false, err
+		}
 	}
-	if err := idx.WriteIndex(filepath.Join(partial, "index.json")); err != nil {
-		return StaticResult{}, err
-	}
-	if err := makeReadOnly(siteDir); err != nil {
-		return StaticResult{}, err
+	if err := makeReadOnly(contentDir); err != nil {
+		return store.Build{}, false, err
 	}
 	if err := os.Rename(partial, final); err != nil {
-		return StaticResult{}, err
+		return store.Build{}, false, err
 	}
 	ok = true
 
@@ -83,23 +88,20 @@ func Static(ctx context.Context, db *store.DB, dataDir, app, env string, rules m
 	appID, created, err := db.EnsureApp(ctx, app)
 	if err != nil {
 		os.RemoveAll(final)
-		return StaticResult{}, err
+		return store.Build{}, false, err
 	}
-	plan, err := json.Marshal(manifest.Plan{Kind: "static", Static: &rules})
+	planJSON, err := json.Marshal(plan)
 	if err != nil {
-		return StaticResult{}, err
+		return store.Build{}, false, err
 	}
-	if err := db.CreateBuild(ctx, store.Build{
-		ID: buildID, AppID: appID, SourceType: "static-upload", ArtifactKind: "dir", ArtifactRef: ref,
-		Plan: plan, Files: files, SizeBytes: size, CreatedAt: time.Now(),
-	}); err != nil {
-		return StaticResult{}, err
+	b := store.Build{
+		ID: buildID, AppID: appID, SourceType: plan.Kind + "-upload", ArtifactKind: "dir", ArtifactRef: ref,
+		Plan: planJSON, Files: files, SizeBytes: size, CreatedAt: time.Now(),
 	}
-	rel, err := db.Publish(ctx, app, env, buildID, "deploy", by)
-	if err != nil {
-		return StaticResult{}, err
+	if err := db.CreateBuild(ctx, b); err != nil {
+		return store.Build{}, false, err
 	}
-	return StaticResult{Release: rel, AppCreated: created}, nil
+	return b, created, nil
 }
 
 // InvalidUploadError reports an upload that cannot be published.
@@ -125,13 +127,18 @@ func CleanPartial(dataDir string) error {
 }
 
 // makeReadOnly removes write permission from the files under dir, so a
-// published build cannot be changed by accident.
+// published build cannot be changed by accident. Executables stay
+// executable.
 func makeReadOnly(dir string) error {
 	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		if err := os.Chmod(p, 0o444); err != nil {
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if err := os.Chmod(p, info.Mode().Perm()&^0o222); err != nil {
 			return fmt.Errorf("make %s read-only: %w", strings.TrimPrefix(p, dir), err)
 		}
 		return nil

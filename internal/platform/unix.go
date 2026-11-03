@@ -45,3 +45,17 @@ func LockFile(path string) (*Lock, error) {
 func (l *Lock) Unlock() error {
 	return l.f.Close()
 }
+
+// KillGroup sends SIGKILL to the process group pgid.
+func KillGroup(pgid int) error {
+	if pgid <= 1 {
+		return ErrUnsupported
+	}
+	return unix.Kill(-pgid, unix.SIGKILL)
+}
+
+// Alive reports whether a process with this PID exists.
+func Alive(pid int) bool {
+	err := unix.Kill(pid, 0)
+	return err == nil || err == unix.EPERM
+}

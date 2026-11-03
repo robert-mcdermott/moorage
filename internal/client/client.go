@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
@@ -81,30 +82,32 @@ func (c *Client) Rollback(ctx context.Context, app, env string, version int) (ap
 	return d, err
 }
 
-// PackStats describes what DeployStatic uploaded.
+// PackStats describes what Deploy uploaded.
 type PackStats struct {
 	Files   int
 	Bytes   int64
 	Skipped []string
 }
 
-// DeployStatic uploads the files under dir as a static site and publishes
-// them with rules. skip, if set, leaves paths out of the upload. The upload
-// is streamed: the directory is packed while it is sent.
-func (c *Client) DeployStatic(ctx context.Context, app, env, dir string, rules manifest.Static, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
+// Deploy uploads the files under dir and publishes them following plan: a
+// static site, or an app whose processes are run. skip, if set, leaves
+// paths out of the upload. The upload is streamed: the directory is packed
+// while it is sent. For an app, Deploy returns once the new release is
+// running and healthy.
+func (c *Client) Deploy(ctx context.Context, app, env, dir string, plan manifest.Plan, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	var stats PackStats
 	go func() {
 		err := func() error {
-			part, err := mw.CreateFormField(apitypes.StaticPart)
+			part, err := mw.CreateFormField(apitypes.PlanPart)
 			if err != nil {
 				return err
 			}
-			if err := json.NewEncoder(part).Encode(rules); err != nil {
+			if err := json.NewEncoder(part).Encode(plan); err != nil {
 				return err
 			}
-			part, err = mw.CreateFormFile(apitypes.ArchivePart, "site.tar.gz")
+			part, err = mw.CreateFormFile(apitypes.ArchivePart, "upload.tar.gz")
 			if err != nil {
 				return err
 			}
@@ -122,6 +125,60 @@ func (c *Client) DeployStatic(ctx context.Context, app, env, dir string, rules m
 	return d, stats, err
 }
 
+// DeployStatic deploys the files under dir as a static site with rules.
+func (c *Client) DeployStatic(ctx context.Context, app, env, dir string, rules manifest.Static, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
+	return c.Deploy(ctx, app, env, dir, manifest.Plan{Kind: manifest.KindStatic, Static: &rules}, skip)
+}
+
+// Instances lists an environment's instances.
+func (c *Client) Instances(ctx context.Context, app, env string) ([]apitypes.Instance, error) {
+	var out []apitypes.Instance
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "instances"), nil, "", &out)
+	return out, err
+}
+
+// Restart replaces an environment's instances without downtime and returns
+// the new ones.
+func (c *Client) Restart(ctx context.Context, app, env string) ([]apitypes.Instance, error) {
+	var out []apitypes.Instance
+	err := c.do(ctx, http.MethodPost, envPath(app, env, "restart"), nil, "", &out)
+	return out, err
+}
+
+// Logs calls fn with the last tail lines of an environment's log and, with
+// follow, with new lines until ctx ends. process, if set, keeps one process.
+func (c *Client) Logs(ctx context.Context, app, env, process string, tail int, follow bool, fn func(apitypes.LogLine) error) error {
+	q := url.Values{"tail": {strconv.Itoa(tail)}}
+	if follow {
+		q.Set("follow", "1")
+	}
+	if process != "" {
+		q.Set("process", process)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+envPath(app, env, "logs")+"?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	dec := json.NewDecoder(res.Body)
+	for {
+		var l apitypes.LogLine
+		if err := dec.Decode(&l); err != nil {
+			if errors.Is(err, io.EOF) || ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		if err := fn(l); err != nil {
+			return err
+		}
+	}
+}
+
 func envPath(app, env, rest string) string {
 	return "/api/v1/apps/" + url.PathEscape(app) + "/envs/" + url.PathEscape(env) + "/" + rest
 }
@@ -136,6 +193,9 @@ func (e *APIError) Error() string {
 	if e.Status == http.StatusUnauthorized {
 		return "the server did not accept the token: pass --token or set MOOR_TOKEN (on the server, the token is in keys/admin-token in the data directory)"
 	}
+	if e.Detail != "" && len(e.Output) > 0 {
+		return e.Detail + "\n  " + strings.Join(e.Output, "\n  ")
+	}
 	if e.Detail != "" {
 		return e.Detail
 	}
@@ -147,32 +207,43 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, co
 	if err != nil {
 		return err
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(res.Body).Decode(out)
+}
+
+// send sends an authenticated request and turns error responses into
+// errors.
+func (c *Client) send(req *http.Request) (*http.Response, error) {
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	req.Header.Set("Accept", "application/json")
 	res, err := c.http.Do(req)
 	if err != nil {
 		var uerr *url.Error
 		if errors.As(err, &uerr) && uerr.Err != nil {
-			return fmt.Errorf("cannot reach the server at %s: %w", c.base, uerr.Err)
+			return nil, fmt.Errorf("cannot reach the server at %s: %w", c.base, uerr.Err)
 		}
-		return err
+		return nil, err
 	}
-	defer res.Body.Close()
 	if res.StatusCode >= 400 {
+		defer res.Body.Close()
 		apiErr := &APIError{Status: res.StatusCode}
 		data, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
 		if json.Unmarshal(data, &apiErr.Problem) != nil || apiErr.Detail == "" {
 			apiErr.Detail = strings.TrimSpace(string(data))
 		}
-		return apiErr
+		return nil, apiErr
 	}
-	if out == nil {
-		return nil
-	}
-	return json.NewDecoder(res.Body).Decode(out)
+	return res, nil
 }

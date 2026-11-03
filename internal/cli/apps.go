@@ -110,38 +110,55 @@ func firstOf(values ...string) string {
 
 func newDeployCmd() *cobra.Command {
 	var (
-		conn     connection
-		app, env string
-		static   bool
+		conn             connection
+		app, env         string
+		static, artifact bool
 	)
 	cmd := &cobra.Command{
 		Use:   "deploy [DIR]",
 		Short: "Deploy to an app",
-		Long: `Deploy to an app's production environment.
+		Long: `Deploy to an app's production environment. The app is created if it does
+not exist yet.
 
 With --static, the files under DIR are uploaded and served as they are,
 following the [static] rules of moorage.toml in the current directory.
 DIR defaults to [static].dir in moorage.toml, or the current directory.
-The app is created if it does not exist yet.
 
-Building and running apps from their source arrives in a later release.`,
+With --artifact, DIR (default: the current directory) holds an app that is
+ready to run, such as a compiled binary; the [processes] of moorage.toml in
+the current directory say how to run it. The new release takes over once
+its instances are healthy; until then the previous release keeps serving.
+
+Building apps from their source arrives in a later release.`,
 		Example: `  moor deploy --static ./public --app docs
+  moor deploy --artifact ./dist --app api
   moor deploy --static              # with [app].name and [static].dir in moorage.toml`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !static {
-				return usageError{errors.New("deploying source code arrives in a later release; pass --static to deploy a directory of files as they are")}
+			if static == artifact {
+				return usageError{errors.New("pass --static (a directory of files served as they are) or --artifact (an app ready to run); building from source arrives in a later release")}
 			}
 			appName, m, err := resolveApp(app)
 			if err != nil {
 				return err
 			}
-			var rules manifest.Static
-			if m != nil && m.Static != nil {
-				rules = *m.Static
+			var plan manifest.Plan
+			var dir string
+			if static {
+				rules := manifest.Static{}
+				if m != nil && m.Static != nil {
+					rules = *m.Static
+				}
+				dir = firstOf(firstArg(args), rules.Dir, ".")
+				rules.Dir = ""
+				plan = manifest.Plan{Kind: manifest.KindStatic, Static: &rules}
+			} else {
+				if m == nil || len(m.Processes) == 0 {
+					return errors.New("--artifact needs [processes] in moorage.toml in the current directory, such as:\n\n  [processes.web]\n  command = \"./server --port $PORT\"")
+				}
+				dir = firstOf(firstArg(args), ".")
+				plan = manifest.Plan{Kind: manifest.KindProcess, Processes: m.Processes, Deploy: m.Deploy, Env: m.Env}
 			}
-			dir := firstOf(firstArg(args), rules.Dir, ".")
-			rules.Dir = ""
 			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 				return fmt.Errorf("%s is not a directory", dir)
 			}
@@ -154,7 +171,7 @@ Building and running apps from their source arrives in a later release.`,
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "Deploying %s to %s on %s\n", dir, appName, c.Server())
-			d, stats, err := c.DeployStatic(cmd.Context(), appName, env, dir, rules, skip)
+			d, stats, err := c.Deploy(cmd.Context(), appName, env, dir, plan, skip)
 			for _, s := range stats.Skipped {
 				fmt.Fprintf(cmd.ErrOrStderr(), "skipped %s: only regular files are uploaded\n", s)
 			}
@@ -171,6 +188,7 @@ Building and running apps from their source arrives in a later release.`,
 	conn.addFlags(cmd)
 	f := cmd.Flags()
 	f.BoolVar(&static, "static", false, "upload a directory of files and serve them as they are")
+	f.BoolVar(&artifact, "artifact", false, "upload an app that is ready to run and run its [processes]")
 	f.StringVar(&app, "app", "", "app to deploy to (default: $MOOR_APP or [app].name in moorage.toml)")
 	f.StringVar(&env, "env", names.Production, "environment to deploy to")
 	return cmd

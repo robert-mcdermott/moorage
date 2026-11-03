@@ -1,9 +1,9 @@
 // Package manifest reads moorage.toml, the file in an app's repository that
 // tells Moorage how to build and run it (docs/03-manifest.md).
 //
-// This release reads [app] and [static]. The other tables are accepted but not
-// checked until the features they configure arrive; unknown top-level keys
-// are already errors.
+// This release reads [app], [static], [processes], [deploy] and [env]. The
+// other tables are accepted but not checked until the features they
+// configure arrive; unknown top-level keys are already errors.
 package manifest
 
 import (
@@ -13,19 +13,28 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
+
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // FileName is the manifest's name in a repository.
 const FileName = "moorage.toml"
 
 // Manifest is the content of moorage.toml.
 type Manifest struct {
-	Version int     `toml:"version"`
-	App     App     `toml:"app"`
-	Static  *Static `toml:"static"`
+	Version int               `toml:"version"`
+	App     App               `toml:"app"`
+	Static  *Static           `toml:"static"`
+	Deploy  Deploy            `toml:"deploy"`
+	Env     map[string]string `toml:"env"`
+
+	// Processes are the [processes] entries.
+	Processes    map[string]Process `toml:"-"`
+	RawProcesses map[string]any     `toml:"processes"`
 
 	// Tables configuring features of later releases, accepted unchecked.
 	Go           any `toml:"go"`
@@ -35,12 +44,9 @@ type Manifest struct {
 	Deno         any `toml:"deno"`
 	Container    any `toml:"container"`
 	Build        any `toml:"build"`
-	Processes    any `toml:"processes"`
 	Release      any `toml:"release"`
-	Deploy       any `toml:"deploy"`
 	Cron         any `toml:"cron"`
 	Routes       any `toml:"routes"`
-	Env          any `toml:"env"`
 	Vars         any `toml:"vars"`
 	Resources    any `toml:"resources"`
 	Storage      any `toml:"storage"`
@@ -86,6 +92,24 @@ func Parse(data []byte, name string) (*Manifest, error) {
 	if m.Static != nil {
 		if err := m.Static.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	if m.RawProcesses != nil {
+		procs, err := decodeProcesses(m.RawProcesses)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		if err := ValidateProcesses(procs); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		m.Processes = procs
+	}
+	if err := m.Deploy.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	for k := range m.Env {
+		if !envName.MatchString(k) {
+			return nil, fmt.Errorf("%s: env: %q is not a valid variable name", name, k)
 		}
 	}
 	return &m, nil

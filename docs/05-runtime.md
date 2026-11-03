@@ -193,7 +193,7 @@ tiny exec helper: the shim re-executes `moor` in a helper mode as the app's
 process, already inside the instance cgroup and under the app's UID/GID; the
 helper applies Landlock and `no_new_privs`, then replaces itself with the app
 via `exec`. The shim itself stays unrestricted, so it can keep writing logs
-and serving its control socket. Everything is plain system calls — no external
+and taking commands from the server. Everything is plain system calls — no external
 tools. Landlock runs in best-effort mode (it is a no-op on kernels without
 it), so the console reports the protection that is actually in effect.
 

@@ -26,7 +26,8 @@ type Limits struct {
 var DefaultLimits = Limits{MaxFiles: 100_000, MaxBytes: 1 << 30}
 
 // Extract unpacks a gzip-compressed tar stream into dir, which must exist.
-// Only regular files and directories are allowed: absolute names, names
+// Files keep their executable bit. Only regular files and directories are
+// allowed: absolute names, names
 // leaving dir, links, devices and duplicate files are errors, and so is
 // exceeding lim. It returns the number of files and their total size.
 func Extract(r io.Reader, dir string, lim Limits) (files int, size int64, err error) {
@@ -68,7 +69,11 @@ func Extract(r io.Reader, dir string, lim Limits) (files int, size int64, err er
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return files, size, err
 			}
-			f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+			perm := os.FileMode(0o644)
+			if h.Mode&0o111 != 0 {
+				perm = 0o755 // executables stay executable
+			}
+			f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 			if errors.Is(err, fs.ErrExist) {
 				return files, size, fmt.Errorf("archive contains %q twice", name)
 			}
@@ -144,7 +149,11 @@ func Write(w io.Writer, dir string, skip func(rel string, d fs.DirEntry) bool) (
 		case info.Mode().IsDir():
 			return tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: rel + "/", Mode: 0o755, ModTime: info.ModTime()})
 		case info.Mode().IsRegular():
-			if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: rel, Mode: 0o644, Size: info.Size(), ModTime: info.ModTime()}); err != nil {
+			mode := int64(0o644)
+			if info.Mode().Perm()&0o111 != 0 {
+				mode = 0o755
+			}
+			if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: rel, Mode: mode, Size: info.Size(), ModTime: info.ModTime()}); err != nil {
 				return err
 			}
 			f, err := os.Open(p)

@@ -35,6 +35,9 @@ func TestRoundTrip(t *testing.T) {
 		"node_modules/a/b.js": "skip me",
 		"empty-dir/.gitkeep":  "",
 	})
+	if err := os.WriteFile(filepath.Join(src, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if runtime.GOOS != "windows" {
 		if err := os.Symlink("index.html", filepath.Join(src, "link.html")); err != nil {
 			t.Fatal(err)
@@ -45,7 +48,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if files != 4 || size != int64(len("<h1>hi</h1>")+len("console.log(1)")+len("body{}")) {
+	if files != 5 || size != int64(len("<h1>hi</h1>")+len("console.log(1)")+len("body{}")+len("#!/bin/sh\n")) {
 		t.Errorf("Write packed %d files, %d bytes", files, size)
 	}
 	if runtime.GOOS != "windows" && (len(skipped) != 1 || skipped[0] != "link.html") {
@@ -59,6 +62,14 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if n != files || total != size {
 		t.Errorf("Extract: %d files, %d bytes; packed %d, %d", n, total, files, size)
+	}
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(filepath.Join(dst, "run.sh")); err != nil || fi.Mode().Perm()&0o111 == 0 {
+			t.Errorf("run.sh lost its executable bit: %v %v", fi.Mode(), err)
+		}
+		if fi, _ := os.Stat(filepath.Join(dst, "index.html")); fi.Mode().Perm()&0o111 != 0 {
+			t.Errorf("index.html became executable: %v", fi.Mode())
+		}
 	}
 	got, err := os.ReadFile(filepath.Join(dst, "assets", "deep", "x.css"))
 	if err != nil || string(got) != "body{}" {
