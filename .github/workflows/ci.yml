@@ -59,6 +59,23 @@ jobs:
           MOORAGE_TEST_BUILDS: '1'
         run: go test ./internal/server -run TestSampleApps -v -timeout 20m
 
+  service:
+    # Installs the server as a system service (systemd, launchd), restarts it
+    # with an app under load, and checks the app kept running (spike S2).
+    name: Service (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install, deploy, restart under load, uninstall
+        run: .github/scripts/service-check.sh
+
   build:
     name: Build all targets without cgo
     runs-on: ubuntu-latest

@@ -23,7 +23,8 @@ func newServerCmd() *cobra.Command {
 		Use:   "server",
 		Short: "Set up and run a Moorage server",
 	}
-	cmd.AddCommand(newServerInitCmd(), newServerRunCmd())
+	cmd.AddCommand(newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
+		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd())
 	return cmd
 }
 
@@ -121,11 +122,15 @@ func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset
 	case c.Domain != "localhost":
 		fmt.Fprintf(out, "Point a wildcard DNS record, *.%s, at this server.\n\n", c.Domain)
 	}
-	run := "moor server run"
+	run, install := "moor server run", "moor server install"
 	if explicitPath {
 		run += " --config " + quoteArg(path)
+		install += " --config " + quoteArg(path)
 	}
-	fmt.Fprintf(out, "Start the server with:\n\n  %s\n", run)
+	if platform.IsPrivileged() {
+		install = "sudo " + install
+	}
+	fmt.Fprintf(out, "Start the server with:\n\n  %s\n\nor install it as a service that starts with the computer:\n\n  %s\n", run, install)
 }
 
 func quoteArg(s string) string {

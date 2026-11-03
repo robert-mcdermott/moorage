@@ -34,7 +34,7 @@ designed in, *(Phase N)*. Phases map onto waves like this:
 | 4 — Services and ecosystem | 9–10 | 0.9.0–0.10.0 |
 | 5 — Beyond one node | Parking lot | — |
 
-## 0.1.0: first deploy (planned)
+## 0.1.0: first deploy (released 2026-11-03)
 
 One binary that runs a server, deploys a static site or a native app from a
 directory, supervises it, and serves it on its own hostname.
@@ -340,6 +340,27 @@ directory, supervises it, and serves it on its own hostname.
    launchd); install and per-runtime quick-start documentation; version
    0.1.0, its CHANGELOG section and this roadmap; pull request `wave1` →
    `main`; tag `v0.1.0`; release.
+   - Done (slice 6):
+     - `moor server install`, `uninstall`, `start`, `stop` (`--all` stops the
+       apps too), `restart` and `status`: a systemd unit (`KillMode=process`,
+       `Delegate=yes`, `TasksMax=infinity`) or a launchd daemon
+       (`AbandonProcessGroup`, restarted when it fails), system-wide as root
+       or for the current user, running the `moor` binary where it was
+       installed from with the `PATH` it was installed with.
+     - The guide (`docs/guide/`): installation, quick starts for Go, Python,
+       Node.js, static sites and other apps, and variables and secrets, with
+       every example checked with `moor manifest explain`.
+     - Version 0.1.0 and its CHANGELOG section; this roadmap.
+     - Verified by unit tests of the generated unit and plist and of the
+       commands they drive, and in CI, where the server is installed as a
+       service on Linux and macOS, restarted with an app under load, and
+       uninstalled.
+   - Found by slice 6:
+     - Installing a real service changes the machine it runs on, so the
+       service is exercised on CI's throwaway runners rather than on
+       developers' machines.
+     - The Windows service is part of the Windows server (wave 7); until
+       then, `moor server run` can run under any service wrapper.
 
 ## 0.2.0: push to deploy (planned)
 

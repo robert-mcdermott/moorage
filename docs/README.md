@@ -2,7 +2,8 @@
 
 Moorage is a self-hosted, single-binary application deployment platform:
 push code, get a URL, watch it run. These documents describe the design of
-the first versions.
+the first versions. To install and use Moorage, read the
+[guide](guide/README.md).
 
 | # | Document | What it covers |
 |---|---|---|

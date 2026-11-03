@@ -23,11 +23,30 @@ deploy apps with `git push` and share a live URL in seconds.
   release history.
 - **Cross-platform.** Linux first; macOS and Windows supported.
 
-> **Status:** in development. Wave 1 (release 0.1.0) is under way — see the
-> [roadmap](docs/11-roadmap.md), the [changelog](CHANGELOG.md) and the
-> [design documentation](docs/README.md).
+> **Status:** 0.1.0, the first release: a server on Linux or macOS that
+> builds and deploys apps from their source, with zero-downtime releases,
+> instant rollbacks, and variables and encrypted secrets. Deploys by
+> `git push`, accounts and containers come in 0.2.0, the web console in
+> 0.3.0 — see the [roadmap](docs/11-roadmap.md), the
+> [changelog](CHANGELOG.md) and the [design documentation](docs/README.md).
 
-## What it will feel like
+## Using it today
+
+```bash
+# On the server (see the guide for a server on your network, TLS and proxies)
+sudo moor server init --domain apps.example.com
+sudo moor server install
+
+# On the server, in an app's source directory
+sudo moor deploy --app my-app             # builds it, shows the build, prints the URL
+sudo moor env set --secret DATABASE_URL   # asks for the value; rolls out a new release
+sudo moor logs -f --app my-app
+sudo moor rollback --app my-app
+```
+
+The [guide](docs/guide/README.md) covers installation and each kind of app.
+
+## Where it is going
 
 ```bash
 # On the server
