@@ -70,6 +70,7 @@ func startLocalServer(t *testing.T) string {
 	t.Cleanup(func() {
 		cancel()
 		<-done
+		testroles.StopInstances(cfg.DataDir) // the server leaves its apps running
 	})
 	return addr
 }
@@ -146,7 +147,7 @@ func TestDeployNeedsStaticAndApp(t *testing.T) {
 func TestDeployArtifactEndToEnd(t *testing.T) {
 	addr := startLocalServer(t)
 	project := t.TempDir()
-	command := strings.NewReplacer(`\\`, `\\\\`, `"`, `\\"`).Replace(testroles.AppCommand())
+	command := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(testroles.AppCommand())
 	manifestText := "[app]\nname = \"shop\"\n\n[processes.web]\ncommand = \"" + command + "\"\nhealth = { path = \"/health\" }\n"
 	os.WriteFile(filepath.Join(project, "moorage.toml"), []byte(manifestText), 0o644)
 	os.WriteFile(filepath.Join(project, "README"), []byte("the app is the test binary"), 0o644)

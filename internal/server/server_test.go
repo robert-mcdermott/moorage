@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +37,25 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// testLogger writes the server's log to the test's log, shown when a test
+// fails. done stops it, before the test ends.
+func testLogger(t *testing.T) (*slog.Logger, func()) {
+	w := &testLogWriter{t: t}
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})), func() { w.done.Store(true) }
+}
+
+type testLogWriter struct {
+	t    *testing.T
+	done atomic.Bool
+}
+
+func (w *testLogWriter) Write(p []byte) (int, error) {
+	if !w.done.Load() {
+		w.t.Log(strings.TrimRight(string(p), "\n"))
+	}
+	return len(p), nil
+}
+
 // testOptions makes the server run its helpers from the test binary, with
 // short delays.
 func testOptions(ready func(Addrs)) Options {
@@ -55,8 +75,9 @@ func start(t *testing.T, cfg config.Config) (Addrs, func() error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan Addrs, 1)
 	done := make(chan error, 1)
+	log, logDone := testLogger(t)
 	go func() {
-		done <- Run(ctx, cfg, quiet, testOptions(func(a Addrs) { ready <- a }))
+		done <- Run(ctx, cfg, log, testOptions(func(a Addrs) { ready <- a }))
 	}()
 	select {
 	case addrs := <-ready:
@@ -73,9 +94,11 @@ func start(t *testing.T, cfg config.Config) (Addrs, func() error) {
 			case <-time.After(15 * time.Second):
 				t.Fatal("server did not stop")
 			}
+			logDone()
 			return stopErr
 		}
-		t.Cleanup(func() { stop() })
+		// The server leaves its apps running when it stops; the test must not.
+		t.Cleanup(func() { stop(); testroles.StopInstances(cfg.DataDir) })
 		return addrs, stop
 	case err := <-done:
 		cancel()

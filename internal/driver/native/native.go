@@ -72,7 +72,7 @@ func (d *Driver) Start(ctx context.Context, spec shim.Spec) (shim.State, error) 
 
 	deadline := time.NewTimer(15 * time.Second)
 	defer deadline.Stop()
-	tick := time.NewTicker(10 * time.Millisecond)
+	tick := time.NewTicker(25 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		if st, err := shim.ReadState(spec.StateFile); err == nil && st.Status != shim.Starting {

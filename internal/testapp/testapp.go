@@ -43,7 +43,14 @@ func Main() int {
 	if os.Getenv("TESTAPP_IGNORE_TERM") == "" {
 		signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	} else {
-		signal.Ignore(os.Interrupt, syscall.SIGTERM)
+		// Handle the signal and do nothing: on Windows, CTRL_BREAK ends a
+		// process that merely ignores interrupts.
+		ignored := make(chan os.Signal, 1)
+		signal.Notify(ignored, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			for range ignored {
+			}
+		}()
 	}
 
 	port := os.Getenv("PORT")

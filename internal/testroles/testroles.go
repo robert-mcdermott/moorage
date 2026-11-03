@@ -5,6 +5,10 @@ package testroles
 
 import (
 	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/robert-mcdermott/moorage/internal/driver/native"
 
 	"github.com/robert-mcdermott/moorage/internal/shell"
 	"github.com/robert-mcdermott/moorage/internal/shim"
@@ -46,4 +50,14 @@ func AppCommand() string {
 		panic(err)
 	}
 	return "MOOR_TEST_ROLE=app '" + exe + "'"
+}
+
+// StopInstances stops every instance a server with this data directory left
+// running. A server leaves its apps running when it stops — by design — so
+// tests must stop them before their temporary directories are removed.
+func StopInstances(dataDir string) {
+	d := native.New(filepath.Join(dataDir, "run", "shims"), nil, nil)
+	for _, id := range d.List() {
+		d.Stop(id, 5*time.Second)
+	}
 }

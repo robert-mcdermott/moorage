@@ -9,6 +9,8 @@ package shim
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"time"
 )
@@ -135,12 +137,24 @@ func ReadState(path string) (State, error) {
 	return s, err
 }
 
+// Windows refuses to replace or open a file in some states that Unix
+// allows (a file being renamed over, a file another process holds open), so
+// state files are read and written with a few short retries.
+const fileRetries = 50
+
 func readJSON(path string, v any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
+	var err error
+	for i := 0; i < fileRetries; i++ {
+		var data []byte
+		if data, err = os.ReadFile(path); err == nil {
+			return json.Unmarshal(data, v)
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
-	return json.Unmarshal(data, v)
+	return err
 }
 
 // writeJSON replaces path atomically.
@@ -153,5 +167,11 @@ func writeJSON(path string, v any, mode os.FileMode) error {
 	if err := os.WriteFile(tmp, data, mode); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	for i := 0; i < fileRetries; i++ {
+		if err = os.Rename(tmp, path); err == nil {
+			return nil
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	return err
 }
