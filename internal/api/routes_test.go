@@ -245,7 +245,8 @@ func TestOpenAPIDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(current, doc) {
+	// git on Windows may check the file out with CRLF line endings.
+	if !bytes.Equal(bytes.ReplaceAll(current, []byte("\r\n"), []byte("\n")), doc) {
 		t.Errorf("docs/openapi.json differs from the routes: run UPDATE_OPENAPI=1 go test ./internal/api -run TestOpenAPIDocument")
 	}
 
