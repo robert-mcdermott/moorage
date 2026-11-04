@@ -263,3 +263,7 @@ MOORAGE_CONFIG=~/moorage-dev/server.toml ./moor server run
 Work is planned in waves and slices: each wave has a `waveN` branch and ends
 in a release (see the [roadmap](spec/11-roadmap.md)). Changes are recorded in
 the [changelog](CHANGELOG.md).
+
+## License
+
+Moorage is licensed under the [Apache License 2.0](LICENSE).

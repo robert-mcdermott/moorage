@@ -2,7 +2,7 @@
 
 ## 0.5.0 (2026-11-04)
 
-Moorage 0.5.0 is about apps once they are running. They can have cron jobs and one-off commands, charts of how they are doing, and notifications when they are not. Drop a folder in the console and it is a static site, with every release at an address of its own. A server of 4 CPUs and 8 GB holds 60 environments with sleep on, as [measured](docs/install.md#how-big-a-machine).
+Moorage 0.5.0 is about apps once they are running. They can have cron jobs and one-off commands, charts of how they are doing, and notifications when they are not. Drop a folder in the console and it is a static site, with every release at an address of its own. A server of 4 CPUs and 8 GB holds 60 environments with sleep on, as [measured](docs/install.md#how-big-a-machine). Moorage is now licensed under the [Apache License 2.0](LICENSE).
 
 Upgrading from 0.4.0 needs no steps of its own: replace `moor` and restart the server, and running apps are taken over without a restart. Some things behave differently:
 
