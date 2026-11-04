@@ -1,14 +1,41 @@
 name: CI
 
+# A branch gets CI from its pull request, and main and release branches from pushes, so that one
+# commit does not run it all twice. A draft pull request is enough for work under way.
 on:
   push:
-    branches: [main, 'wave*', 'release-*']
+    branches: [main, 'release-*']
   pull_request:
+  workflow_dispatch:
+
+# A newer push to a pull request replaces the run of the one before it. Main keeps every run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    # Which of the slower jobs on real systems a pull request needs: those whose files it touches.
+    # Everywhere else, they all run.
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      installer: ${{ steps.look.outputs.installer }}
+      trust: ${{ steps.look.outputs.trust }}
+      service: ${{ steps.look.outputs.service }}
+      upgrade: ${{ steps.look.outputs.upgrade }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: look
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: .github/scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+
   test:
     name: Test (${{ matrix.os }})
     strategy:
@@ -105,6 +132,8 @@ jobs:
     # what uses that store accepts its certificates. It also tries the resolver
     # rule on macOS. The runner is thrown away afterwards.
     name: Trust (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.trust == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -164,6 +193,8 @@ jobs:
     # Takes over the data directory and running apps of a server of the last
     # published release, with this code.
     name: Upgrade (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.upgrade == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -180,6 +211,8 @@ jobs:
   install-unix:
     # Runs install.sh for real, piped into a shell, against the published releases.
     name: Install (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -200,6 +233,8 @@ jobs:
     # Runs install.ps1 for real, piped into Invoke-Expression, in Windows PowerShell
     # and PowerShell, on x64 and on Windows 11 for ARM.
     name: Install (${{ matrix.os }}, ${{ matrix.shell }})
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -218,6 +253,8 @@ jobs:
     # Installs the server as a system service (systemd, launchd), restarts it
     # with an app under load, and checks the app kept running (spike S2).
     name: Service (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.service == 'true'
     strategy:
       fail-fast: false
       matrix:
