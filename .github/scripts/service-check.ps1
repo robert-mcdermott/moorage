@@ -5,8 +5,8 @@ $failed = 0
 function Check([string]$what, [bool]$ok, [string]$detail = '') {
     if ($ok) { Write-Host "ok    $what" } else { Write-Host "FAIL  $what $detail"; $script:failed++ }
 }
-function Must { param([Parameter(ValueFromRemainingArguments)]$rest)
-    $tool, $arguments = $rest
+function Must {
+    $tool, $arguments = $args
     & $tool @arguments
     if ($LASTEXITCODE -ne 0) { throw "$tool $arguments exited with $LASTEXITCODE" }
 }

@@ -424,7 +424,7 @@ func (c *Console) systemPage(w http.ResponseWriter, r *http.Request) {
 		limits = "Enforced by the kernel"
 	}
 	if st.JobLimits {
-		limits = "Enforced by Job Objects: what an instance asks for beyond its memory is refused, and one that stays over is restarted"
+		limits = "Enforced by Job Objects: what an instance asks for beyond its memory is refused"
 	}
 	view.Facts = append(view.Facts, setting{"Isolation", sentence(st.Describe())}, setting{"Limits", limits})
 	for _, note := range st.Notes {

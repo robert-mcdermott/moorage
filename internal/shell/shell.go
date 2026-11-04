@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -76,6 +78,13 @@ func Simple(command string, env []string, dir string) (path string, argv, runEnv
 	}
 	path, err = interp.LookPathDir(dir, expand.ListEnviron(runEnv...), argv[0])
 	if err != nil {
+		// Windows looks only for names with an extension it knows, and "go build -o bin/server" makes one with none,
+		// that it would run all the same. So a manifest does not have to say .exe.
+		if exact := joinDir(dir, filepath.FromSlash(argv[0])); runtime.GOOS == "windows" && strings.ContainsAny(argv[0], `/\`) {
+			if info, statErr := os.Stat(exact); statErr == nil && info.Mode().IsRegular() {
+				return exact, argv, runEnv, true, nil
+			}
+		}
 		return "", nil, nil, false, fmt.Errorf("%s: %w", argv[0], err)
 	}
 	return path, argv, runEnv, true, nil

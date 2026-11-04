@@ -84,7 +84,7 @@ type Status struct {
 }
 
 // Enforced says whether limits on memory, CPU and processes are enforced by the kernel.
-func (s Status) Enforced() bool { return s.CgroupRoot != "" }
+func (s Status) Enforced() bool { return s.CgroupRoot != "" || s.JobLimits }
 
 // Describe says the level in words.
 func (s Status) Describe() string {
@@ -352,7 +352,7 @@ func (p *Policy) Instance(ctx context.Context, app, id string, dirs Dirs, limits
 		s.ReadOnly = append(p.commonRead(), dirs.App)
 		s.ReadWrite = append(append([]string{}, systemWrite...), dirs.Data, dirs.Tmp)
 	}
-	if p.Enforced() && (limits.Any() || p.Isolating()) {
+	if p.CgroupRoot != "" && (limits.Any() || p.Isolating()) {
 		s.Cgroup, s.Limits = filepath.Join(p.CgroupRoot, "apps", id), limits
 	}
 	if p.JobLimits && limits.Any() {
@@ -410,7 +410,7 @@ func (p *Policy) Build(ctx context.Context, app, id, dir, tmp string) (*Spec, er
 		s.ReadOnly = p.commonRead()
 		s.ReadWrite = append(append([]string{}, systemWrite...), dir, tmp, cache)
 	}
-	if p.Enforced() {
+	if p.CgroupRoot != "" {
 		s.Cgroup, s.Limits = filepath.Join(p.CgroupRoot, "builds", id), Limits{CPUWeight: 50}
 	}
 	return s, nil

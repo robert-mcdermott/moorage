@@ -177,7 +177,7 @@ example: previews 512 MiB / 0.5 CPU).
 |---|---|---|---|---|
 | Linux (native) | cgroup v2 subtree delegated to the service (see [Architecture → Linux](02-architecture.md#linux-service-unit-and-cgroup-layout)): one cgroup per instance and per build, processes placed directly into it at spawn | `memory.max` (+ `memory.high` at 90 %), OOM kills the whole instance tree | `cpu.max` | `pids.max` |
 | macOS (native) | `setrlimit` + **soft enforcement** (sampled RSS above the limit → graceful restart with an explicit event) | soft | — | `RLIMIT_NPROC` |
-| Windows (native) | Job Object per instance | commit limit — allocations beyond it fail (the app is not killed), plus soft enforcement | CPU-rate hard cap | active-process limit |
+| Windows (native) | Job Object per instance | commit limit — allocations beyond it fail (the app is not killed) | CPU-rate hard cap | active-process limit |
 | Containers | Engine flags | `--memory` | `--cpus` | `--pids-limit` |
 
 Soft enforcement is also used on Linux when cgroup delegation is unavailable,
@@ -321,9 +321,9 @@ it), so the console reports the protection that is actually in effect.
 
 **Windows.** Native apps run under the service account (or a configured
 account). Each shim owns a windowless console and creates its app in a new
-process group on that console, **directly inside a Job Object** (using the
-job-list process-creation attribute, so no child process can start before the
-job applies). Graceful stop sends
+process group on that console, suspended, and lets it go only once it is
+inside its Job Object, so no child process can start before the job applies.
+Graceful stop sends
 `CTRL_BREAK_EVENT` to the app's process group (possible precisely because the
 shim shares the app's console, which a console-less service could not do
 directly); after the stop timeout the Job Object is terminated. The job's

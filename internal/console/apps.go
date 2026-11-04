@@ -164,11 +164,11 @@ func (c *Console) isolationText(app, env string, plan manifest.Plan) string {
 		limits = append(limits, strconv.Itoa(r.PIDs)+" processes")
 	}
 	list := strings.Join(limits, ", ")
+	if st.JobLimits {
+		return text + " Each instance is limited to " + list + ". What it asks for beyond its memory is refused."
+	}
 	if st.Enforced() {
 		return text + " Each instance is limited to " + list + "."
-	}
-	if st.JobLimits {
-		return text + " Each instance is limited to " + list + ". What it asks for beyond its memory is refused, and one that stays over is restarted."
 	}
 	if r.Memory > 0 {
 		return text + " Each instance asks for " + list + ": this server cannot enforce that, so that one over its memory is restarted, and the rest is not held to."
