@@ -1090,6 +1090,12 @@ directory, supervises it, and serves it on its own hostname.
 
 1. **Windows server.** Job Objects, the Windows service, console control;
    the integration suite green on Windows.
+   - Done in slice 1: `moor server install` makes a Windows service, as a virtual account of its own; Job Objects that
+     an app is inside from before it runs, with `[resources]`; a block in the hosts file; a drill on a real service in
+     CI, and the sample apps on Windows.
+   - Found by slice 1: the service should not run as the system, as apps run as it too, and `%ProgramData%` is open to
+     everyone on the computer, master key included, unless told otherwise. A `moor` in someone's profile is one a service
+     account cannot read. Go will not start a program with no extension on Windows, whatever the system would do.
 2. **Forge integration.** Connected repositories, deploy webhooks,
    pull-request previews with status checks and URL comments, approval for
    forks and unknown authors.

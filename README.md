@@ -218,8 +218,7 @@ reach it](docs/access.md) is up to you: a password, a sign-in, a share link. App
 [metrics](docs/metrics.md) and [notifications](docs/notifications.md) when something goes
 wrong. On Linux, [each app runs as a user of its own](docs/isolation.md). [Backups](docs/backups.md)
 are built in, people can sign in with [a second factor, or through your identity provider](docs/sign-in.md),
-and a server [upgrades itself](docs/install.md#upgrading), with a way back. On Windows, `moor` works as a
-command line and `moor server run` works; the Windows service comes later.
+and a server [upgrades itself](docs/install.md#upgrading), with a way back. On Windows, it [runs as a service](docs/install.md#3-run-it-as-a-service) too, with apps held to their limits by Job Objects.
 
 Next, in the [roadmap](spec/11-roadmap.md):
 

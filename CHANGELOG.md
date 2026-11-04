@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A server on Windows, as a service.** `moor server install`, in an elevated terminal, makes a Windows service that runs as an account of its own with few rights, and apps run as it too. `[resources]` is enforced there by Job Objects, which an app is inside from before it runs. `moor server resolver install` adds a block to the hosts file. See [installing](docs/install.md#3-run-it-as-a-service).
+
 ## 0.6.0 (2026-11-04)
 
 Moorage 0.6.0 is about a server you can rely on. On Linux, apps are kept apart from one another. Backups and restoring are built in, and were tried on real services. People can sign in with a second factor, through your identity provider, or through a proxy. A server can upgrade itself, and go back. Moorage is now open source, under the Apache License 2.0.

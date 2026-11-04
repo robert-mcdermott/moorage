@@ -319,8 +319,7 @@ it), so the console reports the protection that is actually in effect.
 
 ## Platform notes
 
-**Windows.** Native apps run under the service account (or a configured
-account). Each shim owns a windowless console and creates its app in a new
+**Windows.** Native apps run under the service's account, `NT SERVICE\Moorage`. Each shim owns a windowless console and creates its app in a new
 process group on that console, suspended, and lets it go only once it is
 inside its Job Object, so no child process can start before the job applies.
 Graceful stop sends

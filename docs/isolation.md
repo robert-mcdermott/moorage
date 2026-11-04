@@ -71,6 +71,12 @@ limit on ports takes Linux 6.7. A kernel with none runs apps at the `user` level
 Some programs expect more. One that writes to `/tmp` by its full name, rather than to `$TMPDIR`, fails
 in a sandbox, as does one that listens on a second port.
 
+## On Windows
+
+There is one level there, `none`. The server runs as the account of its own that the service has, `NT SERVICE\Moorage`,
+and all apps run as it too, so that they are kept from the rest of the computer, and not from one another. Each
+instance runs in a Job Object, which holds it and all it starts to its limits, and ends them all together.
+
 ## Limits
 
 `[resources]` in the [manifest](manifest.md#resources) says how much each instance may use:
@@ -85,6 +91,7 @@ pids = 200
 | Where | Memory | CPU and processes |
 |---|---|---|
 | Linux, with the server running as root | The kernel kills an instance over it, and the whole instance goes together. It cannot swap instead | Enforced by the kernel |
+| Windows | A Job Object holds each instance: what it asks for beyond its memory is refused, and it is not killed for that | Enforced, by the same Job Object |
 | Anywhere else | Moorage restarts an instance that stays over it for three samples, 30 seconds or so | Not enforced, which the app's page says |
 | In a container | The engine enforces it | The engine enforces it |
 
