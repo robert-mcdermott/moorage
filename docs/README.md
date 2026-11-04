@@ -14,6 +14,7 @@ how it works inside and where it is going.
 - [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
 - [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
   everything, and logs.
+- [The web console](console.md): the apps, what happened, and getting started.
 - The [examples](../examples/README.md): complete apps, ready to deploy.
 
 ## Deploying apps
@@ -45,6 +46,7 @@ how it works inside and where it is going.
 | `moor trust` | Trusts the server's CA on this machine |
 | `moor server doctor` | Checks the server and what it depends on, and says how to fix what it finds |
 | `moor apps` | Lists the apps |
+| `moor events` | Shows what happened on the server; `-f` follows it |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
 | `moor releases` | Lists an app's releases |
 | `moor rollback [vN]` | Serves an earlier release again, in a moment |

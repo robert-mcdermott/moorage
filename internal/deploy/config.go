@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -125,6 +126,8 @@ func (d *Deployer) Configure(ctx context.Context, app, env string, ch ConfigChan
 		return res, err
 	}
 	d.log.Info("variables changed", "app", app, "env", env, "set", varNames(ch.Set), "unset", ch.Unset, "all_envs", ch.AllEnvs)
+	d.opts.Events.Publish(ctx, store.Event{Type: events.ConfigChanged, App: app, Env: env, Actor: ch.By,
+		Data: map[string]any{"set": varNames(ch.Set), "unset": ch.Unset}}) // names only: never their values
 	if !ch.Restart {
 		return res, nil
 	}

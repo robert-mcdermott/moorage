@@ -63,6 +63,8 @@ type route struct {
 	status int
 	// stream, if set, is a prototype of the lines of an NDJSON response.
 	stream any
+	// sse, if set, is a prototype of the events of a server-sent event stream.
+	sse any
 	// multipart marks a deploy's multipart/form-data request.
 	multipart bool
 	// query lists the query parameters, with what each one does.
@@ -116,6 +118,18 @@ func (s *Server) routes() []route {
 		{method: "PUT", path: "/registries/{host}", perm: serverAdmin, handler: s.setRegistry, summary: "Store the credentials of a container registry",
 			request: apitypes.RegistryLogin{}, response: apitypes.Registry{}},
 		{method: "DELETE", path: "/registries/{host}", perm: serverAdmin, handler: s.deleteRegistry, status: http.StatusNoContent, summary: "Forget the credentials of a container registry"},
+
+		// What happens.
+		{method: "GET", path: "/events", perm: canRead, handler: s.listEvents, summary: "List what happened, newest first",
+			response: apitypes.Page[apitypes.Event]{}, query: map[string]string{
+				"limit": pageQuery["limit"], "cursor": pageQuery["cursor"],
+				"app": "Only what happened to this app.", "env": "Only what happened to this environment.",
+			}},
+		{method: "GET", path: "/events/stream", perm: canRead, handler: s.streamEvents, summary: "Follow what happens, as server-sent events", sse: apitypes.Event{},
+			query: map[string]string{
+				"app": "Only what happens to this app.", "env": "Only what happens to this environment.",
+				"after": "Start after this event's ID, as the Last-Event-ID header also does.",
+			}},
 
 		// The server and its apps.
 		{method: "GET", path: "/server", perm: signedIn, handler: s.serverInfo, summary: "The server's version and the prefixes of the apps' git remotes", response: apitypes.ServerInfo{}},

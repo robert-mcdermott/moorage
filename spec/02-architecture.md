@@ -203,7 +203,9 @@ report ref status.
 **Console.** The daemon renders pages with Go templates on the console
 hostname (session cookie, CSRF-protected HTML forms) from the same service
 layer the API uses. Small plain-JavaScript modules keep one SSE connection to
-`/api/v1/events` for live status and stream logs and deployment output.
+`/api/v1/events/stream` for live status and stream logs and deployment output. A page
+out of sight closes it, and catches up from the last event when it returns: over plain
+HTTP a browser allows six connections to a server, and each open tab would hold one.
 
 ## On-disk layout
 
@@ -450,7 +452,7 @@ Planned modules:
   there is no Node.js toolchain, bundler or transpiler anywhere.
 - Static assets are fingerprinted (content hash in the URL) at startup, so
   browsers cache them indefinitely and never see stale files after an upgrade.
-- `moor server --dev` serves templates and assets from the source tree and
+- `moor server run --dev` serves templates and assets from the source tree and
   re-parses templates on every request, so console changes show up on reload.
 - Releases are produced for `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`,
   `windows/{amd64,arm64}` with reproducible flags (`-trimpath`, fixed build

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -447,6 +448,7 @@ func (m *Manager) watch(es *envState, in *instance) {
 		t := time.NewTicker(h.Interval.Std())
 		defer t.Stop()
 		failures := 0
+		restarts := -1
 		for {
 			select {
 			case <-ctx.Done():
@@ -454,12 +456,20 @@ func (m *Manager) watch(es *envState, in *instance) {
 			case <-t.C:
 			}
 			ok := false
-			if st, alive, err := in.run.Status(in.id); err == nil && alive && st.Status == shim.Running {
+			st, alive, err := in.run.Status(in.id)
+			if err == nil {
+				if restarts >= 0 && st.Restarts > restarts && st.LastExit != nil {
+					m.emit(es, in, events.InstanceExited, map[string]any{"code": st.LastExit.Code, "signal": st.LastExit.Signal})
+				}
+				restarts = st.Restarts
+			}
+			if err == nil && alive && st.Status == shim.Running {
 				ok = in.backend == nil || m.probe(es, in)
 			}
 			if ok {
 				if failures >= h.Threshold {
 					m.log.Info("instance healthy again", "app", es.app, "instance", in.id)
+					m.emit(es, in, events.InstanceHealthy, nil)
 				}
 				failures = 0
 				if in.backend != nil {
@@ -471,6 +481,7 @@ func (m *Manager) watch(es *envState, in *instance) {
 			switch failures {
 			case h.Threshold:
 				m.log.Warn("instance unhealthy; it gets no traffic", "app", es.app, "instance", in.id)
+				m.emit(es, in, events.InstanceUnhealthy, nil)
 				if in.backend != nil {
 					in.backend.SetHealthy(false)
 				}

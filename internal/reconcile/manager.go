@@ -21,6 +21,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/driver/native"
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -54,6 +55,8 @@ type Options struct {
 	// Containers runs apps in containers; without it, the server has no
 	// container engine.
 	Containers *container.Driver
+	// Events hears of instances that exit, sicken and recover.
+	Events *events.Bus
 }
 
 // runner is what the manager asks of a driver about an instance it runs.
@@ -372,6 +375,7 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 			continue
 		}
 		m.log.Warn("an instance's shim or container is gone; replacing the instance", "app", es.app, "instance", in.id)
+		m.emit(es, in, events.InstanceReplaced, nil)
 		if err == nil {
 			in.run.CleanupOrphan(st)
 		}
@@ -402,6 +406,15 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 	if changed {
 		es.serve(rel.ID)
 	}
+}
+
+// emit says what happened to an instance.
+func (m *Manager) emit(es *envState, in *instance, kind string, data map[string]any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["process"], data["index"], data["instance"] = in.process, in.index, in.id
+	m.opts.Events.Publish(m.ctx, store.Event{Type: kind, App: es.app, Env: es.env, Data: data})
 }
 
 // logFile is an instance's log: logs/apps/<app>/<env>/<process>.<index>.<id>.log.

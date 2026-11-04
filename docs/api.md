@@ -37,6 +37,17 @@ curl -H "Authorization: Bearer $MOOR_TOKEN" "https://moorage.apps.example.com/ap
 }
 ```
 
+## What happened
+
+`GET /api/v1/events` lists what happened on the server, newest first, in pages, for an
+`app` and an `env` if given. `GET /api/v1/events/stream` follows it as server-sent
+events, each with the event's ID and, as its data, the same document. A reconnecting
+client says where it got to with the `Last-Event-ID` header, or `?after=`, and is sent
+what it missed. A token restricted to an app sees only that app's.
+
+Events of a `deployment.started` kind are `transient`: they are for those following now,
+and are not kept.
+
 ## Errors
 
 Errors are RFC 9457 `application/problem+json` documents. `code` is stable, for

@@ -83,6 +83,12 @@ Windows has no equivalent yet. There, send the name as the `Host` header:
 curl -H "Host: tasks.localhost" http://127.0.0.1:8080/
 ```
 
+## What happened
+
+`moor events` shows what happened on the server, and so does
+[Activity in the console](console.md#activity): deployments, releases, changes of
+variables, and instances that exited or sickened.
+
 ## Where the logs are
 
 | Log | |

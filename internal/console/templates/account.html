@@ -1,4 +1,4 @@
-{{define "layout"}}<!doctype html>
+{{define "card"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -6,63 +6,24 @@
 <meta name="robots" content="noindex">
 <title>{{if eq .Title "Moorage"}}Moorage{{else}}{{.Title}} · Moorage{{end}}</title>
 <link rel="icon" href="{{.Favicon}}">
-<style>
-:root { color-scheme: light dark; --bg: #f7f7f5; --card: #ffffff; --fg: #1d1f24; --muted: #5e6470; --line: #dcdfe4;
-        --brand: #08264c; --accent: #0e8786; --accent-fg: #ffffff; --danger: #b3382c; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #15171c; --card: #1c1f26; --fg: #e8e9ec; --muted: #9aa0ab; --line: #2e323b;
-          --brand: #e6ebf2; --accent: #2bb0ac; --accent-fg: #071312; --danger: #f08072; } }
-* { box-sizing: border-box; }
-html, body { min-height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-       display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; }
-main { width: 100%; max-width: 26rem; }
-.mark { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; color: var(--brand); font-weight: 700; font-size: 1.1rem; }
-.mark span, .mark svg { display: block; width: 1.9rem; height: 1.9rem; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; }
-h1 { font-size: 1.3rem; line-height: 1.3; margin: 0 0 .5rem; }
-p { margin: 0 0 1rem; color: var(--muted); }
-strong, code { color: var(--fg); }
-label { display: block; font-weight: 600; font-size: .9rem; margin: .9rem 0 .25rem; }
-.hint { font-weight: 400; color: var(--muted); }
-input { width: 100%; padding: .55rem .7rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
-input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-button { padding: .55rem 1.1rem; font: inherit; font-weight: 600; color: var(--accent-fg); background: var(--accent); border: 0; border-radius: 8px; cursor: pointer; }
-button.quiet { color: var(--fg); background: none; border: 1px solid var(--line); }
-.actions { display: flex; gap: .5rem; margin-top: 1.25rem; }
-.alert { color: var(--danger); margin: .75rem 0 0; }
-.code { font: 600 1.4rem ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .05em; color: var(--fg); margin: 0 0 1rem; }
-a { color: var(--accent); }
-footer { margin-top: 1rem; font-size: .8rem; color: var(--muted); }
-</style>
+<script src="{{asset "theme.js"}}"></script>
+<link rel="stylesheet" href="{{asset "console.css"}}">
 </head>
-<body>
-<main>
-<div class="mark"><span aria-hidden="true">{{.Icon}}</span>Moorage</div>
-<div class="card">
+<body class="card-page">
+<div class="card-column">
+<div class="mark"><span class="icon" aria-hidden="true">{{.Icon}}</span>Moorage</div>
+<main class="card">
 {{template "body" .}}
-</div>
-<footer>Moorage {{.Version}}</footer>
 </main>
+<footer>Moorage {{.Version}}</footer>
+</div>
 </body>
 </html>
 {{end}}
 
-{{define "home"}}
+{{define "unclaimed"}}
 <h1>Moorage is running</h1>
-{{if .User}}
-<p>Signed in as <strong>{{.User}}</strong>.</p>
-<p>The web console arrives in a later release. Deploy with the <code>moor</code> command line in the meantime.</p>
-<form method="post" action="/logout">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <button class="quiet" type="submit">Sign out</button>
-</form>
-{{else if .Unclaimed}}
 <p>This server has no accounts yet. Whoever installed it can claim it with the setup link that <code>moor server status</code> shows on the server.</p>
-{{else}}
-<p>The web console arrives in a later release. Deploy with the <code>moor</code> command line in the meantime.</p>
-<p><a href="/login">Sign in</a></p>
-{{end}}
 {{end}}
 
 {{define "setup"}}

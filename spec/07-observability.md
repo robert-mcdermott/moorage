@@ -126,7 +126,10 @@ Every meaningful change is an event:
 
 Events are published on the bus (live console updates through one SSE
 stream), stored for 90 days, and shown as an activity timeline per
-environment, per app and server-wide.
+environment, per app and server-wide. A transient kind, such as a deployment
+starting, goes to those following now and is not kept. Security events arrive with
+the audit log, whose readers are limited, rather than in this feed that every member
+can read.
 
 ## Notifications
 

@@ -79,7 +79,7 @@ Configuration
 Observing
   moor logs [-f] [--process p] [--instance n] [--source …] [--since 1h] [--grep text]
   moor metrics [--series …]           Terminal sparklines
-  moor events [-f]
+  moor events [-f] [--app a] [--env e] [-n 50]
 
 Account
   moor keys [list|add|remove]
@@ -242,8 +242,10 @@ roll back to, promote.
 - *Image* — an image reference;
 - *Connect repository* (Phase 3).
 
-**First-run wizard.** One-time setup URL → admin account → base domain and
-routing mode with a live DNS check → TLS mode → "deploy your first app" with
-commands to copy.
+**First-run wizard.** One-time setup URL → admin account → the base domain, routing
+mode and TLS mode, as chosen by `moor server init` in `server.toml` (the server needs
+them before anyone can reach this page), with the doctor's check of each and how to fix
+what is wrong → "deploy your first app" with commands to copy, and a live "waiting for
+your first deployment" state.
 
 Every empty state shows the next command to run.

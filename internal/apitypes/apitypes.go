@@ -337,6 +337,7 @@ type LogLine struct {
 const (
 	ProblemType = "application/problem+json"
 	NDJSONType  = "application/x-ndjson"
+	SSEType     = "text/event-stream"
 	// PlanPart and ArchivePart are the multipart form fields of the deploy
 	// of an upload that needs no build: the plan (manifest.Plan) as JSON,
 	// then the gzip-compressed tar. SourcePart alone is source for the
@@ -373,4 +374,24 @@ type ProxyCheck struct {
 	ForwardedHost  string `json:"forwarded_host,omitempty"`
 	// TLS says the connection reaching the server was TLS.
 	TLS bool `json:"tls,omitempty"`
+}
+
+// Event is something that happened on the server.
+type Event struct {
+	ID string    `json:"id"`
+	At time.Time `json:"at"`
+	// Type is what kind of thing, such as deployment.live.
+	Type string `json:"type"`
+	// App and Env are what it happened to, if anything in particular.
+	App   string `json:"app,omitempty"`
+	Env   string `json:"env,omitempty"`
+	Actor string `json:"actor,omitempty"`
+	// Summary says it in words.
+	Summary string `json:"summary"`
+	// Level says how it should look: ok, info, warn or fail, if any.
+	Level string `json:"level,omitempty"`
+	// Transient says it is only for those following now: it is not kept.
+	Transient bool `json:"transient,omitempty"`
+	// Data holds the details of its type.
+	Data map[string]any `json:"data,omitempty"`
 }

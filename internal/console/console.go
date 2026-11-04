@@ -1,53 +1,109 @@
-// Package console serves the pages on the console's hostname. For now they are
-// the few an account needs: the first-run claim, signing in and out, choosing
-// a password and approving a CLI's sign-in. The web console grows from here.
+// Package console serves the pages on the console's hostname: the few an account
+// needs (the first-run claim, signing in and out, choosing a password, approving a
+// CLI's sign-in) and the web console itself. Every page is plain HTML and forms;
+// scripts add the live parts (spec/09-interfaces.md, "Web console").
 package console
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"errors"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/brand"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
+	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
-//go:embed pages.html
-var pagesHTML string
+//go:embed templates assets
+var embedded embed.FS
 
-// compiled holds each page in the layout, as "body" is a different template in
-// each.
-var compiled = func() map[string]*template.Template {
-	base := template.Must(template.New("pages").Parse(pagesHTML))
+// cards are the pages shown alone in a card, for someone not yet at home here;
+// the others are in the console's frame.
+var cards = map[string]bool{
+	"unclaimed": true, "setup": true, "login": true, "invite": true,
+	"device-enter": true, "device-confirm": true, "message": true,
+}
+
+func pageNames() []string {
+	names := []string{"apps", "activity", "welcome"}
+	for name := range cards {
+		names = append(names, name)
+	}
+	return names
+}
+
+// parseTemplates makes each page: the templates with "body" being that page's.
+func parseTemplates(source fs.FS, asset func(string) string) (map[string]*template.Template, error) {
+	base, err := template.New("pages").Funcs(template.FuncMap{"asset": asset, "ago": ago, "iso": iso}).ParseFS(source, "templates/*.html")
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]*template.Template{}
-	for _, page := range []string{"home", "setup", "login", "invite", "device-enter", "device-confirm", "message"} {
-		t := template.Must(base.Clone())
-		template.Must(t.New("body").Parse(`{{template "` + page + `" .}}`))
+	for _, page := range pageNames() {
+		t, err := base.Clone()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := t.New("body").Parse(`{{template "` + page + `" .}}`); err != nil {
+			return nil, err
+		}
 		out[page] = t
 	}
-	return out
-}()
+	return out, nil
+}
+
+// Options configure the console.
+type Options struct {
+	Auth   *auth.Service
+	DB     *store.DB
+	Config config.Config
+	Log    *slog.Logger
+	// Dir, if set, is the source of the console's templates and assets
+	// (internal/console), read again for every request, for working on them.
+	Dir string
+}
 
 // Console serves the pages.
 type Console struct {
-	auth *auth.Service
-	db   *store.DB
-	log  *slog.Logger
+	auth   *auth.Service
+	db     *store.DB
+	cfg    config.Config
+	log    *slog.Logger
+	source fs.FS
+	dev    bool
+	assets map[string]asset
+	pages  map[string]*template.Template
 }
 
 // New returns the pages' handler.
-func New(authn *auth.Service, db *store.DB, log *slog.Logger) http.Handler {
-	c := &Console{auth: authn, db: db, log: log}
+func New(o Options) (http.Handler, error) {
+	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded}
+	if o.Dir != "" {
+		c.source, c.dev = os.DirFS(o.Dir), true
+	}
+	var err error
+	if c.assets, err = loadAssets(c.source); err != nil {
+		return nil, err
+	}
+	if c.pages, err = parseTemplates(c.source, c.assetURL); err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", c.home)
+	mux.HandleFunc("GET /assets/{file}", c.serveAsset)
+	mux.HandleFunc("GET /activity", c.activity)
+	mux.HandleFunc("GET /welcome", c.welcome)
 	mux.HandleFunc("GET /setup", c.setupPage)
 	mux.HandleFunc("POST /setup", c.post(c.setup))
 	mux.HandleFunc("GET /login", c.loginPage)
@@ -60,7 +116,7 @@ func New(authn *auth.Service, db *store.DB, log *slog.Logger) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		c.message(w, http.StatusNotFound, data{Title: "Not found", Heading: "Not found", Message: "There is nothing at this address.", Link: "/", LinkText: "Back to the start"})
 	})
-	return mux
+	return mux, nil
 }
 
 // data is what a page shows.
@@ -81,13 +137,49 @@ type data struct {
 	Version string
 	Icon    template.HTML
 	Favicon template.URL
+
+	// The console's frame: which page this is, and who may see what.
+	Page    string
+	Admin   bool
+	Palette []paletteItem
+	// Stream is where this page follows events from, if not the default.
+	Stream string
+
+	// The apps list.
+	Apps []appRow
+
+	// The timeline.
+	Events    []eventRow
+	AppNames  []string
+	FilterApp string
+	Older     string
+	Live      bool
+
+	// Getting started.
+	Checks                                    []doctor.Check
+	ChecksPassed                              bool
+	InstallUnix, InstallWindows, LoginCommand string
+	AppPattern                                string
 }
 
 // render sends a page.
 func (c *Console) render(w http.ResponseWriter, status int, page string, d data) {
 	d.Version, d.Icon, d.Favicon = buildinfo.Version, brand.Icon(), brand.FaviconURL()
+	pages := c.pages
+	if c.dev {
+		var err error
+		if pages, err = parseTemplates(c.source, c.assetURL); err != nil {
+			c.log.Error("parse the templates", "err", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	layout := "shell"
+	if cards[page] {
+		layout = "card"
+	}
 	var buf bytes.Buffer
-	if err := compiled[page].ExecuteTemplate(&buf, "layout", d); err != nil {
+	if err := pages[page].ExecuteTemplate(&buf, layout, d); err != nil {
 		c.log.Error("render a page", "page", page, "err", err)
 		http.Error(w, "The page could not be shown.", http.StatusInternalServerError)
 		return
@@ -99,7 +191,7 @@ func (c *Console) render(w http.ResponseWriter, status int, page string, d data)
 	h.Set("X-Content-Type-Options", "nosniff")
 	// The one-time codes in these pages' addresses must not leave in a Referer.
 	h.Set("Referrer-Policy", "no-referrer")
-	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 	w.WriteHeader(status)
 	w.Write(buf.Bytes())
 }
@@ -184,18 +276,20 @@ func sentence(s string) string {
 }
 
 func (c *Console) home(w http.ResponseWriter, r *http.Request) {
-	d := data{Title: "Moorage"}
 	if p, ok := c.signedIn(r); ok {
-		d.User, d.CSRF = p.Name, auth.CSRFToken(p.CookieValue)
-	} else {
-		claimed, err := c.auth.Claimed(r.Context())
-		if err != nil {
-			c.internal(w, err)
-			return
-		}
-		d.Unclaimed = !claimed
+		c.appsPage(w, r, p)
+		return
 	}
-	c.render(w, http.StatusOK, "home", d)
+	claimed, err := c.auth.Claimed(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !claimed {
+		c.render(w, http.StatusOK, "unclaimed", data{Title: "Moorage"})
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func badClaim() data {
@@ -257,7 +351,7 @@ func (c *Console) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c.startSession(w, r, u) {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, "/welcome", http.StatusSeeOther)
 	}
 }
 

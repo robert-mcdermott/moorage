@@ -108,7 +108,7 @@ share a port.
 
 | Table | Key columns |
 |---|---|
-| `events` | `id`, `at`, `type`, `project_id`, `app_id`, `env_id`, `actor`, `data` (JSON) — 90-day retention |
+| `events` | `id`, `at`, `type`, `app`, `env` (by name: an event outlives what it is about), `actor`, `data` (JSON) — 90-day retention |
 | `audit_log` | `id`, `at`, `actor_type`, `actor_id`, `ip`, `action`, `target`, `result`, `data` — 1-year retention |
 | `metric_series` | `id`, `name`, `labels` (JSON: app, env, process, instance, route), `kind` (`gauge`/`counter`/`histogram`) |
 | `metric_1m` | `series_id`, `hour` (start), `data` (BLOB: 60 packed points of min/avg/max/last or histogram buckets) — primary key `(series_id, hour)` |

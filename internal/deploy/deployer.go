@@ -17,6 +17,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/archive"
 	"github.com/robert-mcdermott/moorage/internal/build"
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -47,6 +48,8 @@ type Options struct {
 	Reload func(context.Context) error
 	// Secrets seals and opens secret variables.
 	Secrets Keyring
+	// Events hears of deployments and releases.
+	Events *events.Bus
 	// URL returns an environment's address, for the log.
 	URL func(app, env string) string
 	// Builds bounds how many builds run at once (default: half the CPUs).
@@ -197,6 +200,7 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 		os.RemoveAll(dir)
 		return store.Deployment{}, false, err
 	}
+	d.emit(ctx, events.DeploymentQueued, dep, nil)
 	d.enqueue(dep)
 	return dep, created, nil
 }
@@ -291,6 +295,41 @@ func (d *Deployer) finish(dep store.Deployment, status, msg string, output []str
 	if err := d.db.FinishDeployment(context.Background(), dep.ID, status, msg, output); err != nil {
 		d.log.Error("record the end of a deployment", "deployment", dep.ID, "err", err)
 	}
+	switch status {
+	case store.Failed:
+		d.emit(context.Background(), events.DeploymentFailed, dep, map[string]any{"error": msg})
+	case store.Superseded:
+		d.emit(context.Background(), events.DeploymentSuperseded, dep, nil)
+	case store.Canceled:
+		d.emit(context.Background(), events.DeploymentCanceled, dep, nil)
+	}
+}
+
+// emit says what happened to a deployment.
+func (d *Deployer) emit(ctx context.Context, kind string, dep store.Deployment, data map[string]any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["deployment"] = dep.ID
+	if s := describeSource(dep); s != "" {
+		data["source"] = s
+	}
+	d.opts.Events.Publish(ctx, store.Event{Type: kind, App: dep.App, Env: dep.Env, Actor: dep.CreatedBy, Data: data})
+}
+
+// describeSource says where a deployment came from, in a few words.
+func describeSource(dep store.Deployment) string {
+	switch {
+	case dep.SourceType == SourceImage:
+		return "image " + dep.SourceRef
+	case dep.SourceCommit != "":
+		commit := dep.SourceCommit
+		if len(commit) > 7 {
+			commit = commit[:7]
+		}
+		return "push " + strings.TrimPrefix(dep.SourceRef, "refs/heads/") + "@" + commit
+	}
+	return ""
 }
 
 // run builds and publishes a queued deployment.
@@ -323,6 +362,7 @@ func (d *Deployer) run(dep store.Deployment) {
 		return
 	}
 	d.db.SetDeploymentStatus(ctx, dep.ID, store.Building)
+	d.emit(ctx, events.DeploymentStarted, dep, nil)
 	start := time.Now()
 	dir := filepath.Join(d.opts.DataDir, "builds", dep.App, dep.BuildID)
 	vars, redact, err := d.buildVars(ctx, dep.App, dep.Env)
@@ -396,6 +436,7 @@ func (d *Deployer) run(dep store.Deployment) {
 	build.Marker(logFile, "✔ live       v%d  %s  (%s)", rel.Version, d.opts.URL(dep.App, dep.Env), time.Since(dep.CreatedAt).Round(100*time.Millisecond))
 	logFile.Close()
 	d.finish(dep, store.Live, "", nil)
+	d.emit(ctx, events.DeploymentLive, dep, map[string]any{"version": rel.Version, "url": d.opts.URL(dep.App, dep.Env)})
 	d.log.Info("deployed", "app", dep.App, "env", dep.Env, "release", rel.Version, "build", b.ID, "deployment", dep.ID)
 	d.collect(dep.App, res.Plan.Deploy.KeepReleases)
 }
@@ -547,6 +588,11 @@ func (d *Deployer) Publish(ctx context.Context, req PublishRequest) (store.Relea
 	}
 	d.finish(dep, store.Live, "", nil)
 	dep.Status, dep.ReleaseID, dep.Version = store.Live, rel.ID, rel.Version
+	if req.Reason == "deploy" {
+		d.emit(ctx, events.DeploymentLive, dep, map[string]any{"version": rel.Version, "url": d.opts.URL(app, env)})
+	} else {
+		d.emit(ctx, events.ReleaseCreated, dep, map[string]any{"version": rel.Version, "reason": req.Reason, "url": d.opts.URL(app, env)})
+	}
 	d.collect(app, plan.Deploy.KeepReleases)
 	return rel, dep, nil
 }

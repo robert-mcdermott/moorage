@@ -254,6 +254,66 @@
         ],
         "type": "object"
       },
+      "Event": {
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "env": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "transient": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "type",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "EventPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "Exit": {
         "properties": {
           "at": {
@@ -1882,6 +1942,144 @@
         "summary": "Stream a deployment's log",
         "tags": [
           "deployments"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/events": {
+      "get": {
+        "operationId": "getEvents",
+        "parameters": [
+          {
+            "description": "Only what happened to this app.",
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The next_cursor of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only what happened to this environment.",
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many items to return (at most 200).",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List what happened, newest first",
+        "tags": [
+          "events"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/events/stream": {
+      "get": {
+        "operationId": "getEventsStream",
+        "parameters": [
+          {
+            "description": "Start after this event's ID, as the Last-Event-ID header also does.",
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only what happens to this app.",
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only what happens to this environment.",
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            },
+            "description": "Server-sent events, whose data is each a JSON document and whose id is the event's."
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Follow what happens, as server-sent events",
+        "tags": [
+          "events"
         ],
         "x-moorage-permission": "read"
       }

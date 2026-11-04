@@ -122,6 +122,9 @@ func operation(rt route, schemas map[string]any) map[string]any {
 	case rt.stream != nil:
 		ok["description"] = "A stream of lines, each a JSON document."
 		ok["content"] = map[string]any{apitypes.NDJSONType: map[string]any{"schema": schemaFor(reflect.TypeOf(rt.stream), schemas)}}
+	case rt.sse != nil:
+		ok["description"] = "Server-sent events, whose data is each a JSON document and whose id is the event's."
+		ok["content"] = map[string]any{apitypes.SSEType: map[string]any{"schema": schemaFor(reflect.TypeOf(rt.sse), schemas)}}
 	}
 	problemRef := map[string]any{"$ref": "#/components/responses/Problem"}
 	responses := map[string]any{fmt.Sprint(status): ok, "default": problemRef}

@@ -693,10 +693,52 @@ directory, supervises it, and serves it on its own hostname.
        download, leaving the installed copy alone. CI runs them for real against the
        published releases: on Linux on x64 and ARM, macOS, Windows on x64 and Windows 11
        on ARM, in both PowerShells, as root, and upgrading under a running server.
+   - Found by slice 1:
+     - An app's supervisors keep `moor.exe` open on Windows, so it cannot be replaced,
+       or stopped first, as a program with no such helpers can. It can be renamed: the
+       installer moves it aside, and a later run clears it away.
+     - A step's `shell` in a workflow cannot read the matrix, which made GitHub reject
+       the whole file with no jobs at all. The job's `defaults` can.
+     - Windows PowerShell started from PowerShell 7 inherits a module path where it
+       cannot find `Get-FileHash`. The tests start it that way, and a person could. The
+       installer computes the hash with .NET then.
+     - Until a release follows 0.2.0, CI on Windows can only show moving a running file
+       aside for a copy of the same version.
 2. **Console foundation.** Layout and CSS design tokens (light and dark),
    templates, the first-run wizard, grown from the account pages of wave 2,
    slice 3 (sign-in, the claim, CSRF-protected forms), the event
    bus with one SSE stream, the activity timeline, the command palette.
+   - Done in slice 2:
+     - `internal/events`: the bus and its store, with 90 days' retention, and what
+       publishes: deployments, releases, changes of variables, instances that exit,
+       sicken, recover or are replaced, and the server starting.
+     - `GET /api/v1/events`, `GET /api/v1/events/stream` as server-sent events that
+       catch up after a reconnection, and `moor events [-f]`.
+     - The console's frame: templates and fingerprinted assets embedded in the binary,
+       CSS design tokens with light, dark and a manual choice, phone width, and a
+       strict CSP with no inline scripts or styles, which the account pages keep too.
+     - Pages: the apps list, Activity, and Getting started; the command palette;
+       copying commands; times that stay true; live updates over one stream.
+     - `moor server run --dev`, which reads the console from the source tree.
+     - Verified by tests of the pages (that each keeps to the policy, and that a signed-out
+       visitor is sent to sign in), of the bus, and of the stream through a whole server:
+       replay, restricted tokens, and a server stopping with followers. And in a real
+       browser against a real server, in both themes and at phone width, with events
+       arriving live and no console errors. WCAG AA contrast was computed for the text
+       colours on their surfaces, in both themes; a screen reader was not tried.
+   - Found by slice 2:
+     - The wizard was to set the domain and TLS. They are in `server.toml`, chosen by
+       `moor server init`, and the server needs them before anyone can reach the page. It
+       shows them, with the doctor's checks, and says how to fix what is wrong.
+     - The console needed the doctor, which needed the server, which serves the console.
+       The data directory's layout moved to `internal/layout`, below all three.
+     - A deployment's "started" comes a moment after its "queued", and made the timeline
+       three lines per deployment. It is now transient: for those following now, not kept.
+     - Over plain HTTP, a browser allows six connections to a server, and each page
+       following events holds one, so a seventh tab would hang. A page out of sight lets
+       its connection go, and catches up when it returns.
+     - Security events (sign-ins, tokens) wait for the audit log of wave 4: until roles
+       arrive, this feed is one that every member can read.
 3. **Apps and deployments.** The dashboard; the app overview with
    environments and instances; deployments with the live stage timeline and
    log, the resolved manifest and the release diff; deploy, rollback,

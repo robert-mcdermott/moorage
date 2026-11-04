@@ -179,8 +179,8 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 Moorage 0.2.0 is a server on Linux or macOS for a team: it builds and deploys
 apps from their source or a `git push`, in containers or not, with accounts and
 API tokens. On Windows, `moor` works as a command line and `moor server run` works;
-the Windows service comes later. There is no web console yet: everything is done
-with `moor`.
+the Windows service comes later. The [web console](docs/console.md) is arriving, a
+slice at a time: everything is done with `moor` for now.
 
 Next, in the [roadmap](spec/11-roadmap.md):
 

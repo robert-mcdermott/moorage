@@ -2,6 +2,7 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -386,6 +387,64 @@ func (c *Client) FollowDeployment(ctx context.Context, id string, fn func(apityp
 // DeployStatic deploys the files under dir as a static site with rules.
 func (c *Client) DeployStatic(ctx context.Context, app, env, dir string, rules manifest.Static, skip func(string, fs.DirEntry) bool) (apitypes.Deployment, PackStats, error) {
 	return c.Deploy(ctx, app, env, dir, manifest.Plan{Kind: manifest.KindStatic, Static: &rules}, skip)
+}
+
+// Events lists what happened, newest first: to an app and an environment, if
+// given. limit bounds them.
+func (c *Client) Events(ctx context.Context, app, env string, limit int) ([]apitypes.Event, error) {
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
+	if app != "" {
+		q.Set("app", app)
+	}
+	if env != "" {
+		q.Set("env", env)
+	}
+	var page apitypes.Page[apitypes.Event]
+	err := c.do(ctx, http.MethodGet, "/api/v1/events?"+q.Encode(), nil, "", &page)
+	return page.Items, err
+}
+
+// FollowEvents calls fn with what happens, after the event named by after, until
+// the server stops, fn fails or ctx ends.
+func (c *Client) FollowEvents(ctx context.Context, app, env, after string, fn func(apitypes.Event) error) error {
+	q := url.Values{}
+	if app != "" {
+		q.Set("app", app)
+	}
+	if env != "" {
+		q.Set("env", env)
+	}
+	if after != "" {
+		q.Set("after", after)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+"/api/v1/events/stream?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	sc := bufio.NewScanner(res.Body)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() {
+		data, ok := strings.CutPrefix(sc.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		var e apitypes.Event
+		if err := json.Unmarshal([]byte(data), &e); err != nil {
+			return err
+		}
+		if err := fn(e); err != nil {
+			return err
+		}
+	}
+	if err := sc.Err(); err != nil && ctx.Err() == nil {
+		return err
+	}
+	return nil
 }
 
 // Instances lists an environment's instances.
