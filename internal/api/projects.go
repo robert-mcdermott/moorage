@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -274,30 +276,98 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, apitypes.App{Name: name, URL: s.appURL(name), Project: projectName})
 }
 
-// changeApp moves an app to another project, which takes managing both.
+// appInfo says how an app stands in the project, and how much room it takes.
+func (s *Server) appInfo(w http.ResponseWriter, r *http.Request) {
+	app := r.PathValue("app")
+	project, err := s.db.AppProject(r.Context(), app)
+	if s.projectFailed(w, err) {
+		return
+	}
+	usage := s.deployer.Usage(app)
+	writeJSON(w, http.StatusOK, apitypes.AppInfo{
+		App:    apitypes.App{Name: app, URL: s.appURL(app), Project: project.Name},
+		Builds: usage.Builds, Logs: usage.Logs, Repository: usage.Repository, Data: usage.Data,
+	})
+}
+
+// changeApp moves an app to another project, which takes managing both, or renames it.
 func (s *Server) changeApp(w http.ResponseWriter, r *http.Request) {
 	app := r.PathValue("app")
 	var req apitypes.AppChange
 	if !decode(w, r, &req) {
 		return
 	}
-	project, err := s.db.ProjectByName(r.Context(), req.Project)
+	if req.Project != "" {
+		project, err := s.db.ProjectByName(r.Context(), req.Project)
+		if s.projectFailed(w, err) {
+			return
+		}
+		access, err := s.auth.ProjectAccess(r.Context(), who(r), project)
+		if err != nil {
+			s.internal(w, err)
+			return
+		}
+		if !access.Manage {
+			problem(w, http.StatusForbidden, "forbidden", "Moving an app to "+req.Project+" takes being a maintainer of it.")
+			return
+		}
+		if s.projectFailed(w, s.db.MoveApp(r.Context(), app, req.Project)) {
+			return
+		}
+	}
+	if req.Name != "" {
+		if s.lifecycleFailed(w, s.deployer.RenameApp(lasting(r), app, req.Name, who(r).Name)) {
+			return
+		}
+		app = req.Name
+	}
+	project, err := s.db.AppProject(r.Context(), app)
 	if s.projectFailed(w, err) {
 		return
 	}
-	access, err := s.auth.ProjectAccess(r.Context(), who(r), project)
-	if err != nil {
+	writeJSON(w, http.StatusOK, apitypes.App{Name: app, URL: s.appURL(app), Project: project.Name})
+}
+
+// lasting is the context of what must not stop halfway if whoever asked goes away.
+func lasting(r *http.Request) context.Context { return context.WithoutCancel(r.Context()) }
+
+// lifecycleFailed answers what went wrong with renaming or deleting an app.
+func (s *Server) lifecycleFailed(w http.ResponseWriter, err error) bool {
+	var (
+		busy    *deploy.AppBusyError
+		taken   *deploy.NameTakenError
+		invalid *deploy.InvalidNameError
+		rollout *reconcile.RolloutError
+	)
+	switch {
+	case err == nil:
+		return false
+	case errors.As(err, &busy):
+		problem(w, http.StatusConflict, "app_busy", sentenceOf(err))
+	case errors.As(err, &taken):
+		problem(w, http.StatusConflict, "name_taken", sentenceOf(err))
+	case errors.As(err, &invalid):
+		problem(w, http.StatusUnprocessableEntity, "invalid_app_name", err.Error())
+	case errors.As(err, &rollout):
+		writeProblem(w, apitypes.Problem{
+			Title: "Starting it again failed", Status: http.StatusUnprocessableEntity, Code: "restart_failed",
+			Detail: "It has its new name, and it could not start under it: " + rollout.Message, Output: rollout.Output,
+		})
+	case errors.Is(err, store.ErrNotFound):
+		problem(w, http.StatusNotFound, "not_found", sentenceOf(err))
+	default:
 		s.internal(w, err)
+	}
+	return true
+}
+
+// deleteApp removes an app, and everything of it unless ?keep_data=true.
+func (s *Server) deleteApp(w http.ResponseWriter, r *http.Request) {
+	keep := r.URL.Query().Get("keep_data") == "true"
+	if s.lifecycleFailed(w, s.deployer.DeleteApp(lasting(r), r.PathValue("app"), who(r).Name, keep)) {
 		return
 	}
-	if !access.Manage {
-		problem(w, http.StatusForbidden, "forbidden", "Moving an app to "+req.Project+" takes being a maintainer of it.")
-		return
-	}
-	if s.projectFailed(w, s.db.MoveApp(r.Context(), app, req.Project)) {
-		return
-	}
-	writeJSON(w, http.StatusOK, apitypes.App{Name: app, URL: s.appURL(app), Project: req.Project})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // revealVar reads a secret's value, and keeps a record of who did.

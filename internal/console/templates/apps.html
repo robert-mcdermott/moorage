@@ -7,6 +7,7 @@
   {{if .Access.Logs}}<a href="/apps/{{.App.Name}}/logs"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>{{end}}
   {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/variables"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
   <a href="/apps/{{.App.Name}}/deploy"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
+  {{if .Access.Manage}}<a href="/apps/{{.App.Name}}/settings"{{if eq .Tab "settings"}} aria-current="page"{{end}}>Settings</a>{{end}}
 </nav>
 {{end}}
 
@@ -22,6 +23,7 @@
 {{end}}
 
 {{define "apps"}}
+{{template "failure" .}}
 <div class="page-actions">
   <input class="filter" type="search" aria-label="Filter the apps" placeholder="Filter the apps" data-filter-apps hidden>
   <a class="button" href="/new">New app</a>
@@ -384,4 +386,50 @@
   <span class="badge pulse">Waiting</span>
   <span>The next deployment of {{.App.Name}} will show as soon as it starts.</span>
 </div>
+{{end}}
+
+{{define "app-settings"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{$current := .Access.Project.Name}}
+<div class="deploy-ways">
+  <section class="panel panel-pad">
+    <h2>Project</h2>
+    <p class="muted">Who may do what comes from its project. Moving it takes being a maintainer of both.</p>
+    <form method="post" action="/apps/{{$app}}/settings/move" data-busy="Moving…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="move-project">Project</label>
+        <select id="move-project" name="project">{{range .Projects}}<option value="{{.Name}}"{{if eq .Name $current}} selected{{end}}>{{.Name}}</option>{{end}}</select>
+      </div>
+      <div class="actions"><button class="quiet" type="submit">Move it</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>Name</h2>
+    <p class="muted">Its name is its address and its git remote. Its instances stop and start again under the new one, so there is a moment of downtime, and the old address stops answering.</p>
+    <form method="post" action="/apps/{{$app}}/settings/rename" data-busy="Renaming…" data-confirm="Rename {{$app}}? Its instances restart, and its old address stops answering.">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="rename">New name</label><input id="rename" name="name" value="{{$app}}" required autocomplete="off" spellcheck="false"></div>
+      <div class="actions"><button class="quiet" type="submit">Rename it</button></div>
+    </form>
+  </section>
+</div>
+<section class="block panel panel-pad danger-zone">
+  <h2>Delete this app</h2>
+  <p>This stops its instances and removes its variables, releases and everything below. It cannot be undone.</p>
+  <dl class="facts usage">
+    <dt>Builds</dt><dd>{{size .Usage.Builds}}</dd>
+    <dt>Logs</dt><dd>{{size .Usage.Logs}}</dd>
+    <dt>Repository</dt><dd>{{size .Usage.Repository}}</dd>
+    <dt>Data directory</dt><dd>{{size .Usage.Data}}</dd>
+  </dl>
+  <form method="post" action="/apps/{{$app}}/settings/delete" data-busy="Deleting…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="check"><input type="checkbox" name="keep_data" value="1"> Keep its data directory, for an app of this name later</label>
+    <div class="field narrow-form"><label for="confirm-name">To go on, type <code>{{$app}}</code></label><input id="confirm-name" name="confirm" required autocomplete="off" spellcheck="false"></div>
+    <div class="actions"><button class="danger-solid" type="submit">Delete {{$app}}</button></div>
+  </form>
+</section>
 {{end}}

@@ -530,9 +530,19 @@ type NewApp struct {
 	Project string `json:"project,omitempty"`
 }
 
-// AppChange moves an app to another project.
+// AppChange moves an app to another project, or gives it another name.
 type AppChange struct {
-	Project string `json:"project"`
+	Project string `json:"project,omitempty"`
+	Name    string `json:"name,omitempty"`
+}
+
+// AppInfo is an app, with how much room it takes, in bytes.
+type AppInfo struct {
+	App
+	Builds     int64 `json:"builds"`
+	Logs       int64 `json:"logs"`
+	Repository int64 `json:"repository"`
+	Data       int64 `json:"data"`
 }
 
 // RevealedVar is a secret's value.

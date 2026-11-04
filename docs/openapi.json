@@ -41,12 +41,54 @@
       },
       "AppChange": {
         "properties": {
+          "name": {
+            "type": "string"
+          },
           "project": {
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "AppInfo": {
+        "properties": {
+          "builds": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "data": {
+            "type": "integer"
+          },
+          "logs": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "production": {
+            "$ref": "#/components/schemas/Release"
+          },
+          "project": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
         "required": [
-          "project"
+          "name",
+          "url",
+          "created_at",
+          "builds",
+          "logs",
+          "repository",
+          "data"
         ],
         "type": "object"
       },
@@ -1523,6 +1565,101 @@
       }
     },
     "/apps/{app}": {
+      "delete": {
+        "operationId": "deleteAppsApp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "true keeps its data directory.",
+            "in": "query",
+            "name": "keep_data",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete an app and everything of it; keep_data=true keeps its data directory",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      },
+      "get": {
+        "operationId": "getAppsApp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppInfo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "An app, its project, and how much room it takes",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
       "patch": {
         "operationId": "patchAppsApp",
         "parameters": [
@@ -1574,7 +1711,7 @@
             "session": []
           }
         ],
-        "summary": "Move an app to another project",
+        "summary": "Move an app to another project, or rename it, which restarts it",
         "tags": [
           "apps"
         ],

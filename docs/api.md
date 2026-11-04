@@ -60,7 +60,9 @@ of variables, their names only.
 with its apps and members. An app that you have no role with answers 404, as if it did not
 exist; one that your role does not allow answers 403, and says which role would. `PUT` and
 `DELETE /projects/{project}/members/{user}` change who is what, by email address or ID.
-`POST /apps` makes an app in a project, and `PATCH /apps/{app}` moves one. `POST
+`POST /apps` makes an app in a project, `GET /apps/{app}` says how much room it takes,
+`PATCH /apps/{app}` moves or renames it, and `DELETE /apps/{app}` removes it, with
+`?keep_data=true` to keep its data directory. `POST
 …/vars/{name}/reveal` reads a secret, and is recorded, as is everything at `GET /audit`.
 
 ## Logs

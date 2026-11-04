@@ -710,3 +710,26 @@ func (c *Client) Audit(ctx context.Context, f AuditQuery) ([]apitypes.AuditEntry
 	err := c.do(ctx, http.MethodGet, "/api/v1/audit?"+q.Encode(), nil, "", &page)
 	return page.Items, err
 }
+
+// AppInfo returns an app, its project, and how much room it takes.
+func (c *Client) AppInfo(ctx context.Context, name string) (apitypes.AppInfo, error) {
+	var out apitypes.AppInfo
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(name), nil, "", &out)
+	return out, err
+}
+
+// RenameApp gives an app another name.
+func (c *Client) RenameApp(ctx context.Context, name, to string) (apitypes.App, error) {
+	var out apitypes.App
+	err := c.post(ctx, http.MethodPatch, "/api/v1/apps/"+url.PathEscape(name), apitypes.AppChange{Name: to}, &out)
+	return out, err
+}
+
+// DeleteApp removes an app.
+func (c *Client) DeleteApp(ctx context.Context, name string, keepData bool) error {
+	path := "/api/v1/apps/" + url.PathEscape(name)
+	if keepData {
+		path += "?keep_data=true"
+	}
+	return c.do(ctx, http.MethodDelete, path, nil, "", nil)
+}

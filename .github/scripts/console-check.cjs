@@ -47,7 +47,7 @@ function moor(...args) {
 
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
-    '/apps/shop/variables/edit', '/apps/shop/deploy', '/account', '/account/keys', '/account/tokens', '/account/sessions',
+    '/apps/shop/variables/edit', '/apps/shop/deploy', '/apps/shop/settings', '/account', '/account/keys', '/account/tokens', '/account/sessions',
     '/settings', '/settings/users', '/settings/registries', '/settings/system', '/settings/audit', '/projects', '/projects/default'];
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
@@ -174,6 +174,18 @@ function moor(...args) {
   await page.waitForSelector('.secret-once');
   check('a token is shown once', (await page.textContent('.secret-once')).includes('moor_'));
   quiet('the tokens');
+
+  // An app made and deleted, which asks for its name first.
+  await page.goto(base + '/new');
+  await page.fill('#name', 'brief-app');
+  await page.click('button:has-text("Next")');
+  await page.waitForURL('**/apps/brief-app/deploy');
+  await page.goto(base + '/apps/brief-app/settings');
+  await page.fill('#confirm-name', 'brief-app');
+  await page.click('button:has-text("Delete brief-app")');
+  await page.waitForURL('**/?done=deleted');
+  check('an app is made and deleted', (await page.textContent('main')).includes('The app is deleted'));
+  quiet('deleting an app');
 
   // Signing out.
   await page.goto(base + '/account');

@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Renaming and deleting apps (wave 4, slice 3).** `moor apps rename`, `moor apps delete`, and an app's Settings page, which also moves it to another project. Renaming moves everything of it and starts it again under the new name. Deleting says how much room each part takes, asks for its name, and can keep its data directory. `moor apps info` and `GET /api/v1/apps/{app}` say how much room an app takes.
 - **Projects and roles (wave 4, slice 2).** Apps belong to projects, and people have roles in them: viewers see an app and its logs, deployers also deploy, restart, roll back and scale, and maintainers also change its variables and the project's members. Those with no role cannot tell its apps exist. An upgrade changes nothing: every app goes in a `default` project where everyone is a maintainer, until you say otherwise. `moor projects`, `moor apps create --project`, `moor apps move`, and a Projects page; the console shows what your role allows. See [Projects and roles](docs/accounts.md#projects-and-roles).
 - **The audit log.** Every change through the API or the console, every sign-in, push and secret revealed, kept for a year, with who, from where, what to, and how it went. `moor audit`, `GET /api/v1/audit`, and Settings for administrators.
 - **Revealing a secret.** `moor env reveal NAME`, and a button for maintainers. It shows the value once, and is recorded.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/ingress/static"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 )
 
@@ -111,6 +112,22 @@ func (rt *Router) access(rte route, e accessEntry) {
 	rt.logsMu.Unlock()
 	line, _ := json.Marshal(e)
 	f.Write(append(line, '\n'))
+}
+
+// ForgetApp lets go of an app's files, which are moving or going: its access logs, and the
+// sites read from its builds, which the next reload reads from wherever they are then.
+func (rt *Router) ForgetApp(app string) {
+	rt.mu.Lock()
+	rt.sites = map[string]*static.Site{}
+	rt.mu.Unlock()
+	rt.logsMu.Lock()
+	defer rt.logsMu.Unlock()
+	for key, f := range rt.accessLogs {
+		if strings.HasPrefix(key, app+"/") {
+			f.Close()
+			delete(rt.accessLogs, key)
+		}
+	}
 }
 
 // Close closes the access logs.

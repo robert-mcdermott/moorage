@@ -30,6 +30,7 @@ import (
 type Runtime interface {
 	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
 	Retire(app, env string)
+	Forget(app string)
 	Restart(ctx context.Context, app, env string) error
 	Scale(ctx context.Context, app, env string, change map[string]int) (map[string]int, error)
 	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error
@@ -54,6 +55,8 @@ type Options struct {
 	Events *events.Bus
 	// Repos holds what was pushed, to build it again.
 	Repos *gitserver.Repos
+	// ForgetApp has the router let go of an app's files, which are about to move or go.
+	ForgetApp func(app string)
 	// URL returns an environment's address, for the log.
 	URL func(app, env string) string
 	// Builds bounds how many builds run at once (default: half the CPUs).

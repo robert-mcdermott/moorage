@@ -31,6 +31,8 @@ const (
 	ConfigChanged        = "config.changed"
 	ScaleChanged         = "scale.changed"
 	AppRestarted         = "app.restarted"
+	AppRenamed           = "app.renamed"
+	AppDeleted           = "app.deleted"
 	ServerStarted        = "server.started"
 )
 
@@ -163,8 +165,10 @@ func Level(kind string) string {
 		return "fail"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
-	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted:
+	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed:
 		return "info"
+	case AppDeleted:
+		return "warn"
 	}
 	return ""
 }
@@ -253,6 +257,10 @@ func Summary(e store.Event) string {
 		return "Scaled to " + text(e, "formation") + by
 	case AppRestarted:
 		return "Restarted" + by
+	case AppRenamed:
+		return "Renamed from " + text(e, "from") + by
+	case AppDeleted:
+		return "Deleted" + by
 	case ServerStarted:
 		if v := text(e, "version"); v != "" {
 			return "The server started, version " + v

@@ -14,9 +14,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -1341,4 +1344,234 @@ func testAuth(t *testing.T, cfg config.Config) *auth.Service {
 	}
 	t.Cleanup(func() { db.Close() })
 	return &auth.Service{DB: db}
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// TestRenameAndDeleteAnApp takes an app with real instances through its last changes.
+func TestRenameAndDeleteAnApp(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	b := signIn(t, cfg, addrs)
+	ctx := context.Background()
+	token := b.token()
+	if _, err := deployApp(t, c, "shop", appPlan(map[string]string{"TESTAPP_BODY": "the first"})); err != nil {
+		t.Fatal(err)
+	}
+	if err := setSecret(c, "shop", "API_KEY", "a-long-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := deployApp(t, c, "shop", appPlan(map[string]string{"TESTAPP_BODY": "the second"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Scale(ctx, "shop", "production", map[string]int{"web": 2}); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(cfg.DataDir, "data")
+	if err := os.MkdirAll(filepath.Join(data, "shop", "production"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "shop", "production", "kept.txt"), []byte("kept"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := c.AppInfo(ctx, "shop")
+	if err != nil || info.Project != "default" || info.Data != 4 || info.Logs == 0 {
+		t.Errorf("%+v %v", info, err)
+	}
+
+	// The page says what there is, and asks first.
+	_, page := b.get("/apps/shop/settings")
+	contains(t, "the settings", page, "Delete this app", "4 B", "Rename it", "Move it", "To go on, type")
+	if res, body := b.post("/apps/shop/settings/delete", url.Values{"csrf": {token}, "confirm": {"wrong"}}); res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "Nothing was deleted") {
+		t.Errorf("the wrong name: %d", res.StatusCode)
+	}
+	if res, body := b.post("/apps/shop/settings/rename", url.Values{"csrf": {token}, "name": {"Not A Name"}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("a bad name: %d %s", res.StatusCode, body[:min(200, len(body))])
+	}
+
+	// Renaming: every part of it follows, and it serves under the new name.
+	if _, err := c.CreateApp(ctx, "other", ""); err != nil {
+		t.Fatal(err)
+	}
+	var problem *client.APIError
+	if _, err := c.RenameApp(ctx, "shop", "other"); !errors.As(err, &problem) || problem.Code != "name_taken" {
+		t.Errorf("a name in use: %v", err)
+	}
+	res, body := b.post("/apps/shop/settings/rename", url.Values{"csrf": {token}, "name": {"store"}})
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/apps/store/settings?done=renamed" {
+		t.Fatalf("%d %s\n%s", res.StatusCode, res.Header.Get("Location"), body)
+	}
+	if got, served := get(t, addrs.HTTP, "store.localhost", "/"); got.StatusCode != http.StatusOK || !strings.Contains(served, "the second") {
+		t.Errorf("under the new name: %d %q", got.StatusCode, served)
+	}
+	if got, _ := get(t, addrs.HTTP, "shop.localhost", "/"); got.StatusCode != http.StatusNotFound {
+		t.Errorf("under the old name: %d", got.StatusCode)
+	}
+	if _, served := get(t, addrs.HTTP, "store.localhost", "/env?name=API_KEY"); served != "a-long-secret-value" {
+		t.Errorf("its secret: %q", served)
+	}
+	if _, served := get(t, addrs.HTTP, "store.localhost", "/env?name=MOORAGE_APP"); served != "store" {
+		t.Errorf("its name: %q", served)
+	}
+	if ins := instances(t, c, "store"); len(ins) != 2 {
+		t.Errorf("its number of instances: %+v", ins)
+	}
+	if ins := instances(t, c, "shop"); len(ins) != 0 {
+		t.Errorf("under the old name: %+v", ins)
+	}
+	if !exists(filepath.Join(data, "store", "production", "kept.txt")) || exists(filepath.Join(data, "shop")) {
+		t.Errorf("its data did not move")
+	}
+	_, page = b.get("/apps/store")
+	contains(t, "the app", page, "web.1", "Healthy", "Renamed from shop by owner@example.com")
+	if res, _ := b.get("/apps/shop"); res.StatusCode != http.StatusNotFound {
+		t.Errorf("the old page: %d", res.StatusCode)
+	}
+	waitUntil(t, "its logs", func() bool {
+		_, page := b.get("/apps/store/logs")
+		return strings.Contains(page, "web.1")
+	})
+	deps, err := c.Deployments(ctx, "store", "production", 5)
+	if err != nil || len(deps) == 0 {
+		t.Fatalf("%v %v", deps, err)
+	}
+	_, page = b.get("/deployments/" + deps[0].ID)
+	contains(t, "a deployment from before", page, "✔ live")
+
+	// Rolling back reaches a build from before, where it has moved to.
+	if _, err := c.Rollback(ctx, "store", "production", 1); err != nil {
+		t.Fatalf("a rollback after renaming: %v", err)
+	}
+	if _, served := get(t, addrs.HTTP, "store.localhost", "/"); !strings.Contains(served, "the first") {
+		t.Errorf("served %q", served)
+	}
+
+	// Moving it.
+	if _, err := c.CreateProject(ctx, "payments"); err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := b.post("/apps/store/settings/move", url.Values{"csrf": {token}, "project": {"payments"}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	if info, err := c.AppInfo(ctx, "store"); err != nil || info.Project != "payments" {
+		t.Errorf("%+v %v", info, err)
+	}
+	if res, _ := b.post("/apps/store/settings/move", url.Values{"csrf": {token}, "project": {"nothing"}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("no such project: %d", res.StatusCode)
+	}
+
+	// A deployment under way waits for nothing to be done to the app.
+	db, err := store.Open(ctx, NewLayout(cfg.DataDir).Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	running := store.Deployment{ID: "dep_01M6JAE1CDN5QDNB0X4803DRW3", App: "store", Env: "production", SourceType: "source-upload", Status: store.Building, CreatedAt: time.Now()}
+	if err := db.CreateDeployment(ctx, running); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteApp(ctx, "store", false); !errors.As(err, &problem) || problem.Code != "app_busy" {
+		t.Errorf("during a deployment: %v", err)
+	}
+	if res, body := b.post("/apps/store/settings/delete", url.Values{"csrf": {token}, "confirm": {"store"}}); res.StatusCode != http.StatusConflict || !strings.Contains(body, "under way") {
+		t.Errorf("during a deployment: %d", res.StatusCode)
+	}
+	if err := db.FinishDeployment(ctx, running.ID, store.Failed, "stopped", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Deleting it, keeping its data.
+	pids := instances(t, c, "store")
+	res, body = b.post("/apps/store/settings/delete", url.Values{"csrf": {token}, "confirm": {"store"}, "keep_data": {"1"}})
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/?done=deleted" {
+		t.Fatalf("%d %s\n%s", res.StatusCode, res.Header.Get("Location"), body)
+	}
+	_, list := b.get("/?done=deleted")
+	contains(t, "the apps", list, "The app is deleted.")
+	if strings.Contains(list, `data-app-row="store"`) {
+		t.Errorf("still listed:\n%s", list)
+	}
+	if got, _ := get(t, addrs.HTTP, "store.localhost", "/"); got.StatusCode != http.StatusNotFound {
+		t.Errorf("still served: %d", got.StatusCode)
+	}
+	if _, err := c.AppInfo(ctx, "store"); !errors.As(err, &problem) || problem.Status != http.StatusNotFound {
+		t.Errorf("%v", err)
+	}
+	for _, in := range pids {
+		if platformAlive(in.PID) {
+			t.Errorf("an instance is still running: %d", in.PID)
+		}
+	}
+	for _, gone := range []string{
+		filepath.Join(cfg.DataDir, "builds", "store"), filepath.Join(cfg.DataDir, "logs", "apps", "store"),
+		filepath.Join(cfg.DataDir, "logs", "deployments", "store"), filepath.Join(cfg.DataDir, "logs", "router", "store"),
+	} {
+		if exists(gone) {
+			t.Errorf("%s is still there", gone)
+		}
+	}
+	if !exists(filepath.Join(data, "store", "production", "kept.txt")) {
+		t.Errorf("its data was not kept")
+	}
+
+	// A new app of that name starts afresh, with the data that was kept.
+	if _, err := deployApp(t, c, "store", appPlan(nil)); err != nil {
+		t.Fatal(err)
+	}
+	vars, err := c.Vars(ctx, "store", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v.Name == "API_KEY" {
+			t.Errorf("a variable of the old app: %+v", v)
+		}
+	}
+	rels, err := c.Releases(ctx, "store", "production")
+	if err != nil || len(rels) != 1 || rels[0].Version != 1 {
+		t.Errorf("%+v %v", rels, err)
+	}
+
+	// And everything goes without being asked to keep it.
+	if err := c.DeleteApp(ctx, "store", false); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(data, "store")) {
+		t.Errorf("its data is still there")
+	}
+	if err := c.DeleteApp(ctx, "store", false); !errors.As(err, &problem) || problem.Status != http.StatusNotFound {
+		t.Errorf("deleting it twice: %v", err)
+	}
+
+	// A static site has no instances to start again.
+	if d, _ := deploySource(t, c, "docs", map[string]string{"index.html": "<h1>the docs</h1>"}); d.Status != "live" {
+		t.Fatalf("%+v", d)
+	}
+	if _, err := c.RenameApp(ctx, "docs", "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if _, served := get(t, addrs.HTTP, "manual.localhost", "/"); !strings.Contains(served, "the docs") {
+		t.Errorf("served %q", served)
+	}
+	_, audit := b.get("/settings/audit?action=delete")
+	contains(t, "who did it", audit, "POST /apps/{app}/settings/delete", "owner@example.com")
+}
+
+func platformAlive(pid int) bool {
+	if pid == 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		defer process.Release()
+		return false // FindProcess fails there for what has gone; there is no signal to ask with
+	}
+	return process.Signal(syscall.Signal(0)) == nil
 }

@@ -336,3 +336,72 @@ func (db *DB) MoveApp(ctx context.Context, app, project string) error {
 		return nil
 	})
 }
+
+// DeleteApp removes an app, and with it its environments, variables, releases, builds and
+// deployments. Events and the audit log keep what happened, by name.
+func (db *DB) DeleteApp(ctx context.Context, name string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		var id string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM apps WHERE name = ?`, name).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("no app %q: %w", name, ErrNotFound)
+		}
+		if err != nil {
+			return err
+		}
+		// The environment names its release, which names its environment: that way round
+		// is the one a cascade cannot do.
+		if _, err := tx.ExecContext(ctx, `UPDATE environments SET current_release_id = NULL WHERE app_id = ?`, id); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM apps WHERE id = ?`, id)
+		return err
+	})
+}
+
+// RenameApp gives an app another name, in everything that holds it.
+func (db *DB) RenameApp(ctx context.Context, from, to string) error {
+	if err := names.ValidateApp(to); err != nil {
+		return err
+	}
+	return db.write(ctx, func(tx *sql.Tx) error {
+		var id string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM apps WHERE name = ?`, from).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("no app %q: %w", from, ErrNotFound)
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE apps SET name = ? WHERE id = ?`, to, id); err != nil {
+			return err
+		}
+		// A build's files are where its app's name says.
+		oldPrefix, newPrefix := "builds/"+from+"/", "builds/"+to+"/"
+		if _, err := tx.ExecContext(ctx, `UPDATE builds SET artifact_ref = ? || substr(artifact_ref, ?)
+			WHERE app_id = ? AND artifact_kind = 'dir' AND artifact_ref LIKE ? || '%'`, newPrefix, len(oldPrefix)+1, id, oldPrefix); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE events SET app = ? WHERE app = ?`, to, from)
+		return err
+	})
+}
+
+// AppImages lists the images an app's builds were made into.
+func (db *DB) AppImages(ctx context.Context, app string) ([]string, error) {
+	rows, err := db.Reader.QueryContext(ctx, `SELECT DISTINCT b.artifact_ref FROM builds b JOIN apps a ON a.id = b.app_id
+		WHERE a.name = ? AND b.artifact_kind = 'image' AND b.collected_at IS NULL`, app)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var image string
+		if err := rows.Scan(&image); err != nil {
+			return nil, err
+		}
+		out = append(out, image)
+	}
+	return out, rows.Err()
+}

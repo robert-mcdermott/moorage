@@ -331,6 +331,14 @@ button.danger:hover { color: var(--fail); border-color: var(--fail); background:
 .row-end { text-align: right; white-space: nowrap; }
 .row-end form + form { margin-left: var(--s2); }
 
+.danger-zone { border-color: var(--fail); }
+.danger-zone h2 { margin-bottom: var(--s2); font-size: 1.05rem; color: var(--fail); }
+.danger-zone .usage { margin: var(--s3) 0; }
+.danger-zone .check { margin-bottom: var(--s3); }
+button.danger-solid { color: #fff; background: var(--fail); border-color: var(--fail); }
+:root[data-theme="dark"] button.danger-solid { color: #1b0c0a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.danger-solid { color: #1b0c0a; } }
+
 /* The dialog that asks first */
 .confirm { width: min(28rem, calc(100vw - 2rem)); padding: var(--s5); margin: 18vh auto auto; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .confirm::backdrop { background: var(--overlay); }

@@ -260,10 +260,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		URL: func(app, env string) string {
 			return cfg.PublicURL(app + "." + cfg.Domain)
 		},
-		GCMinAge: opts.GCMinAge,
-		Secrets:  keyring,
-		Events:   bus,
-		Repos:    repos,
+		GCMinAge:  opts.GCMinAge,
+		Secrets:   keyring,
+		Events:    bus,
+		Repos:     repos,
+		ForgetApp: router.ForgetApp,
 	}, log)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.

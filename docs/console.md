@@ -47,6 +47,24 @@ deployments change as they do. From here:
 | **Roll back** | Serves the release before this one again, as a new release, in seconds. A deployment's page rolls back to that one, and can restore the variables it ran with. | `moor rollback` |
 | **Scale** | Says how many instances of each process run. | `moor scale` |
 
+An app's **Settings** are for maintainers: moving it to another project, renaming it, and
+deleting it.
+
+- **Renaming** changes its address and git remote. Its instances stop and start again under
+  the new name, so there is a moment of downtime. Change `[app].name` in its `moorage.toml` and
+  its git remote to match: a deploy by the old name makes a new app.
+- **Deleting** stops its instances and removes its variables, releases, builds, logs and
+  repository, and its data directory unless you keep it. The page says how much each takes,
+  and asks you to type its name.
+
+```bash
+moor apps rename shop store
+```
+
+```bash
+moor apps delete shop --keep-data
+```
+
 ### Scaling
 
 New instances start beside those running, and take traffic once they are healthy. Those

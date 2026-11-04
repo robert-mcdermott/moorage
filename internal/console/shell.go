@@ -202,6 +202,9 @@ func (c *Console) palette(apps []store.AppSummary, admin bool, access map[string
 				paletteItem{Label: "Deploy " + a.Name, Hint: "App", Href: base + "/deploy"},
 			)
 		}
+		if can.Manage {
+			items = append(items, paletteItem{Label: "Settings of " + a.Name, Hint: "App", Href: base + "/settings"})
+		}
 		items = append(items, paletteItem{Label: "Open " + a.Name, Hint: "Its address", Href: c.appURL(a.Name), External: true})
 	}
 	return append(items,

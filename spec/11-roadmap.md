@@ -871,6 +871,20 @@ directory, supervises it, and serves it on its own hostname.
 3. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
    zone and with `moor apps rename` and `delete`: its instances, builds, logs and
    repository go, and what it keeps in its data directory is said first.
+   - Done in slice 3:
+     - `moor apps rename`, `delete` and `info`, their routes, and an app's Settings page, with
+       moving it to another project. Renaming moves its builds, data, logs and repository, the
+       paths the store holds and its events, and starts it again under the new name, where a
+       rollback still finds the builds from before. Deleting waits for no deployment, says how
+       much each part takes, and asks for the app's name. A later app of that name starts
+       afresh, with the data directory if it was kept.
+     - Verified with real instances: their processes gone, their files gone, and a new app
+       of the same name owing nothing to the old one.
+   - Found by slice 3:
+     - The router keeps a static site by its build's ID, and a rename moves it: the site then
+       could not read its files. The router now lets go of them.
+     - A rename is not without downtime: an instance's paths are in its environment, so it
+       stops before its files move. The address changes anyway, so the page says so.
 4. **Previews and environments.** Branch previews (naming, inheritance, TTL,
    pinning, limits, destroyed with their branch), named environments,
    `promote`, deploy locks, the Previews page.

@@ -203,6 +203,18 @@ func (m *Manager) Retire(app, env string) {
 	m.retire(es, es.list(), 0)
 }
 
+// Forget lets go of what the manager holds for an app that has been retired: its files
+// are moving or going, and the name may come back as another app.
+func (m *Manager) Forget(app string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key := range m.envs {
+		if strings.HasPrefix(key, app+"/") {
+			delete(m.envs, key)
+		}
+	}
+}
+
 // start creates an instance of a process and starts its shim.
 func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan, name string, proc manifest.Process, index int) (*instance, error) {
 	envID, err := m.db.EnvID(ctx, es.app, es.env)

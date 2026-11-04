@@ -45,7 +45,7 @@ how it works inside and where it is going.
 | `moor registry login HOST` | Keeps a private container registry's credentials on the server |
 | `moor trust` | Trusts the server's CA on this machine |
 | `moor server doctor` | Checks the server and what it depends on, and says how to fix what it finds |
-| `moor apps` | Lists the apps; `create` one in a project, and `move` one to another |
+| `moor apps` | Lists the apps; `create`, `info`, `move`, `rename` and `delete` one |
 | `moor events` | Shows what happened on the server; `-f` follows it |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
 | `moor releases` | Lists an app's releases; `show` one, and `diff` two |

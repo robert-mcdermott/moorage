@@ -39,7 +39,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -50,7 +50,7 @@ func pageNames() []string {
 func parseTemplates(source fs.FS, asset func(string) string) (map[string]*template.Template, error) {
 	base, err := template.New("pages").Funcs(template.FuncMap{
 		"asset": asset, "ago": ago, "iso": iso, "clock": clock, "date": func(t time.Time) string { return t.Format("2 Jan 2006") },
-		"mask": func() string { return secretMask }, "countText": countText,
+		"mask": func() string { return secretMask }, "countText": countText, "size": humanSizeOf,
 		"orDash": orNone,
 		"orNobody": func(s string) string {
 			if s == "" {
@@ -156,6 +156,10 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("GET /apps/{app}/settings", c.appSettingsPage)
+	mux.HandleFunc("POST /apps/{app}/settings/move", c.actionWith(auth.ScopeAdmin, maxForm, c.moveApp))
+	mux.HandleFunc("POST /apps/{app}/settings/rename", c.actionWith(auth.ScopeAdmin, maxForm, c.renameApp))
+	mux.HandleFunc("POST /apps/{app}/settings/delete", c.actionWith(auth.ScopeAdmin, maxForm, c.deleteApp))
 	mux.HandleFunc("GET /apps/{app}/logs", c.logsPage)
 	mux.HandleFunc("GET /apps/{app}/variables", c.variablesPage)
 	mux.HandleFunc("GET /apps/{app}/variables/edit", c.editVariablesPage)
@@ -259,6 +263,8 @@ type data struct {
 
 	// Access says what the viewer may do with the app the page is about.
 	Access auth.Access
+	// Usage says how much room it takes.
+	Usage deploy.AppUsage
 
 	// Deploying an app.
 	Image                 string

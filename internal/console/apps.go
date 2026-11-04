@@ -225,6 +225,7 @@ func (c *Console) appsPage(w http.ResponseWriter, r *http.Request, p auth.Princi
 		return
 	}
 	d.RefreshOn = "*"
+	d.Notice = map[string]string{"deleted": "The app is deleted."}[r.URL.Query().Get("done")]
 	for _, row := range d.Apps {
 		d.Poll = d.Poll || row.Deploying
 	}
@@ -749,4 +750,122 @@ func (c *Console) deployArchive(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
 	})
+}
+
+// appSettingsPage is where an app moves, changes its name, or goes.
+func (c *Console) appSettingsPage(w http.ResponseWriter, r *http.Request) {
+	p, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
+	app, ok := c.lookupApp(w, r, p)
+	if !ok {
+		return
+	}
+	c.showAppSettings(w, r, p, app, http.StatusOK, nil)
+}
+
+func (c *Console) showAppSettings(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure) {
+	d, err := c.appData(r, p, app, "apps", "Settings of "+app)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !d.Access.Manage {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "It takes being a maintainer of the project " + d.Access.Project.Name + ".", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
+		return
+	}
+	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}
+	d.Tab = "settings"
+	d.App = appView{Name: app, URL: c.appURL(app)}
+	if c.deployer != nil {
+		d.Usage = c.deployer.Usage(app)
+	}
+	all, err := c.db.Projects(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	for _, project := range all {
+		access, err := c.auth.ProjectAccess(r.Context(), p, project)
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		if access.Manage {
+			d.Projects = append(d.Projects, projectRow{Name: project.Name})
+		}
+	}
+	d.Notice = map[string]string{"moved": "It is in that project now.", "renamed": "It has its new name, and runs under it. Change [app].name in its moorage.toml and its git remote to match."}[r.URL.Query().Get("done")]
+	d.Failure = failed
+	c.render(w, code, "app-settings", d)
+}
+
+func (c *Console) moveApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	name := r.PostFormValue("project")
+	project, err := c.db.ProjectByName(r.Context(), name)
+	if errors.Is(err, store.ErrNotFound) {
+		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "There is no such project."})
+		return
+	}
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	access, err := c.auth.ProjectAccess(r.Context(), p, project)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !access.Manage {
+		c.showAppSettings(w, r, p, app, http.StatusForbidden, &failure{Message: "Moving an app there takes being a maintainer of that project."})
+		return
+	}
+	if err := c.db.MoveApp(r.Context(), app, name); err != nil {
+		c.internal(w, err)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"/settings?done=moved", http.StatusSeeOther)
+}
+
+// lifecycleFailed shows why an app could not be renamed or deleted.
+func (c *Console) lifecycleFailed(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, err error) {
+	var (
+		busy    *deploy.AppBusyError
+		taken   *deploy.NameTakenError
+		invalid *deploy.InvalidNameError
+		rollout *reconcile.RolloutError
+	)
+	switch {
+	case errors.As(err, &busy), errors.As(err, &taken):
+		c.showAppSettings(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
+	case errors.As(err, &invalid):
+		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: sentence(err.Error())})
+	case errors.As(err, &rollout):
+		// It has its new name by now.
+		http.Redirect(w, r, "/apps/"+url.PathEscape(r.PostFormValue("name")), http.StatusSeeOther)
+	default:
+		c.internal(w, err)
+	}
+}
+
+func (c *Console) renameApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	if err := c.deployer.RenameApp(lasting(r), app, name, p.Name); err != nil {
+		c.lifecycleFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+url.PathEscape(name)+"/settings?done=renamed", http.StatusSeeOther)
+}
+
+func (c *Console) deleteApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	if strings.TrimSpace(r.PostFormValue("confirm")) != app {
+		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "Type the app's name to delete it. Nothing was deleted."})
+		return
+	}
+	if err := c.deployer.DeleteApp(lasting(r), app, p.Name, r.PostFormValue("keep_data") != ""); err != nil {
+		c.lifecycleFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, "/?done=deleted", http.StatusSeeOther)
 }
