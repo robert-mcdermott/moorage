@@ -116,6 +116,27 @@ function Get-MoorExpectedChecksum {
     return $entries[0]
 }
 
+function Get-MoorFileHash {
+    <#
+        Returns a file's SHA-256. Windows PowerShell started from PowerShell 7
+        inherits a module path where it cannot find Get-FileHash, so .NET does it
+        then. The cmdlet comes first because constrained language mode allows only it.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+        return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 function Publish-MoorEnvironmentChange {
     <#
         Tells Explorer that the environment changed, so that terminals started
@@ -299,7 +320,7 @@ function Invoke-MoorInstall {
         }
 
         $expected = Get-MoorExpectedChecksum -ManifestPath $checksumPath -Asset $asset
-        $actual = (Get-FileHash -LiteralPath $binaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actual = Get-MoorFileHash -Path $binaryPath
         if ($actual -ne $expected) {
             throw "Checksum verification failed for $asset (expected $expected, got $actual)"
         }

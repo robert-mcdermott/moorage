@@ -655,6 +655,27 @@ func TestInstallPs1Refusals(t *testing.T) {
 	}
 }
 
+// TestInstallPs1HashBothWays checks the way without the cmdlet against the way with
+// it, and both against Go's.
+func TestInstallPs1HashBothWays(t *testing.T) {
+	r := newRelease(t, "moor-windows-amd64.exe", "moor 0.2.0")
+	file := filepath.Join(r.dir, "moor-windows-amd64.exe")
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	want := hex.EncodeToString(sum[:])
+	got := runPowerShell(t, r, "Get-MoorFileHash -Path '"+file+"'")
+	if got.err != nil || strings.TrimSpace(got.output) != want {
+		t.Errorf("as it finds it: %v %q, want %s", got.err, got.output, want)
+	}
+	got = runPowerShell(t, r, "function Get-Command { $null }\nGet-MoorFileHash -Path '"+file+"'")
+	if got.err != nil || strings.TrimSpace(got.output) != want {
+		t.Errorf("with .NET: %v %q, want %s", got.err, got.output, want)
+	}
+}
+
 // TestInstallPs1UpgradeWhileRunning is why it renames: Windows will not replace a
 // program that is running, and a server's supervisors run from this file for as
 // long as its apps do.
