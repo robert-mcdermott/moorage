@@ -76,9 +76,9 @@ get() { curl -sS --cacert "$work/proxy.crt" "$@"; }
 
 echo "--- a deploy through nginx, with its log streamed back"
 (cd examples/static-site && "$moor" deploy "${client[@]}")
-check "the site answers" 'get https://handbook.localhost:18443/about | grep -q "About this handbook"'
+check "the site answers" 'get https://handbook.localhost:18443/about | grep "About this handbook" > /dev/null'
 check "plain HTTP is redirected" '[ "$(curl -sS -o /dev/null -w "%{redirect_url}" http://handbook.localhost:18080/about)" = https://handbook.localhost:18443/about ]'
-check "apps know the scheme" '"$moor" apps "${client[@]}" | grep -q https://handbook.localhost'
+check "apps know the scheme" '"$moor" apps "${client[@]}" | grep https://handbook.localhost > /dev/null'
 
 echo "--- a push over HTTPS through nginx, larger than nginx's default limit"
 repo=$work/repo
@@ -93,7 +93,7 @@ head -c 8000000 /dev/urandom > "$repo/public/large.bin"
   git -c http.sslCAInfo="$work/proxy.crt" push "https://moor:$token@moorage.localhost:18443/git/pushed.git" main 2>&1 | tee "$work/push.log"
 )
 check "the push shows its deploy" 'grep -q "remote: ✔ live" "$work/push.log"'
-check "the pushed site answers" 'get https://pushed.localhost:18443/about | grep -q "About this handbook"'
+check "the pushed site answers" 'get https://pushed.localhost:18443/about | grep "About this handbook" > /dev/null'
 check "the large file went through" '[ "$(get -o /dev/null -w "%{size_download}" https://pushed.localhost:18443/large.bin)" = 8000000 ]'
 
 if [ "$failures" != 0 ]; then

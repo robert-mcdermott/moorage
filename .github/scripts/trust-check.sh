@@ -118,7 +118,7 @@ if [ "$system" = Darwin ]; then
   export MOORAGE_CONFIG=$config
   "$moor" server init --preset local --config "$config" --data-dir "$work/local" > /dev/null
   sed -i.orig -e 's/127\.0\.0\.1:8080/127.0.0.1:18081/' -e 's/= ":2222"/= ""/' "$config"
-  resolves() { dscacheutil -q host -a name resolver-check.localhost | grep -q 127.0.0.1; }
+  resolves() { dscacheutil -q host -a name resolver-check.localhost | grep 127.0.0.1 > /dev/null; }
   # Some versions of macOS resolve these names by themselves, so this is no proof
   # of what the rule does: the system's view of it and the responder are, below.
   if resolves; then echo "this macOS already resolves *.localhost"; else echo "this macOS does not resolve *.localhost by itself"; fi
@@ -132,9 +132,9 @@ if [ "$system" = Darwin ]; then
   done
   sleep 2 # the system takes up new rules on its own time
   scutil --dns | grep -B1 -A4 'domain.*: localhost' || true
-  check "the system has taken up the rule" 'scutil --dns | grep -A4 "domain.*: localhost" | grep -q "port.*: 15353"'
+  check "the system has taken up the rule" 'scutil --dns | grep -A4 "domain.*: localhost" | grep "port.*: 15353" > /dev/null'
   check "the responder answers for the domain" '[ "$(dig @127.0.0.1 -p 15353 +short resolver-check.localhost A)" = 127.0.0.1 ]'
-  check "and refuses anything else" 'dig @127.0.0.1 -p 15353 example.com A | grep -q "status: REFUSED"'
+  check "and refuses anything else" 'dig @127.0.0.1 -p 15353 example.com A | grep "status: REFUSED" > /dev/null'
   check "after: *.localhost resolves" 'resolves'
   check "moor itself resolves it" '"$moor" apps --server http://moorage.localhost:18081 > /dev/null'
   check "doctor agrees" '[[ "$(doctor_says)" == *"localhost resolves on this machine"* ]]'

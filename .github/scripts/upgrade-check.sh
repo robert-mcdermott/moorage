@@ -91,12 +91,12 @@ check "it still answers" '[ "$(body svc /)" = "$before" ]'
 check "the static site still answers" '[ -n "$(body site /about)" ]'
 check "the new version is what runs" '[[ "$("$new" server doctor --json || true)" == *"running $("$new" version | awk "{print \$2}")"* ]]'
 check "the server can be claimed, and says so" 'grep -q "claim it with the setup link" "$work/server.log"'
-check "the CLI lists its apps" '"$new" apps | grep -q svc'
+check "the CLI lists its apps" '"$new" apps | grep svc > /dev/null'
 check "and its variables, with the secret hidden" '[[ "$("$new" env --app svc)" == *KEPT_SECRET* ]] && [[ "$("$new" env --app svc)" != *a-secret-from-before* ]]'
 
 echo "--- a new release, and back"
 "$new" deploy "$root/testdata/apps/binary" --app svc
-check "a deploy works" '"$new" releases --app svc | grep -q "\*"'
+check "a deploy works" '"$new" releases --app svc | grep "\*" > /dev/null'
 check "the secret reached the new release" '[[ "$("$new" env --app svc)" == *KEPT_SECRET* ]]'
 "$new" rollback --app svc
 check "a rollback to the old release's build works" '[ "$(ps_field status)" = running ]'
