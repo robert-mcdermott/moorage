@@ -90,6 +90,8 @@ var settingsNotices = map[string]string{
 	"channel-removed":  "The channel is removed, and the rules that used it.",
 	"rule":             "The rule is added.",
 	"rule-removed":     "The rule is removed.",
+	"backup":           "A backup has started. This page says how it goes.",
+	"backups-set":      "That is where backups go now.",
 }
 
 // adminAction guards a form for administrators.

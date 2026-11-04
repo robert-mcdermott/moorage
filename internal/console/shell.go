@@ -230,6 +230,7 @@ func (c *Console) palette(apps []store.AppSummary, admin bool, access map[string
 			paletteItem{Label: "Users", Hint: "Server", Href: "/settings/users"},
 			paletteItem{Label: "Container registries", Hint: "Server", Href: "/settings/registries"},
 			paletteItem{Label: "Notification channels and rules", Hint: "Server", Href: "/settings/notifications"},
+			paletteItem{Label: "Backups", Hint: "Server", Href: "/settings/backups"},
 			paletteItem{Label: "System", Hint: "Server", Href: "/settings/system"},
 			paletteItem{Label: "Audit log", Hint: "Server", Href: "/settings/audit"},
 		)

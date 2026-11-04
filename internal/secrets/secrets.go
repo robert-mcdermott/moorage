@@ -185,6 +185,20 @@ func (k *Keyring) dataKey(ctx context.Context, appID string) (cipher.AEAD, error
 	return aead, nil
 }
 
+// SealBackup encrypts the secret key of where backups go, with the master key.
+func (k *Keyring) SealBackup(value string) []byte {
+	return seal(k.master, []byte(value), []byte("moorage backup destination"))
+}
+
+// OpenBackup decrypts it.
+func (k *Keyring) OpenBackup(sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, []byte("moorage backup destination"))
+	if err != nil {
+		return "", errors.New("the secret key of where backups go cannot be decrypted")
+	}
+	return string(plain), nil
+}
+
 // channelAD binds what a notification channel needs to that channel.
 func channelAD(id string) []byte { return []byte("moorage channel\x00" + id) }
 

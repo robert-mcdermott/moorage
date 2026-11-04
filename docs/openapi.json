@@ -224,6 +224,122 @@
         ],
         "type": "object"
       },
+      "Backup": {
+        "properties": {
+          "created_by": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "status",
+          "trigger",
+          "destination"
+        ],
+        "type": "object"
+      },
+      "BackupConfig": {
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "region": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "secret_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination",
+          "keep"
+        ],
+        "type": "object"
+      },
+      "Backups": {
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "has_secret_key": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Backup"
+            },
+            "type": "array"
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "next_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination",
+          "has_secret_key",
+          "keep",
+          "items"
+        ],
+        "type": "object"
+      },
       "Check": {
         "properties": {
           "detail": {
@@ -6993,6 +7109,131 @@
           "server"
         ],
         "x-moorage-permission": "signed-in"
+      }
+    },
+    "/server/backups": {
+      "get": {
+        "operationId": "getServerBackups",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backups"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Where backups go, and what has been backed up",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      },
+      "post": {
+        "operationId": "postServerBackups",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backup"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Start a backup",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/backups/config": {
+      "put": {
+        "operationId": "putServerBackupsConfig",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backups"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Say where backups go and how often",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
       }
     },
     "/server/doctor": {

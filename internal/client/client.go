@@ -299,6 +299,27 @@ func (c *Client) RegistryLogout(ctx context.Context, host string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/registries/"+url.PathEscape(host), nil, "", nil)
 }
 
+// Backups says where backups go, and what has been backed up.
+func (c *Client) Backups(ctx context.Context) (apitypes.Backups, error) {
+	var out apitypes.Backups
+	err := c.do(ctx, http.MethodGet, "/api/v1/server/backups", nil, "", &out)
+	return out, err
+}
+
+// StartBackup starts a backup.
+func (c *Client) StartBackup(ctx context.Context) (apitypes.Backup, error) {
+	var out apitypes.Backup
+	err := c.do(ctx, http.MethodPost, "/api/v1/server/backups", nil, "", &out)
+	return out, err
+}
+
+// ConfigureBackups says where backups go and how often.
+func (c *Client) ConfigureBackups(ctx context.Context, in apitypes.BackupConfig) (apitypes.Backups, error) {
+	var out apitypes.Backups
+	err := c.post(ctx, http.MethodPut, "/api/v1/server/backups/config", in, &out)
+	return out, err
+}
+
 // Notifications is what the caller has been told.
 func (c *Client) Notifications(ctx context.Context) (apitypes.Inbox, error) {
 	var out apitypes.Inbox

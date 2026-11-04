@@ -428,6 +428,7 @@
   <a href="/settings/users"{{if eq .Tab "users"}} aria-current="page"{{end}}>Users</a>
   <a href="/settings/registries"{{if eq .Tab "registries"}} aria-current="page"{{end}}>Registries</a>
   <a href="/settings/notifications"{{if eq .Tab "notifications"}} aria-current="page"{{end}}>Notifications</a>
+  <a href="/settings/backups"{{if eq .Tab "backups"}} aria-current="page"{{end}}>Backups</a>
   <a href="/settings/audit"{{if eq .Tab "audit"}} aria-current="page"{{end}}>Audit log</a>
   <a href="/settings/system"{{if eq .Tab "system"}} aria-current="page"{{end}}>System</a>
 </nav>
@@ -566,6 +567,85 @@
     <div class="field"><label for="reg-pass">Password or token</label><input id="reg-pass" type="password" name="password" required autocomplete="new-password"></div>
     <p class="muted small">Sealed with the server's master key, and never shown again.</p>
     <div class="actions"><button type="submit">Keep the credentials</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{define "settings-backups"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Backups}}
+<section class="panel panel-pad backup-head">
+  <div>
+    <h2>{{if .Schedule}}On a schedule: <code>{{.Schedule}}</code>{{else}}No schedule yet{{end}}</h2>
+    <p class="muted">{{if .Next.IsZero}}Backups happen when you ask for them.{{else}}The next one is <time datetime="{{iso .Next}}">{{untilText .Next}}</time>.{{end}} They go to <code>{{if .Bucket}}{{.Bucket}}{{else if .Path}}{{.Path}}{{else}}{{.Default}}{{end}}</code>.</p>
+    {{if and (not .Bucket) (not .Path)}}<p class="notice warn">That is on this server's own disk, which is a start and not a plan: if the disk goes, so do they. Say somewhere else below.</p>{{end}}
+    <p class="muted small">They leave out the master key, without which their secrets cannot be read. Keep <code>{{.KeyPath}}</code> safe, and apart from them. <a href="https://github.com/robert-mcdermott/moorage/blob/main/docs/backups.md">How to restore</a></p>
+  </div>
+  <form method="post" action="/settings/backups/now" data-busy="Starting…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button type="submit"{{if .Going}} disabled{{end}}>Back up now</button>
+  </form>
+</section>
+<section class="block">
+  <div class="section-heading"><h2>What has been backed up</h2></div>
+  <div data-refresh="backups"{{if .Going}} data-poll{{end}}>
+  {{if .Items}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Status</th><th scope="col">When</th><th scope="col">Size</th><th scope="col">Took</th><th scope="col">Where</th></tr></thead>
+      <tbody>
+      {{range .Items}}
+      <tr>
+        <td>{{if eq .Status "done"}}<span class="badge ok">Done</span>{{else if eq .Status "running"}}<span class="badge pulse">Going on</span>{{else}}<span class="badge fail">Failed</span>{{end}}</td>
+        <td class="muted" data-label="When"><time datetime="{{iso .StartedAt}}">{{ago .StartedAt}}</time>{{if .CreatedBy}} by {{.CreatedBy}}{{else if eq .Trigger "schedule"}}, on schedule{{else if eq .Trigger "command"}}, from the command line{{end}}</td>
+        <td data-label="Size">{{with .Size}}{{.}}{{else}}—{{end}}</td>
+        <td class="muted" data-label="Took">{{with .Took}}{{.}}{{else}}—{{end}}</td>
+        <td class="wrap-anywhere" data-label="Where">{{.Destination}}{{with .Name}}<div class="muted small">{{.}}</div>{{end}}{{with .Error}}<div class="small fail-text">{{.}}</div>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <section class="panel empty">
+    <h2>Nothing backed up yet</h2>
+    <p>A backup holds the database, repositories, builds, apps' data and certificates, and the server can go on running while it is made.</p>
+  </section>
+  {{end}}
+  </div>
+</section>
+<section class="block">
+  <div class="section-heading"><h2>Where they go, and how often</h2></div>
+  <form class="panel panel-pad rule-form" method="post" action="/settings/backups/config" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="backup-kind">Where</label>
+      <select id="backup-kind" name="kind" data-kind-choice>
+        <option value="path"{{if eq .Kind "path"}} selected{{end}}>A directory on this server</option>
+        <option value="s3"{{if eq .Kind "s3"}} selected{{end}}>A bucket, S3 or a service like it</option>
+      </select>
+    </div>
+    <div data-kinds="path">
+      <div class="field"><label for="backup-path">Directory</label><input id="backup-path" name="path" value="{{.Path}}" spellcheck="false" autocomplete="off" placeholder="{{.Default}}">
+        <p class="hint small">A full path. Another disk, or one mounted from elsewhere, is what makes it a backup.</p>
+      </div>
+    </div>
+    <div data-kinds="s3">
+      <div class="field"><label for="backup-bucket">Bucket</label><input id="backup-bucket" name="bucket" value="{{.Bucket}}" spellcheck="false" autocomplete="off" placeholder="s3://acme-backups/moorage"></div>
+      <div class="field"><label for="backup-endpoint">Address of the service, if not AWS</label><input id="backup-endpoint" name="endpoint" value="{{.Endpoint}}" type="url" spellcheck="false" autocomplete="off" placeholder="https://s3.example.com"></div>
+      <div class="field"><label for="backup-region">Region</label><input id="backup-region" name="region" value="{{.Region}}" spellcheck="false" autocomplete="off" placeholder="us-east-1"></div>
+      <div class="field"><label for="backup-access">Access key</label><input id="backup-access" name="access_key" value="{{.AccessKey}}" spellcheck="false" autocomplete="off"></div>
+      <div class="field"><label for="backup-secret">Secret key</label><input id="backup-secret" name="secret_key" type="password" autocomplete="new-password"{{if .HasSecret}} placeholder="Kept, sealed: leave this to keep it"{{end}}></div>
+    </div>
+    <div class="field"><label for="backup-schedule">Schedule</label><input id="backup-schedule" name="schedule" value="{{.Schedule}}" spellcheck="false" autocomplete="off" placeholder="@daily">
+      <p class="hint small">A cron expression, such as <code>@daily</code> or <code>0 3 * * *</code>. Empty is only when you ask.</p>
+    </div>
+    <div class="field"><label for="backup-keep">How many to keep</label><input id="backup-keep" name="keep" value="{{.Keep}}" inputmode="numeric" autocomplete="off">
+      <p class="hint small">When a scheduled one finishes, older ones go. 0 keeps them all.</p>
+    </div>
+    <div class="actions"><button class="quiet" type="submit">Save</button></div>
   </form>
 </section>
 {{end}}

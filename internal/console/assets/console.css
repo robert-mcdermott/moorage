@@ -353,6 +353,11 @@ details > summary { cursor: pointer; font-weight: 600; }
 .dropzone .notice { margin: var(--s3) 0 0; }
 .block-after { margin-bottom: var(--s4); }
 .block-note { margin: var(--s2) 0 0; }
+.backup-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--s3) var(--s5); }
+.backup-head > div { flex: 1 1 24rem; min-width: 0; }
+.backup-head h2 { margin-top: 0; font-size: 1.05rem; }
+.backup-head code { overflow-wrap: anywhere; }
+.fail-text { color: var(--fail); }
 .deploy-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); gap: var(--s4); }
 .deploy-ways > * { min-width: 0; }
 .deploy-ways select { min-width: 0; max-width: 100%; }

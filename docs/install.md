@@ -285,12 +285,13 @@ need room as well, which depends on what you build, and logs and [metrics](metri
 
 ## Back up
 
-The data directory holds everything: the database, the builds, the apps'
-data directories and the keys. **Back up `keys/master.key` on its own**: it
-encrypts the apps' secrets, and a copy of the database is of no use for
-them without it. Take a copy of the database while the server runs with
-`sqlite3 moorage.db ".backup backup.db"`, or stop the server first (the
-apps keep running).
+```bash
+moor server backup --to /mnt/backups
+```
+
+That holds the database, repositories, builds, apps' data and certificates, and the server goes on
+running. **Keep `keys/master.key` safe, and apart from your backups**: it encrypts the apps' secrets,
+and a backup leaves it out. See [backups](backups.md) for a schedule, buckets and restoring.
 
 ## Upgrading
 

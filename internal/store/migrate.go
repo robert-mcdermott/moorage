@@ -46,6 +46,14 @@ func (db *DB) Migrate(ctx context.Context, backupDir string) (MigrateResult, err
 	return db.migrate(ctx, sub, backupDir, time.Now)
 }
 
+func embeddedMigrations() ([]Migration, error) {
+	sub, err := fs.Sub(migrations, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	return loadMigrations(sub)
+}
+
 // SchemaVersion returns the highest migration applied, or 0.
 func (db *DB) SchemaVersion(ctx context.Context) (int, error) {
 	var v int

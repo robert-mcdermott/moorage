@@ -1039,6 +1039,12 @@ directory, supervises it, and serves it on its own hostname.
      the parent-death signal. Landlock is per thread until exec, so that the helper keeps to one.
 2. **Backups.** On demand and scheduled, to a local path or S3-compatible
    storage; restore; an automated restore drill in CI.
+   - Done in slice 2: all of that, with `moor server backup`, `restore` and a page in Settings. S3 is
+     a small client of its own, signed and uploading in parts, rather than a large dependency.
+   - Found by slice 2: builds have to be in a backup as well, or a restored server cannot run what it
+     served, and an upload has nothing to rebuild from. A snapshot has to record its own backup as
+     done, or the restored server says that it was interrupted. An archive needs an end, so that one
+     that stopped halfway cannot be mistaken for a smaller backup.
 3. **Identity.** OIDC single sign-on, TOTP, trusted-header authentication
    behind an authenticating proxy.
 4. **Lifecycle.** Self-upgrade with rollback; server configuration export and

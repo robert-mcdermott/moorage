@@ -23,6 +23,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/api"
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/build"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
@@ -85,6 +86,8 @@ type Options struct {
 	GCMinAge time.Duration
 	// MetricsEvery, if set, overrides how often metrics are sampled (tests).
 	MetricsEvery time.Duration
+	// BackupTick, if set, overrides how often the schedule of backups is looked at (tests).
+	BackupTick time.Duration
 	// NotifyRetry, if set, overrides how long a notification waits before trying again (tests).
 	NotifyRetry time.Duration
 	// CronTick, if set, overrides how often cron jobs are looked at (tests).
@@ -355,12 +358,19 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, opts.GateRecheck, log))
+	backups := &backup.Service{DB: db, Bus: bus, Keyring: keyring, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
+	backupCtx, stopBackups := context.WithCancel(ctx)
+	go backups.Run(backupCtx)
+	defer func() {
+		stopBackups()
+		backups.Wait()
+	}()
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, opts.GateRecheck, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

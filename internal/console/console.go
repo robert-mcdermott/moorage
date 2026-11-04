@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/brand"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
@@ -42,7 +43,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-notifications", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -107,6 +108,8 @@ type Options struct {
 	Metrics *metrics.Store
 	// Notifier sends what the settings pages set up.
 	Notifier *notify.Service
+	// Backups makes backups.
+	Backups *backup.Service
 }
 
 // Console serves the pages.
@@ -128,11 +131,12 @@ type Console struct {
 	gateRoute func(host, path string) (ingress.RouteInfo, bool)
 	metrics   *metrics.Store
 	notifier  *notify.Service
+	backups   *backup.Service
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{notifier: o.Notifier, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
+	c := &Console{notifier: o.Notifier, backups: o.Backups, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -227,6 +231,9 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /settings/notifications/channels/remove", c.adminAction(c.removeChannel))
 	mux.HandleFunc("POST /settings/notifications/rules", c.adminAction(c.addServerRule))
 	mux.HandleFunc("POST /settings/notifications/rules/remove", c.adminAction(c.removeServerRule))
+	mux.HandleFunc("GET /settings/backups", c.backupsPage)
+	mux.HandleFunc("POST /settings/backups/now", c.adminAction(c.startBackup))
+	mux.HandleFunc("POST /settings/backups/config", c.adminAction(c.configureBackups))
 	mux.HandleFunc("GET /notifications", c.inbox)
 	mux.HandleFunc("POST /notifications/read", c.accountAction(c.readInbox))
 	mux.HandleFunc("POST /projects/{project}/notifications", c.projectAction(c.addProjectRule))
@@ -311,6 +318,8 @@ type data struct {
 	Project  projectView
 	// Notifications is the pages of notifications.
 	Notifications notificationsView
+	// Backups is the page of backups.
+	Backups backupsView
 	// Unread is how many notifications they have not read.
 	Unread int
 

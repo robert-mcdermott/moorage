@@ -36,6 +36,7 @@ const (
 	Channel      = "chn"
 	Rule         = "rul"
 	Notification = "not"
+	Backup       = "bkp"
 )
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

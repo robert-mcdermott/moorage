@@ -48,6 +48,7 @@ var RuleEvents = []RuleEvent{
 	{CrashLoop, "An app keeps crashing", true},
 	{events.CronFailed, "A cron job fails", true},
 	{events.DiskLow, "The server's disk is nearly full", true},
+	{events.BackupFailed, "A backup fails", true},
 	{events.InstanceUnhealthy, "An instance is unhealthy", false},
 	{events.DeploymentLive, "A deployment goes live", false},
 }
@@ -302,6 +303,14 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 	case events.DiskLow:
 		s.failing[diskKey] = true
 		alerts = append(alerts, events.DiskLow)
+	case events.BackupFailed:
+		s.failing[backupKey] = true
+		alerts = append(alerts, events.BackupFailed)
+	case events.BackupDone:
+		if s.failing[backupKey] {
+			delete(s.failing, backupKey)
+			recovered = append(recovered, recovery{kind: events.BackupFailed, summary: "A backup worked after one that failed"})
+		}
 	case events.DiskOK:
 		if s.failing[diskKey] {
 			delete(s.failing, diskKey)
@@ -311,7 +320,10 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 	return alerts, recovered
 }
 
-const diskKey = "disk"
+const (
+	diskKey   = "disk"
+	backupKey = "backup"
+)
 
 func (s *Service) anyUnhealthy(where string) bool {
 	for key := range s.unhealthy {
@@ -388,6 +400,9 @@ func (s *Service) linkOf(e store.Event) string {
 			link += "?env=" + url.QueryEscape(e.Env)
 		}
 		return link
+	}
+	if strings.HasPrefix(e.Type, "backup.") {
+		return s.ConsoleURL + "/settings/backups"
 	}
 	return s.ConsoleURL + "/settings/system"
 }
@@ -634,7 +649,7 @@ func (s *Service) Test(ctx context.Context, channel, by string) (store.Notificat
 }
 
 // toldInConsole are the alerts people are told of in the console, whatever the rules say.
-var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow}
+var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow, events.BackupFailed}
 
 // tellPeople puts an alert in the console of those it concerns: a project's maintainers, whoever
 // pushed a deployment that failed and, for all of it, the server's administrators.

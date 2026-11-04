@@ -385,6 +385,47 @@ type RegistryLogin struct {
 	Password string `json:"password"`
 }
 
+// Backup is a backup of the server, or an attempt at one.
+type Backup struct {
+	ID          string     `json:"id"`
+	StartedAt   time.Time  `json:"started_at"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	Status      string     `json:"status"`
+	Trigger     string     `json:"trigger"`
+	CreatedBy   string     `json:"created_by,omitempty"`
+	Destination string     `json:"destination"`
+	Name        string     `json:"name,omitempty"`
+	Size        int64      `json:"size,omitempty"`
+	Error       string     `json:"error,omitempty"`
+}
+
+// BackupConfig says where backups go and how often. An empty secret key keeps the one there is.
+type BackupConfig struct {
+	// Destination is a full path, or s3://bucket/prefix.
+	Destination string `json:"destination"`
+	Endpoint    string `json:"endpoint,omitempty"`
+	Region      string `json:"region,omitempty"`
+	AccessKey   string `json:"access_key,omitempty"`
+	SecretKey   string `json:"secret_key,omitempty"`
+	// Schedule is a cron expression, such as @daily: empty is only when asked.
+	Schedule string `json:"schedule,omitempty"`
+	// Keep is how many to keep when a scheduled one has finished: 0 is all of them.
+	Keep int `json:"keep"`
+}
+
+// Backups is where backups go, and what has been backed up, newest first.
+type Backups struct {
+	Destination  string     `json:"destination"`
+	Endpoint     string     `json:"endpoint,omitempty"`
+	Region       string     `json:"region,omitempty"`
+	AccessKey    string     `json:"access_key,omitempty"`
+	HasSecretKey bool       `json:"has_secret_key"`
+	Schedule     string     `json:"schedule,omitempty"`
+	Keep         int        `json:"keep"`
+	NextAt       *time.Time `json:"next_at,omitempty"`
+	Items        []Backup   `json:"items"`
+}
+
 // NotificationChannel is somewhere notifications can go. Where it goes and how the last attempt
 // went are for administrators.
 type NotificationChannel struct {

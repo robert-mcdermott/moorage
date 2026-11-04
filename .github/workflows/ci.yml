@@ -28,6 +28,7 @@ jobs:
       service: ${{ steps.look.outputs.service }}
       upgrade: ${{ steps.look.outputs.upgrade }}
       isolation: ${{ steps.look.outputs.isolation }}
+      backup: ${{ steps.look.outputs.backup }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -249,6 +250,33 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install and upgrade
         run: .github/scripts/install-check.ps1
+
+  backup:
+    # The restore drill: a real server backs itself up, loses everything but its master key, and has
+    # it all back, from a directory and from a bucket on a real S3-compatible server.
+    name: Restore drill
+    needs: changes
+    if: needs.changes.outputs.backup == 'true'
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: drillaccess
+      AWS_SECRET_ACCESS_KEY: drillsecret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build moor
+        run: go build -o moor-check ./cmd/moor
+      - name: Start a service like S3
+        run: |
+          docker run -d --name s3 -p 9000:9000 -e MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" minio/minio:RELEASE.2024-12-18T13-15-44Z server /data
+          for _ in $(seq 1 60); do
+            curl -fsS -o /dev/null http://127.0.0.1:9000/minio/health/live && break
+            sleep 1
+          done
+      - name: Try it
+        run: python3 .github/scripts/backup-check.py "$PWD/moor-check" http://127.0.0.1:9000
 
   isolation:
     # Runs a real server as root, here where that costs nothing, and tries how its apps are kept

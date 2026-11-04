@@ -12,6 +12,8 @@ how it works inside and where it is going.
   API tokens and SSH keys.
 - [TLS and trusting the server](tls.md): the certificates, and `moor trust`.
 - [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
+- [Backups](backups.md): on demand and on a schedule, to a directory or a bucket, and
+  restoring them
 - [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
   everything, and logs.
 - [The web console](console.md): the apps, what happened, and getting started.

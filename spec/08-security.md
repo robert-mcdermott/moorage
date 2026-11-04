@@ -200,10 +200,17 @@ exportable as JSON lines; visible to admins.
 
 ## Backups and recovery (Phase 3)
 
-`moor server backup` produces a consistent snapshot — the SQLite database
-(online backup), repositories, data directories, certificates and, optionally,
-keys — to a local path or S3-compatible storage, on demand or on a schedule.
-`moor server restore` reverses it. Restores are tested in CI.
+`moor server backup` produces a snapshot — the SQLite database (online backup),
+repositories, builds, data directories, certificates and, optionally, keys — to a
+local path or S3-compatible storage, on demand or on a schedule. `moor server
+restore` reverses it. Restores are tested in CI. The database is consistent; data
+directories are read while apps run, which an app's own database needs a dump for.
+
+Without keys, an archive names the fingerprint of the master key it needs, and a
+restore refuses early if that is missing or another. An archive with keys may not go
+to a bucket. A restore extracts through `os.Root` to one side, verifies that the
+archive is complete and hashes to what was noted, and only then swaps, moving
+what was there aside.
 
 ## Operator hardening checklist
 
