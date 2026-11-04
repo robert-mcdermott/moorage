@@ -98,7 +98,7 @@ func (s *Server) channels(w http.ResponseWriter, r *http.Request) {
 	p := who(r)
 	docs := []apitypes.NotificationChannel{}
 	for _, c := range list {
-		docs = append(docs, s.channelDoc(c, p.Admin && p.Can(auth.ScopeAdmin)))
+		docs = append(docs, s.channelDoc(c, p.Admin && p.App == "" && p.Can(auth.ScopeAdmin)))
 	}
 	writeJSON(w, http.StatusOK, docs)
 }

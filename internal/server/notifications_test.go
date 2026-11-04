@@ -291,6 +291,17 @@ func TestNotificationPermissions(t *testing.T) {
 	wantRefused("removing a rule of the server", samClient.RemoveNotificationRule(ctx, ofServer.ID), http.StatusNotFound)
 	wantRefused("removing a rule of another app", samClient.RemoveNotificationRule(ctx, ofOther.ID), http.StatusNotFound)
 
+	// A token for one app of an administrator's is not the server's administrator.
+	res, page := owner.post("/account/tokens/create", url.Values{"csrf": {owner.token()}, "name": {"for one app"}, "scope": {"admin"}, "app": {"shop"}})
+	oneApp := madeToken.FindString(page)
+	if res.StatusCode != http.StatusCreated || oneApp == "" {
+		t.Fatalf("making a token: %d\n%s", res.StatusCode, page)
+	}
+	ownerOfShop := tokenClient(t, c, oneApp)
+	if list, err := ownerOfShop.NotificationChannels(ctx); err != nil || len(list) != 1 || list[0].Target != "" {
+		t.Errorf("%+v %v", list, err)
+	}
+
 	// A token's scope counts too.
 	readOnly := tokenClient(t, c, tokenOf(t, sam, "read"))
 	_, err = readOnly.AddNotificationRule(ctx, apitypes.NewNotificationRule{Channel: "ops", Project: "web", Events: events})
@@ -306,7 +317,7 @@ func TestNotificationPermissions(t *testing.T) {
 	}
 
 	// The project's page lets Sam add and remove its own, and refuses anything else by address.
-	res, page := sam.get("/projects/web")
+	res, page = sam.get("/projects/web")
 	if res.StatusCode != http.StatusOK || !strings.Contains(page, "All of web") || !strings.Contains(page, "The app shop") {
 		t.Errorf("%d\n%s", res.StatusCode, page)
 	}

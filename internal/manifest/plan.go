@@ -75,8 +75,12 @@ type CronPlan struct {
 	Environments []string `json:"environments,omitempty"`
 }
 
-// DefaultCronTimeout is how long a cron job's run may take, unless it says.
-const DefaultCronTimeout = time.Hour
+// DefaultCronTimeout is how long a cron job's run may take, unless it says, and MaxRunTimeout how
+// long anything run once may take at all.
+const (
+	DefaultCronTimeout = time.Hour
+	MaxRunTimeout      = 24 * time.Hour
+)
 
 // Limit is how long a run may take.
 func (c CronPlan) Limit() time.Duration {
@@ -220,6 +224,46 @@ func (p Plan) ForEnv(name, kind string) Plan {
 		p.Env = env
 	}
 	return p.WithFormation(over.Instances)
+}
+
+// ApplyEnvironments gives a plan what a manifest says of its environments and previews, such as
+// who may reach them: a plan of any kind has that.
+func (m *Manifest) ApplyEnvironments(p *Plan) {
+	for name, e := range m.Environments {
+		if p.Environments == nil {
+			p.Environments = map[string]EnvPlan{}
+		}
+		over := EnvPlan{Branch: e.Branch, Env: e.Env, SleepAfter: e.SleepAfter, Access: e.Access}
+		for process, proc := range e.Processes {
+			if proc.Instances != nil {
+				if over.Instances == nil {
+					over.Instances = map[string]int{}
+				}
+				over.Instances[process] = *proc.Instances
+			}
+		}
+		p.Environments[name] = over
+	}
+	if m.Previews != nil {
+		p.Previews = &PreviewPlan{Enabled: m.Previews.Enabled, Branches: m.Previews.Branches, TTL: m.Previews.TTL, SleepAfter: m.Previews.SleepAfter, Access: m.Previews.Access}
+	}
+}
+
+// StaticPlan is the plan of a directory uploaded to be served as it is: how to serve it, who may
+// reach it, and how many releases to keep. m may be nil, for a directory with no manifest.
+func (m *Manifest) StaticPlan() Plan {
+	plan := Plan{Kind: KindStatic, Static: &Static{}}
+	if m == nil {
+		return plan
+	}
+	if m.Static != nil {
+		rules := *m.Static
+		rules.Dir = ""
+		plan.Static = &rules
+	}
+	plan.Deploy = m.Deploy
+	m.ApplyEnvironments(&plan)
+	return plan
 }
 
 // ContainerPlan says how an app's image is made and how its containers run.

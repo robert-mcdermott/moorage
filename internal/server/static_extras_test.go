@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/client"
+	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -190,6 +192,18 @@ func TestDropAFolder(t *testing.T) {
 		t.Errorf("%q", body)
 	}
 
+	// A moorage.toml says who may reach it as well, however it is deployed.
+	res, page = drop(t, owner, "/apps/guarded/deploy/site", token, []dropped{
+		{"out/moorage.toml", "[environments.production]\naccess = \"login\"\n"},
+		{"out/index.html", "<p>for us</p>"},
+	})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d\n%s", res.StatusCode, page)
+	}
+	if res, body := get(t, addrs.HTTP, "guarded.localhost", "/"); res.StatusCode != http.StatusUnauthorized || strings.Contains(body, "for us") {
+		t.Errorf("a gate in the manifest was lost: %d\n%s", res.StatusCode, body)
+	}
+
 	// Without an index.html the address finds nothing, which the deployment says.
 	res, _ = drop(t, owner, "/apps/headless/deploy/site", token, []dropped{{"a.txt", "a"}, {"b.txt", "b"}})
 	if res.StatusCode != http.StatusSeeOther {
@@ -361,6 +375,33 @@ func TestPermalinkLabels(t *testing.T) {
 			t.Errorf("%q: %q %d", label, base, version)
 		} else if ok && label != "docs--v1" {
 			t.Errorf("%q: %q %d", label, base, version)
+		}
+	}
+}
+
+// TestAddressesHaveCertificates: with Moorage's own CA, what the console says is an address has a
+// certificate: an app's, an environment's and a release's, and nothing else's.
+func TestAddressesHaveCertificates(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.TLS = config.TLS{Mode: "internal"}
+	cfg.Listen.HTTPS = "127.0.0.1:0"
+	cfg.Proxy.ExternalScheme = "https"
+	addrs, _ := start(t, cfg)
+	handshake := func(name string) error {
+		conn, err := tls.Dial("tcp", addrs.HTTPS.String(), &tls.Config{ServerName: name, InsecureSkipVerify: true})
+		if conn != nil {
+			conn.Close()
+		}
+		return err
+	}
+	for _, label := range []string{"docs", "docs--staging", "docs--production--v12", "shop--pr-7--v1"} {
+		if err := handshake(label + "." + cfg.Domain); err != nil {
+			t.Errorf("%s: %v", label, err)
+		}
+	}
+	for _, name := range []string{"a--b--c--d." + cfg.Domain, "docs--production--v01." + cfg.Domain, "a.b." + cfg.Domain, "example.com"} {
+		if err := handshake(name); err == nil {
+			t.Errorf("a certificate for %s", name)
 		}
 	}
 }

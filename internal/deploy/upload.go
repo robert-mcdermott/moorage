@@ -184,12 +184,13 @@ func UploadSite(ctx context.Context, db *store.DB, dataDir, app string, next fun
 			return 0, 0, err
 		}
 		root := soleFolder(raw)
-		rules, err := siteRules(root)
+		plan, dir, err := sitePlan(root)
 		if err != nil {
 			return 0, 0, err
 		}
-		if rules.Dir != "" {
-			sub := filepath.FromSlash(rules.Dir)
+		up.Plan = plan
+		if dir != "" {
+			sub := filepath.FromSlash(dir)
 			if !filepath.IsLocal(sub) {
 				return 0, 0, errors.New("[static] dir in moorage.toml is not in this folder")
 			}
@@ -197,9 +198,7 @@ func UploadSite(ctx context.Context, db *store.DB, dataDir, app string, next fun
 			if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
 				return 0, 0, errors.New("[static] dir in moorage.toml is not in this folder")
 			}
-			rules.Dir = ""
 		}
-		up.Plan.Static = &rules
 		if err := os.Remove(contentDir); err != nil {
 			return 0, 0, err
 		}
@@ -214,7 +213,7 @@ func UploadSite(ctx context.Context, db *store.DB, dataDir, app string, next fun
 			slices.Sort(left)
 			up.Warnings = append(up.Warnings, "left out, as not meant to be served: "+strings.Join(left, ", "))
 		}
-		if _, err := os.Stat(filepath.Join(contentDir, "index.html")); errors.Is(err, fs.ErrNotExist) && files > 0 && !rules.Listing {
+		if _, err := os.Stat(filepath.Join(contentDir, "index.html")); errors.Is(err, fs.ErrNotExist) && files > 0 && !up.Plan.Static.Listing {
 			up.Warnings = append(up.Warnings, "there is no index.html at the top of this site, so that its address finds nothing")
 		}
 		return files, size, nil
@@ -297,26 +296,28 @@ func soleFolder(dir string) string {
 	return dir
 }
 
-// siteRules reads how to serve a folder from its moorage.toml, which is then not one of its files.
-// A folder for an app that builds or runs refuses: those files are source, and not to be served.
-func siteRules(root string) (manifest.Static, error) {
+// sitePlan reads how to serve a folder from its moorage.toml, which is then not one of its files, and
+// which of its directories to serve. A folder for an app that builds or runs refuses: those files
+// are source, and not to be served.
+func sitePlan(root string) (manifest.Plan, string, error) {
 	m, err := manifest.Load(root)
 	if err != nil {
-		return manifest.Static{}, err
+		return manifest.Plan{}, "", err
 	}
 	if m == nil {
-		return manifest.Static{}, nil
+		return m.StaticPlan(), "", nil
 	}
 	if len(m.RawProcesses) > 0 || m.Build != nil || (m.App.Runtime != "" && m.App.Runtime != "static") {
-		return manifest.Static{}, errors.New("this folder has a moorage.toml for an app to build or run, and would serve its source: upload it as source instead")
+		return manifest.Plan{}, "", errors.New("this folder has a moorage.toml for an app to build or run, and would serve its source: upload it as source instead")
 	}
 	if err := os.Remove(filepath.Join(root, manifest.FileName)); err != nil {
-		return manifest.Static{}, err
+		return manifest.Plan{}, "", err
 	}
-	if m.Static == nil {
-		return manifest.Static{}, nil
+	dir := ""
+	if m.Static != nil {
+		dir = m.Static.Dir
 	}
-	return *m.Static, nil
+	return m.StaticPlan(), dir, nil
 }
 
 func measureTree(dir string) (files int, size int64, err error) {

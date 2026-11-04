@@ -1008,6 +1008,16 @@ directory, supervises it, and serves it on its own hostname.
      Adding up RSS overstates memory (6.2 GB, against the cgroup's 4.9 GB), since instances share
      pages. A scripted drop in WebKit has no file behind it, so that files dropped without a
      folder need no reading through entries, which also takes away a way of failing.
+   - Found by an independent review before the release, all fixed with tests: a dropped folder and
+     `moor deploy --static` lost the manifest's `access`, so that a gate went missing. Environments'
+     and previews' hostnames had no certificate from the internal CA, as far back as 0.4.0: nothing
+     tried them over TLS. Commands ran without `[environments.*.env]`, and two at once shared a
+     temporary directory. Prometheus's text held a lock while a slow client read it. An instance
+     turning healthy does not say that a process has stopped crashing, so recovery goes by a new
+     release or by 10 quiet minutes, longer than the supervisor waits before trying again. Holding
+     back deployments lost news that someone was waiting for. A run's log had no limit, a cron
+     timeout over a day never ran and said nothing, and the address guard missed this machine's
+     other addresses.
 
 ## 0.6.0: hardened (planned)
 

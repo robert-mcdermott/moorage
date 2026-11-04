@@ -172,3 +172,59 @@ func TestReleaseLifecycleAndInstances(t *testing.T) {
 		t.Error("a stopped instance still reserves its port")
 	}
 }
+
+// TestPruneRuns keeps a job's runs, so that those it skipped do not push out what actually ran.
+func TestPruneRuns(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	appID, _, err := db.EnsureApp(ctx, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildID := addBuild(t, db, appID)
+	if _, err := db.CreateReleaseWith(ctx, "shop", "production", buildID, "deploy", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().Add(-time.Hour).UTC()
+	add := func(status string) string {
+		t.Helper()
+		at = at.Add(time.Second)
+		id := ids.New(ids.Run)
+		run := Run{ID: id, App: "shop", Env: "production", Job: "nightly", Command: "x", Trigger: "schedule", Status: RunRunning, StartedAt: at}
+		if err := db.CreateRun(ctx, run); err != nil {
+			t.Fatal(err)
+		}
+		if status != RunRunning {
+			if err := db.FinishRun(ctx, id, status, nil, "", at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return id
+	}
+	oldest := add(RunSucceeded)
+	kept := add(RunFailed)
+	last := add(RunSucceeded)
+	var skipped []string
+	for range 5 {
+		skipped = append(skipped, add(RunSkipped))
+	}
+	going := add(RunRunning)
+	gone, err := db.PruneRuns(ctx, "shop", "production", "nightly", 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{oldest: true, skipped[0]: true, skipped[1]: true, skipped[2]: true}
+	if len(gone) != len(want) {
+		t.Fatalf("let go of %d: %v", len(gone), gone)
+	}
+	for _, id := range gone {
+		if !want[id] {
+			t.Errorf("let go of %s", id)
+		}
+	}
+	for _, id := range []string{kept, last, skipped[3], skipped[4], going} {
+		if _, err := db.Run(ctx, "shop", id); err != nil {
+			t.Errorf("%s: %v", id, err)
+		}
+	}
+}

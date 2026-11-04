@@ -27,9 +27,14 @@ import (
 const (
 	// KeepRuns is how many of a job's runs are kept, with their output.
 	KeepRuns = 100
+	// KeepSkippedRuns is how many of the runs it skipped are kept, apart from those: a job that
+	// is often skipped must not push out what actually ran.
+	KeepSkippedRuns = 20
+	// RunLogSize is how much of a run's output is kept in a file, and one file before it.
+	RunLogSize = 10 << 20
 	// DefaultRunLimit and MaxRunLimit are how long a command someone asked for may take.
 	DefaultRunLimit = time.Hour
-	MaxRunLimit     = 24 * time.Hour
+	MaxRunLimit     = manifest.MaxRunTimeout
 )
 
 // NotRunnableError says why a command cannot run in an environment.
@@ -162,7 +167,7 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 		if req.Job != "" {
 			process = "cron-" + req.Job
 		}
-		logFile, err := logs.Open(LogPath(d.opts.DataDir, req.App, run.ID), 0, 0)
+		logFile, err := logs.Open(LogPath(d.opts.DataDir, req.App, run.ID), RunLogSize, 1)
 		if err == nil {
 			defer logFile.Close()
 			err = d.opts.Runtime.RunOnce(runCtx, req.App, req.Env, rel, b, plan, process, req.Command, req.Timeout, logFile)
@@ -185,6 +190,8 @@ func (d *Deployer) finishRun(run store.Run, err error, runCtx context.Context) {
 		exit = &zero
 	case runCtx.Err() != nil && errors.Is(runCtx.Err(), context.Canceled):
 		status, failure = store.RunCanceled, "it was stopped"
+	case errors.As(err, &exited) && exited.TimedOut > 0:
+		status, failure = store.RunFailed, fmt.Sprintf("it ran out of time, after %s", exited.TimedOut)
 	case errors.As(err, &exited):
 		status, failure = store.RunFailed, fmt.Sprintf("it exited with status %d", exited.Code)
 		exit = &exited.Code
@@ -199,12 +206,19 @@ func (d *Deployer) finishRun(run store.Run, err error, runCtx context.Context) {
 			d.opts.Events.Publish(ctx, store.Event{Type: events.CronFailed, App: run.App, Env: run.Env, Data: map[string]any{"job": run.Job, "run": run.ID, "error": failure}})
 		}
 	}
-	gone, err := d.db.PruneRuns(ctx, run.App, run.Env, run.Job, KeepRuns)
+	d.pruneRuns(ctx, run.App, run.Env, run.Job)
+}
+
+// pruneRuns lets go of a job's oldest runs, and what they said.
+func (d *Deployer) pruneRuns(ctx context.Context, app, env, job string) {
+	gone, err := d.db.PruneRuns(ctx, app, env, job, KeepRuns, KeepSkippedRuns)
 	if err != nil {
-		d.log.Warn("let go of old runs", "app", run.App, "env", run.Env, "err", err)
+		d.log.Warn("let go of old runs", "app", app, "env", env, "err", err)
 	}
 	for _, id := range gone {
-		os.Remove(LogPath(d.opts.DataDir, run.App, id))
+		for _, file := range logs.Files(LogPath(d.opts.DataDir, app, id)) {
+			os.Remove(file)
+		}
 	}
 }
 
@@ -435,6 +449,7 @@ func (d *Deployer) fireCron(ctx context.Context, app, env string, c manifest.Cro
 			if err := d.db.FinishRun(ctx, skipped.ID, store.RunSkipped, nil, skipped.Error, now.UTC()); err != nil {
 				d.log.Warn("record a skipped run", "job", c.Name, "err", err)
 			}
+			d.pruneRuns(ctx, app, env, c.Name)
 			return
 		}
 	}

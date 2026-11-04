@@ -149,22 +149,30 @@ func (db *DB) RunIDs(ctx context.Context, app, env string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// PruneRuns keeps a job's newest runs, and returns the IDs of those it let go.
-func (db *DB) PruneRuns(ctx context.Context, app, env, job string, keep int) ([]string, error) {
+// PruneRuns keeps a job's newest runs and, apart from those, its newest skipped ones. It returns the
+// IDs of those it let go.
+func (db *DB) PruneRuns(ctx context.Context, app, env, job string, keep, keepSkipped int) ([]string, error) {
 	var gone []string
 	err := db.write(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT r.id FROM runs r JOIN environments e ON e.id = r.env_id JOIN apps a ON a.id = e.app_id
-			WHERE a.name = ? AND e.name = ? AND r.job = ? AND r.status <> ? ORDER BY r.started_at DESC, r.id DESC LIMIT -1 OFFSET ?`, app, env, job, RunRunning, keep)
+		rows, err := tx.QueryContext(ctx, `SELECT r.id, r.status FROM runs r JOIN environments e ON e.id = r.env_id JOIN apps a ON a.id = e.app_id
+			WHERE a.name = ? AND e.name = ? AND r.job = ? AND r.status <> ? ORDER BY r.started_at DESC, r.id DESC`, app, env, job, RunRunning)
 		if err != nil {
 			return err
 		}
+		kept, keptSkipped := 0, 0
 		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
+			var id, status string
+			if err := rows.Scan(&id, &status); err != nil {
 				rows.Close()
 				return err
 			}
-			gone = append(gone, id)
+			if status == RunSkipped {
+				if keptSkipped++; keptSkipped > keepSkipped {
+					gone = append(gone, id)
+				}
+			} else if kept++; kept > keep {
+				gone = append(gone, id)
+			}
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {

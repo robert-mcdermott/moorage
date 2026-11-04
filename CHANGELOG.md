@@ -11,6 +11,14 @@ Upgrading from 0.4.0 needs no steps of its own: replace `moor` and restart the s
 - **`watch` in `[app]` now counts.** A push that touches none of those paths is kept, and not deployed.
 - **People are told when things fail.** In the console, maintainers of a project, its administrators and whoever pushed a deployment see notifications, with no setup. Nothing leaves the server until you add a channel and a rule.
 - **Metrics take room.** About 6 MB for a busy environment, kept for a year.
+- **`moor deploy --static` now follows the manifest's `[environments.*]` and `[previews]`,** and `keep_releases`. It ignored them, so that a site you meant to gate with `access` in its manifest may have been open, and is now closed as it says.
+- **Commands run with their environment's variables.** A release command ran with `[env]` alone, and now has `[environments.NAME.env]` over it, as the app itself always did.
+
+### Fixed
+
+- **With Moorage's own CA, the addresses of environments and previews had no certificate,** so that a browser got a TLS error. They have one now.
+- **A long request through a login gate with a token ended only with the gate, and not with the token.** Revoking the token ends it now, within a minute.
+- **Following an app's logs or a run's output now ends when you may no longer see them,** within a minute.
 
 ### Added
 

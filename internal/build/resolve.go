@@ -128,21 +128,7 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 		r.plan.Exclude = b.Exclude
 	}
 	r.plan.Steps = preset
-	for name, e := range m.Environments {
-		if r.plan.Environments == nil {
-			r.plan.Environments = map[string]manifest.EnvPlan{}
-		}
-		over := manifest.EnvPlan{Branch: e.Branch, Env: e.Env, SleepAfter: e.SleepAfter, Access: e.Access}
-		for process, p := range e.Processes {
-			if p.Instances != nil {
-				if over.Instances == nil {
-					over.Instances = map[string]int{}
-				}
-				over.Instances[process] = *p.Instances
-			}
-		}
-		r.plan.Environments[name] = over
-	}
+	m.ApplyEnvironments(&r.plan)
 	r.plan.StripPrefix = m.App.StripPrefix
 	for _, c := range m.Cron {
 		r.plan.Cron = append(r.plan.Cron, manifest.CronPlan{Name: c.Name, Schedule: c.Schedule, Command: c.Command, Timezone: c.Timezone, Timeout: c.Timeout, Overlap: c.Overlap, Environments: c.Environments})
@@ -152,9 +138,6 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 			r.plan.Vars = map[string]manifest.VarPlan{}
 		}
 		r.plan.Vars[name] = manifest.VarPlan{Description: v.Description, Required: v.Required, Secret: v.Secret, Generate: v.Generate}
-	}
-	if m.Previews != nil {
-		r.plan.Previews = &manifest.PreviewPlan{Enabled: m.Previews.Enabled, Branches: m.Previews.Branches, TTL: m.Previews.TTL, SleepAfter: m.Previews.SleepAfter, Access: m.Previews.Access}
 	}
 	if m.Release != nil && (m.Release.Command != "" || m.Release.OnCreate != "") {
 		rel := *m.Release

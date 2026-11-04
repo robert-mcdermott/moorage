@@ -94,8 +94,11 @@ A rule says what it wants. Without `--events` it has the first four of these:
 | `deployment.live` | A deployment goes live |
 
 `*` asks for all of them. A channel told that something went wrong is told when it has come right:
-a deployment goes live after one that failed, the instances of an app that kept crashing or was
-unhealthy are healthy, or the data volume is below 85%.
+
+- a deployment goes live after one that failed;
+- a process that kept crashing has not exited for 10 minutes, or a new release has replaced it;
+- all the instances that were unhealthy are healthy, or a new release has replaced them;
+- the data volume is below 85%.
 
 ```bash
 moor notifications rules add --channel alerts --app shop --events deployment.failed,deployment.live
@@ -107,9 +110,15 @@ moor notifications rules
 
 ## One message, not hundreds
 
-After a message goes, others like it are held back for 15 minutes: the same event, for the same
-environment of the same app, or the same cron job. The next one after that says how many were held
-back. In-console notifications are held back in the same way.
+What can happen over and over by itself is held back: after a message that a process keeps crashing,
+that an instance is unhealthy, that a cron job failed or that the disk is nearly full, others like it
+wait for 15 minutes, for the same environment and the same process or job. The next one after that says
+how many were held back. A word that it has recovered ends the wait, so that going wrong again is news
+at once, unless it keeps going back and forth, which is held back in the same way. In-console
+notifications go by the same rules.
+
+Deployments are not held back: each one is there because someone asked for it, and they are to hear how
+it went.
 
 A message that does not go is tried three times, ten and then twenty seconds apart. A message
 held up when the server stops is not sent afterwards. What happened is always in **Activity**,
@@ -162,8 +171,8 @@ def is_genuine(secret: str, header: str, body: bytes) -> bool:
 ## What notifications may reach
 
 A channel's address could otherwise be used to reach what only the server can. So channels may not
-connect to this machine, a link-local address or a cloud's metadata service, whatever name the
-address gives. Addresses on your local network are allowed, since a team's own services are what
+connect to this machine by any of its addresses, a link-local address or a cloud's metadata service,
+whatever name the address gives. Other addresses on your local network are allowed, since a team's own services are what
 many webhooks are for. To allow more, name them in `server.toml`, and restart the server:
 
 ```toml

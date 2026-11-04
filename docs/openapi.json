@@ -4953,7 +4953,14 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogLine"
+                }
+              }
+            },
+            "description": "A stream of lines, each a JSON document."
           },
           "401": {
             "$ref": "#/components/responses/Problem"

@@ -63,6 +63,22 @@ func ParsePermalink(label string) (base string, version int, ok bool) {
 	return label[:i], version, true
 }
 
+// ValidHostLabel says whether a hostname's label could name an app, an environment of one, or one
+// of an environment's releases.
+func ValidHostLabel(label string) bool {
+	parts := strings.Split(label, "--")
+	switch len(parts) {
+	case 1:
+		return ValidateApp(parts[0]) == nil
+	case 2:
+		return ValidateApp(parts[0]) == nil && ValidateEnv(parts[1]) == nil
+	case 3:
+		_, _, ok := ParsePermalink(label)
+		return ok && ValidateApp(parts[0]) == nil && ValidateEnv(parts[1]) == nil
+	}
+	return false
+}
+
 // Production is the environment every app has.
 const Production = "production"
 

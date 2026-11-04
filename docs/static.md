@@ -20,7 +20,8 @@ live a moment later, with nothing to install, and a new app that way is made for
 What is in one folder is taken to be the site, so that `site/index.html` is the front page. `.git`,
 `.env`, `.env.*` and the clutter that operating systems leave are left out, since whoever drops a
 folder does not see what is hidden in it, and the deployment's log says what was. A `moorage.toml`
-at its top says how to serve it, as [below](#serving-rules), and is not served itself. A folder with
+at its top says how to serve it, as [below](#serving-rules), and [who may reach it](access.md), and is
+not served itself. A folder with
 a `moorage.toml` for an app that builds or runs is refused, as it would serve that app's source:
 upload that as source instead.
 

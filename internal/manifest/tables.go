@@ -224,6 +224,9 @@ func (m *Manifest) validateTables() []string {
 		if c.Command == "" {
 			add("%s: command is required", where)
 		}
+		if c.Timeout.Std() > MaxRunTimeout {
+			add("%s: timeout must be a day at the most", where)
+		}
 		if !validSchedule(c.Schedule) {
 			add("%s: schedule %q must be five cron fields, such as \"0 3 * * *\", or @hourly, @daily, @every 15m", where, c.Schedule)
 		}

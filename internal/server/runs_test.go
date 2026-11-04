@@ -13,6 +13,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/client"
+	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/testroles"
 )
 
@@ -127,7 +128,7 @@ func TestRunningACommand(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if run, _, _ := followedRun(t, c, "shop", short.ID); run.Status != "failed" || time.Since(begun) > 20*time.Second {
+		if run, _, _ := followedRun(t, c, "shop", short.ID); run.Status != "failed" || time.Since(begun) > 20*time.Second || !strings.Contains(run.Error, "ran out of time") || run.ExitCode != nil {
 			t.Errorf("past its limit: %+v", run)
 		}
 	}
@@ -583,5 +584,147 @@ func TestWatchPaths(t *testing.T) {
 	}
 	if n := count(); n != 4 {
 		t.Errorf("%d deployments in the end", n)
+	}
+}
+
+// TestCommandsRunAsTheirEnvironment: a command in staging has staging's variables and not
+// production's, whether someone asked for it, a job started it or a deployment did.
+func TestCommandsRunAsTheirEnvironment(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	deployedSource(t, c, "shop", map[string]string{"moorage.toml": `[app]
+runtime = "command"
+
+[processes.web]
+command = ` + tomlString(testroles.AppCommand()) + `
+health = { path = "/health", interval = "100ms", startup = "30s" }
+
+[env]
+WHICH = "base-value"
+
+[environments.staging.env]
+WHICH = "staging-value"
+
+[release]
+command = "echo released with $WHICH"
+
+[deploy]
+drain = "1s"
+`})
+	dep, err := c.Promote(ctx, "shop", "production", "staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "staging to serve", func() bool {
+		res, _ := get(t, addrs.HTTP, "shop--staging.localhost", "/health")
+		return res.StatusCode == http.StatusOK
+	})
+	log, err := os.ReadFile(deploy.LogPath(cfg.DataDir, "shop", dep.ID))
+	if err != nil || !strings.Contains(string(log), "released with staging-value") {
+		t.Errorf("the release command: %v\n%s", err, log)
+	}
+	started, err := c.StartRun(ctx, "shop", "staging", apitypes.NewRun{Command: `echo "WHICH=$WHICH"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run, out, errs := followedRun(t, c, "shop", started.ID); run.Status != "succeeded" || !strings.Contains(out, "WHICH=staging-value") {
+		t.Errorf("in staging: %+v %q %q", run, out, errs)
+	}
+	started, err = c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: `echo "WHICH=$WHICH"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run, out, errs := followedRun(t, c, "shop", started.ID); run.Status != "succeeded" || !strings.Contains(out, "WHICH=base-value") {
+		t.Errorf("in production: %+v %q %q", run, out, errs)
+	}
+}
+
+// TestCommandsHaveTheirOwnTemporaryDirectory: the first of two commands to end leaves the other's.
+func TestCommandsHaveTheirOwnTemporaryDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sleep")
+	}
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	deployedSource(t, c, "shop", appManifest(""))
+	long, err := c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: `echo kept > "$TMPDIR/mine"; sleep 2; cat "$TMPDIR/mine"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, err := c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: `echo done`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	followedRun(t, c, "shop", short.ID)
+	if run, out, errs := followedRun(t, c, "shop", long.ID); run.Status != "succeeded" || !strings.Contains(out, "kept") {
+		t.Errorf("%+v %q %q", run, out, errs)
+	}
+}
+
+// TestCronTimeoutHasALimit says so when deploying, rather than the job never running.
+func TestCronTimeoutHasALimit(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	d, log := deploySource(t, c, "shop", appManifest(`
+[[cron]]
+name = "weekly"
+schedule = "@every 1h"
+command = "echo ran"
+timeout = "48h"
+`))
+	if d.Status != apitypes.StatusFailed || !strings.Contains(d.Error+log, "a day at the most") {
+		t.Errorf("%+v\n%s", d, log)
+	}
+}
+
+// TestStreamsEndWithAccess ends what someone is following when their token goes.
+func TestStreamsEndWithAccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sleep")
+	}
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	owner := signIn(t, cfg, addrs)
+	ctx := context.Background()
+	deployedSource(t, c, "shop", appManifest(""))
+	long, err := c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sleep 30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.StopRun(ctx, "shop", long.ID)
+	mine := tokenClient(t, c, tokenOf(t, owner, "read"))
+	ended := make(chan error, 1)
+	go func() {
+		_, err := mine.FollowRun(ctx, "shop", long.ID, func(apitypes.LogLine) error { return nil })
+		ended <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case err := <-ended:
+		t.Fatalf("it ended by itself: %v", err)
+	default:
+	}
+	manager := tokenClient(t, c, tokenOf(t, owner, "admin"))
+	all, err := manager.Tokens(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range all {
+		if tok.Name == "for read" {
+			if _, err := manager.RevokeToken(ctx, tok.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	select {
+	case <-ended:
+	case <-time.After(10 * time.Second):
+		t.Fatal("following went on with a revoked token")
 	}
 }

@@ -339,7 +339,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, opts.GateRecheck, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)

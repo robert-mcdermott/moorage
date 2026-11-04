@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -44,14 +45,16 @@ type Server struct {
 	keyring  RegistrySealer
 	bus      *events.Bus
 	notifier *notify.Service
-	log      *slog.Logger
+	// recheck is how often what stays open looks again at whether it may.
+	recheck time.Duration
+	log     *slog.Logger
 	// openapiDoc is the OpenAPI document, generated once.
 	openapiDoc func() []byte
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, recheck time.Duration, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, recheck: recheck, log: log}
 	s.openapiDoc = sync.OnceValue(func() []byte { return openAPIDocument(s.routes()) })
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {

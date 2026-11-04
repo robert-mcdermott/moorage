@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -128,8 +129,8 @@ var metadataAddresses = []netip.Addr{
 	netip.MustParseAddr("168.63.129.16"),
 }
 
-// guardedDialer refuses what a channel's address should not reach: this machine, its link-local
-// neighbours and the cloud's metadata service. It looks when connecting, so that a name that
+// guardedDialer refuses what a channel's address should not reach: this machine by any of its
+// addresses, its link-local neighbours and the cloud's metadata service. It looks when connecting, so that a name that
 // resolves to one thing and then another makes no difference. Addresses on the local network are
 // allowed: a team's own services are what many webhooks are for.
 func guardedDialer(allow []netip.Prefix) *net.Dialer {
@@ -150,12 +151,28 @@ func guardedDialer(allow []netip.Prefix) *net.Dialer {
 					return nil
 				}
 			}
-			if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() || addr.IsInterfaceLocalMulticast() || slices.Contains(metadataAddresses, addr) {
+			if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() || addr.IsInterfaceLocalMulticast() || slices.Contains(metadataAddresses, addr) || isOwnAddress(addr) {
 				return fmt.Errorf("notifications may not reach %s, unless [notifications] allow in server.toml says so", addr)
 			}
 			return nil
 		},
 	}
+}
+
+// isOwnAddress says whether an address is this machine's, on any of its interfaces.
+func isOwnAddress(addr netip.Addr) bool {
+	own, err := net.InterfaceAddrs()
+	if err != nil {
+		return true // better no notification than one to this machine
+	}
+	for _, a := range own {
+		if network, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(network.IP); ok && ip.Unmap() == addr {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Service) httpClient() *http.Client {
@@ -271,7 +288,7 @@ func (s *Service) sendEmail(ctx context.Context, cfg Config, m Message) error {
 	}
 	clean := strings.NewReplacer("\r", " ", "\n", " ")
 	var mail bytes.Buffer
-	fmt.Fprintf(&mail, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n", clean.Replace(cfg.From), clean.Replace(strings.Join(cfg.To, ", ")), clean.Replace(m.title()), time.Now().Format(time.RFC1123Z))
+	fmt.Fprintf(&mail, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n", clean.Replace(cfg.From), clean.Replace(strings.Join(cfg.To, ", ")), mime.QEncoding.Encode("utf-8", clean.Replace(m.title())), time.Now().Format(time.RFC1123Z))
 	// What this writes to takes care of a line that starts with a dot.
 	mail.WriteString(strings.ReplaceAll(m.text(), "\n", "\r\n") + "\r\n")
 	if _, err := w.Write(mail.Bytes()); err != nil {

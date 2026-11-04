@@ -3,6 +3,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -290,5 +291,44 @@ FROM_SERVER = "$DATABASE_URL"
 	}
 	if strings.Contains(w, "LOG_LEVEL") || strings.Contains(w, "FROM_SERVER") {
 		t.Errorf("false positives:\n%s", w)
+	}
+}
+
+// TestStaticPlan keeps what a manifest says of who may reach a site, and how many releases to keep.
+func TestStaticPlan(t *testing.T) {
+	var none *Manifest
+	if plan := none.StaticPlan(); plan.Kind != KindStatic || plan.Static == nil {
+		t.Errorf("%+v", plan)
+	}
+	keep := 9
+	m := &Manifest{
+		Static:       &Static{Dir: "public", SPA: true},
+		Deploy:       Deploy{KeepReleases: keep},
+		Environments: map[string]Environment{"production": {Access: "login"}},
+		Previews:     &Previews{Access: "share"},
+	}
+	plan := m.StaticPlan()
+	if plan.Static.Dir != "" || !plan.Static.SPA || plan.Deploy.KeepReleases != keep {
+		t.Errorf("%+v", plan)
+	}
+	if got := plan.AccessFor("production", "production"); got != "login" {
+		t.Errorf("production's gate: %q", got)
+	}
+	if got := plan.AccessFor("pr-1", "preview"); got != "share" {
+		t.Errorf("a preview's gate: %q", got)
+	}
+	if m.Static.Dir != "public" {
+		t.Error("the manifest was changed")
+	}
+}
+
+func TestCronTimeoutLimit(t *testing.T) {
+	m := &Manifest{Cron: []Cron{{Name: "weekly", Schedule: "@daily", Command: "x", Timeout: Duration(48 * time.Hour)}}}
+	if problems := m.validateTables(); !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, "a day at the most") }) {
+		t.Errorf("%v", problems)
+	}
+	m.Cron[0].Timeout = Duration(24 * time.Hour)
+	if problems := m.validateTables(); slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, "a day at the most") }) {
+		t.Errorf("%v", problems)
 	}
 }

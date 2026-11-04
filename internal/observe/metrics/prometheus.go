@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"sort"
@@ -19,6 +20,13 @@ func escapeLabel(s string) string {
 // WriteProm writes the store as Prometheus's text format says: counts since the server started, and
 // the last samples. host says whether to include the server itself.
 func (s *Store) WriteProm(w io.Writer, envs []PromEnv, host bool) {
+	// All of it first, since a client that stops reading must not hold up what takes the lock.
+	var text bytes.Buffer
+	s.renderProm(&text, envs, host)
+	w.Write(text.Bytes())
+}
+
+func (s *Store) renderProm(w io.Writer, envs []PromEnv, host bool) {
 	sort.Slice(envs, func(i, j int) bool { return envs[i].App+"/"+envs[i].Env < envs[j].App+"/"+envs[j].Env })
 	labels := func(e PromEnv) string {
 		return `app="` + escapeLabel(e.App) + `",env="` + escapeLabel(e.Env) + `"`

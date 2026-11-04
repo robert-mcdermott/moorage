@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -202,7 +203,7 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/apps/{app}/envs/{env}/runs", perm: canDeploy, handler: s.startRun, status: http.StatusAccepted, summary: "Run a command in the current release, with its variables and data", request: apitypes.NewRun{}, response: apitypes.Run{}},
 		{method: "GET", path: "/apps/{app}/runs/{id}", perm: canRead, handler: s.run, summary: "How a run went", response: apitypes.Run{}},
 		{method: "POST", path: "/apps/{app}/runs/{id}/stop", perm: canDeploy, handler: s.stopRun, summary: "Stop a run that is going on", response: apitypes.Run{}},
-		{method: "GET", path: "/apps/{app}/runs/{id}/log", perm: canReadLogs, handler: s.runLog, summary: "What a run says, as NDJSON; follow=true stays open until it ends"},
+		{method: "GET", path: "/apps/{app}/runs/{id}/log", perm: canReadLogs, handler: s.runLog, summary: "What a run says, as NDJSON; follow=true stays open until it ends", stream: apitypes.LogLine{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/domains", perm: canRead, handler: s.domains, summary: "List an environment's domains", response: []apitypes.Domain{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/domains", perm: canManage, handler: s.addDomain, status: http.StatusCreated, summary: "Attach a domain, which serves once its DNS points here", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/domains/verify", perm: canManage, handler: s.verifyDomain, summary: "Look now at where a domain points", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
@@ -307,8 +308,60 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 				return
 			}
 		}
-		rt.handler(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+		ctx := context.WithValue(r.Context(), principalKey{}, p)
+		if rt.stream != nil || rt.sse != nil {
+			// What stays open must end when whoever opened it may no longer see it.
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			defer cancel()
+			go s.watchAccess(ctx, cancel, r.Clone(ctx), rt, app)
+		}
+		rt.handler(w, r.WithContext(ctx))
 	}
+}
+
+// watchAccess looks again, every so often, at whether a request may go on.
+func (s *Server) watchAccess(ctx context.Context, cancel context.CancelFunc, r *http.Request, rt route, app string) {
+	every := s.recheck
+	if every <= 0 {
+		every = time.Minute
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !s.stillAllowed(ctx, r, rt, app) {
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+// stillAllowed answers as the guard would. Only a clear no counts: the database being busy for a
+// moment ends nothing.
+func (s *Server) stillAllowed(ctx context.Context, r *http.Request, rt route, app string) bool {
+	p, err := s.auth.Request(r)
+	if errors.Is(err, auth.ErrUnauthenticated) || errors.Is(err, auth.ErrLocalOnly) {
+		return false
+	}
+	if err != nil {
+		return true
+	}
+	if refused(rt, p, app) != "" {
+		return false
+	}
+	if app == "" {
+		return true
+	}
+	access, err := s.auth.AppAccess(ctx, p, app)
+	if err != nil {
+		return true
+	}
+	return access.See && roleRefused(rt, access) == ""
 }
 
 // statusRecorder notes how a request ended, for the audit log.

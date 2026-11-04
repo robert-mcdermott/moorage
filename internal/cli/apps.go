@@ -209,13 +209,12 @@ previous release keeps serving.`,
 			var plan manifest.Plan
 			var dir string
 			if static {
-				rules := manifest.Static{}
+				configured := ""
 				if m != nil && m.Static != nil {
-					rules = *m.Static
+					configured = m.Static.Dir
 				}
-				dir = firstOf(firstArg(args), rules.Dir, ".")
-				rules.Dir = ""
-				plan = manifest.Plan{Kind: manifest.KindStatic, Static: &rules}
+				dir = firstOf(firstArg(args), configured, ".")
+				plan = m.StaticPlan()
 			} else {
 				if m == nil || len(m.Processes) == 0 {
 					return errors.New("--artifact needs [processes] in moorage.toml in the current directory, such as:\n\n  [processes.web]\n  command = \"./server --port $PORT\"")

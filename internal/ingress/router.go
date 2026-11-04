@@ -423,15 +423,15 @@ func (rt *Router) RedirectToHTTPS(httpsPort string) http.Handler {
 	})
 }
 
-// AllowCertificate reports whether a certificate may be issued for name:
-// the console's hostname and the hostnames of apps under the base domain.
-// Anything else gets no certificate.
+// AllowCertificate reports whether a certificate may be issued for name: the console's hostname, and
+// the hostnames under the base domain of apps, their environments and their releases. Anything else
+// gets no certificate.
 func (rt *Router) AllowCertificate(name string) bool {
 	if name == rt.cfg.ConsoleHost || rt.cfg.Routing == "path" && name == rt.cfg.Domain {
 		return true
 	}
-	_, ok := rt.appOf(name)
-	return ok
+	label, ok := strings.CutSuffix(name, "."+rt.cfg.Domain)
+	return ok && !strings.Contains(label, ".") && names.ValidHostLabel(label)
 }
 
 // appOf returns the app a hostname under the base domain names: the single

@@ -156,12 +156,9 @@ func (c *Console) runPage(w http.ResponseWriter, r *http.Request) {
 		view.Exit = fmt.Sprintf("exit status %d", run.ExitCode)
 	}
 	if d.Access.Logs {
-		lines, err := logs.FollowFromStart(deploy.LogPath(c.cfg.DataDir, app, run.ID)).Read()
+		lines, err := logs.Tail(deploy.LogPath(c.cfg.DataDir, app, run.ID), runLogLines)
 		if err != nil {
 			c.log.Warn("read a run's output", "run", run.ID, "err", err)
-		}
-		if len(lines) > runLogLines {
-			lines = lines[len(lines)-runLogLines:]
 		}
 		for _, l := range lines {
 			view.Log = append(view.Log, logRow{Stream: l.Stream, Text: l.Text, At: l.Time})

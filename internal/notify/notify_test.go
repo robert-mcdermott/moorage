@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -244,12 +245,11 @@ func TestOneMessageNotHundreds(t *testing.T) {
 	f := newFixture(t)
 	rc := newReceiver(t)
 	f.channel(KindWebhook, rc.URL)
-	exited := map[string]any{"process": "web"}
+	exited := map[string]any{"process": "web", "instance": "ins_1"}
 
 	// Two exits are not a crash loop.
 	f.publish(events.InstanceExited, "shop", exited)
 	f.publish(events.InstanceExited, "shop", exited)
-	f.publish(events.InstanceHealthy, "shop", exited)
 	time.Sleep(50 * time.Millisecond)
 	if got := rc.messages(); len(got) != 0 {
 		t.Fatalf("%v", got)
@@ -265,23 +265,134 @@ func TestOneMessageNotHundreds(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 
-	// Another app is another matter.
-	f.publish(events.InstanceExited, "blog", exited)
-	f.publish(events.InstanceExited, "blog", exited)
-	f.publish(events.InstanceExited, "blog", exited)
-	waitFor(t, "the other app's message", func() bool { return len(rc.messages()) == 2 })
-
-	f.publish(events.InstanceHealthy, "shop", exited)
-	waitFor(t, "the word that it recovered", func() bool { return len(rc.messages()) == 3 })
-	last := rc.messages()[2]
-	if last["type"] != Recovered || last["app"] != "shop" {
-		t.Fatalf("%v", last)
+	// Another app is another matter, and so is another process of it.
+	for range 3 {
+		f.publish(events.InstanceExited, "blog", exited)
+		f.publish(events.InstanceExited, "shop", map[string]any{"process": "worker"})
 	}
-	// It does not recover twice.
-	f.publish(events.InstanceHealthy, "shop", exited)
+	waitFor(t, "the others' messages", func() bool { return len(rc.messages()) == 3 })
+
+	// An instance that answers is not an end to crashing: another process, or the same one between
+	// crashes, says nothing of it.
+	f.publish(events.InstanceUnhealthy, "shop", map[string]any{"process": "web", "instance": "ins_2"})
+	waitFor(t, "the unhealthy instance", func() bool { return len(rc.messages()) == 4 })
+	f.publish(events.InstanceHealthy, "shop", map[string]any{"process": "web", "instance": "ins_2"})
+	waitFor(t, "it to be healthy", func() bool { return len(rc.messages()) == 5 })
+	if m := rc.messages()[4]; m["type"] != Recovered || m["data"].(map[string]any)["recovered_from"] != events.InstanceUnhealthy {
+		t.Fatalf("%v", m)
+	}
+
+	// Not while it is still exiting, however long it has been going on.
+	f.s.checkQuiet(f.ctx, time.Now().Add(quietAfter/2))
+	time.Sleep(50 * time.Millisecond)
+	if n := len(rc.messages()); n != 5 {
+		t.Fatalf("%d messages", n)
+	}
+
+	// Having stayed up for long enough, every process has stopped crashing, once.
+	f.s.checkQuiet(f.ctx, time.Now().Add(quietAfter+time.Second))
+	waitFor(t, "the word that they recovered", func() bool { return len(rc.messages()) == 8 })
+	seen := map[string]bool{}
+	for _, m := range rc.messages()[5:] {
+		if m["type"] != Recovered || !strings.Contains(m["summary"].(string), "has not crashed") {
+			t.Fatalf("%v", m)
+		}
+		seen[fmt.Sprint(m["app"], " ", strings.Fields(m["summary"].(string))[2])] = true
+	}
+	if !seen["shop web"] || !seen["shop worker"] || !seen["blog web"] {
+		t.Fatalf("%v", seen)
+	}
+	f.s.checkQuiet(f.ctx, time.Now().Add(2*quietAfter))
+	time.Sleep(50 * time.Millisecond)
+	if n := len(rc.messages()); n != 8 {
+		t.Fatalf("%d messages", n)
+	}
+
+	// Going wrong again after it has recovered is news at once.
+	for range 3 {
+		f.publish(events.InstanceExited, "shop", exited)
+	}
+	waitFor(t, "the message that it is back", func() bool { return len(rc.messages()) == 9 })
+}
+
+// TestNewReleaseEndsACrashLoop: what kept crashing has gone.
+func TestNewReleaseEndsACrashLoop(t *testing.T) {
+	f := newFixture(t)
+	rc := newReceiver(t)
+	f.channel(KindWebhook, rc.URL, CrashLoop, events.InstanceUnhealthy)
+	for range 3 {
+		f.publish(events.InstanceExited, "shop", map[string]any{"process": "web"})
+	}
+	f.publish(events.InstanceUnhealthy, "shop", map[string]any{"process": "web", "instance": "ins_1"})
+	waitFor(t, "the alerts", func() bool { return len(rc.messages()) == 2 })
+	f.publish(events.DeploymentLive, "shop", map[string]any{"deployment": "dep_2"})
+	waitFor(t, "the word that they are over", func() bool { return len(rc.messages()) == 4 })
+	seen := map[any]bool{}
+	for _, m := range rc.messages()[2:] {
+		if m["type"] != Recovered {
+			t.Fatalf("%v", m)
+		}
+		seen[m["data"].(map[string]any)["recovered_from"]] = true
+	}
+	if !seen[CrashLoop] || !seen[events.InstanceUnhealthy] {
+		t.Fatalf("%v", seen)
+	}
+	// Exits from before it do not count towards the next.
+	f.publish(events.InstanceExited, "shop", map[string]any{"process": "web"})
+	time.Sleep(50 * time.Millisecond)
+	if n := len(rc.messages()); n != 4 {
+		t.Fatalf("%d messages", n)
+	}
+}
+
+// TestUnhealthyRecoversWhenAllDo: one instance being well says nothing of another.
+func TestUnhealthyRecoversWhenAllDo(t *testing.T) {
+	f := newFixture(t)
+	rc := newReceiver(t)
+	f.channel(KindWebhook, rc.URL, events.InstanceUnhealthy)
+	f.publish(events.InstanceUnhealthy, "shop", map[string]any{"process": "web", "instance": "ins_1"})
+	f.publish(events.InstanceUnhealthy, "shop", map[string]any{"process": "web", "instance": "ins_2"})
+	waitFor(t, "the alert", func() bool { return len(rc.messages()) == 1 })
+	f.publish(events.InstanceHealthy, "shop", map[string]any{"process": "web", "instance": "ins_1"})
+	time.Sleep(50 * time.Millisecond)
+	if n := len(rc.messages()); n != 1 {
+		t.Fatalf("%d messages", n)
+	}
+	f.publish(events.InstanceHealthy, "shop", map[string]any{"process": "web", "instance": "ins_2"})
+	waitFor(t, "the word that they are well", func() bool { return len(rc.messages()) == 2 })
+	// Flapping stays quiet: at most this, then that it went wrong again, for a while.
+	for range 20 {
+		f.publish(events.InstanceUnhealthy, "shop", map[string]any{"process": "web", "instance": "ins_1"})
+		f.publish(events.InstanceHealthy, "shop", map[string]any{"process": "web", "instance": "ins_1"})
+	}
 	time.Sleep(50 * time.Millisecond)
 	if n := len(rc.messages()); n != 3 {
 		t.Fatalf("%d messages", n)
+	}
+}
+
+// TestDeploymentsAreNotHeldBack: someone asked for each one, and is to hear how it went.
+func TestDeploymentsAreNotHeldBack(t *testing.T) {
+	f := newFixture(t)
+	rc := newReceiver(t)
+	f.channel(KindWebhook, rc.URL, events.DeploymentFailed, events.DeploymentLive)
+	publish := func(kind, id string) {
+		f.publish(kind, "shop", map[string]any{"deployment": id})
+	}
+	publish(events.DeploymentFailed, "dep_1")
+	publish(events.DeploymentLive, "dep_2")
+	publish(events.DeploymentLive, "dep_3")
+	publish(events.DeploymentFailed, "dep_4")
+	publish(events.DeploymentFailed, "dep_5")
+	publish(events.DeploymentLive, "dep_6")
+	// Failed, live with a word that it recovered, live, failed, failed, live with another.
+	waitFor(t, "them all", func() bool { return len(rc.messages()) == 8 })
+	counts := map[string]int{}
+	for _, m := range rc.messages() {
+		counts[m["type"].(string)]++
+	}
+	if counts[events.DeploymentFailed] != 3 || counts[events.DeploymentLive] != 3 || counts[Recovered] != 2 {
+		t.Fatalf("%v", counts)
 	}
 }
 
@@ -403,6 +514,21 @@ func TestAddressesItMayNotReach(t *testing.T) {
 	for _, address := range []string{"169.254.169.254", "[fd00:ec2::254]", "100.100.100.200", "[::1]", "0.0.0.0", "224.0.0.1"} {
 		err := s.deliver(ctx, KindWebhook, Config{URL: "http://" + address + ":9/", Secret: "s"}, m)
 		if err == nil || !strings.Contains(err.Error(), "may not reach") {
+			t.Errorf("%s: %v", address, err)
+		}
+	}
+	// Nor this machine by another of its addresses.
+	own, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range own {
+		network, ok := a.(*net.IPNet)
+		if !ok || network.IP.IsLoopback() || network.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		address := net.JoinHostPort(network.IP.String(), port)
+		if err := s.deliver(ctx, KindWebhook, Config{URL: "http://" + address, Secret: "s"}, m); err == nil || !strings.Contains(err.Error(), "may not reach") {
 			t.Errorf("%s: %v", address, err)
 		}
 	}
@@ -696,5 +822,15 @@ func TestAddRuleRefusesNonsense(t *testing.T) {
 	}
 	if _, _, err := f.s.AddChannel(f.ctx, " \n", KindWebhook, Config{URL: "https://example.com/y"}, "owner@example.com"); err == nil {
 		t.Fatal("no name")
+	}
+}
+
+func TestMailSubjectIsEncoded(t *testing.T) {
+	title := Message{App: "shop", Env: "staging", Summary: "It failed"}.title()
+	if !strings.Contains(title, "·") {
+		t.Fatalf("%q: this test is about a subject that is not ASCII", title)
+	}
+	if got := mime.QEncoding.Encode("utf-8", title); strings.Contains(got, "·") || !strings.HasPrefix(got, "=?utf-8?q?") {
+		t.Fatalf("%q", got)
 	}
 }

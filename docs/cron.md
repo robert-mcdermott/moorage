@@ -21,7 +21,7 @@ command = "python manage.py cleanup"
 | `schedule` | required | Five fields (minute, hour, day, month, weekday), `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`, or `@every 15m`. |
 | `command` | required | What to run. |
 | `timezone` | the server's | Such as `Europe/Paris`. |
-| `timeout` | `"1h"` | It is stopped after this long. |
+| `timeout` | `"1h"` | It is stopped after this long, a day at the most. |
 | `overlap` | `"skip"` | If the run before is still going: `skip` this one, `allow` both, or `replace` the one before. |
 | `environments` | `["production"]` | Where it runs. `"*"` is every environment that stays; previews need naming, as `"preview"`. |
 

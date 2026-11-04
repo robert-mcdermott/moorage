@@ -459,10 +459,16 @@ func (m *Manager) addMoorage(app, env string, rel store.Release, build store.Bui
 // the release command of a deployment. Its output goes to log as log
 // lines, with the values of secrets removed.
 func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer) error {
+	kind, err := m.db.EnvKind(ctx, app, env)
+	if err != nil {
+		return err
+	}
+	plan = plan.ForEnv(env, kind)
 	if plan.Container != nil {
 		return m.runContainerOnce(ctx, app, env, rel, build, plan, process, command, timeout, log)
 	}
-	tmp := m.tmpDir("run-" + rel.ID)
+	// Several commands of a release can go at once: the first to end must not take away the others'.
+	tmp := m.tmpDir("run-" + ids.New(ids.Run))
 	defer os.RemoveAll(tmp)
 	vars, secrets, err := m.appEnv(ctx, app, env, rel, build, plan, tmp)
 	if err != nil {

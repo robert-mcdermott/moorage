@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"math"
 	"path/filepath"
@@ -222,5 +223,31 @@ func TestRingIsBounded(t *testing.T) {
 	}
 	if len(r.samples) != ringSize || r.samples[0].v != 10 {
 		t.Errorf("%d, oldest %v", len(r.samples), r.samples[0].v)
+	}
+}
+
+// TestSlowPrometheusClientHoldsNothing: a client that stops reading holds up neither the collector nor
+// the console.
+func TestSlowPrometheusClientHoldsNothing(t *testing.T) {
+	s := New(nil, slog.New(slog.DiscardHandler))
+	now := time.Now()
+	s.Gauge("e1", CPU, "web.1", 1, now)
+	s.Gauge("e1", Memory, "web.1", 1, now)
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	go s.WriteProm(writer, []PromEnv{{"a", "production", "e1"}}, false)
+	if _, err := reader.Read(make([]byte, 16)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		s.Gauge("e1", CPU, "web.1", 2, time.Now())
+		s.Glance("e2", time.Now())
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a client that stopped reading is holding up the store")
 	}
 }

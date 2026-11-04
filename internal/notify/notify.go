@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"net/url"
 	"slices"
@@ -86,11 +87,14 @@ const (
 	defaultWindow  = 15 * time.Minute
 	crashWindow    = 5 * time.Minute
 	crashThreshold = 3
-	retries        = 3
-	keepInbox      = 90 * 24 * time.Hour
-	diskLowAt      = 90.0
-	diskOKAt       = 85.0
-	maxNameLength  = 64
+	// quietAfter is how long without an exit shows that a process has stopped crashing. It is
+	// longer than what a supervisor waits before trying a process that keeps crashing again.
+	quietAfter    = 10 * time.Minute
+	retries       = 3
+	keepInbox     = 90 * 24 * time.Hour
+	diskLowAt     = 90.0
+	diskOKAt      = 85.0
+	maxNameLength = 64
 )
 
 // Service tells people.
@@ -112,12 +116,19 @@ type Service struct {
 	// DiskUsage, if set, overrides how the data volume's use is read, as a percentage (tests).
 	DiskUsage func() (float64, error)
 
-	mu       sync.Mutex
-	recent   map[string]*sentAlert
+	mu sync.Mutex
+	// recent is what went lately, by what would be held back.
+	recent map[string]*sentAlert
+	// exits has when each process of each environment last exited, and crashing those that an
+	// alert went out about, by "app/env/process".
 	exits    map[string][]time.Time
-	alerting map[string]bool
-	diskLow  bool
-	sending  sync.WaitGroup
+	crashing map[string]crashingProcess
+	// unhealthy has the instances that an alert went out about, by "app/env/instance".
+	unhealthy map[string]bool
+	// failing has the environments whose last deployment failed, by "app/env".
+	failing map[string]bool
+	diskLow bool
+	sending sync.WaitGroup
 	// following, if set, is told when it is following the bus (tests).
 	following func()
 }
@@ -127,10 +138,16 @@ type sentAlert struct {
 	held int
 }
 
+type crashingProcess struct{ app, env, process string }
+
+// recovery is something that has come right, by what a rule asks for to hear that it went wrong.
+type recovery struct{ kind, process, summary string }
+
 // Run tells people about events until ctx ends. Wait says when what it is sending has ended too.
 func (s *Service) Run(ctx context.Context) {
 	s.mu.Lock()
-	s.recent, s.exits, s.alerting = map[string]*sentAlert{}, map[string][]time.Time{}, map[string]bool{}
+	s.recent, s.exits, s.crashing = map[string]*sentAlert{}, map[string][]time.Time{}, map[string]crashingProcess{}
+	s.unhealthy, s.failing = map[string]bool{}, map[string]bool{}
 	s.mu.Unlock()
 	s.sending.Add(1)
 	go func() {
@@ -178,6 +195,7 @@ func (s *Service) watch(ctx context.Context) {
 			return
 		case now := <-t.C:
 			s.checkDisk(ctx)
+			s.checkQuiet(ctx, now.UTC())
 			if err := s.DB.PruneNotifications(ctx, now.Add(-keepInbox)); err != nil && ctx.Err() == nil {
 				s.Log.Warn("let go of old notifications", "err", err)
 			}
@@ -219,25 +237,17 @@ func (s *Service) checkDisk(ctx context.Context) {
 	}
 }
 
-// consider says what an event comes to: alerts, by what a rule would ask for, and what it means has
-// come right.
-func (s *Service) consider(e store.Event) (alerts, recovered []string) {
+// consider says what an event comes to: alerts, by what a rule would ask for, and what has come
+// right. An instance turning healthy says that it answers, and not that it has stopped crashing, so
+// that a process crashing recovers by a new release, or by staying up (see checkQuiet).
+func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery) {
 	where := e.App + "/" + e.Env
+	process, _ := e.Data["process"].(string)
+	instance, _ := e.Data["instance"].(string)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	raise := func(kind string) {
-		s.alerting[kind+"/"+where] = true
-		alerts = append(alerts, kind)
-	}
-	clear := func(kind string) {
-		if s.alerting[kind+"/"+where] {
-			delete(s.alerting, kind+"/"+where)
-			recovered = append(recovered, kind)
-		}
-	}
 	switch e.Type {
 	case events.InstanceExited:
-		process, _ := e.Data["process"].(string)
 		key := where + "/" + process
 		list := append(s.exits[key], e.At)
 		for len(list) > 0 && e.At.Sub(list[0]) > crashWindow {
@@ -245,43 +255,114 @@ func (s *Service) consider(e store.Event) (alerts, recovered []string) {
 		}
 		s.exits[key] = list
 		if len(list) >= crashThreshold {
-			raise(CrashLoop)
+			s.crashing[key] = crashingProcess{e.App, e.Env, process}
+			alerts = append(alerts, CrashLoop)
 		}
+	case events.InstanceUnhealthy:
+		s.unhealthy[where+"/"+instance] = true
+		alerts = append(alerts, events.InstanceUnhealthy)
 	case events.InstanceHealthy:
-		clear(CrashLoop)
-		clear(events.InstanceUnhealthy)
-		// A process that stays up for a while starts again with a clean slate.
-		for key, list := range s.exits {
-			if strings.HasPrefix(key, where+"/") && len(list) > 0 && e.At.Sub(list[len(list)-1]) > crashWindow {
+		if s.unhealthy[where+"/"+instance] {
+			delete(s.unhealthy, where+"/"+instance)
+			if !s.anyUnhealthy(where) {
+				recovered = append(recovered, recovery{kind: events.InstanceUnhealthy, summary: "Its instances are healthy again"})
+			}
+		}
+	case events.DeploymentFailed:
+		s.failing[where] = true
+		alerts = append(alerts, events.DeploymentFailed)
+	case events.DeploymentLive:
+		if s.failing[where] {
+			delete(s.failing, where)
+			recovered = append(recovered, recovery{kind: events.DeploymentFailed, summary: "A deployment went live after one that failed"})
+		}
+		// A new release means new instances, so that what was wrong with the old ones is over.
+		for key, c := range s.crashing {
+			if strings.HasPrefix(key, where+"/") {
+				delete(s.crashing, key)
+				recovered = append(recovered, recovery{kind: CrashLoop, process: c.process, summary: "A new release replaced the process " + c.process + ", which kept crashing"})
+			}
+		}
+		if s.anyUnhealthy(where) {
+			for key := range s.unhealthy {
+				if strings.HasPrefix(key, where+"/") {
+					delete(s.unhealthy, key)
+				}
+			}
+			recovered = append(recovered, recovery{kind: events.InstanceUnhealthy, summary: "A new release replaced its unhealthy instances"})
+		}
+		for key := range s.exits {
+			if strings.HasPrefix(key, where+"/") {
 				delete(s.exits, key)
 			}
 		}
-	case events.InstanceUnhealthy:
-		raise(events.InstanceUnhealthy)
-	case events.DeploymentFailed:
-		raise(events.DeploymentFailed)
-	case events.DeploymentLive:
-		clear(events.DeploymentFailed)
 		alerts = append(alerts, events.DeploymentLive)
 	case events.CronFailed:
 		alerts = append(alerts, events.CronFailed)
 	case events.DiskLow:
-		raise(events.DiskLow)
+		s.failing[diskKey] = true
+		alerts = append(alerts, events.DiskLow)
 	case events.DiskOK:
-		clear(events.DiskLow)
+		if s.failing[diskKey] {
+			delete(s.failing, diskKey)
+			recovered = append(recovered, recovery{kind: events.DiskLow, summary: "The server's disk has room again"})
+		}
 	}
 	return alerts, recovered
 }
 
+const diskKey = "disk"
+
+func (s *Service) anyUnhealthy(where string) bool {
+	for key := range s.unhealthy {
+		if strings.HasPrefix(key, where+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// checkQuiet says when a process that kept crashing has gone a while without exiting, and lets go of
+// what it knew of those no longer exiting at all.
+func (s *Service) checkQuiet(ctx context.Context, now time.Time) {
+	s.mu.Lock()
+	var quiet []crashingProcess
+	for key, list := range s.exits {
+		if len(list) > 0 && now.Sub(list[len(list)-1]) <= quietAfter {
+			continue
+		}
+		delete(s.exits, key)
+		if c, ok := s.crashing[key]; ok {
+			delete(s.crashing, key)
+			quiet = append(quiet, c)
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range quiet {
+		e := store.Event{App: c.app, Env: c.env, At: now, Data: map[string]any{"process": c.process}}
+		s.tellRecovered(ctx, e, recovery{kind: CrashLoop, process: c.process, summary: fmt.Sprintf("The process %s has not crashed for %d minutes", c.process, int(quietAfter.Minutes()))})
+	}
+}
+
 func (s *Service) handle(ctx context.Context, e store.Event) {
 	alerts, recovered := s.consider(e)
-	link := s.linkOf(e)
 	for _, kind := range alerts {
-		s.dispatch(ctx, e, kind, Message{Kind: kind, App: e.App, Env: e.Env, Summary: summaryOf(kind, e), Link: link, At: e.At, Data: e.Data})
+		s.dispatch(ctx, e, kind, Message{Kind: kind, App: e.App, Env: e.Env, Summary: summaryOf(kind, e), Link: s.linkOf(e), At: e.At, Data: e.Data})
 	}
-	for _, kind := range recovered {
-		s.dispatch(ctx, e, kind, Message{Kind: Recovered, App: e.App, Env: e.Env, Summary: recoveredSummary(kind), Link: link, At: e.At, Data: map[string]any{"recovered_from": kind}})
+	for _, r := range recovered {
+		s.tellRecovered(ctx, e, r)
 	}
+}
+
+func (s *Service) tellRecovered(ctx context.Context, e store.Event, r recovery) {
+	e.Data = maps.Clone(e.Data)
+	if e.Data == nil {
+		e.Data = map[string]any{}
+	}
+	if r.process != "" {
+		e.Data["process"] = r.process
+	}
+	s.dispatch(ctx, e, r.kind, Message{Kind: Recovered, App: e.App, Env: e.Env, Summary: r.summary, Link: s.linkOf(e), At: e.At, Data: map[string]any{"recovered_from": r.kind}})
 }
 
 func summaryOf(kind string, e store.Event) string {
@@ -292,20 +373,6 @@ func summaryOf(kind string, e store.Event) string {
 		return "It keeps crashing, and is being restarted"
 	}
 	return events.Summary(e)
-}
-
-func recoveredSummary(kind string) string {
-	switch kind {
-	case events.DeploymentFailed:
-		return "A deployment went live after one that failed"
-	case CrashLoop:
-		return "It has stopped crashing: its instances are healthy"
-	case events.InstanceUnhealthy:
-		return "Its instances are healthy again"
-	case events.DiskLow:
-		return "The server's disk has room again"
-	}
-	return "It has recovered"
 }
 
 func (s *Service) linkOf(e store.Event) string {
@@ -354,18 +421,40 @@ func (s *Service) admit(key string, at time.Time) (held int, ok bool) {
 	return held, true
 }
 
+// repeats says whether an alert is held back after one goes: what can happen over and over by itself.
+// A deployment happens because someone asked for one, and whoever did is to hear how it went.
+func repeats(kind string) bool {
+	return kind != events.DeploymentFailed && kind != events.DeploymentLive
+}
+
 // dispatch sends a message to all it should go to, unless one like it went a moment ago. kind is
-// what a rule asks for to have it.
+// what a rule asks for to have it. That something has recovered makes it news if it goes wrong
+// again, unless it has been going back and forth.
 func (s *Service) dispatch(ctx context.Context, e store.Event, kind string, m Message) {
-	key := strings.Join([]string{m.Kind, kind, e.App, e.Env}, "/")
+	key := strings.Join([]string{kind, e.App, e.Env}, "/")
+	if kind == CrashLoop {
+		process, _ := e.Data["process"].(string)
+		key += "/" + process
+	}
 	if job, _ := e.Data["job"].(string); job != "" {
 		key += "/" + job
 	}
-	held, ok := s.admit(key, e.At)
-	if !ok {
-		return
+	if repeats(kind) {
+		if m.Kind == Recovered {
+			if _, ok := s.admit("recovered/"+key, e.At); !ok {
+				return
+			}
+			s.mu.Lock()
+			delete(s.recent, key)
+			s.mu.Unlock()
+		} else {
+			held, ok := s.admit(key, e.At)
+			if !ok {
+				return
+			}
+			m.Suppressed = held
+		}
 	}
-	m.Suppressed = held
 	s.toChannels(ctx, e, kind, m)
 	s.tellPeople(ctx, e, kind, m)
 }
