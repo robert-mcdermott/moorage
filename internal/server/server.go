@@ -14,6 +14,7 @@ import (
 	stdlog "log"
 	"log/slog"
 	"net"
+	"net/netip"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,6 +53,26 @@ type Layout = layout.Layout
 
 // NewLayout returns the layout of the data directory root.
 func NewLayout(root string) Layout { return layout.New(root) }
+
+// trustsThisMachine finds a trusted range that holds an address of this machine.
+func trustsThisMachine(trusted []netip.Prefix) (netip.Prefix, bool) {
+	own := []netip.Addr{netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")}
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			if p, err := netip.ParsePrefix(a.String()); err == nil {
+				own = append(own, p.Addr().Unmap())
+			}
+		}
+	}
+	for _, p := range trusted {
+		for _, a := range own {
+			if p.Contains(a) {
+				return p, true
+			}
+		}
+	}
+	return netip.Prefix{}, false
+}
 
 // Addrs are the addresses the listeners are bound to; HTTPS is nil when
 // Moorage does not terminate TLS.
@@ -343,11 +364,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		notifier.Wait()
 	}()
 	if cfg.Auth.TrustedHeader != "" {
-		for _, p := range router.Trusted() {
-			if p.Addr().IsLoopback() {
-				log.Warn("auth.trusted_header is believed from this machine's own address, and apps deployed here can use that address too: they could say that they are anyone. Run the proxy on another machine", "trusted", p.String())
-				break
-			}
+		if own, ok := trustsThisMachine(router.Trusted()); ok {
+			log.Warn("auth.trusted_header is believed from this machine's own addresses, and apps deployed here can use those too: they could say that they are anyone. Run the proxy on another machine, and trust only its address", "trusted", own.String())
 		}
 	}
 	authn := &auth.Service{

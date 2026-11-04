@@ -293,7 +293,7 @@
     <h2>Add this account to your authenticator app</h2>
     <p class="muted">Scan the code, or type this key by hand.</p>
     {{template "command" .Key}}
-    <form method="post" action="/account/security/confirm" autocomplete="off">
+    <form method="post" action="/account/security/confirm" autocomplete="off" data-busy="Turning it on…">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <div class="field"><label for="confirm-code">Then enter the code it shows, to show that it works</label>
         <input id="confirm-code" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="8" spellcheck="false" autofocus>
@@ -302,12 +302,18 @@
     </form>
   </div>
 </section>
+{{else if .ThroughProvider}}
+<section class="panel panel-pad">
+  <h2><span class="badge">Off</span> Two-factor sign-in</h2>
+  <p class="muted">You do not sign in here with a password, so that a code here would have nothing to add to. Whoever signs you in decides what that takes.</p>
+</section>
 {{else}}
 <section class="panel panel-pad">
   <h2><span class="badge">Off</span> Two-factor sign-in</h2>
   <p class="muted">With this on, signing in takes your password and a code from an authenticator app on your phone, so that a password someone has found gets them nowhere.</p>
-  <form method="post" action="/account/security/start">
+  <form class="narrow-form" method="post" action="/account/security/start">
     <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="start-password">Your password</label><input id="start-password" type="password" name="password" required autocomplete="current-password"></div>
     <div class="actions"><button type="submit">Set it up</button></div>
   </form>
 </section>
@@ -661,7 +667,9 @@
   <div class="field"><label for="sso-domains">Addresses at</label><input id="sso-domains" name="email_domains" value="{{.EmailDomains}}" spellcheck="false" autocomplete="off" placeholder="example.com example.org">
     <p class="hint small">Those a first sign-in may be from. Empty is anyone your provider signs in.</p>
   </div>
-  <label class="check"><input type="checkbox" name="provision" value="1"{{if .Provision}} checked{{end}}> Make an account for someone new, the first time they sign in</label>
+  <label class="check"><input type="checkbox" name="provision" value="1"{{if .Provision}} checked{{end}}> Make an account for someone new, the first time they sign in, who can look at the default project and do nothing else until you say</label>
+  <label class="check"><input type="checkbox" name="trust_emails" value="1"{{if .TrustEmails}} checked{{end}}> Take your provider's word for an address it does not call verified</label>
+  <p class="hint small">Someone joins the account with their address the first time they sign in. That needs your provider to say the address is verified, or whoever can set an address there could be anyone here, an administrator included. Tick this only if your provider leaves that out and nobody can choose their own address there.</p>
   <h3>What they may do</h3>
   <div class="field"><label for="sso-claim">The claim with their groups</label><input id="sso-claim" name="group_claim" value="{{.GroupClaim}}" spellcheck="false" autocomplete="off" placeholder="groups"></div>
   <div class="field"><label for="sso-rules">What those groups mean</label><textarea id="sso-rules" name="group_rules" rows="4" spellcheck="false" placeholder="ops = admin&#10;web-team = project web maintainer">{{.GroupRules}}</textarea>

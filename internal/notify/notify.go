@@ -619,13 +619,13 @@ func (s *Service) Target(c store.NotificationChannel) string {
 	return u.Host
 }
 
-// AddRule keeps a rule: for an app, or a project, or the whole server.
-func (s *Service) AddRule(ctx context.Context, channel, project, app string, kinds []string, by string) (store.NotificationRule, error) {
+// CheckRule says what is wrong with a rule, if anything is.
+func CheckRule(project, app string, kinds []string) error {
 	if project != "" && app != "" {
-		return store.NotificationRule{}, &InvalidError{"A rule is for a project or an app, not both."}
+		return &InvalidError{"A rule is for a project or an app, not both."}
 	}
 	if len(kinds) == 0 {
-		return store.NotificationRule{}, &InvalidError{"A rule needs something to ask for."}
+		return &InvalidError{"A rule needs something to ask for."}
 	}
 	for _, k := range kinds {
 		known := k == Everything
@@ -633,8 +633,16 @@ func (s *Service) AddRule(ctx context.Context, channel, project, app string, kin
 			known = known || e.Kind == k
 		}
 		if !known {
-			return store.NotificationRule{}, &InvalidError{fmt.Sprintf("%q is not something a rule can ask for.", k)}
+			return &InvalidError{fmt.Sprintf("%q is not something a rule can ask for.", k)}
 		}
+	}
+	return nil
+}
+
+// AddRule keeps a rule: for an app, or a project, or the whole server.
+func (s *Service) AddRule(ctx context.Context, channel, project, app string, kinds []string, by string) (store.NotificationRule, error) {
+	if err := CheckRule(project, app, kinds); err != nil {
+		return store.NotificationRule{}, err
 	}
 	c, err := s.DB.NotificationChannel(ctx, channel)
 	if err != nil {

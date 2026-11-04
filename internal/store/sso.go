@@ -22,6 +22,9 @@ type SSOConfig struct {
 	GroupClaim, GroupRules string
 	// PasswordsOff leaves signing in to the provider.
 	PasswordsOff bool
+	// TrustEmails lets an address join someone to the account that has it, when the provider does not say that
+	// it is verified. A provider that says that it is not is never believed.
+	TrustEmails bool
 	UpdatedBy    string
 	UpdatedAt    time.Time
 }
@@ -33,8 +36,8 @@ func (c SSOConfig) Configured() bool { return c.Issuer != "" && c.ClientID != ""
 func (db *DB) SSOConfig(ctx context.Context) (SSOConfig, error) {
 	var c SSOConfig
 	var updated int64
-	err := db.Reader.QueryRowContext(ctx, `SELECT issuer, client_id, sealed_secret, label, scopes, email_domains, provision, group_claim, group_rules, passwords_off, updated_by, updated_at FROM sso_config WHERE id = 1`).
-		Scan(&c.Issuer, &c.ClientID, &c.SealedSecret, &c.Label, &c.Scopes, &c.EmailDomains, &c.Provision, &c.GroupClaim, &c.GroupRules, &c.PasswordsOff, &c.UpdatedBy, &updated)
+	err := db.Reader.QueryRowContext(ctx, `SELECT issuer, client_id, sealed_secret, label, scopes, email_domains, provision, group_claim, group_rules, passwords_off, trust_emails, updated_by, updated_at FROM sso_config WHERE id = 1`).
+		Scan(&c.Issuer, &c.ClientID, &c.SealedSecret, &c.Label, &c.Scopes, &c.EmailDomains, &c.Provision, &c.GroupClaim, &c.GroupRules, &c.PasswordsOff, &c.TrustEmails, &c.UpdatedBy, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SSOConfig{}, nil
 	}
@@ -48,12 +51,12 @@ func (db *DB) SSOConfig(ctx context.Context) (SSOConfig, error) {
 // SetSSOConfig keeps the configuration.
 func (db *DB) SetSSOConfig(ctx context.Context, c SSOConfig) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO sso_config (id, issuer, client_id, sealed_secret, label, scopes, email_domains, provision, group_claim, group_rules, passwords_off, updated_by, updated_at)
-			VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		_, err := tx.ExecContext(ctx, `INSERT INTO sso_config (id, issuer, client_id, sealed_secret, label, scopes, email_domains, provision, group_claim, group_rules, passwords_off, trust_emails, updated_by, updated_at)
+			VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET issuer = excluded.issuer, client_id = excluded.client_id, sealed_secret = excluded.sealed_secret, label = excluded.label, scopes = excluded.scopes,
-				email_domains = excluded.email_domains, provision = excluded.provision, group_claim = excluded.group_claim, group_rules = excluded.group_rules, passwords_off = excluded.passwords_off,
+				email_domains = excluded.email_domains, provision = excluded.provision, group_claim = excluded.group_claim, group_rules = excluded.group_rules, passwords_off = excluded.passwords_off, trust_emails = excluded.trust_emails,
 				updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
-			c.Issuer, c.ClientID, c.SealedSecret, c.Label, c.Scopes, c.EmailDomains, c.Provision, c.GroupClaim, c.GroupRules, c.PasswordsOff, c.UpdatedBy, c.UpdatedAt.UnixMilli())
+			c.Issuer, c.ClientID, c.SealedSecret, c.Label, c.Scopes, c.EmailDomains, c.Provision, c.GroupClaim, c.GroupRules, c.PasswordsOff, c.TrustEmails, c.UpdatedBy, c.UpdatedAt.UnixMilli())
 		return err
 	})
 }

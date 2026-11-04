@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,7 +89,7 @@ func TestTwoFactorSignIn(t *testing.T) {
 	}
 
 	// Setting it up shows a code to scan and a key to type, and a wrong code does not turn it on.
-	if res, page := owner.post("/account/security/start", url.Values{"csrf": {owner.token()}}); res.StatusCode != http.StatusSeeOther {
+	if res, page := owner.post("/account/security/start", url.Values{"csrf": {owner.token()}, "password": {"a long and unusual passphrase"}}); res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("%d\n%s", res.StatusCode, page)
 	}
 	_, page := owner.get("/account/security")
@@ -271,4 +272,52 @@ func userIDOf(t *testing.T, cfg config.Config, email string) string {
 		t.Fatal(err)
 	}
 	return u.ID
+}
+
+// TestChangingTwoFactorTakesThePassword: whoever finds a browser left signed in should not be able to add their
+// own authenticator app to it and lock its owner out, or take off the owner's.
+func TestChangingTwoFactorTakesThePassword(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	owner := signIn(t, cfg, addrs)
+	if res, _ := owner.post("/account/security/start", url.Values{"csrf": {owner.token()}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("with no password: %d", res.StatusCode)
+	}
+	if res, _ := owner.post("/account/security/start", url.Values{"csrf": {owner.token()}, "password": {"not the password"}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("with the wrong one: %d", res.StatusCode)
+	}
+	if res, page := owner.post("/account/security/start", url.Values{"csrf": {owner.token()}, "password": {"a long and unusual passphrase"}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("with the right one: %d\n%s", res.StatusCode, page)
+	}
+}
+
+// TestTwoFactorAttemptsAtOnce: all at once, they get no more tries than one after another.
+func TestTwoFactorAttemptsAtOnce(t *testing.T) {
+	l := auth.NewLimiterFor(5, time.Minute)
+	var mu sync.Mutex
+	allowed := 0
+	var wg sync.WaitGroup
+	for range 200 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if l.Take("key") == 0 {
+				mu.Lock()
+				allowed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if allowed > 6 {
+		t.Errorf("%d attempts got through", allowed)
+	}
+	// One that turns out not to have failed counts for nothing.
+	l = auth.NewLimiterFor(1, time.Minute)
+	for range 20 {
+		if l.Take("key") != 0 {
+			t.Fatal("what was given back still counted")
+		}
+		l.Return("key")
+	}
 }

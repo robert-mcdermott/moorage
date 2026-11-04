@@ -214,39 +214,55 @@ type Form struct {
 
 // Configure keeps what someone asks, if it can work.
 func (s *Service) Configure(ctx context.Context, form Form, by string) error {
+	cfg, err := s.configFrom(ctx, form)
+	if err != nil {
+		return err
+	}
+	cfg.UpdatedBy, cfg.UpdatedAt = by, time.Now().UTC()
+	return s.DB.SetBackupConfig(ctx, cfg)
+}
+
+// CheckForm says what would stop Configure, changing nothing.
+func (s *Service) CheckForm(ctx context.Context, form Form) error {
+	_, err := s.configFrom(ctx, form)
+	return err
+}
+
+func (s *Service) configFrom(ctx context.Context, form Form) (store.BackupConfig, error) {
 	form.Destination = strings.TrimSpace(form.Destination)
 	form.Schedule = strings.TrimSpace(form.Schedule)
+	var none store.BackupConfig
 	if form.Keep < 0 || form.Keep > 10000 {
-		return &RefusedError{"how many to keep has to be between 0, which is all of them, and 10000"}
+		return none, &RefusedError{"how many to keep has to be between 0, which is all of them, and 10000"}
 	}
 	if form.Schedule != "" {
 		if _, err := schedule.Parse(form.Schedule); err != nil {
-			return &RefusedError{"the schedule " + err.Error()}
+			return none, &RefusedError{"the schedule " + err.Error()}
 		}
 	}
 	old, err := s.DB.BackupConfig(ctx)
 	if err != nil {
-		return err
+		return none, err
 	}
 	cfg := store.BackupConfig{Destination: form.Destination, Endpoint: strings.TrimSpace(form.Endpoint), Region: strings.TrimSpace(form.Region), AccessKey: strings.TrimSpace(form.AccessKey),
-		SealedSecret: old.SealedSecret, Schedule: form.Schedule, Keep: form.Keep, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
+		SealedSecret: old.SealedSecret, Schedule: form.Schedule, Keep: form.Keep}
 	if form.SecretKey != "" {
 		cfg.SealedSecret = s.Keyring.SealBackup(form.SecretKey)
 	}
 	if strings.HasPrefix(form.Destination, "s3://") {
 		if len(cfg.SealedSecret) == 0 {
-			return &RefusedError{"an S3 destination needs a secret key"}
+			return none, &RefusedError{"an S3 destination needs a secret key"}
 		}
 	} else {
 		cfg.Endpoint, cfg.Region, cfg.AccessKey, cfg.SealedSecret = "", "", "", nil
 		if form.Destination != "" && !filepath.IsAbs(form.Destination) {
-			return &RefusedError{"a destination is a full path, or s3://bucket/prefix"}
+			return none, &RefusedError{"a destination is a full path, or s3://bucket/prefix"}
 		}
 	}
 	if _, err := s.DestinationOf(cfg); err != nil {
-		return err
+		return none, err
 	}
-	return s.DB.SetBackupConfig(ctx, cfg)
+	return cfg, nil
 }
 
 // Stored lists what is at the destination.

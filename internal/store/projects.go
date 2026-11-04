@@ -224,6 +224,17 @@ func (db *DB) SetMember(ctx context.Context, project, userID, role string) error
 	})
 }
 
+// LimitEveryone keeps someone from the roles that a project gives everyone, as a viewer of it. For an account that
+// nobody chose to give: otherwise, whoever a provider signs in could deploy to the default project.
+func (db *DB) LimitEveryone(ctx context.Context, userID string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO project_members (project_id, user_id, role, created_at)
+			SELECT id, ?, 'viewer', ? FROM projects WHERE everyone_role IN ('deployer', 'maintainer')
+			ON CONFLICT (project_id, user_id) DO NOTHING`, userID, time.Now().UnixMilli())
+		return err
+	})
+}
+
 // RemoveMember takes someone out of a project.
 func (db *DB) RemoveMember(ctx context.Context, project, userID string) error {
 	return db.write(ctx, func(tx *sql.Tx) error {

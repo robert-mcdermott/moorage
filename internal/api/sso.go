@@ -16,7 +16,7 @@ func (s *Server) ssoConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, apitypes.SSOConfig{
 		Issuer: cfg.Issuer, ClientID: cfg.ClientID, HasSecret: len(cfg.SealedSecret) > 0, RedirectURL: s.signIn.RedirectURL(), Label: cfg.Label, Scopes: cfg.Scopes,
-		EmailDomains: cfg.EmailDomains, Provision: cfg.Provision, GroupClaim: cfg.GroupClaim, GroupRules: cfg.GroupRules, PasswordsOff: cfg.PasswordsOff,
+		EmailDomains: cfg.EmailDomains, Provision: cfg.Provision, TrustEmails: cfg.TrustEmails, GroupClaim: cfg.GroupClaim, GroupRules: cfg.GroupRules, PasswordsOff: cfg.PasswordsOff,
 	})
 }
 
@@ -26,7 +26,7 @@ func (s *Server) configureSSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.signIn.Configure(r.Context(), sso.Form{Issuer: req.Issuer, ClientID: req.ClientID, ClientSecret: req.ClientSecret, Label: req.Label, Scopes: req.Scopes, EmailDomains: req.EmailDomains,
-		Provision: req.Provision, GroupClaim: req.GroupClaim, GroupRules: req.GroupRules, PasswordsOff: req.PasswordsOff}, who(r).Name)
+		Provision: req.Provision, TrustEmails: req.TrustEmails, GroupClaim: req.GroupClaim, GroupRules: req.GroupRules, PasswordsOff: req.PasswordsOff}, who(r).Name)
 	var invalid *sso.InvalidError
 	if errors.As(err, &invalid) {
 		problem(w, http.StatusUnprocessableEntity, "invalid_sso", invalid.Msg)

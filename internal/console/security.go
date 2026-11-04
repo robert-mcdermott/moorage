@@ -18,6 +18,9 @@ import (
 type securityView struct {
 	On        bool
 	CodesLeft int
+	// ThroughProvider says that this person does not sign in with a password here, so that a second factor
+	// would do nothing: it is up to whoever does sign them in.
+	ThroughProvider bool
 	// URI, Key and QR say how to add the account to an authenticator app, while setting it up.
 	URI, Key string
 	QR       template.HTML
@@ -51,11 +54,16 @@ func (c *Console) loadSecurity(r *http.Request, view *securityView, userID strin
 			return err
 		}
 		view.On = on
+		u, err := c.db.UserByID(ctx, p.UserID)
+		if err != nil {
+			return err
+		}
+		view.ThroughProvider = u.PasswordHash == "" || (c.auth.PasswordsOff != nil && c.auth.PasswordsOff(ctx))
 		if on {
 			if view.CodesLeft, err = c.db.RecoveryCodesLeft(ctx, p.UserID); err != nil {
 				return err
 			}
-		} else if u, err := c.db.UserByID(ctx, p.UserID); err == nil {
+		} else if !view.ThroughProvider {
 			setup, pending, err := c.auth.CurrentSecondFactorSetup(ctx, u, c.issuerName())
 			if err != nil {
 				return err
@@ -87,10 +95,33 @@ func (c *Console) securityPage(w http.ResponseWriter, r *http.Request) {
 	c.showSecurity(w, r, p, http.StatusOK, securityView{}, nil)
 }
 
+// ownPassword checks that whoever is at this browser knows the password, and shows the page again if not.
+// Whoever finds a browser left signed in should not be able to change how its owner signs in.
+func (c *Console) ownPassword(w http.ResponseWriter, r *http.Request, p auth.Principal, u store.User) bool {
+	err := c.auth.CheckOwnPassword(r.Context(), u, r.PostFormValue("password"), c.auth.ClientIP(r))
+	if err == nil {
+		return true
+	}
+	var limited *auth.RateLimitedError
+	if errors.As(err, &limited) {
+		c.showSecurity(w, r, p, http.StatusTooManyRequests, securityView{}, &failure{Message: "Too many attempts. Try again in a while."})
+		return false
+	}
+	if !errors.Is(err, auth.ErrBadCredentials) {
+		c.internal(w, err)
+		return false
+	}
+	c.showSecurity(w, r, p, http.StatusUnprocessableEntity, securityView{}, &failure{Message: "That is not your password."})
+	return false
+}
+
 func (c *Console) startSecondFactor(w http.ResponseWriter, r *http.Request, p auth.Principal) {
 	u, err := c.db.UserByID(r.Context(), p.UserID)
 	if err != nil {
 		c.internal(w, err)
+		return
+	}
+	if !c.ownPassword(w, r, p, u) {
 		return
 	}
 	if _, err := c.auth.BeginSecondFactor(r.Context(), u, c.issuerName()); err != nil {
@@ -101,6 +132,11 @@ func (c *Console) startSecondFactor(w http.ResponseWriter, r *http.Request, p au
 }
 
 func (c *Console) confirmSecondFactor(w http.ResponseWriter, r *http.Request, p auth.Principal) {
+	// A second press, or going back and sending it again: it is on already.
+	if on, err := c.auth.NeedsSecondFactor(r.Context(), p.UserID); err == nil && on {
+		http.Redirect(w, r, "/account/security", http.StatusSeeOther)
+		return
+	}
 	codes, err := c.auth.ConfirmSecondFactor(r.Context(), p.UserID, r.PostFormValue("code"), c.auth.ClientIP(r))
 	var limited *auth.RateLimitedError
 	switch {
@@ -126,14 +162,7 @@ func (c *Console) turnOffSecondFactor(w http.ResponseWriter, r *http.Request, p 
 		c.internal(w, err)
 		return
 	}
-	// Whoever finds a browser left signed in should not be able to do this.
-	if _, err := c.auth.SignIn(r.Context(), u.Email, r.PostFormValue("password"), c.auth.ClientIP(r)); err != nil {
-		var limited *auth.RateLimitedError
-		if errors.As(err, &limited) {
-			c.showSecurity(w, r, p, http.StatusTooManyRequests, securityView{}, &failure{Message: "Too many attempts. Try again in a moment."})
-			return
-		}
-		c.showSecurity(w, r, p, http.StatusUnprocessableEntity, securityView{}, &failure{Message: "That is not your password."})
+	if !c.ownPassword(w, r, p, u) {
 		return
 	}
 	if err := c.auth.TurnOffSecondFactor(r.Context(), p.UserID, p.Name, c.auth.ClientIP(r)); err != nil {
@@ -145,6 +174,11 @@ func (c *Console) turnOffSecondFactor(w http.ResponseWriter, r *http.Request, p 
 
 // adminSecondFactorOff is for someone who has lost their authenticator app and their recovery codes.
 func (c *Console) adminSecondFactorOff(w http.ResponseWriter, r *http.Request, p auth.Principal) {
+	if r.PostFormValue("user") == p.UserID {
+		// One's own takes the password, and this would be a way around that.
+		http.Redirect(w, r, "/account/security", http.StatusSeeOther)
+		return
+	}
 	if err := c.auth.TurnOffSecondFactor(r.Context(), r.PostFormValue("user"), p.Name, c.auth.ClientIP(r)); err != nil {
 		c.internal(w, err)
 		return

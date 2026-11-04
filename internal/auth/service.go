@@ -231,13 +231,9 @@ func (s *Service) TrustedUser(ctx context.Context, email, name, ip string) (stor
 	case !s.TrustedProvision:
 		return u, ErrNoAccount
 	default:
-		if u, err = s.NewUser(ctx, normal, name, store.RoleMember, ""); err != nil {
+		if u, err = s.Provision(ctx, normal, name, ip); err != nil {
 			return u, err
 		}
-		if err := s.DB.CreateUser(ctx, u); err != nil {
-			return u, err
-		}
-		s.Audit(ctx, store.AuditEntry{Actor: normal, IP: ip, Action: "user.provision", Target: u.ID, Result: "ok"})
 	}
 	s.Audit(ctx, store.AuditEntry{Actor: normal, IP: ip, Action: "signin.proxy", Result: "ok"})
 	return u, nil
@@ -450,9 +446,20 @@ func SameOrigin(r *http.Request) bool {
 	return ok && strings.EqualFold(host, r.Host)
 }
 
+// lowerASCII lowers A to Z, and nothing else: lowering everything would make different addresses one, as İ
+// becomes i, and someone with admİn@example.com at a provider would be admin@example.com here.
+func lowerASCII(text string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, text)
+}
+
 // NormalizeEmail lowercases and checks an email address.
 func NormalizeEmail(email string) (string, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = lowerASCII(strings.TrimSpace(email))
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email || !strings.Contains(email, "@") {
 		return "", errors.New("that is not an email address")
@@ -506,7 +513,7 @@ func (s *Service) SignIn(ctx context.Context, email, password, ip string) (store
 	if s.PasswordsOff != nil && s.PasswordsOff(ctx) {
 		return store.User{}, ErrPasswordsOff
 	}
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = lowerASCII(strings.TrimSpace(email))
 	keys := []string{"signin-ip:" + ip, "signin-account:" + email}
 	if err := s.limit(keys...); err != nil {
 		s.Security("sign-in refused by the rate limit", "ip", ip, "email", email)
@@ -534,6 +541,46 @@ func (s *Service) SignIn(ctx context.Context, email, password, ip string) (store
 		s.Limits.Clear("signin-account:" + email)
 	}
 	s.Audit(ctx, store.AuditEntry{Actor: email, IP: ip, Action: "signin", Result: "ok"})
+	return u, nil
+}
+
+// CheckOwnPassword checks the password of someone already signed in, who is about to do something that should
+// take more than a browser left open. It has the same limits as signing in, and works when signing in with a
+// password is off, as it does not sign anyone in.
+func (s *Service) CheckOwnPassword(ctx context.Context, u store.User, password, ip string) error {
+	keys := []string{"signin-ip:" + ip, "signin-account:" + u.Email}
+	if err := s.limit(keys...); err != nil {
+		return err
+	}
+	if u.PasswordHash == "" {
+		return ErrBadCredentials
+	}
+	ok, err := VerifyPassword(ctx, u.PasswordHash, password)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		s.failed(keys...)
+		s.Security("a password check failed", "ip", ip, "email", u.Email)
+		return ErrBadCredentials
+	}
+	return nil
+}
+
+// Provision makes an account for someone a provider or a proxy vouches for, whom nobody chose to give one: a
+// member with no more than a look at the projects where everyone has a role.
+func (s *Service) Provision(ctx context.Context, email, name, ip string) (store.User, error) {
+	u, err := s.NewUser(ctx, email, name, store.RoleMember, "")
+	if err != nil {
+		return u, err
+	}
+	if err := s.DB.CreateUser(ctx, u); err != nil {
+		return u, err
+	}
+	if err := s.DB.LimitEveryone(ctx, u.ID); err != nil {
+		return u, err
+	}
+	s.Audit(ctx, store.AuditEntry{Actor: u.Email, IP: ip, Action: "user.provision", Target: u.ID, Result: "ok"})
 	return u, nil
 }
 
@@ -765,6 +812,9 @@ func (s *Service) Invite(ctx context.Context, userID, by string) (string, error)
 // AcceptInvitation uses an invitation: it sets the user's password, ending
 // their sessions, and returns them.
 func (s *Service) AcceptInvitation(ctx context.Context, code, password string) (store.User, error) {
+	if s.PasswordsOff != nil && s.PasswordsOff(ctx) {
+		return store.User{}, ErrPasswordsOff
+	}
 	if err := CheckPassword(password); err != nil {
 		return store.User{}, &FieldError{"password", err.Error()}
 	}

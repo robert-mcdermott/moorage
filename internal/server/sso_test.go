@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -23,11 +25,14 @@ import (
 
 // fakeProvider is an OpenID Connect provider, which signs in whoever the test says.
 type fakeProvider struct {
-	t      *testing.T
-	srv    *httptest.Server
-	key    *rsa.PrivateKey
-	mu     sync.Mutex
-	claims map[string]any
+	// issuerEnd is put at the end of the address it calls itself by, and userInfo is what it says when asked.
+	issuerEnd string
+	userInfo  map[string]any
+	t         *testing.T
+	srv       *httptest.Server
+	key       *rsa.PrivateKey
+	mu        sync.Mutex
+	claims    map[string]any
 	// What it heard, for the test to look at, and what a test wants done wrong.
 	challenge, nonce string
 	mutate           func(jwt.Claims, map[string]any) (jwt.Claims, map[string]any)
@@ -45,9 +50,20 @@ func newFakeProvider(t *testing.T) *fakeProvider {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
-			"issuer": p.srv.URL, "authorization_endpoint": p.srv.URL + "/authorize", "token_endpoint": p.srv.URL + "/token", "jwks_uri": p.srv.URL + "/keys",
+			"issuer": p.srv.URL + p.issuerEnd, "authorization_endpoint": p.srv.URL + "/authorize", "token_endpoint": p.srv.URL + "/token", "jwks_uri": p.srv.URL + "/keys",
+			"userinfo_endpoint":        p.srv.URL + "/userinfo",
 			"response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"},
 		})
+	})
+	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, r *http.Request) {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.userInfo == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(p.userInfo)
 	})
 	mux.HandleFunc("GET /keys", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: key.Public(), KeyID: "one", Algorithm: "RS256", Use: "sig"}}})
@@ -88,7 +104,7 @@ func newFakeProvider(t *testing.T) *fakeProvider {
 			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
 			return
 		}
-		standard := jwt.Claims{Issuer: p.srv.URL, Subject: p.claims["sub"].(string), Audience: jwt.Audience{"moorage-client"}, Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour)), IssuedAt: jwt.NewNumericDate(time.Now())}
+		standard := jwt.Claims{Issuer: p.srv.URL + p.issuerEnd, Subject: p.claims["sub"].(string), Audience: jwt.Audience{"moorage-client"}, Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour)), IssuedAt: jwt.NewNumericDate(time.Now())}
 		extra := map[string]any{"nonce": p.nonce}
 		for k, v := range p.claims {
 			if k != "sub" {
@@ -368,6 +384,9 @@ func TestSSOGroups(t *testing.T) {
 	setUpSSO(t, owner, p, url.Values{"provision": {"1"}, "group_rules": {"ops = admin\r\nweb-team = project web deployer\r\nweb-leads = project web maintainer\r\n# a comment\r\ngone = project nothing viewer"}})
 	signInAs := func(groups ...any) {
 		t.Helper()
+		if groups == nil {
+			groups = []any{} // that they have none, which is something else from not saying
+		}
 		p.signsIn(map[string]any{"sub": "subject-sam", "email": "sam@example.com", "email_verified": true, "groups": groups})
 		if res, page := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
 			t.Fatalf("%d\n%s", res.StatusCode, page)
@@ -548,5 +567,183 @@ func TestTrustedHeaderFromAnyoneElse(t *testing.T) {
 	broken.Proxy.Trusted = nil
 	if err := broken.Validate(); err == nil || !strings.Contains(err.Error(), "proxy.trusted") {
 		t.Errorf("%v", err)
+	}
+}
+
+// TestSSOAddressHasToBeVerified: an address that the provider does not call verified cannot join an account.
+// Otherwise, where anyone can set an address at the provider, anyone could be an administrator here.
+func TestSSOAddressHasToBeVerified(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	owner := signIn(t, cfg, addrs)
+	p := newFakeProvider(t)
+	setUpSSO(t, owner, p, url.Values{})
+
+	p.signsIn(map[string]any{"sub": "subject-eve", "email": "owner@example.com"})
+	if res, page := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusForbidden || !strings.Contains(page, "verified") {
+		t.Errorf("no word on whether the address is verified: %d\n%s", res.StatusCode, page)
+	}
+	if _, err := testAuth(t, cfg).DB.UserByIdentity(context.Background(), p.srv.URL, "subject-eve"); err == nil {
+		t.Error("the subject joined the account")
+	}
+	// A different address, by the rules of a language and not of mail, is not the same address.
+	p.signsIn(map[string]any{"sub": "subject-eve", "email": "ownİr@example.com", "email_verified": true})
+	if res, _ := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("%d", res.StatusCode)
+	}
+
+	// With the server told to take its word, it does, and it still never believes "unverified".
+	setUpSSO(t, owner, p, url.Values{"trust_emails": {"1"}})
+	p.signsIn(map[string]any{"sub": "subject-eve", "email": "owner@example.com", "email_verified": false})
+	if res, _ := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("%d", res.StatusCode)
+	}
+	p.signsIn(map[string]any{"sub": "subject-owner", "email": "owner@example.com"})
+	if res, page := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d\n%s", res.StatusCode, page)
+	}
+}
+
+// TestSSOProvisionedCanOnlyLook: everyone is a maintainer of the default project, and someone nobody chose to give
+// an account should not be able to deploy there.
+func TestSSOProvisionedCanOnlyLook(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	owner := signIn(t, cfg, addrs)
+	p := newFakeProvider(t)
+	setUpSSO(t, owner, p, url.Values{"provision": {"1"}})
+	p.signsIn(map[string]any{"sub": "subject-new", "email": "new@example.com", "email_verified": true})
+	if res, page := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d\n%s", res.StatusCode, page)
+	}
+	ctx := context.Background()
+	authn := testAuth(t, cfg)
+	u, err := authn.DB.UserByEmail(ctx, "new@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := authn.DB.ProjectByName(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if role, err := authn.DB.MemberRole(ctx, project.ID, u.ID); err != nil || role != "viewer" {
+		t.Errorf("%q %v", role, err)
+	}
+}
+
+// TestSSOAskingForUserInfo: a provider need not put someone's address or groups in its token.
+func TestSSOAskingForUserInfo(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	owner := signIn(t, cfg, addrs)
+	p := newFakeProvider(t)
+	setUpSSO(t, owner, p, url.Values{"provision": {"1"}, "group_rules": {"ops = admin"}})
+	p.signsIn(map[string]any{"sub": "subject-new"})
+	p.mu.Lock()
+	p.userInfo = map[string]any{"sub": "subject-new", "email": "new@example.com", "email_verified": true, "name": "New", "groups": []string{"ops"}}
+	p.mu.Unlock()
+	if res, page := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d\n%s", res.StatusCode, page)
+	}
+	ctx := context.Background()
+	db := testAuth(t, cfg).DB
+	u, err := db.UserByEmail(ctx, "new@example.com")
+	if err != nil || u.Role != "admin" {
+		t.Fatalf("%+v %v", u, err)
+	}
+
+	// Hearing nothing of their groups is not hearing that they have none: they stay as they are.
+	p.mu.Lock()
+	p.userInfo = map[string]any{"sub": "subject-new", "email": "new@example.com", "email_verified": true}
+	p.mu.Unlock()
+	if res, _ := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d", res.StatusCode)
+	}
+	if u, err = db.UserByEmail(ctx, "new@example.com"); err != nil || u.Role != "admin" {
+		t.Errorf("hearing nothing took their role away: %+v %v", u, err)
+	}
+	// Someone else's user info counts for nothing.
+	p.signsIn(map[string]any{"sub": "subject-other"})
+	p.mu.Lock()
+	p.userInfo = map[string]any{"sub": "subject-new", "email": "new@example.com", "email_verified": true}
+	p.mu.Unlock()
+	if res, _ := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("%d", res.StatusCode)
+	}
+}
+
+// TestSSOAddressEndingInASlash: a provider's address has to match what it calls itself, to the last character, and
+// nobody should have to know whether that is a slash.
+func TestSSOAddressEndingInASlash(t *testing.T) {
+	for _, c := range []struct{ says, typed string }{{"/", ""}, {"/", "/"}, {"", "/"}, {"", ""}} {
+		t.Run("says "+c.says+" typed "+c.typed, func(t *testing.T) {
+			cfg := testConfig(t)
+			addrs, _ := start(t, cfg)
+			owner := signIn(t, cfg, addrs)
+			p := newFakeProvider(t)
+			p.issuerEnd = c.says
+			setUpSSO(t, owner, p, url.Values{"issuer": {p.srv.URL + c.typed}})
+			p.signsIn(map[string]any{"sub": "subject-owner", "email": "owner@example.com", "email_verified": true})
+			if res, page := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
+				t.Errorf("%d\n%s", res.StatusCode, page)
+			}
+		})
+	}
+}
+
+// TestTrustedHeaderWhileUnclaimed: until someone has claimed a server, its setup link has to work through the
+// proxy, and the first person to come by should not make it theirs.
+func TestTrustedHeaderWhileUnclaimed(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Proxy.Trusted = []string{"127.0.0.1"}
+	cfg.Auth = config.Auth{TrustedHeader: "X-Auth-Email", TrustedProvision: true}
+	addrs, _ := start(t, cfg)
+	code, err := os.ReadFile(NewLayout(cfg.DataDir).ClaimCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := proxied(t, addrs, cfg, "/setup?code="+strings.TrimSpace(string(code)), map[string]string{"X-Auth-Email": "first@example.com"}, nil)
+	if res.StatusCode != http.StatusOK || len(res.Cookies()) != 0 {
+		t.Errorf("%d %v", res.StatusCode, res.Cookies())
+	}
+	if _, err := testAuth(t, cfg).DB.UserByEmail(context.Background(), "first@example.com"); err == nil {
+		t.Error("the first to come by got an account")
+	}
+	owner := signIn(t, cfg, addrs)
+	_ = owner
+	res = proxied(t, addrs, cfg, "/account", map[string]string{"X-Auth-Email": "first@example.com"}, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("once claimed: %d", res.StatusCode)
+	}
+	// A request for an asset leaves no session behind.
+	res = proxied(t, addrs, cfg, "/assets/console.css", map[string]string{"X-Auth-Email": "first@example.com"}, nil)
+	if len(res.Cookies()) != 0 {
+		t.Errorf("%v", res.Cookies())
+	}
+}
+
+// TestInvitationsWithPasswordsOff: choosing a password is signing in with one.
+func TestInvitationsWithPasswordsOff(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	owner := signIn(t, cfg, addrs)
+	res, body := owner.post("/settings/users/create", url.Values{"csrf": {owner.token()}, "email": {"late@example.com"}, "role": {"member"}})
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	link := regexp.MustCompile(`/invite\?code=([^<"\s]+)`).FindStringSubmatch(body)
+	if link == nil {
+		t.Fatalf("no link in: %s", body)
+	}
+	p := newFakeProvider(t)
+	setUpSSO(t, owner, p, url.Values{"passwords_off": {"1"}})
+	u := &consoleUser{t: t, addr: addrs.HTTP, host: cfg.ConsoleHost}
+	res, _ = u.post("/invite", url.Values{"code": {link[1]}, "password": {"a passphrase of their own"}, "confirm": {"a passphrase of their own"}})
+	if res.StatusCode == http.StatusSeeOther {
+		t.Errorf("a link gave someone a password: %d", res.StatusCode)
+	}
+	got, err := testAuth(t, cfg).DB.UserByEmail(context.Background(), "late@example.com")
+	if err != nil || got.PasswordHash != "" {
+		t.Errorf("%v %v", got.PasswordHash != "", err)
 	}
 }

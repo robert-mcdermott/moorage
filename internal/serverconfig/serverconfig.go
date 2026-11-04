@@ -86,10 +86,11 @@ func missing(value string) string {
 }
 
 // Expand fills in the secrets that the environment holds. Those it does not hold stay as they are, which the
-// server takes to mean that it should keep what it has.
+// server takes to mean that it should keep what it has. Only variables named for this count: a file from
+// someone else could otherwise ask for any secret in the environment, and send it wherever it likes.
 func Expand(f *apitypes.ServerConfig, getenv func(string) string) {
 	fill := func(value *string) {
-		if m := placeholder.FindStringSubmatch(*value); m != nil {
+		if m := placeholder.FindStringSubmatch(*value); m != nil && strings.HasPrefix(m[1], "MOORAGE_") {
 			if got := getenv(m[1]); got != "" {
 				*value = got
 			}
@@ -154,7 +155,6 @@ func Encode(f apitypes.ServerConfig, about string) ([]byte, error) {
 // Export reads what a server has.
 func (s *Service) Export(ctx context.Context) (apitypes.ServerConfig, error) {
 	f := apitypes.ServerConfig{Format: Format}
-	emails := map[string]bool{}
 	for after := ""; ; {
 		users, err := s.DB.Users(ctx, after, 500)
 		if err != nil {
@@ -165,8 +165,7 @@ func (s *Service) Export(ctx context.Context) (apitypes.ServerConfig, error) {
 		}
 		for _, u := range users {
 			f.Users = append(f.Users, apitypes.ConfigUser{Email: u.Email, Name: u.Name, Role: u.Role, Disabled: u.Disabled()})
-			emails[u.Email] = true
-			after = u.ID
+			after = u.Email
 		}
 	}
 	sort.Slice(f.Users, func(i, j int) bool { return f.Users[i].Email < f.Users[j].Email })
@@ -176,7 +175,7 @@ func (s *Service) Export(ctx context.Context) (apitypes.ServerConfig, error) {
 		return f, err
 	}
 	for _, p := range projects {
-		out := apitypes.ConfigProject{Name: p.Name, EveryoneRole: p.EveryoneRole, ViewersSeeLogs: p.ViewersSeeLogs}
+		out := apitypes.ConfigProject{Name: p.Name, EveryoneRole: &p.EveryoneRole, ViewersSeeLogs: &p.ViewersSeeLogs}
 		members, err := s.DB.Members(ctx, p.Name)
 		if err != nil {
 			return f, err
@@ -232,7 +231,7 @@ func (s *Service) Export(ctx context.Context) (apitypes.ServerConfig, error) {
 		return f, err
 	}
 	if !backups.UpdatedAt.IsZero() {
-		f.Backups = &apitypes.ConfigBackups{Destination: backups.Destination, Endpoint: backups.Endpoint, Region: backups.Region, AccessKey: backups.AccessKey, Schedule: backups.Schedule, Keep: backups.Keep}
+		f.Backups = &apitypes.ConfigBackups{Destination: &backups.Destination, Endpoint: &backups.Endpoint, Region: &backups.Region, AccessKey: &backups.AccessKey, Schedule: &backups.Schedule, Keep: &backups.Keep}
 		if len(backups.SealedSecret) > 0 {
 			f.Backups.SecretKey = variable("backup", "secret", "key")
 		}
@@ -242,8 +241,8 @@ func (s *Service) Export(ctx context.Context) (apitypes.ServerConfig, error) {
 		return f, err
 	}
 	if signIn.Issuer != "" {
-		f.SignIn = &apitypes.ConfigSignIn{Issuer: signIn.Issuer, ClientID: signIn.ClientID, Label: signIn.Label, Scopes: signIn.Scopes, EmailDomains: signIn.EmailDomains,
-			Provision: signIn.Provision, GroupClaim: signIn.GroupClaim, GroupRules: signIn.GroupRules, PasswordsOff: signIn.PasswordsOff}
+		f.SignIn = &apitypes.ConfigSignIn{Issuer: signIn.Issuer, ClientID: signIn.ClientID, Label: &signIn.Label, Scopes: &signIn.Scopes, EmailDomains: &signIn.EmailDomains,
+			Provision: &signIn.Provision, TrustEmails: &signIn.TrustEmails, GroupClaim: &signIn.GroupClaim, GroupRules: &signIn.GroupRules, PasswordsOff: &signIn.PasswordsOff}
 		if len(signIn.SealedSecret) > 0 {
 			f.SignIn.ClientSecret = variable("sso", "client", "secret")
 		}
@@ -299,13 +298,16 @@ func (s *Service) importUsers(r *run, f apitypes.ServerConfig) error {
 			continue
 		}
 		role := want.Role
-		if role != store.RoleAdmin && role != store.RoleMember {
+		if role != "" && role != store.RoleAdmin && role != store.RoleMember {
 			r.failed("user", email, fmt.Errorf("a user's role is admin or member, and not %q", role))
 			continue
 		}
 		u, err := s.DB.UserByEmail(r.ctx, email)
 		if errors.Is(err, store.ErrNotFound) {
 			r.users[email] = "" // there will be one, whose ID is not known in a dry run
+			if role == "" {
+				role = store.RoleMember
+			}
 			if !r.dry {
 				u, err := s.Auth.NewUser(r.ctx, email, want.Name, role, "")
 				if err == nil {
@@ -328,6 +330,9 @@ func (s *Service) importUsers(r *run, f apitypes.ServerConfig) error {
 			return err
 		}
 		r.users[email] = u.ID
+		if role == "" {
+			role = u.Role
+		}
 		var changes []string
 		if u.Role != role {
 			changes = append(changes, "role "+u.Role+" to "+role)
@@ -374,13 +379,28 @@ func (s *Service) importProjects(r *run, f apitypes.ServerConfig) error {
 				have = &existing[i]
 			}
 		}
-		if want.EveryoneRole != "" && !store.ValidRole(want.EveryoneRole) {
-			r.failed("project", want.Name, fmt.Errorf("a role is viewer, deployer or maintainer, and not %q", want.EveryoneRole))
+		// What the file leaves out stays as it is, or is as a new project has it.
+		everyone, seeLogs := "", true
+		if have != nil {
+			everyone, seeLogs = have.EveryoneRole, have.ViewersSeeLogs
+		}
+		if want.EveryoneRole != nil {
+			everyone = *want.EveryoneRole
+		}
+		if want.ViewersSeeLogs != nil {
+			seeLogs = *want.ViewersSeeLogs
+		}
+		if everyone != "" && !store.ValidRole(everyone) {
+			r.failed("project", want.Name, fmt.Errorf("a role is viewer, deployer or maintainer, and not %q", everyone))
 			continue
 		}
 		action := apitypes.ConfigSame
 		if have == nil {
 			action = apitypes.ConfigCreate
+			if err := names.ValidateProject(want.Name); err != nil {
+				r.failed("project", want.Name, err)
+				continue
+			}
 			if !r.dry {
 				if _, err := s.DB.CreateProject(r.ctx, want.Name); err != nil {
 					r.failed("project", want.Name, err)
@@ -389,12 +409,12 @@ func (s *Service) importProjects(r *run, f apitypes.ServerConfig) error {
 			}
 			r.projects[want.Name] = true
 		}
-		if have == nil || have.EveryoneRole != want.EveryoneRole || have.ViewersSeeLogs != want.ViewersSeeLogs {
+		if have == nil || have.EveryoneRole != everyone || have.ViewersSeeLogs != seeLogs {
 			if action == apitypes.ConfigSame {
 				action = apitypes.ConfigChange
 			}
 			if !r.dry {
-				if err := s.DB.SetProject(r.ctx, want.Name, want.EveryoneRole, want.ViewersSeeLogs); err != nil {
+				if err := s.DB.SetProject(r.ctx, want.Name, everyone, seeLogs); err != nil {
 					r.failed("project", want.Name, err)
 					continue
 				}
@@ -579,6 +599,24 @@ func (s *Service) importChannels(r *run, f apitypes.ServerConfig) error {
 		if cfg.Password == "" {
 			cfg.Password = current.Password
 		}
+		if cfg.Host == "" {
+			cfg.Host = current.Host
+		}
+		if cfg.Port == 0 {
+			cfg.Port = current.Port
+		}
+		if cfg.Username == "" {
+			cfg.Username = current.Username
+		}
+		if cfg.From == "" {
+			cfg.From = current.From
+		}
+		if len(cfg.To) == 0 {
+			cfg.To = current.To
+		}
+		if want.Kind == "" {
+			want.Kind = have.Kind
+		}
 		if want.Kind != have.Kind {
 			r.failed("channel", want.Name, fmt.Errorf("there is a %s channel of this name, and it cannot become a %s one", have.Kind, want.Kind))
 			continue
@@ -649,16 +687,33 @@ func (s *Service) importRules(r *run, f apitypes.ServerConfig) error {
 			continue
 		}
 		have[key] = true
+		if err := s.checkRule(r, want); err != nil {
+			r.failed("rule", name, err)
+			continue
+		}
 		if !r.dry {
 			if _, err := s.Notifier.AddRule(r.ctx, want.Channel, want.Project, want.App, want.Events, r.by); err != nil {
-				if errors.Is(err, store.ErrNotFound) && want.App != "" {
-					err = fmt.Errorf("there is no app %s here yet", want.App)
-				}
 				r.failed("rule", name, err)
 				continue
 			}
 		}
 		r.add("rule", name, apitypes.ConfigCreate, "")
+	}
+	return nil
+}
+
+// checkRule says what would stop a rule, so that a dry run says it too.
+func (s *Service) checkRule(r *run, want apitypes.ConfigRule) error {
+	if err := notify.CheckRule(want.Project, want.App, want.Events); err != nil {
+		return err
+	}
+	if want.Project != "" && !r.projects[want.Project] {
+		return fmt.Errorf("there is no project %s here", want.Project)
+	}
+	if want.App != "" {
+		if _, err := s.DB.AppProject(r.ctx, want.App); errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("there is no app %s here yet", want.App)
+		}
 	}
 	return nil
 }
@@ -672,39 +727,56 @@ func (s *Service) importBackups(r *run, f apitypes.ServerConfig) error {
 	if err != nil {
 		return err
 	}
+	form := backup.Form{
+		Destination: value(want.Destination, current.Destination), Endpoint: value(want.Endpoint, current.Endpoint), Region: value(want.Region, current.Region),
+		AccessKey: value(want.AccessKey, current.AccessKey), Schedule: value(want.Schedule, current.Schedule), Keep: value(want.Keep, current.Keep),
+	}
 	secret, hasSecret := actual(want.SecretKey)
-	same := !current.UpdatedAt.IsZero() && current.Destination == want.Destination && current.Endpoint == want.Endpoint && current.Region == want.Region &&
-		current.AccessKey == want.AccessKey && current.Schedule == want.Schedule && current.Keep == want.Keep
-	if same && hasSecret && len(current.SealedSecret) > 0 {
-		old, err := s.Keyring.OpenBackup(current.SealedSecret)
-		if err != nil {
-			return err
+	form.SecretKey = secret
+	same := !current.UpdatedAt.IsZero() && current.Destination == form.Destination && current.Endpoint == form.Endpoint && current.Region == form.Region &&
+		current.AccessKey == form.AccessKey && current.Schedule == form.Schedule && current.Keep == form.Keep
+	if same && hasSecret {
+		if len(current.SealedSecret) == 0 {
+			same = false
+		} else {
+			old, err := s.Keyring.OpenBackup(current.SealedSecret)
+			if err != nil {
+				return err
+			}
+			same = old == secret
 		}
-		same = old == secret
-	} else if same && hasSecret {
-		same = false
 	}
 	if same {
-		r.add("backups", want.Destination, apitypes.ConfigSame, "")
+		r.add("backups", form.Destination, apitypes.ConfigSame, "")
 		return nil
 	}
-	if strings.HasPrefix(want.Destination, "s3://") && !hasSecret && len(current.SealedSecret) == 0 {
-		r.add("backups", want.Destination, apitypes.ConfigSkip, missing(want.SecretKey))
+	if strings.HasPrefix(form.Destination, "s3://") && !hasSecret && len(current.SealedSecret) == 0 {
+		r.add("backups", form.Destination, apitypes.ConfigSkip, missing(want.SecretKey))
 		return nil
 	}
 	action := apitypes.ConfigChange
 	if current.UpdatedAt.IsZero() {
 		action = apitypes.ConfigCreate
 	}
-	if !r.dry {
-		form := backup.Form{Destination: want.Destination, Endpoint: want.Endpoint, Region: want.Region, AccessKey: want.AccessKey, SecretKey: secret, Schedule: want.Schedule, Keep: want.Keep}
-		if err := s.Backups.Configure(r.ctx, form, r.by); err != nil {
-			r.failed("backups", want.Destination, err)
-			return nil
-		}
+	if r.dry {
+		err = s.Backups.CheckForm(r.ctx, form)
+	} else {
+		err = s.Backups.Configure(r.ctx, form, r.by)
 	}
-	r.add("backups", want.Destination, action, "")
+	if err != nil {
+		r.failed("backups", form.Destination, err)
+		return nil
+	}
+	r.add("backups", form.Destination, action, "")
 	return nil
+}
+
+// value is what a file says, or otherwise what is there.
+func value[T any](said *T, there T) T {
+	if said != nil {
+		return *said
+	}
+	return there
 }
 
 func (s *Service) importSignIn(r *run, f apitypes.ServerConfig) error {
@@ -716,10 +788,22 @@ func (s *Service) importSignIn(r *run, f apitypes.ServerConfig) error {
 	if err != nil {
 		return err
 	}
+	form := sso.Form{
+		Issuer: want.Issuer, ClientID: want.ClientID, Label: value(want.Label, current.Label), Scopes: value(want.Scopes, current.Scopes),
+		EmailDomains: value(want.EmailDomains, current.EmailDomains), Provision: value(want.Provision, current.Provision), TrustEmails: value(want.TrustEmails, current.TrustEmails),
+		GroupClaim: value(want.GroupClaim, current.GroupClaim), GroupRules: value(want.GroupRules, current.GroupRules), PasswordsOff: value(want.PasswordsOff, current.PasswordsOff),
+	}
+	if form.Issuer == "" {
+		form.Issuer = current.Issuer
+	}
+	if form.ClientID == "" {
+		form.ClientID = current.ClientID
+	}
 	secret, hasSecret := actual(want.ClientSecret)
-	same := current.Issuer == want.Issuer && current.ClientID == want.ClientID && current.Label == want.Label && current.Scopes == want.Scopes &&
-		current.EmailDomains == want.EmailDomains && current.Provision == want.Provision && current.GroupClaim == want.GroupClaim &&
-		current.GroupRules == want.GroupRules && current.PasswordsOff == want.PasswordsOff
+	form.ClientSecret = secret
+	same := current.Issuer == form.Issuer && current.ClientID == form.ClientID && current.Label == form.Label && current.Scopes == form.Scopes &&
+		current.EmailDomains == form.EmailDomains && current.Provision == form.Provision && current.TrustEmails == form.TrustEmails && current.GroupClaim == form.GroupClaim &&
+		current.GroupRules == form.GroupRules && current.PasswordsOff == form.PasswordsOff
 	if same && hasSecret {
 		if len(current.SealedSecret) == 0 {
 			same = false
@@ -732,29 +816,24 @@ func (s *Service) importSignIn(r *run, f apitypes.ServerConfig) error {
 		}
 	}
 	if same {
-		r.add("single sign-on", want.Issuer, apitypes.ConfigSame, "")
+		r.add("single sign-on", form.Issuer, apitypes.ConfigSame, "")
 		return nil
 	}
 	if !hasSecret && len(current.SealedSecret) == 0 && want.ClientSecret != "" {
-		r.add("single sign-on", want.Issuer, apitypes.ConfigSkip, missing(want.ClientSecret))
+		r.add("single sign-on", form.Issuer, apitypes.ConfigSkip, missing(want.ClientSecret))
 		return nil
 	}
 	action := apitypes.ConfigChange
 	if current.Issuer == "" {
 		action = apitypes.ConfigCreate
 	}
-	note := ""
-	if !r.dry {
-		form := sso.Form{Issuer: want.Issuer, ClientID: want.ClientID, ClientSecret: secret, Label: want.Label, Scopes: want.Scopes, EmailDomains: want.EmailDomains,
-			Provision: want.Provision, GroupClaim: want.GroupClaim, GroupRules: want.GroupRules, PasswordsOff: want.PasswordsOff}
-		if err := s.SSO.Configure(r.ctx, form, r.by); err != nil {
-			r.failed("single sign-on", want.Issuer, err)
-			return nil
-		}
+	note := "tell your provider to send people back to " + s.SSO.RedirectURL()
+	if r.dry {
+		note = "your provider is only asked when this is done; " + note
+	} else if err := s.SSO.Configure(r.ctx, form, r.by); err != nil {
+		r.failed("single sign-on", form.Issuer, err)
+		return nil
 	}
-	if s.SSO != nil {
-		note = "tell your provider to send people back to " + s.SSO.RedirectURL()
-	}
-	r.add("single sign-on", want.Issuer, action, note)
+	r.add("single sign-on", form.Issuer, action, note)
 	return nil
 }

@@ -193,27 +193,44 @@ func (s *Service) NeedsSecondFactor(ctx context.Context, userID string) (bool, e
 // CheckSecondFactor takes a code from an authenticator app, or a recovery code. Each works once.
 func (s *Service) CheckSecondFactor(ctx context.Context, u store.User, code, ip string) error {
 	keys := []string{"totp-account:" + u.ID, "totp-ip:" + ip}
-	if err := s.limit(keys...); err != nil {
-		s.Security("a second factor refused by the rate limit", "ip", ip, "email", u.Email)
-		return err
+	if s.Limits != nil {
+		for i, k := range keys {
+			if wait := s.Limits.Take(k); wait > 0 {
+				for _, taken := range keys[:i] {
+					s.Limits.Return(taken)
+				}
+				s.Security("a second factor refused by the rate limit", "ip", ip, "email", u.Email)
+				return &RateLimitedError{Wait: wait}
+			}
+		}
+	}
+	// Each attempt counts from before it is looked at, and is given back if it was not a wrong code.
+	giveBack := func() {
+		if s.Limits != nil {
+			for _, k := range keys {
+				s.Limits.Return(k)
+			}
+		}
 	}
 	refuse := func() error {
-		s.failed(keys...)
 		s.Security("a second factor failed", "ip", ip, "email", u.Email)
 		s.Audit(ctx, store.AuditEntry{Actor: u.Email, IP: ip, Action: "signin.second_factor", Result: "failed"})
 		return ErrSecondFactor
 	}
 	t, err := s.DB.GetUserTOTP(ctx, u.ID)
 	if err != nil {
+		giveBack()
 		return err
 	}
 	secret, err := s.Sealer.OpenTOTP(u.ID, t.Sealed)
 	if err != nil {
+		giveBack()
 		return err
 	}
 	if step, ok := checkTOTP(secret, code, s.now()); ok {
 		fresh, err := s.DB.UseTOTPStep(ctx, u.ID, step)
 		if err != nil {
+			giveBack()
 			return err
 		}
 		if !fresh {
@@ -222,6 +239,7 @@ func (s *Service) CheckSecondFactor(ctx context.Context, u store.User, code, ip 
 	} else {
 		used, err := s.DB.UseRecoveryCode(ctx, u.ID, Hex(normalizeRecovery(code)), s.now())
 		if err != nil {
+			giveBack()
 			return err
 		}
 		if !used {
@@ -230,6 +248,7 @@ func (s *Service) CheckSecondFactor(ctx context.Context, u store.User, code, ip 
 		s.Security("a recovery code was used", "ip", ip, "email", u.Email)
 		s.Audit(ctx, store.AuditEntry{Actor: u.Email, IP: ip, Action: "signin.recovery_code", Result: "ok"})
 	}
+	giveBack()
 	if s.Limits != nil {
 		s.Limits.Clear("totp-account:" + u.ID)
 	}

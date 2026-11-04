@@ -247,13 +247,21 @@ func (s *Service) Finish(ctx context.Context, query url.Values, held, ip string)
 	if err := id.Claims(&all); err != nil {
 		return store.User{}, f.Next, err
 	}
+	if _, hasGroups := groupsOf(all, cfg.GroupClaim); who.Email == "" || (!hasGroups && cfg.GroupRules != "") {
+		s.askForMore(exchangeCtx, provider, conf, token, id.Subject, cfg.GroupClaim, &who, all)
+	}
 	u, err := s.account(ctx, cfg, id.Issuer, id.Subject, who, ip)
 	if err != nil {
 		s.Auth.Audit(ctx, store.AuditEntry{Actor: who.Email, IP: ip, Action: "signin.sso", Result: "failed"})
 		return store.User{}, f.Next, err
 	}
-	if err := s.applyGroups(ctx, cfg, u, groupsOf(all, cfg.GroupClaim)); err != nil {
-		s.Log.Warn("apply someone's groups", "email", u.Email, "err", err)
+	if groups, said := groupsOf(all, cfg.GroupClaim); said {
+		if err := s.applyGroups(ctx, cfg, u, groups); err != nil {
+			s.Log.Warn("apply someone's groups", "email", u.Email, "err", err)
+		}
+	} else if cfg.GroupRules != "" {
+		// Having heard nothing is not the same as hearing of no groups, which would take away what someone has.
+		s.Log.Warn("the provider said nothing of someone's groups, so that what they may do stays as it is: it may need a scope, or the claim's name", "email", u.Email)
 	}
 	if u, err = s.DB.UserByID(ctx, u.ID); err != nil {
 		return store.User{}, f.Next, err
@@ -262,9 +270,43 @@ func (s *Service) Finish(ctx context.Context, query url.Values, held, ip string)
 	return u, f.Next, nil
 }
 
+// askForMore fills in what a provider left out of its token. It need not put those things there, and many leave
+// them for this, where it answers with what it knows of someone.
+func (s *Service) askForMore(ctx context.Context, provider *oidc.Provider, conf *oauth2.Config, token *oauth2.Token, subject, groupClaim string, who *claims, all map[string]any) {
+	info, err := provider.UserInfo(ctx, conf.TokenSource(ctx, token))
+	if err != nil {
+		s.Log.Info("a provider's user info could not be read", "err", err)
+		return
+	}
+	if info.Subject != subject {
+		s.Log.Warn("a provider's user info was about someone else")
+		return
+	}
+	var more claims
+	var rest map[string]any
+	if info.Claims(&more) != nil || info.Claims(&rest) != nil {
+		return
+	}
+	if who.Email == "" {
+		who.Email, who.Verified = more.Email, more.Verified
+	}
+	if who.Name == "" {
+		who.Name = more.Name
+	}
+	if groupClaim == "" {
+		groupClaim = "groups"
+	}
+	if _, said := all[groupClaim]; !said {
+		if value, ok := rest[groupClaim]; ok {
+			all[groupClaim] = value
+		}
+	}
+}
+
 // account finds who someone is, making them an account if the server says so. A provider's subject is
 // the one thing that stays the same. An address joins someone to an account once, and only if the
-// provider vouches for it: otherwise, whoever can have a provider say an address could be anyone.
+// provider says that it is verified, or the server has been told to take its word: otherwise, whoever can
+// have a provider say an address could be anyone, an administrator included.
 func (s *Service) account(ctx context.Context, cfg store.SSOConfig, issuer, subject string, who claims, ip string) (store.User, error) {
 	u, err := s.DB.UserByIdentity(ctx, issuer, subject)
 	if err == nil {
@@ -293,18 +335,18 @@ func (s *Service) account(ctx context.Context, cfg store.SSOConfig, issuer, subj
 		if u.Disabled() {
 			return u, &RefusedError{"This account is disabled."}
 		}
+		if who.Verified == nil && !cfg.TrustEmails {
+			s.Auth.Security("a sign-in that would have joined an account, with an address the provider did not call verified", "ip", ip, "email", email)
+			return store.User{}, &RefusedError{"Your provider does not say that your address is verified, so that it cannot join you to the account with that address. An administrator can choose to take its word for it."}
+		}
 	case !errors.Is(err, store.ErrNotFound):
 		return u, err
 	case !cfg.Provision:
 		return store.User{}, &RefusedError{"You have no account on this server. Ask an administrator for one."}
 	default:
-		if u, err = s.Auth.NewUser(ctx, email, who.Name, store.RoleMember, ""); err != nil {
+		if u, err = s.Auth.Provision(ctx, email, who.Name, ip); err != nil {
 			return u, err
 		}
-		if err := s.DB.CreateUser(ctx, u); err != nil {
-			return u, err
-		}
-		s.Auth.Audit(ctx, store.AuditEntry{Actor: email, IP: ip, Action: "user.provision", Target: u.ID, Result: "ok"})
 	}
 	if err := s.DB.LinkIdentity(ctx, issuer, subject, u.ID); err != nil {
 		return u, err
@@ -321,7 +363,8 @@ func domainAllowed(domains, email string) bool {
 	return ok && slices.Contains(list, strings.ToLower(domain))
 }
 
-func groupsOf(all map[string]any, claim string) []string {
+// groupsOf finds someone's groups, and says whether anything was said of them.
+func groupsOf(all map[string]any, claim string) ([]string, bool) {
 	if claim == "" {
 		claim = "groups"
 	}
@@ -333,11 +376,11 @@ func groupsOf(all map[string]any, claim string) []string {
 				out = append(out, s)
 			}
 		}
-		return out
+		return out, true
 	case string:
-		return []string{v}
+		return []string{v}, true
 	}
-	return nil
+	return nil, false
 }
 
 // Rule says what being in a group means.
@@ -425,7 +468,7 @@ func (s *Service) applyGroups(ctx context.Context, cfg store.SSOConfig, u store.
 // Form is what someone asks of single sign-on. An empty secret keeps the one there is.
 type Form struct {
 	Issuer, ClientID, ClientSecret, Label, Scopes, EmailDomains string
-	Provision                                                   bool
+	Provision, TrustEmails                                      bool
 	GroupClaim, GroupRules                                      string
 	PasswordsOff                                                bool
 }
@@ -448,7 +491,7 @@ func issuerAllowed(issuer string) bool {
 
 // Configure keeps what someone asks, once the provider has been found at the address it gives.
 func (s *Service) Configure(ctx context.Context, form Form, by string) error {
-	form.Issuer = strings.TrimRight(strings.TrimSpace(form.Issuer), "/")
+	form.Issuer = strings.TrimSpace(form.Issuer)
 	form.ClientID = strings.TrimSpace(form.ClientID)
 	if form.Issuer == "" || form.ClientID == "" {
 		return &InvalidError{"It takes the provider's address and a client ID."}
@@ -463,11 +506,20 @@ func (s *Service) Configure(ctx context.Context, form Form, by string) error {
 	if err != nil {
 		return err
 	}
+	// A provider's address has to match what it says of itself exactly, down to a slash at the end, which some
+	// have and most do not, and nobody should have to know which.
 	if _, err := s.freshProvider(ctx, form.Issuer); err != nil {
-		return &InvalidError{"The provider cannot be reached at that address: " + err.Error()}
+		other := strings.TrimRight(form.Issuer, "/")
+		if other == form.Issuer {
+			other += "/"
+		}
+		if _, second := s.freshProvider(ctx, other); second != nil {
+			return &InvalidError{"The provider cannot be reached at that address: " + err.Error()}
+		}
+		form.Issuer = other
 	}
 	cfg := store.SSOConfig{Issuer: form.Issuer, ClientID: form.ClientID, SealedSecret: old.SealedSecret, Label: strings.TrimSpace(form.Label), Scopes: strings.TrimSpace(form.Scopes),
-		EmailDomains: strings.TrimSpace(form.EmailDomains), Provision: form.Provision, GroupClaim: strings.TrimSpace(form.GroupClaim), GroupRules: form.GroupRules, PasswordsOff: form.PasswordsOff, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
+		EmailDomains: strings.TrimSpace(form.EmailDomains), Provision: form.Provision, TrustEmails: form.TrustEmails, GroupClaim: strings.TrimSpace(form.GroupClaim), GroupRules: form.GroupRules, PasswordsOff: form.PasswordsOff, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
 	if form.ClientSecret != "" {
 		cfg.SealedSecret = s.Keyring.SealSSO(form.ClientSecret)
 	}

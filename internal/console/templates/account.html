@@ -81,7 +81,7 @@
 <form method="post" action="/login/code" autocomplete="off">
   <input type="hidden" name="next" value="{{.Next}}">
   <label for="code">Code</label>
-  <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required spellcheck="false" autofocus>
+  <input id="code" name="code" autocomplete="one-time-code" autocapitalize="off" required spellcheck="false" autofocus>
   {{template "alert" .}}
   <div class="actions"><button type="submit">Sign in</button></div>
 </form>

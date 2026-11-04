@@ -402,6 +402,8 @@ type SSOConfig struct {
 	EmailDomains string `json:"email_domains,omitempty"`
 	// Provision makes an account for someone new, the first time they sign in.
 	Provision  bool   `json:"provision"`
+	// TrustEmails lets an address join someone to an account when the provider does not say that it is verified.
+	TrustEmails bool `json:"trust_emails,omitempty"`
 	GroupClaim string `json:"group_claim,omitempty"`
 	// GroupRules says what groups mean, one to a line: "ops = admin" or "web-team = project web maintainer".
 	GroupRules string `json:"group_rules,omitempty"`
@@ -928,15 +930,17 @@ type ServerConfig struct {
 type ConfigUser struct {
 	Email    string `json:"email" toml:"email"`
 	Name     string `json:"name,omitempty" toml:"name,omitempty"`
-	Role     string `json:"role" toml:"role"`
+	// Role is admin or member. Left out, someone new is a member, and someone there stays as they are.
+	Role     string `json:"role,omitempty" toml:"role,omitempty"`
 	Disabled bool   `json:"disabled,omitempty" toml:"disabled,omitempty"`
 }
 
 // ConfigProject is a project, and who is in it. What apps are in it comes from those apps.
 type ConfigProject struct {
-	Name           string            `json:"name" toml:"name"`
-	EveryoneRole   string            `json:"everyone_role,omitempty" toml:"everyone_role,omitempty"`
-	ViewersSeeLogs bool              `json:"viewers_see_logs,omitempty" toml:"viewers_see_logs,omitempty"`
+	Name string `json:"name" toml:"name"`
+	// EveryoneRole is the role of those who are not members, and empty is none. Left out, it stays as it is.
+	EveryoneRole   *string           `json:"everyone_role,omitempty" toml:"everyone_role,omitempty"`
+	ViewersSeeLogs *bool             `json:"viewers_see_logs,omitempty" toml:"viewers_see_logs,omitempty"`
 	Members        map[string]string `json:"members,omitempty" toml:"members,omitempty"`
 }
 
@@ -969,29 +973,30 @@ type ConfigRule struct {
 	Events  []string `json:"events" toml:"events"`
 }
 
-// ConfigBackups says where backups go and how often.
+// ConfigBackups says where backups go and how often. What is left out stays as it is.
 type ConfigBackups struct {
-	Destination string `json:"destination,omitempty" toml:"destination,omitempty"`
-	Endpoint    string `json:"endpoint,omitempty" toml:"endpoint,omitempty"`
-	Region      string `json:"region,omitempty" toml:"region,omitempty"`
-	AccessKey   string `json:"access_key,omitempty" toml:"access_key,omitempty"`
-	SecretKey   string `json:"secret_key,omitempty" toml:"secret_key,omitempty"`
-	Schedule    string `json:"schedule,omitempty" toml:"schedule,omitempty"`
-	Keep        int    `json:"keep" toml:"keep"`
+	Destination *string `json:"destination,omitempty" toml:"destination,omitempty"`
+	Endpoint    *string `json:"endpoint,omitempty" toml:"endpoint,omitempty"`
+	Region      *string `json:"region,omitempty" toml:"region,omitempty"`
+	AccessKey   *string `json:"access_key,omitempty" toml:"access_key,omitempty"`
+	SecretKey   string  `json:"secret_key,omitempty" toml:"secret_key,omitempty"`
+	Schedule    *string `json:"schedule,omitempty" toml:"schedule,omitempty"`
+	Keep        *int    `json:"keep,omitempty" toml:"keep,omitempty"`
 }
 
-// ConfigSignIn is single sign-on.
+// ConfigSignIn is single sign-on. What is left out stays as it is.
 type ConfigSignIn struct {
-	Issuer       string `json:"issuer" toml:"issuer"`
-	ClientID     string `json:"client_id" toml:"client_id"`
-	ClientSecret string `json:"client_secret,omitempty" toml:"client_secret,omitempty"`
-	Label        string `json:"label,omitempty" toml:"label,omitempty"`
-	Scopes       string `json:"scopes,omitempty" toml:"scopes,omitempty"`
-	EmailDomains string `json:"email_domains,omitempty" toml:"email_domains,omitempty"`
-	Provision    bool   `json:"provision,omitempty" toml:"provision,omitempty"`
-	GroupClaim   string `json:"group_claim,omitempty" toml:"group_claim,omitempty"`
-	GroupRules   string `json:"group_rules,omitempty" toml:"group_rules,omitempty"`
-	PasswordsOff bool   `json:"passwords_off,omitempty" toml:"passwords_off,omitempty"`
+	Issuer       string  `json:"issuer" toml:"issuer"`
+	ClientID     string  `json:"client_id" toml:"client_id"`
+	ClientSecret string  `json:"client_secret,omitempty" toml:"client_secret,omitempty"`
+	Label        *string `json:"label,omitempty" toml:"label,omitempty"`
+	Scopes       *string `json:"scopes,omitempty" toml:"scopes,omitempty"`
+	EmailDomains *string `json:"email_domains,omitempty" toml:"email_domains,omitempty"`
+	Provision    *bool   `json:"provision,omitempty" toml:"provision,omitempty"`
+	TrustEmails  *bool   `json:"trust_emails,omitempty" toml:"trust_emails,omitempty"`
+	GroupClaim   *string `json:"group_claim,omitempty" toml:"group_claim,omitempty"`
+	GroupRules   *string `json:"group_rules,omitempty" toml:"group_rules,omitempty"`
+	PasswordsOff *bool   `json:"passwords_off,omitempty" toml:"passwords_off,omitempty"`
 }
 
 // The actions in a report of bringing in a configuration.

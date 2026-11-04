@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/client"
@@ -103,7 +104,7 @@ func TestServerConfigGoesFromOneServerToAnother(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, body)
 	}
-	if len(back.Users) != len(f.Users) || back.Projects[len(back.Projects)-1].Name != f.Projects[len(f.Projects)-1].Name || back.Backups.Keep != 9 {
+	if len(back.Users) != len(f.Users) || back.Projects[len(back.Projects)-1].Name != f.Projects[len(f.Projects)-1].Name || *back.Backups.Keep != 9 {
 		t.Errorf("%+v", back)
 	}
 
@@ -211,7 +212,8 @@ func TestServerConfigImportChangesAndKeeps(t *testing.T) {
 	}
 	f.Registries[0].Username = "another-robot"
 	f.Channels[0].URL = "https://hooks.example.com/a-new-address"
-	f.Backups.Keep = 3
+	three := 3
+	f.Backups.Keep = &three
 	f.Projects = nil
 	report, err = c.ImportServerConfig(ctx, f, false)
 	if err != nil {
@@ -305,5 +307,136 @@ func TestServerConfigRefusals(t *testing.T) {
 	}
 	if _, err := teammate.ImportServerConfig(ctx, apitypes.ServerConfig{Format: 1}, true); status(err) != http.StatusForbidden {
 		t.Errorf("%v", err)
+	}
+}
+
+// TestServerConfigOfManyUsers: an address that sorts after the rest has to end the list like any other.
+func TestServerConfigOfManyUsers(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	signIn(t, cfg, addrs)
+	for _, email := range []string{"zoe@example.com", "yves@example.com", "adam@example.com"} {
+		if _, err := c.CreateUser(ctx, apitypes.NewUser{Email: email}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	short, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	f, err := c.ServerConfig(short)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Users) != 4 {
+		t.Errorf("%+v", f.Users)
+	}
+}
+
+// TestServerConfigWrittenByHand: what a file does not say stays as it is, setting by setting.
+func TestServerConfigWrittenByHand(t *testing.T) {
+	ctx := context.Background()
+	_, c := settledServer(t)
+	f, err := serverconfig.Parse([]byte(`format = 1
+
+[[user]]
+email = "sam@example.com"
+
+[[user]]
+email = "ada@example.com"
+
+[[project]]
+name = "default"
+[project.members]
+"sam@example.com" = "viewer"
+
+[backups]
+schedule = "@hourly"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := c.ImportServerConfig(ctx, f, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := actions(report); n[apitypes.ConfigFailed] != 0 {
+		t.Errorf("%+v", report)
+	}
+	project, err := c.Project(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.Everyone != "maintainer" || !project.ViewersSeeLogs {
+		t.Errorf("a file that did not mention them changed them: %+v", project)
+	}
+	wantAction(t, report, "user", "ada@example.com", apitypes.ConfigSame)
+	wantAction(t, report, "user", "sam@example.com", apitypes.ConfigCreate)
+	backups, err := c.Backups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backups.Keep != 9 || backups.Destination != "s3://acme/backups" || backups.Schedule != "@hourly" {
+		t.Errorf("%+v", backups)
+	}
+	// Saying so does change them.
+	none := ""
+	see := false
+	report, err = c.ImportServerConfig(ctx, apitypes.ServerConfig{Format: 1, Projects: []apitypes.ConfigProject{{Name: "default", EveryoneRole: &none, ViewersSeeLogs: &see}}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAction(t, report, "project", "default", apitypes.ConfigChange)
+	if project, err = c.Project(ctx, "default"); err != nil || project.Everyone != "" || project.ViewersSeeLogs {
+		t.Errorf("%+v %v", project, err)
+	}
+}
+
+// TestServerConfigDryRunSaysTheSame: what would fail says so before it is done.
+func TestServerConfigDryRunSaysTheSame(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	signIn(t, cfg, addrs)
+	secret := "https://hooks.example.com/address"
+	bad := "not a schedule"
+	f := apitypes.ServerConfig{Format: 1,
+		Projects: []apitypes.ConfigProject{{Name: "NOT A NAME"}},
+		Channels: []apitypes.ConfigChannel{{Name: "ops", Kind: "slack", URL: secret}},
+		Rules: []apitypes.ConfigRule{
+			{Channel: "ops", Events: []string{"something else"}},
+			{Channel: "ops", App: "not-there", Events: []string{"*"}},
+			{Channel: "ops", Project: "not-there", Events: []string{"*"}},
+			{Channel: "ops", Events: []string{"*"}},
+		},
+		Backups: &apitypes.ConfigBackups{Schedule: &bad},
+	}
+	dry, err := c.ImportServerConfig(ctx, f, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	real, err := c.ImportServerConfig(ctx, f, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, m := actions(dry), actions(real); n[apitypes.ConfigFailed] != m[apitypes.ConfigFailed] || n[apitypes.ConfigFailed] != 5 || n[apitypes.ConfigCreate] != m[apitypes.ConfigCreate] {
+		t.Errorf("dry %+v, then %+v", dry, real)
+	}
+}
+
+// TestServerConfigOnlyAsksForItsOwnVariables: a file from someone else cannot ask for any other secret in the
+// environment of the command, to have it go wherever the file says.
+func TestServerConfigOnlyAsksForItsOwnVariables(t *testing.T) {
+	f := apitypes.ServerConfig{Format: 1, Registries: []apitypes.ConfigRegistry{
+		{Host: "evil.example.com", Username: "x", Password: "${AWS_SECRET_ACCESS_KEY}"},
+		{Host: "ghcr.io", Username: "x", Password: "${MOORAGE_REGISTRY_GHCR_IO_PASSWORD}"},
+	}}
+	serverconfig.Expand(&f, func(name string) string { return "the value of " + name })
+	if f.Registries[0].Password != "${AWS_SECRET_ACCESS_KEY}" {
+		t.Errorf("%q", f.Registries[0].Password)
+	}
+	if f.Registries[1].Password != "the value of MOORAGE_REGISTRY_GHCR_IO_PASSWORD" {
+		t.Errorf("%q", f.Registries[1].Password)
 	}
 }

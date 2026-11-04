@@ -386,9 +386,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "keep"
-        ],
         "type": "object"
       },
       "ConfigChannel": {
@@ -569,6 +566,9 @@
           },
           "scopes": {
             "type": "string"
+          },
+          "trust_emails": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -593,8 +593,7 @@
           }
         },
         "required": [
-          "email",
-          "role"
+          "email"
         ],
         "type": "object"
       },
@@ -2240,6 +2239,9 @@
           },
           "scopes": {
             "type": "string"
+          },
+          "trust_emails": {
+            "type": "boolean"
           }
         },
         "required": [

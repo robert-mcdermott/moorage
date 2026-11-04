@@ -19,12 +19,22 @@ type signInView struct {
 	Redirect                                      string
 	Issuer, ClientID, Label, Scopes, EmailDomains string
 	GroupClaim, GroupRules                        string
-	HasSecret, Provision, PasswordsOff            bool
+	HasSecret, Provision, TrustEmails             bool
+	PasswordsOff                                  bool
+}
+
+func (c *Console) ssoCookieName() string {
+	if c.auth.Secure {
+		// So that an app on a name below this server's cannot set it for the whole domain, and have someone sign
+		// in as whoever that app chooses.
+		return "__Host-" + sso.CookieName
+	}
+	return sso.CookieName
 }
 
 func (c *Console) ssoCookie(value string, maxAge int) *http.Cookie {
 	// Lax, since a provider sends a browser back from elsewhere with a link, and that has to bring it.
-	return &http.Cookie{Name: sso.CookieName, Value: value, Path: "/login", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: c.auth.Secure}
+	return &http.Cookie{Name: c.ssoCookieName(), Value: value, Path: "/", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: c.auth.Secure}
 }
 
 func (c *Console) ssoFailed(w http.ResponseWriter, err error) {
@@ -49,7 +59,7 @@ func (c *Console) ssoBegin(w http.ResponseWriter, r *http.Request) {
 
 func (c *Console) ssoCallback(w http.ResponseWriter, r *http.Request) {
 	held := ""
-	if cookie, err := r.Cookie(sso.CookieName); err == nil {
+	if cookie, err := r.Cookie(c.ssoCookieName()); err == nil {
 		held = cookie.Value
 	}
 	// It is good for one try, whichever way that goes.
@@ -75,10 +85,10 @@ func (c *Console) showSignIn(w http.ResponseWriter, r *http.Request, code int, f
 		return
 	}
 	view := signInView{On: cfg.Configured(), Redirect: c.sso.RedirectURL(), Issuer: cfg.Issuer, ClientID: cfg.ClientID, Label: cfg.Label, Scopes: cfg.Scopes, EmailDomains: cfg.EmailDomains,
-		GroupClaim: cfg.GroupClaim, GroupRules: cfg.GroupRules, HasSecret: len(cfg.SealedSecret) > 0, Provision: cfg.Provision, PasswordsOff: cfg.PasswordsOff}
+		GroupClaim: cfg.GroupClaim, GroupRules: cfg.GroupRules, HasSecret: len(cfg.SealedSecret) > 0, Provision: cfg.Provision, TrustEmails: cfg.TrustEmails, PasswordsOff: cfg.PasswordsOff}
 	if form != nil {
 		view.Issuer, view.ClientID, view.Label, view.Scopes, view.EmailDomains = form.Issuer, form.ClientID, form.Label, form.Scopes, form.EmailDomains
-		view.GroupClaim, view.GroupRules, view.Provision, view.PasswordsOff = form.GroupClaim, form.GroupRules, form.Provision, form.PasswordsOff
+		view.GroupClaim, view.GroupRules, view.Provision, view.TrustEmails, view.PasswordsOff = form.GroupClaim, form.GroupRules, form.Provision, form.TrustEmails, form.PasswordsOff
 	}
 	d.SignIn, d.Failure = view, failed
 	c.render(w, code, "settings-sign-in", d)
@@ -90,7 +100,7 @@ func (c *Console) signInSettings(w http.ResponseWriter, r *http.Request) {
 
 func (c *Console) configureSignIn(w http.ResponseWriter, r *http.Request, p auth.Principal) {
 	form := sso.Form{Issuer: r.PostFormValue("issuer"), ClientID: r.PostFormValue("client_id"), ClientSecret: r.PostFormValue("client_secret"), Label: r.PostFormValue("label"), Scopes: r.PostFormValue("scopes"),
-		EmailDomains: r.PostFormValue("email_domains"), Provision: r.PostFormValue("provision") != "", GroupClaim: r.PostFormValue("group_claim"),
+		EmailDomains: r.PostFormValue("email_domains"), Provision: r.PostFormValue("provision") != "", TrustEmails: r.PostFormValue("trust_emails") != "", GroupClaim: r.PostFormValue("group_claim"),
 		GroupRules: strings.ReplaceAll(r.PostFormValue("group_rules"), "\r\n", "\n"), PasswordsOff: r.PostFormValue("passwords_off") != ""}
 	err := c.sso.Configure(r.Context(), form, p.Name)
 	var invalid *sso.InvalidError
@@ -118,7 +128,15 @@ func (c *Console) turnOffSignIn(w http.ResponseWriter, r *http.Request, p auth.P
 func (c *Console) trustedSignIn(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		email := c.auth.TrustedIdentity(r)
-		if email == "" {
+		// Nothing a page needs to sign someone in for, and a request for one of these with no cookie, such as a
+		// check of the proxy's, should not leave a session behind each time.
+		if email == "" || strings.HasPrefix(r.URL.Path, "/assets/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// A server nobody has claimed is waiting for its setup link. Making an account here would claim it, for
+		// whoever came first, with no administrator.
+		if claimed, err := c.auth.Claimed(r.Context()); err != nil || !claimed {
 			next.ServeHTTP(w, r)
 			return
 		}

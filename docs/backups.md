@@ -150,12 +150,16 @@ Then do it, with those secrets in the command's environment:
 MOORAGE_REGISTRY_GHCR_IO_PASSWORD=... moor server config import moorage-config.toml
 ```
 
-**It adds and changes, and removes nothing.** What the file does not mention stays as it is, and a server keeps
-the secret it has when the variable is not set, so that bringing a file back to the server it came from changes
-nothing. Something that cannot be done is said, and does not stop the rest; the command then fails.
+**It adds and changes, and removes nothing.** What the file does not mention stays as it is, down to a single
+setting, and a server keeps the secret it has when the variable is not set, so that bringing a file back to the
+server it came from changes nothing. Only variables whose names start with `MOORAGE_` are read: a file from someone
+else cannot ask for anything else in your environment. Something that cannot be done is said, and does not stop the
+rest; the command then fails. A dry run says the same, except that your identity provider is only asked when it is
+done.
 
 People's passwords and second factors do not go with them, so someone new needs `moor server users invite`, or
-single sign-on. A disabled user stays disabled until you enable them. `server.toml` is apart from this: it is
+single sign-on. A name only counts when it makes the account, and a disabled user stays disabled until you enable
+them. `server.toml` is apart from this: it is
 a file already, and is for you to copy. So are your apps: those come from their manifests and repositories, and
 a rule for an app that is not deployed yet is said to have failed, until it is.
 
