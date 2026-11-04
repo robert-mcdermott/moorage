@@ -1,0 +1,142 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/store"
+)
+
+// keepAlive is how often a quiet stream says something, for the proxies that close
+// silent connections, and to notice clients that have gone.
+var keepAlive = 25 * time.Second
+
+func eventDoc(e store.Event) apitypes.Event {
+	return apitypes.Event{ID: e.ID, At: e.At, Type: e.Type, App: e.App, Env: e.Env, Actor: e.Actor, Summary: events.Summary(e), Level: events.Level(e.Type), Transient: events.Transient(e.Type), Data: e.Data}
+}
+
+func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
+	limit, cursor, ok := pageParams(w, r, 50)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	app, env := q.Get("app"), q.Get("env")
+	p := who(r)
+	if app != "" && !p.CanApp(app) {
+		problem(w, http.StatusForbidden, "forbidden", "This token is restricted to another app.")
+		return
+	}
+	// A token for one app sees that app's events, and no others.
+	if app == "" {
+		app = p.App
+	}
+	list, err := s.db.Events(r.Context(), store.EventFilter{App: app, Env: env, Before: cursor, Limit: limit + 1})
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	page := apitypes.Page[apitypes.Event]{Items: []apitypes.Event{}}
+	for i, e := range list {
+		if i == limit {
+			page.NextCursor = encodeCursor(list[i-1].ID)
+			break
+		}
+		page.Items = append(page.Items, eventDoc(e))
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+// streamEvents follows what happens, and first, what happened since the event the
+// client last saw: a browser's EventSource says so when it reconnects.
+func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.internal(w, fmt.Errorf("this connection cannot stream"))
+		return
+	}
+	q := r.URL.Query()
+	app, env := q.Get("app"), q.Get("env")
+	p := who(r)
+	if app != "" && !p.CanApp(app) {
+		problem(w, http.StatusForbidden, "forbidden", "This token is restricted to another app.")
+		return
+	}
+	if app == "" {
+		app = p.App
+	}
+	wanted := func(e store.Event) bool {
+		return (app == "" || e.App == app) && (env == "" || e.Env == env)
+	}
+
+	// Following starts first, so that nothing falls between the two.
+	sub := s.bus.Subscribe()
+	defer sub.Close()
+
+	h := w.Header()
+	h.Set("Content-Type", apitypes.SSEType)
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	last := r.Header.Get("Last-Event-ID")
+	if last == "" {
+		last = q.Get("after")
+	}
+	write := func(e store.Event) error {
+		data, err := json.Marshal(eventDoc(e))
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(w, "id: %s\nevent: moorage\ndata: %s\n\n", e.ID, data)
+		return err
+	}
+	if last != "" {
+		for {
+			missed, err := s.db.Events(r.Context(), store.EventFilter{App: app, Env: env, After: last, Limit: 200})
+			if err != nil {
+				return
+			}
+			for _, e := range missed {
+				if write(e) != nil {
+					return
+				}
+				last = e.ID
+			}
+			if len(missed) < 200 {
+				break
+			}
+		}
+		flusher.Flush()
+	}
+
+	tick := time.NewTicker(keepAlive)
+	defer tick.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-tick.C:
+			if _, err := fmt.Fprint(w, ": still here\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case e, open := <-sub.C:
+			if !open {
+				return
+			}
+			if !wanted(e) || (last != "" && e.ID <= last) {
+				continue
+			}
+			if write(e) != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}

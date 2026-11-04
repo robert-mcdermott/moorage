@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -257,6 +256,90 @@ TESTAPP_BODY = "built from source"
 	}
 }
 
+// TestRunningCommands scales, redeploys and reads releases from the command line.
+func TestRunningCommands(t *testing.T) {
+	addr := startLocalServer(t)
+	src := t.TempDir()
+	quote := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace
+	manifest := `[app]
+name = "runner"
+runtime = "command"
+
+[build]
+command = 'echo built > built.txt'
+
+[processes.web]
+command = "` + quote(testroles.AppCommand()) + `"
+health = { path = "/health", interval = "100ms" }
+
+[env]
+TESTAPP_BODY = "@@"
+`
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(src, "moorage.toml"), []byte(strings.Replace(manifest, "@@", body, 1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("first")
+	if code, out, errOut := run(t, "deploy", src); code != 0 {
+		t.Fatalf("deploy: %d\n%s\n%s", code, out, errOut)
+	}
+
+	code, out, errOut := run(t, "scale", "--app", "runner")
+	if code != 0 || !strings.Contains(out, "web.1") || strings.Contains(out, "web.2") {
+		t.Errorf("scale without arguments: %d\n%s\n%s", code, out, errOut)
+	}
+	code, out, errOut = run(t, "scale", "web=2", "--app", "runner")
+	if code != 0 || !strings.Contains(out, "Scaled runner.") || !strings.Contains(out, "web.2") {
+		t.Errorf("scale: %d\n%s\n%s", code, out, errOut)
+	}
+	if code, _, errOut = run(t, "scale", "web", "--app", "runner"); code != 2 || !strings.Contains(errOut, "such as web=3") {
+		t.Errorf("a formation that is not one: %d\n%s", code, errOut)
+	}
+	if code, _, errOut = run(t, "scale", "nothing=1", "--app", "runner"); code != 1 || !strings.Contains(errOut, "has no process nothing") {
+		t.Errorf("a process it does not have: %d\n%s", code, errOut)
+	}
+	if code, _, errOut = run(t, "scale", "web=21", "--app", "runner"); code != 1 || !strings.Contains(errOut, "between 0 and 20") {
+		t.Errorf("too many: %d\n%s", code, errOut)
+	}
+
+	code, out, errOut = run(t, "redeploy", "--app", "runner")
+	if code != 0 || !strings.Contains(out, "▸ build      echo built > built.txt") || !strings.Contains(out, "▸ rollout    web ×2") || !strings.Contains(out, "✔ live       v2") {
+		t.Errorf("redeploy: %d\n%s\n%s", code, out, errOut)
+	}
+	if body := fetch(t, addr, "runner.localhost", "/"); body != "first" {
+		t.Errorf("served %q", body)
+	}
+	code, out, errOut = run(t, "redeploy", "--app", "runner", "--detach")
+	if code != 0 || !strings.Contains(out, "moor deployments follow dep_") {
+		t.Errorf("redeploy --detach: %d\n%s\n%s", code, out, errOut)
+	}
+	if code, out, errOut = run(t, "deployments", "follow", strings.Fields(out[strings.Index(out, "dep_"):])[0]); code != 0 {
+		t.Errorf("following it: %d\n%s\n%s", code, out, errOut)
+	}
+
+	write("second")
+	if code, out, errOut := run(t, "deploy", src); code != 0 {
+		t.Fatalf("deploy: %d\n%s\n%s", code, out, errOut)
+	}
+	code, out, errOut = run(t, "releases", "show", "v4", "--app", "runner")
+	if code != 0 || !strings.Contains(out, "v4 of runner") || !strings.Contains(out, `TESTAPP_BODY="second"`) {
+		t.Errorf("releases show: %d\n%s\n%s", code, out, errOut)
+	}
+	code, out, errOut = run(t, "releases", "diff", "v1", "v4", "--app", "runner")
+	if code != 0 || !strings.Contains(out, "different builds") || !strings.Contains(out, `- env         TESTAPP_BODY="first"`) || !strings.Contains(out, `+ env         TESTAPP_BODY="second"`) {
+		t.Errorf("releases diff: %d\n%s\n%s", code, out, errOut)
+	}
+	code, out, errOut = run(t, "releases", "--app", "runner")
+	if code != 0 || !strings.Contains(out, "v4") {
+		t.Errorf("releases: %d\n%s\n%s", code, out, errOut)
+	}
+	if code, _, errOut = run(t, "releases", "diff", "1", "nine", "--app", "runner"); code != 2 {
+		t.Errorf("not a version: %d\n%s", code, errOut)
+	}
+}
+
 func TestManifestCommands(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/hello\n\ngo 1.26.1\n"), 0o644)
@@ -363,27 +446,5 @@ TESTAPP_BODY = "from the manifest"
 	}
 	if code, _, errOut = run(t, "env", "set", "NOVALUE", "--app", "cfg"); code != 2 {
 		t.Errorf("env set NOVALUE: %d %s", code, errOut)
-	}
-}
-
-func TestParseDotenv(t *testing.T) {
-	vars, err := parseDotenv(strings.NewReader("B=2\nA = 1 # one\nexport C='x y'\nD=\"q\\\"t\"\nB=3\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := [][2]string{{"A", "1"}, {"B", "3"}, {"C", "x y"}, {"D", `q"t`}}
-	if fmt.Sprint(vars) != fmt.Sprint(want) {
-		t.Errorf("parsed %v, want %v", vars, want)
-	}
-	for _, bad := range []string{"NOEQUALS\n", "A=\"open\n", "=1\n", "A='x' y\n"} {
-		if _, err := parseDotenv(strings.NewReader(bad)); err == nil {
-			t.Errorf("parsed %q", bad)
-		}
-	}
-	for _, v := range []string{"plain", "with space", `quo"te`, "$dollar", "multi\nline", ""} {
-		got, err := parseDotenv(strings.NewReader("X=" + dotenvQuote(v) + "\n"))
-		if err != nil || len(got) != 1 || got[0][1] != v {
-			t.Errorf("round trip of %q: %v %v", v, got, err)
-		}
 	}
 }

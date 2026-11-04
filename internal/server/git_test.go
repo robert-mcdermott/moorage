@@ -108,6 +108,21 @@ func TestGitPush(t *testing.T) {
 		t.Fatalf("deployments: %+v %v", deps, err)
 	}
 
+	// Building the commit again: the same commit, through a new build.
+	again, err := c.Redeploy(ctx, "gitsite", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err = c.FollowDeployment(ctx, again.ID, func(apitypes.LogLine) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if again.Status != "live" || again.Source != "git-push" || again.Commit != head || again.Build == deps[0].Build || again.Release == nil || again.Release.Version != 2 {
+		t.Errorf("redeployed: %+v", again)
+	}
+	if _, body := get(t, addrs.HTTP, "gitsite.localhost", "/"); !strings.Contains(body, "release one from a static site") {
+		t.Errorf("the app serves %q", body)
+	}
+
 	// A deploy that fails refuses the push: main stays where it was.
 	os.WriteFile(filepath.Join(repo.dir, "moorage.toml"), []byte("[app]\nruntime = \"static\"\n\n[static]\ndir = \"missing\"\n"), 0o644)
 	repo.must("add", ".")
@@ -130,8 +145,8 @@ func TestGitPush(t *testing.T) {
 	if out := repo.must("push", "moorage", "feature"); !strings.Contains(out, "feature is kept, not deployed") {
 		t.Errorf("another branch: %s", out)
 	}
-	if deps, _ := c.Deployments(ctx, "gitsite", "production", 5); len(deps) != 2 {
-		t.Errorf("%d deployments, want 2 (the first and the failed one)", len(deps))
+	if deps, _ := c.Deployments(ctx, "gitsite", "production", 5); len(deps) != 3 {
+		t.Errorf("%d deployments, want 3 (the first, its rebuild and the failed one)", len(deps))
 	}
 
 	// Over HTTPS, with the token as the password; the repository clones

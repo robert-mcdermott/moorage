@@ -47,8 +47,10 @@ notifications can react to them.
 
 ### Reading
 
-- `moor logs [-f] [--process web] [--instance 2] [--source app,router]
-  [--since 1h] [--grep text] [--json]`
+- `moor logs [-f] [--process web] [--instance 2] [--source stderr,build,access]
+  [--since 1h] [--until …] [--grep text] [--problems] [--json]`. The sources are
+  `stdout`, `stderr` and `moorage` (an app's own: the default), `build`, `access` and
+  `events`; `job` and `server` come with what they are the logs of.
 - Console: live tail with pause/resume, instance and process chips, source
   toggles, level filter, text search, time-range picker, line wrapping,
   download.
@@ -115,7 +117,8 @@ Every meaningful change is an event:
 
 - deployments: queued, started, succeeded, failed, superseded, canceled;
 - releases: created (deploy, config change, rollback, promote);
-- instances: started, exited, restarted, crashed, OOM-killed;
+- instances: started, exited, restarted, crashed, OOM-killed; all of them replaced
+  on request (`app.restarted`);
 - health: environment status changes;
 - environments: created, slept, woke, expired, destroyed;
 - domains and certificates: verified, issued, renewed, failing;
@@ -126,7 +129,10 @@ Every meaningful change is an event:
 
 Events are published on the bus (live console updates through one SSE
 stream), stored for 90 days, and shown as an activity timeline per
-environment, per app and server-wide.
+environment, per app and server-wide. A transient kind, such as a deployment
+starting, goes to those following now and is not kept. Security events arrive with
+the audit log, whose readers are limited, rather than in this feed that every member
+can read.
 
 ## Notifications
 

@@ -37,6 +37,43 @@ curl -H "Authorization: Bearer $MOOR_TOKEN" "https://moorage.apps.example.com/ap
 }
 ```
 
+## Running an app
+
+`GET /api/v1/apps/{app}/envs/{env}` says how an environment stands: its release, how many
+instances of each process it runs, and those instances. `PATCH` scales it, and answers
+the same, once it has got there; a new instance that cannot start leaves it as it was,
+with the code `scale_failed`:
+
+```bash
+curl -X PATCH -H "Authorization: Bearer $MOOR_TOKEN" -d '{"formation": {"web": 3}}' \
+  https://moorage.apps.example.com/api/v1/apps/shop/envs/production
+```
+
+`POST …/redeploy` builds what the current release was built from again, and answers with
+the queued deployment, as a deploy does. `GET …/releases/{version}` has a release with its
+resolved manifest, and `GET …/releases/{version}/diff/{other}` what changed between two:
+of variables, their names only.
+
+## Logs
+
+`GET /api/v1/apps/{app}/envs/{env}/logs` streams an environment's logs as NDJSON, newest last:
+`tail` lines, then with `follow=1` new ones as they come. `source` chooses from `stdout`,
+`stderr`, `moorage`, `build`, `access` and `events`; `process`, `instance`, `grep`,
+`problems`, `since` and `until` narrow them down. Each line has its `source`, and a `level`
+and `message` if it says. `format=text` sends plain text, and `download=1` a file of up to
+200,000 lines. A follower that reconnects says where it got to with `after`.
+
+## What happened
+
+`GET /api/v1/events` lists what happened on the server, newest first, in pages, for an
+`app` and an `env` if given. `GET /api/v1/events/stream` follows it as server-sent
+events, each with the event's ID and, as its data, the same document. A reconnecting
+client says where it got to with the `Last-Event-ID` header, or `?after=`, and is sent
+what it missed. A token restricted to an app sees only that app's.
+
+Events of a `deployment.started` kind are `transient`: they are for those following now,
+and are not kept.
+
 ## Errors
 
 Errors are RFC 9457 `application/problem+json` documents. `code` is stable, for

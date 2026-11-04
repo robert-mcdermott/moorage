@@ -28,8 +28,10 @@ import (
 	consolepages "github.com/robert-mcdermott/moorage/internal/console"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/layout"
 	"github.com/robert-mcdermott/moorage/internal/localdns"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
@@ -39,94 +41,11 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/truststore"
 )
 
-// Layout names the files and directories inside a data directory
-// (spec/02-architecture.md, "On-disk layout").
-type Layout struct {
-	Root       string
-	Database   string
-	Keys       string
-	Repos      string
-	Builds     string
-	AppData    string
-	Logs       string
-	Toolchains string
-	Cache      string
-	Certs      string
-	Run        string
-	Tmp        string
-	Backups    string
-	LockFile   string
-	// AdminToken holds the bootstrap admin token, readable only by the
-	// server's user.
-	AdminToken string
-	// MasterKey seals the data keys of secrets (unless the key is given
-	// elsewhere: see secrets.LoadMasterKey).
-	MasterKey string
-	// SSHHostKey is the git server's SSH host key.
-	SSHHostKey string
-	// ClaimCode holds the first-run claim code until the server is claimed.
-	ClaimCode string
-}
+// Layout names the files and directories inside a data directory.
+type Layout = layout.Layout
 
 // NewLayout returns the layout of the data directory root.
-func NewLayout(root string) Layout {
-	at := func(elem ...string) string { return filepath.Join(append([]string{root}, elem...)...) }
-	return Layout{
-		Root:       root,
-		Database:   at("moorage.db"),
-		Keys:       at("keys"),
-		Repos:      at("repos"),
-		Builds:     at("builds"),
-		AppData:    at("data"),
-		Logs:       at("logs"),
-		Toolchains: at("toolchains"),
-		Cache:      at("cache"),
-		Certs:      at("certs"),
-		Run:        at("run"),
-		Tmp:        at("tmp"),
-		Backups:    at("backups"),
-		LockFile:   at("run", "moor.lock"),
-		AdminToken: at("keys", "admin-token"),
-		MasterKey:  at("keys", "master.key"),
-		SSHHostKey: at("keys", "ssh_host_ed25519_key"),
-		ClaimCode:  at("keys", "claim-code"),
-	}
-}
-
-// Prepare creates the data directory and its subdirectories. Those holding
-// keys, certificates, runtime state, temporary files and backups are private
-// to the server's user.
-func (l Layout) Prepare() error {
-	dirs := []struct {
-		path string
-		mode os.FileMode
-	}{
-		{l.Root, 0o755},
-		{l.Repos, 0o755},
-		{l.Builds, 0o755},
-		{l.AppData, 0o755},
-		{l.Logs, 0o755},
-		{l.Toolchains, 0o755},
-		{l.Cache, 0o755},
-		{l.Keys, 0o700},
-		{l.Certs, 0o700},
-		{l.Run, 0o700},
-		{l.Tmp, 0o700},
-		{l.Backups, 0o700},
-	}
-	for _, d := range dirs {
-		if err := os.MkdirAll(d.path, d.mode); err != nil {
-			return err
-		}
-		if d.mode == 0o700 {
-			// MkdirAll leaves an existing directory's mode alone.
-			if err := os.Chmod(d.path, d.mode); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
+func NewLayout(root string) Layout { return layout.New(root) }
 
 // Addrs are the addresses the listeners are bound to; HTTPS is nil when
 // Moorage does not terminate TLS.
@@ -141,6 +60,9 @@ type Addrs struct {
 
 // Options adjust Run.
 type Options struct {
+	// ConsoleDir, if set, is where the console's templates and assets are read from,
+	// for each request, in place of those in the binary.
+	ConsoleDir string
 	// Ready, if set, is called once the server accepts connections.
 	Ready func(Addrs)
 	// Executable runs this program's other modes (`moor shim`, `moor sh`);
@@ -259,6 +181,9 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	})
 	shell := []string{exe, "sh", "-c"}
 	engine, containers := findContainers(cfg, db, keyring, log)
+	bus := events.New(db, log)
+	defer bus.Close()
+	go bus.Prune(ctx, 24*time.Hour)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
 		DataDir:       cfg.DataDir,
 		ShimCmd:       []string{exe, "shim"},
@@ -271,6 +196,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		ToolchainBins: toolchains.BinDirs,
 		Secrets:       keyring,
 		Containers:    containers,
+		Events:        bus,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)
@@ -283,6 +209,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return err
 	}
 	go runtime.Run(ctx)
+	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
 		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
@@ -293,6 +220,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		},
 		GCMinAge: opts.GCMinAge,
 		Secrets:  keyring,
+		Events:   bus,
+		Repos:    repos,
 	}, log)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.
@@ -312,13 +241,17 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 
 	// The git server: Smart HTTP on the console's hostname, SSH on its own
 	// port.
-	git := &gitserver.Server{Repos: gitserver.NewRepos(layout.Repos), Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
+	git := &gitserver.Server{Repos: repos, Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, log))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	console.Handle("/", consolepages.New(authn, db, log))
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir})
+	if err != nil {
+		return fmt.Errorf("the console: %w", err)
+	}
+	console.Handle("/", pages)
 	router.SetConsole(console)
 
 	var tlsConfig *tls.Config
@@ -432,6 +365,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	if addrs.SSH != nil {
 		log.Info("git pushes over SSH", "ssh", addrs.SSH.String(), "host_key", ssh.FingerprintSHA256(sshSrv.HostKey.PublicKey()))
 	}
+	bus.Publish(ctx, store.Event{Type: events.ServerStarted, Data: map[string]any{"version": info.Version}})
 	if opts.Ready != nil {
 		opts.Ready(addrs)
 	}
@@ -443,6 +377,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		runErr = fmt.Errorf("HTTP server: %w", err)
 	}
 	log.Info("moorage server stopping")
+	bus.Close() // those following it would otherwise hold up the shutdown
 	if sshSrv != nil {
 		sshSrv.Close()
 	}

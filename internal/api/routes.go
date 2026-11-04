@@ -63,6 +63,8 @@ type route struct {
 	status int
 	// stream, if set, is a prototype of the lines of an NDJSON response.
 	stream any
+	// sse, if set, is a prototype of the events of a server-sent event stream.
+	sse any
 	// multipart marks a deploy's multipart/form-data request.
 	multipart bool
 	// query lists the query parameters, with what each one does.
@@ -91,6 +93,9 @@ func (s *Server) routes() []route {
 
 		// The caller.
 		{method: "GET", path: "/me", perm: signedIn, handler: s.me, summary: "Who the caller is", response: apitypes.Me{}},
+		{method: "POST", path: "/me/password", perm: canManage, handler: s.changePassword, status: http.StatusNoContent,
+			summary: "Change your password, which ends your other sessions", request: apitypes.PasswordChange{}},
+		{method: "DELETE", path: "/me/sessions", perm: canManage, handler: s.endOtherSessions, status: http.StatusNoContent, summary: "End your sessions but the one in use"},
 		{method: "GET", path: "/me/sessions", perm: canManage, handler: s.sessions, summary: "List your sessions", response: []apitypes.Session{}},
 		{method: "DELETE", path: "/me/sessions/{session}", perm: canManage, handler: s.endSession, status: http.StatusNoContent, summary: "End one of your sessions"},
 		{method: "GET", path: "/me/tokens", perm: canManage, handler: s.tokens, summary: "List your API tokens", response: []apitypes.Token{}},
@@ -117,7 +122,20 @@ func (s *Server) routes() []route {
 			request: apitypes.RegistryLogin{}, response: apitypes.Registry{}},
 		{method: "DELETE", path: "/registries/{host}", perm: serverAdmin, handler: s.deleteRegistry, status: http.StatusNoContent, summary: "Forget the credentials of a container registry"},
 
+		// What happens.
+		{method: "GET", path: "/events", perm: canRead, handler: s.listEvents, summary: "List what happened, newest first",
+			response: apitypes.Page[apitypes.Event]{}, query: map[string]string{
+				"limit": pageQuery["limit"], "cursor": pageQuery["cursor"],
+				"app": "Only what happened to this app.", "env": "Only what happened to this environment.",
+			}},
+		{method: "GET", path: "/events/stream", perm: canRead, handler: s.streamEvents, summary: "Follow what happens, as server-sent events", sse: apitypes.Event{},
+			query: map[string]string{
+				"app": "Only what happens to this app.", "env": "Only what happens to this environment.",
+				"after": "Start after this event's ID, as the Last-Event-ID header also does.",
+			}},
+
 		// The server and its apps.
+		{method: "GET", path: "/server/doctor", perm: serverAdmin, handler: s.serverDoctor, summary: "Check the server and what it depends on, as moor server doctor does", response: []apitypes.Check{}},
 		{method: "GET", path: "/server", perm: signedIn, handler: s.serverInfo, summary: "The server's version and the prefixes of the apps' git remotes", response: apitypes.ServerInfo{}},
 		{method: "GET", path: "/apps", perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},
 		{method: "POST", path: "/apps/{app}/envs/{env}/deployments", perm: canDeploy, handler: s.deploy, status: http.StatusCreated, multipart: true,
@@ -126,11 +144,19 @@ func (s *Server) routes() []route {
 			response: apitypes.Page[apitypes.Deployment]{}, query: pageQuery},
 		{method: "GET", path: "/deployments/{id}", perm: canRead, handler: s.deployment, summary: "Get a deployment", response: apitypes.Deployment{}},
 		{method: "GET", path: "/deployments/{id}/log", perm: canRead, handler: s.deploymentLog, summary: "Stream a deployment's log", stream: apitypes.LogLine{},
-			query: map[string]string{"follow": "true keeps the stream open until the deployment ends."}},
+			query: map[string]string{"follow": "true keeps the stream open until the deployment ends.", "skip": "Leave out this many of the first lines."}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/releases", perm: canRead, handler: s.releases, summary: "List an environment's releases, newest first",
 			response: apitypes.Page[apitypes.Release]{}, query: pageQuery},
+		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}", perm: canRead, handler: s.release, summary: "A release, with what it runs", response: apitypes.ReleaseDetail{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}/diff/{other}", perm: canRead, handler: s.releaseDiff,
+			summary: "What changed from one release to another; of variables, their names only", response: apitypes.ReleaseDiff{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/rollback", perm: canDeploy, handler: s.rollback, summary: "Serve an earlier release again",
 			request: apitypes.RollbackRequest{}, response: apitypes.Deployment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/redeploy", perm: canDeploy, handler: s.redeploy, status: http.StatusAccepted,
+			summary: "Build what the current release was built from again, and roll it out", response: apitypes.Deployment{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}", perm: canRead, handler: s.environment, summary: "How an environment stands: its release, formation and instances", response: apitypes.Environment{}},
+		{method: "PATCH", path: "/apps/{app}/envs/{env}", perm: canDeploy, handler: s.changeEnvironment, summary: "Scale an environment: how many instances of which process run",
+			request: apitypes.EnvironmentChange{}, response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/restart", perm: canDeploy, handler: s.restart, summary: "Replace an environment's instances", response: []apitypes.Instance{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/instances", perm: canRead, handler: s.instances, summary: "List an environment's instances", response: []apitypes.Instance{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/vars", perm: canDeploy, handler: s.vars, summary: "List an environment's variables; a secret's value is never shown", response: []apitypes.Var{}},
@@ -138,9 +164,18 @@ func (s *Server) routes() []route {
 			request: apitypes.VarsChange{}, response: apitypes.VarsResult{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/logs", perm: canRead, handler: s.logs, summary: "Stream an environment's logs", stream: apitypes.LogLine{},
 			query: map[string]string{
-				"follow":  "true keeps the stream open.",
-				"tail":    "How many of the latest lines to start with.",
-				"process": "Only this process's lines.",
+				"follow":   "true keeps the stream open.",
+				"tail":     "How many of the latest lines to start with.",
+				"process":  "Only this process's lines.",
+				"instance": "Only this instance's lines: its number or its ID.",
+				"source":   "Which sources, separated by commas: stdout, stderr, moorage, build, access and events. The first three unless asked.",
+				"grep":     "Only the lines with this text, whatever its case.",
+				"problems": "true keeps the lines that report a problem: errors, warnings, standard error, and requests that failed.",
+				"since":    "Only lines since then: how long ago (15m, 2h, 7d) or a moment.",
+				"until":    "Only lines until then.",
+				"after":    "Only lines after this moment, for a follower that reconnects.",
+				"format":   "text sends plain text in place of NDJSON.",
+				"download": "1 sends it as a file to keep, of up to 200,000 lines.",
 			}},
 	}
 }

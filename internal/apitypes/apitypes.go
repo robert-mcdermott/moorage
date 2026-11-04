@@ -2,7 +2,10 @@
 // by the server and the CLI.
 package apitypes
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // App is an app and its production environment.
 type App struct {
@@ -331,12 +334,19 @@ type LogLine struct {
 	Index    int       `json:"index"`
 	Stream   string    `json:"stream"`
 	Text     string    `json:"text"`
+	// Source says where it came from: stdout, stderr, moorage, build, access or events.
+	Source string `json:"source,omitempty"`
+	// Level is what the line reports, if it says: error, warn, info or debug.
+	Level string `json:"level,omitempty"`
+	// Message is the line as a person reads it, for one that is structured.
+	Message string `json:"message,omitempty"`
 }
 
 // Content types and form fields.
 const (
 	ProblemType = "application/problem+json"
 	NDJSONType  = "application/x-ndjson"
+	SSEType     = "text/event-stream"
 	// PlanPart and ArchivePart are the multipart form fields of the deploy
 	// of an upload that needs no build: the plan (manifest.Plan) as JSON,
 	// then the gzip-compressed tar. SourcePart alone is source for the
@@ -373,4 +383,102 @@ type ProxyCheck struct {
 	ForwardedHost  string `json:"forwarded_host,omitempty"`
 	// TLS says the connection reaching the server was TLS.
 	TLS bool `json:"tls,omitempty"`
+}
+
+// Event is something that happened on the server.
+type Event struct {
+	ID string    `json:"id"`
+	At time.Time `json:"at"`
+	// Type is what kind of thing, such as deployment.live.
+	Type string `json:"type"`
+	// App and Env are what it happened to, if anything in particular.
+	App   string `json:"app,omitempty"`
+	Env   string `json:"env,omitempty"`
+	Actor string `json:"actor,omitempty"`
+	// Summary says it in words.
+	Summary string `json:"summary"`
+	// Level says how it should look: ok, info, warn or fail, if any.
+	Level string `json:"level,omitempty"`
+	// Transient says it is only for those following now: it is not kept.
+	Transient bool `json:"transient,omitempty"`
+	// Data holds the details of its type.
+	Data map[string]any `json:"data,omitempty"`
+}
+
+// Environment is how an environment stands: what it serves and what runs it.
+type Environment struct {
+	App     string   `json:"app"`
+	Name    string   `json:"name"`
+	URL     string   `json:"url"`
+	Release *Release `json:"release,omitempty"`
+	// Formation is how many instances of each process it runs: what the manifest
+	// says, unless scaling said otherwise.
+	Formation map[string]int `json:"formation,omitempty"`
+	Instances []Instance     `json:"instances"`
+}
+
+// EnvironmentChange changes an environment.
+type EnvironmentChange struct {
+	// Formation sets how many instances of the named processes run, over the
+	// manifest's number, for this release and those to come.
+	Formation map[string]int `json:"formation"`
+}
+
+// ReleaseDetail is a release, with what it runs.
+type ReleaseDetail struct {
+	Release
+	// Manifest says in plain words what the release does; Plan is the same as data.
+	Manifest string          `json:"manifest"`
+	Plan     json.RawMessage `json:"plan"`
+}
+
+// ReleaseDiff says what changed from one release to another. Of the variables it says
+// which ones, never their values.
+type ReleaseDiff struct {
+	From         int        `json:"from"`
+	To           int        `json:"to"`
+	BuildChanged bool       `json:"build_changed"`
+	Manifest     []DiffLine `json:"manifest"`
+	Vars         []VarDiff  `json:"vars"`
+}
+
+// How a line differs.
+const (
+	DiffSame    = " "
+	DiffAdded   = "+"
+	DiffRemoved = "-"
+)
+
+// DiffLine is a line of the resolved manifest: the same, added or removed.
+type DiffLine struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
+
+// How a variable differs.
+const (
+	DiffAddedVar   = "added"
+	DiffChangedVar = "changed"
+	DiffRemovedVar = "removed"
+)
+
+// VarDiff is a variable that differs.
+type VarDiff struct {
+	Name   string `json:"name"`
+	Change string `json:"change"`
+	Secret bool   `json:"secret,omitempty"`
+}
+
+// PasswordChange changes the caller's password.
+type PasswordChange struct {
+	Current string `json:"current"`
+	New     string `json:"new"`
+}
+
+// Check is what one of the server's checks found: ok, warn, fail or info.
+type Check struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+	Fix    string `json:"fix,omitempty"`
 }

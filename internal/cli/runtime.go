@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/applogs"
+	"github.com/robert-mcdermott/moorage/internal/client"
 	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
@@ -110,21 +113,91 @@ are healthy, and stop the old ones after their requests finish.`,
 	return cmd
 }
 
+// parseFormation reads what `moor scale` asks for: web=3 worker=1.
+func parseFormation(args []string) (map[string]int, error) {
+	formation := map[string]int{}
+	for _, arg := range args {
+		name, count, ok := strings.Cut(arg, "=")
+		n, err := strconv.Atoi(count)
+		if !ok || name == "" || err != nil || n < 0 {
+			return nil, usageError{fmt.Errorf("%q is not a process and a number, such as web=3", arg)}
+		}
+		formation[name] = n
+	}
+	return formation, nil
+}
+
+func newScaleCmd() *cobra.Command {
+	var conn connection
+	var app, env string
+	cmd := &cobra.Command{
+		Use:   "scale [PROCESS=N ...]",
+		Short: "Show or change how many instances of each process run",
+		Long: `Set how many instances of each named process run. New ones start beside those
+running; those beyond the number finish their requests and stop. If a new
+instance cannot start, the app goes back to how it was.
+
+The setting stays, over the manifest's instances, for the releases to come.
+Without arguments, it shows how many run.`,
+		Example: `  moor scale --app shop
+  moor scale web=3 worker=1 --app shop`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formation, err := parseFormation(args)
+			if err != nil {
+				return err
+			}
+			appName, _, err := resolveApp(app)
+			if err != nil {
+				return err
+			}
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			var state apitypes.Environment
+			if len(formation) == 0 {
+				state, err = c.Environment(cmd.Context(), appName, env)
+			} else {
+				state, err = c.Scale(cmd.Context(), appName, env, formation)
+			}
+			if err != nil {
+				return err
+			}
+			if len(formation) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Scaled %s.\n\n", appName)
+			}
+			return printInstances(cmd, appName, state.Instances)
+		},
+	}
+	conn.addFlags(cmd)
+	cmd.Flags().StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
+	cmd.Flags().StringVar(&env, "env", names.Production, "environment")
+	return cmd
+}
+
 func newLogsCmd() *cobra.Command {
 	var conn connection
-	var app, env, process string
-	var tail int
-	var follow, asJSON bool
+	var app, env string
+	var q client.LogQuery
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Show an app's logs",
 		Long: `Show the output of an app's instances, merged by time. Lines marked with *
 are notes from Moorage (starts, exits, restarts); lines marked with ! came
-from standard error.`,
+from standard error.
+
+--source chooses what to show, from stdout, stderr, moorage, build, access
+and events; the first three unless asked.`,
 		Example: `  moor logs --app api
-  moor logs -f --app api --process worker`,
+  moor logs -f --app api --process worker
+  moor logs --app api --source stderr,build --since 1h --grep timeout
+  moor logs --app api --problems --since 24h`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if _, err := applogs.SplitSources(q.Source); err != nil {
+				return usageError{err}
+			}
 			appName, _, err := resolveApp(app)
 			if err != nil {
 				return err
@@ -134,13 +207,13 @@ from standard error.`,
 				return err
 			}
 			ctx := cmd.Context()
-			if follow {
+			if q.Follow {
 				var stop context.CancelFunc
 				ctx, stop = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 				defer stop()
 			}
 			out := cmd.OutOrStdout()
-			return c.Logs(ctx, appName, env, process, tail, follow, func(l apitypes.LogLine) error {
+			return c.Logs(ctx, appName, env, q, func(l apitypes.LogLine) error {
 				if asJSON {
 					return printJSON(out, l)
 				}
@@ -151,7 +224,15 @@ from standard error.`,
 				case "E":
 					mark = "!"
 				}
-				_, err := fmt.Fprintf(out, "%s %s.%d %s %s\n", l.Time.Local().Format("15:04:05.000"), l.Process, l.Index, mark, l.Text)
+				who := l.Source
+				if l.Source == "" || l.Source == applogs.Stdout || l.Source == applogs.Stderr || l.Source == applogs.Moorage {
+					who = fmt.Sprintf("%s.%d", l.Process, l.Index)
+				}
+				text := l.Text
+				if l.Message != "" {
+					text = l.Message
+				}
+				_, err := fmt.Fprintf(out, "%s %s %s %s\n", l.Time.Local().Format("15:04:05.000"), who, mark, text)
 				return err
 			})
 		},
@@ -160,9 +241,15 @@ from standard error.`,
 	f := cmd.Flags()
 	f.StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
 	f.StringVar(&env, "env", names.Production, "environment")
-	f.StringVar(&process, "process", "", "show one process only, such as web")
-	f.IntVarP(&tail, "tail", "n", 100, "lines to show from the end")
-	f.BoolVarP(&follow, "follow", "f", false, "keep showing new lines")
+	f.StringVar(&q.Process, "process", "", "show one process only, such as web")
+	f.StringVar(&q.Instance, "instance", "", "show one instance only: its number or its ID")
+	f.StringVar(&q.Source, "source", "", "sources to show, separated by commas: stdout, stderr, moorage, build, access, events")
+	f.StringVar(&q.Grep, "grep", "", "show the lines with this text, whatever its case")
+	f.BoolVar(&q.Problems, "problems", false, "show the lines that report a problem: errors, warnings, standard error, failed requests")
+	f.StringVar(&q.Since, "since", "", "show lines since then: how long ago (15m, 2h, 7d) or a moment")
+	f.StringVar(&q.Until, "until", "", "show lines until then")
+	f.IntVarP(&q.Tail, "tail", "n", 100, "lines to show from the end")
+	f.BoolVarP(&q.Follow, "follow", "f", false, "keep showing new lines")
 	f.BoolVar(&asJSON, "json", false, "print each line as JSON")
 	return cmd
 }

@@ -1,15 +1,92 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. Version 0.2.0 runs on Linux and macOS (amd64 and arm64); on Windows,
+to it. Version 0.3.0 runs on Linux and macOS (amd64 and arm64); on Windows,
 `moor` runs as a command line and `moor server run` works, but installing the
 server as a service arrives in a later release.
 
 ## 1. Get `moor`
 
-Download the binary for your system from the
-[releases page](https://github.com/robert-mcdermott/moorage/releases), check
-it against `SHA256SUMS`, and put it on your `PATH`:
+On macOS or Linux:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | sh
+```
+
+In PowerShell on Windows 11:
+
+```powershell
+irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+```
+
+Each picks the file for your computer from the latest release and downloads it with
+the release's `SHA256SUMS`. It requires exactly one matching checksum, runs the
+downloaded program's version check, and only then puts it in place, so a failed
+download never replaces a working copy. It needs no administrator rights, and starts
+nothing.
+
+| | Installs to | `PATH` |
+|---|---|---|
+| macOS, Linux | `~/.local/bin/moor` | Left alone: it says what to add, if it is not there |
+| macOS, Linux, as root | `/usr/local/bin/moor` | Left alone |
+| Windows | `%LocalAppData%\Programs\Moorage\moor.exe` | Added to your user `PATH`: open a new terminal to use it |
+
+**For a server that will run as a system service,** install as root, so that the
+service does not run from someone's home directory. Download and read the script
+first; never pipe a download straight into `sudo`:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-moor.sh https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh
+```
+
+```bash
+less install-moor.sh
+```
+
+```bash
+sudo sh install-moor.sh
+```
+
+**To choose a release or a directory,** set these (`MOOR_NO_PATH_UPDATE` and
+`MOOR_ARCH` are for Windows only):
+
+| Variable | `install.sh` | `install.ps1` | |
+|---|---|---|---|
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.3.0`. By default, the latest |
+| `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
+| `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
+| `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
+| `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.3.0 sh
+```
+
+```powershell
+$env:MOOR_VERSION = 'v0.3.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+```
+
+**On Windows,** `irm … | iex` reads the script into memory and runs it, so the
+PowerShell execution policy, which governs script files, does not apply. To read it
+first, or for a saved copy:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 -OutFile install-moor.ps1
+```
+
+```powershell
+Get-Content install-moor.ps1
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-moor.ps1
+```
+
+### By hand
+
+Download the file for your system from the
+[releases page](https://github.com/robert-mcdermott/moorage/releases), check it against
+`SHA256SUMS`, and put it on your `PATH`:
 
 ```bash
 curl -fLO https://github.com/robert-mcdermott/moorage/releases/latest/download/moor-linux-amd64
@@ -30,7 +107,19 @@ sudo install -m 0755 moor-linux-amd64 /usr/local/bin/moor
 (On macOS, use `moor-darwin-arm64` or `moor-darwin-amd64`, and
 `shasum -a 256 --check --ignore-missing SHA256SUMS`.)
 
-Or build it from source with Go 1.26 or newer:
+The checksum shows a damaged download, and a file that differs from the release's
+list. Both come from the same release, so it cannot protect against someone able to
+replace both.
+
+Moorage's programs are not signed with an Apple or Microsoft certificate. The commands
+above download without a browser, so the system does not flag the file. If you save it
+with a browser, macOS or Windows SmartScreen asks for confirmation the first time it
+runs: on macOS, remove the flag with `xattr -d com.apple.quarantine ./moor-darwin-arm64`,
+and on Windows, with `Unblock-File .\moor-windows-amd64.exe`.
+
+### From source
+
+Build it with Go 1.26 or newer:
 
 ```bash
 CGO_ENABLED=0 go build -trimpath -o moor ./cmd/moor
@@ -177,20 +266,42 @@ apps keep running).
 
 ## Upgrading
 
-Replace `moor` and restart the server:
+Run the installer again, as the same user: it replaces `moor` where it is, and says
+what it upgraded from. To go back, give it an earlier release with `MOOR_VERSION`.
 
-```bash
-sudo install -m 0755 moor-linux-amd64 /usr/local/bin/moor
-```
+Then restart the server, to use the new version:
 
 ```bash
 sudo moor server restart
 ```
 
-Running apps keep running, and the new server takes them over. It migrates the
-database as it starts, after keeping a snapshot in `backups` in the data directory.
-Upgrade `moor` on the other machines that use the server too: a newer server may
-change what the API answers. `moor server doctor` then checks the result.
+Running apps keep running, and the new server takes them over. Until you restart it, a
+server goes on with the version it started with. It migrates the database as it
+starts, after keeping a snapshot in `backups` in the data directory. Upgrade `moor` on
+the other machines that use the server too: a newer server may change what the API
+answers. `moor server doctor` then checks the result.
+
+On Windows, the server and the supervisors of its apps run from `moor.exe`, and a
+running program cannot be replaced there. The installer moves it aside as
+`moor.previous.*.exe`, which goes on running, and clears that away on a later upgrade
+once nothing uses it. Press Ctrl+C where the server runs, and start it again.
 
 From 0.1.0, the server has no accounts yet: `moor server status` shows the link to
 create the first, and until then the admin token works from anywhere, as it did.
+
+## Uninstalling
+
+First, on a server, stop it and its apps and remove the service:
+
+```bash
+sudo moor server uninstall
+```
+
+Then delete the program: `~/.local/bin/moor` or `/usr/local/bin/moor`, or on Windows,
+the `%LocalAppData%\Programs\Moorage` folder, whose entry you can also remove from your
+user `PATH` (**Settings → System → About → Advanced system settings → Environment
+Variables**).
+
+The configuration and the data stay. Delete `server.toml`, which `moor server status`
+names, and the data directory that it names under `data_dir`, only if you no longer
+need the apps' data and the keys in it.

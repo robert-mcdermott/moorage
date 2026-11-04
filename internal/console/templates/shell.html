@@ -1,0 +1,165 @@
+{{define "shell"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{.Title}} · Moorage</title>
+<link rel="icon" href="{{.Favicon}}">
+<script src="{{asset "theme.js"}}"></script>
+<link rel="stylesheet" href="{{asset "console.css"}}">
+<script src="{{asset "console.js"}}" defer></script>
+{{if .Noscript}}<noscript><meta http-equiv="refresh" content="5"></noscript>{{end}}
+</head>
+<body data-live{{with .Stream}} data-stream="{{.}}"{{end}}>
+<a class="skip" href="#main">Skip to the content</a>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="icon" aria-hidden="true">{{.Icon}}</span>Moorage</a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="/"{{if eq .Page "apps"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="6" rx="1.2"/><rect x="3" y="11" width="6" height="6" rx="1.2"/><rect x="11" y="11" width="6" height="6" rx="1.2"/></svg>
+        Apps</a>
+      <a href="/activity"{{if eq .Page "activity"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 10h3.5l2.5-6 4 12 2.5-6H18"/></svg>
+        Activity</a>
+      <a href="/welcome"{{if eq .Page "welcome"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18V3m0 1h10l-2.5 3.5L15 11H5"/></svg>
+        Getting started</a>
+      {{if .Admin}}<a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h9m4 0h1M3 14h1m4 0h9"/><circle cx="14" cy="6" r="2"/><circle cx="6" cy="14" r="2"/></svg>
+        Settings</a>{{end}}
+    </nav>
+    <div class="sidebar-foot">
+      <div class="theme-choice" role="group" aria-label="Theme" hidden>
+        <button type="button" data-theme-set="system" aria-pressed="false">Auto</button>
+        <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+      </div>
+      <p class="who">Signed in as <a href="/account"{{if eq .Page "account"}} aria-current="page"{{end}}><strong>{{.User}}</strong></a></p>
+      <form method="post" action="/logout" id="signout">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button class="quiet" type="submit">Sign out</button>
+      </form>
+      <p class="version">Moorage {{.Version}}</p>
+    </div>
+  </aside>
+  <div class="content">
+    <header class="topbar">
+      <div class="topbar-title">
+        {{with .Crumbs}}<nav class="crumbs" aria-label="The way back"><ol>{{range .}}<li><a href="{{.Href}}">{{.Label}}</a></li>{{end}}</ol></nav>{{end}}
+        <h1>{{.Heading}}</h1>
+      </div>
+      <button class="quiet palette-open" type="button" data-palette-open hidden>Search and jump <kbd data-palette-key>Ctrl+K</kbd></button>
+    </header>
+    <main id="main"{{with .RefreshOn}} data-refresh-on="{{.}}"{{end}}>
+{{template "body" .}}
+    </main>
+  </div>
+</div>
+<dialog id="palette" class="palette" aria-label="Search and jump">
+  <input type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" aria-label="Search and jump" placeholder="Search for an app, a page or an action…" autocomplete="off" spellcheck="false">
+  <ul id="palette-list" role="listbox" aria-label="Results"></ul>
+  <p class="palette-none" hidden>Nothing matches that.</p>
+</dialog>
+<dialog id="confirm" class="confirm" aria-labelledby="confirm-text">
+  <p id="confirm-text"></p>
+  <div class="actions">
+    <button type="button" data-confirm-yes>Yes, go ahead</button>
+    <button class="quiet" type="button" data-confirm-no>Not now</button>
+  </div>
+</dialog>
+<script type="application/json" id="palette-data">{{.Palette}}</script>
+</body>
+</html>
+{{end}}
+
+{{define "command"}}<div class="command"><pre><code>{{.}}</code></pre></div>{{end}}
+
+{{define "activity"}}
+<form class="filters" method="get" action="/activity">
+  <div>
+    <label for="app">App</label>
+    <select id="app" name="app" data-autosubmit>
+      <option value="">All apps</option>
+      {{$only := .FilterApp}}
+      {{range .AppNames}}<option value="{{.}}"{{if eq . $only}} selected{{end}}>{{.}}</option>{{end}}
+    </select>
+  </div>
+  <button class="quiet" type="submit">Show</button>
+  {{if .Live}}<span class="badge live-status" data-live-status hidden>Connecting</span>{{end}}
+</form>
+<div class="panel">
+  {{if not .Events}}
+  <div class="empty" data-timeline-empty>
+    <h2>Nothing has happened yet</h2>
+    <p>Deployments, releases, changes of variables and instances that exit or sicken will appear here, as they happen.</p>
+    {{template "command" "moor deploy"}}
+  </div>
+  {{end}}
+  <ol class="timeline"{{if .Live}} data-timeline{{if .FilterApp}} data-app="{{.FilterApp}}"{{end}}{{end}}{{if not .Events}} hidden{{end}}>
+    {{range .Events}}
+    <li data-id="{{.ID}}">
+      <span class="dot {{.Level}}" aria-hidden="true"></span>
+      <span class="what">{{with .App}}<a class="where" href="/apps/{{.}}">{{.}}</a> {{end}}{{if .Href}}<a href="{{.Href}}">{{.Summary}}</a>{{else}}{{.Summary}}{{end}}</span>
+      <time datetime="{{iso .At}}">{{ago .At}}</time>
+    </li>
+    {{end}}
+  </ol>
+</div>
+{{with .Older}}<p class="pager"><a class="button quiet" href="{{.}}">Older</a></p>{{end}}
+{{end}}
+
+{{define "welcome"}}
+<ol class="steps">
+  <li class="panel step done">
+    <h2>Claim the server</h2>
+    <p>Done: you are signed in as <strong>{{.User}}</strong>.</p>
+  </li>
+  {{if .Admin}}
+  <li class="panel step{{if .ChecksPassed}} done{{end}}">
+    <h2>Check the server</h2>
+    <p>Its domain and TLS are set in <code>server.toml</code>, and apps will be at <strong>{{.AppPattern}}</strong>.</p>
+    <ul class="checks">
+      {{range .Checks}}
+      <li>
+        <span class="mark-{{.Status}}" aria-hidden="true">{{if eq .Status "ok"}}✓{{else if eq .Status "fail"}}✕{{else if eq .Status "warn"}}!{{else}}·{{end}}</span>
+        <span><span class="visually-hidden">{{.Status}}: </span>{{.Detail}}</span>
+        {{with .Fix}}<span class="fix">{{.}}</span>{{end}}
+      </li>
+      {{end}}
+    </ul>
+    <div class="actions"><a class="button quiet" href="/welcome">Check again</a></div>
+    <p class="muted">For everything else, run <code>moor server doctor</code> on the server.</p>
+  </li>
+  {{end}}
+  <li class="panel step">
+    <h2>Get <code>moor</code></h2>
+    <p>On your own computer, to deploy from it.</p>
+    <h3>macOS and Linux</h3>
+    {{template "command" .InstallUnix}}
+    <h3>Windows</h3>
+    {{template "command" .InstallWindows}}
+    <h3>Then sign in to this server</h3>
+    {{template "command" .LoginCommand}}
+  </li>
+  <li class="panel step{{if .Apps}} done{{end}}">
+    <h2>Deploy your first app</h2>
+    <p>From its directory: Moorage works out how to build Go, Python, Node.js and static sites, and an app with a <code>Containerfile</code> runs in a container.</p>
+    {{template "command" "moor deploy"}}
+    <h3>Or with <code>git push</code></h3>
+    {{template "command" "moor keys add"}}
+    {{template "command" "moor git remote"}}
+    {{template "command" "git push moorage main"}}
+    <div class="waiting" data-waiting role="status">
+      {{if .Apps}}
+      <span class="badge ok" data-waiting-badge>Deployed</span>
+      <span data-waiting-text>This server has {{len .Apps}} app{{if ne (len .Apps) 1}}s{{end}}. <a href="/">See them</a>.</span>
+      {{else}}
+      <span class="badge pulse" data-waiting-badge>Waiting</span>
+      <span data-waiting-text>Your first deployment will show here as soon as it starts.</span>
+      {{end}}
+    </div>
+  </li>
+</ol>
+{{end}}

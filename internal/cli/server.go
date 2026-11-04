@@ -160,6 +160,7 @@ func quoteArg(s string) string {
 
 func newServerRunCmd() *cobra.Command {
 	var cfgFlag, logLevel, logFormat string
+	var dev bool
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the server in the foreground",
@@ -196,12 +197,20 @@ location used by 'moor server init'.`,
 			defer logFile.Close()
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return server.Run(ctx, cfg, newLogger(cmd.ErrOrStderr(), cfg.Log, logFile), server.Options{})
+			opts := server.Options{}
+			if dev {
+				opts.ConsoleDir = filepath.Join("internal", "console")
+				if _, err := os.Stat(filepath.Join(opts.ConsoleDir, "templates")); err != nil {
+					return fmt.Errorf("--dev reads the console from the source tree: run it at the top of a checkout (%w)", err)
+				}
+			}
+			return server.Run(ctx, cfg, newLogger(cmd.ErrOrStderr(), cfg.Log, logFile), opts)
 		},
 	}
 	f := cmd.Flags()
 	f.StringVar(&cfgFlag, "config", "", "server.toml to read (default: $MOORAGE_CONFIG or a per-platform location)")
 	f.StringVar(&logLevel, "log-level", "", "debug, info, warn or error (overrides server.toml)")
 	f.StringVar(&logFormat, "log-format", "", "text or json (overrides server.toml)")
+	f.BoolVar(&dev, "dev", false, "read the console's templates and assets from the source tree, for working on them")
 	return cmd
 }

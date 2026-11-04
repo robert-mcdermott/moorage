@@ -12,7 +12,7 @@ server's files.
 
 ```text
 ✔ config         /etc/moorage/server.toml
-✔ server         running 0.2.0 on :80
+✔ server         running 0.3.0 on :80
 ✔ listen.http    answering on :80
 ✔ listen.https   answering on :443
 ✔ listen.ssh     answering on :2222
@@ -82,6 +82,12 @@ Windows has no equivalent yet. There, send the name as the `Host` header:
 ```bash
 curl -H "Host: tasks.localhost" http://127.0.0.1:8080/
 ```
+
+## What happened
+
+`moor events` shows what happened on the server, and so does
+[Activity in the console](console.md#activity): deployments, releases, changes of
+variables, and instances that exited or sickened.
 
 ## Where the logs are
 

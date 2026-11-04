@@ -5,11 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"sort"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
-	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -22,7 +20,7 @@ func (s *Server) vars(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	set, err := s.db.Vars(r.Context(), app, env)
+	out, err := deploy.ListVars(r.Context(), s.db, app, env)
 	if errors.Is(err, store.ErrNotFound) {
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return
@@ -31,41 +29,6 @@ func (s *Server) vars(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	out := []apitypes.Var{}
-	envNames := map[string]bool{}
-	serverNames := map[string]bool{}
-	for _, v := range set {
-		if !v.AllEnvs {
-			envNames[v.Name] = true
-		}
-		serverNames[v.Name] = true
-	}
-	for _, v := range set {
-		doc := apitypes.Var{Name: v.Name, Secret: v.Secret, Build: v.Build, Source: "env", UpdatedBy: v.UpdatedBy, UpdatedAt: v.UpdatedAt}
-		if !v.Secret {
-			doc.Value = v.Value
-		}
-		if v.AllEnvs {
-			doc.Source = "app"
-			doc.Overridden = envNames[v.Name]
-		}
-		out = append(out, doc)
-	}
-	if _, build, err := s.db.CurrentRelease(r.Context(), app, env); err == nil {
-		var plan manifest.Plan
-		if json.Unmarshal(build.Plan, &plan) == nil {
-			for name, value := range plan.Env {
-				out = append(out, apitypes.Var{Name: name, Value: value, Source: "manifest", Overridden: serverNames[name]})
-			}
-		}
-	}
-	order := map[string]int{"env": 0, "app": 1, "manifest": 2}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Name != out[j].Name {
-			return out[i].Name < out[j].Name
-		}
-		return order[out[i].Source] < order[out[j].Source]
-	})
 	writeJSON(w, http.StatusOK, out)
 }
 

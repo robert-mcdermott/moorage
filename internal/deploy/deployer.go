@@ -15,8 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/robert-mcdermott/moorage/internal/archive"
 	"github.com/robert-mcdermott/moorage/internal/build"
+	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -29,6 +30,8 @@ import (
 type Runtime interface {
 	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
 	Retire(app, env string)
+	Restart(ctx context.Context, app, env string) error
+	Scale(ctx context.Context, app, env string, change map[string]int) (map[string]int, error)
 	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error
 }
 
@@ -47,6 +50,10 @@ type Options struct {
 	Reload func(context.Context) error
 	// Secrets seals and opens secret variables.
 	Secrets Keyring
+	// Events hears of deployments and releases.
+	Events *events.Bus
+	// Repos holds what was pushed, to build it again.
+	Repos *gitserver.Repos
 	// URL returns an environment's address, for the log.
 	URL func(app, env string) string
 	// Builds bounds how many builds run at once (default: half the CPUs).
@@ -134,19 +141,13 @@ func (d *Deployer) envLock(app, env string) *sync.Mutex {
 // it does not exist, once the upload is known to be good. A newer
 // submission supersedes one still queued for the same environment.
 func (d *Deployer) Submit(ctx context.Context, app, env, by string, upload io.Reader) (store.Deployment, bool, error) {
-	return d.SubmitSource(ctx, app, env, by, Source{Type: "source-upload", Fill: func(dir string) (int, error) {
-		files, _, err := archive.Extract(upload, dir, archive.DefaultLimits)
-		return files, err
-	}})
+	return d.SubmitSource(ctx, app, env, by, Source{Type: SourceUpload, Fill: fillKeeping(upload)})
 }
 
 // SubmitImage queues the deployment of an image. upload holds no more than the
 // app's manifest, if it has one.
 func (d *Deployer) SubmitImage(ctx context.Context, app, env, by, image string, upload io.Reader) (store.Deployment, bool, error) {
-	return d.SubmitSource(ctx, app, env, by, Source{Type: SourceImage, Ref: image, Fill: func(dir string) (int, error) {
-		files, _, err := archive.Extract(upload, dir, archive.DefaultLimits)
-		return files, err
-	}})
+	return d.SubmitSource(ctx, app, env, by, Source{Type: SourceImage, Ref: image, Fill: fillKeeping(upload)})
 }
 
 // Source is a deployment's source code. Fill writes it into the build
@@ -160,9 +161,13 @@ type Source struct {
 	Fill                 func(dir string) (files int, err error)
 }
 
-// SourceImage is the Source type of a deployment of an image: its source holds
-// no more than the app's manifest, if that.
-const SourceImage = "image"
+// The types of source that a deployment builds. SourceImage is a deployment of an
+// image: its source holds no more than the app's manifest, if that.
+const (
+	SourceUpload = "source-upload"
+	SourcePush   = "git-push"
+	SourceImage  = "image"
+)
 
 // SubmitSource is Submit for any source.
 func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src Source) (store.Deployment, bool, error) {
@@ -171,11 +176,10 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 	}
 	buildID := ids.New(ids.Build)
 	dir := filepath.Join(d.opts.DataDir, "builds", app, buildID)
-	appDir := filepath.Join(dir, "app")
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
+	if err := os.MkdirAll(appDir(dir), 0o755); err != nil {
 		return store.Deployment{}, false, err
 	}
-	files, err := src.Fill(appDir)
+	files, err := src.Fill(appDir(dir))
 	if err == nil && files == 0 && src.Type != SourceImage {
 		err = errors.New("the source contains no files")
 	}
@@ -197,6 +201,7 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 		os.RemoveAll(dir)
 		return store.Deployment{}, false, err
 	}
+	d.emit(ctx, events.DeploymentQueued, dep, nil)
 	d.enqueue(dep)
 	return dep, created, nil
 }
@@ -291,6 +296,41 @@ func (d *Deployer) finish(dep store.Deployment, status, msg string, output []str
 	if err := d.db.FinishDeployment(context.Background(), dep.ID, status, msg, output); err != nil {
 		d.log.Error("record the end of a deployment", "deployment", dep.ID, "err", err)
 	}
+	switch status {
+	case store.Failed:
+		d.emit(context.Background(), events.DeploymentFailed, dep, map[string]any{"error": msg})
+	case store.Superseded:
+		d.emit(context.Background(), events.DeploymentSuperseded, dep, nil)
+	case store.Canceled:
+		d.emit(context.Background(), events.DeploymentCanceled, dep, nil)
+	}
+}
+
+// emit says what happened to a deployment.
+func (d *Deployer) emit(ctx context.Context, kind string, dep store.Deployment, data map[string]any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["deployment"] = dep.ID
+	if s := describeSource(dep); s != "" {
+		data["source"] = s
+	}
+	d.opts.Events.Publish(ctx, store.Event{Type: kind, App: dep.App, Env: dep.Env, Actor: dep.CreatedBy, Data: data})
+}
+
+// describeSource says where a deployment came from, in a few words.
+func describeSource(dep store.Deployment) string {
+	switch {
+	case dep.SourceType == SourceImage:
+		return "image " + dep.SourceRef
+	case dep.SourceCommit != "":
+		commit := dep.SourceCommit
+		if len(commit) > 7 {
+			commit = commit[:7]
+		}
+		return "push " + strings.TrimPrefix(dep.SourceRef, "refs/heads/") + "@" + commit
+	}
+	return ""
 }
 
 // run builds and publishes a queued deployment.
@@ -323,6 +363,7 @@ func (d *Deployer) run(dep store.Deployment) {
 		return
 	}
 	d.db.SetDeploymentStatus(ctx, dep.ID, store.Building)
+	d.emit(ctx, events.DeploymentStarted, dep, nil)
 	start := time.Now()
 	dir := filepath.Join(d.opts.DataDir, "builds", dep.App, dep.BuildID)
 	vars, redact, err := d.buildVars(ctx, dep.App, dep.Env)
@@ -378,7 +419,7 @@ func (d *Deployer) run(dep store.Deployment) {
 		return
 	}
 	if res.Image != "" {
-		removeTree(dir) // the image holds what the source was for
+		removeTree(appDir(dir)) // the image holds what the source was for
 	}
 	rel, err := d.publish(ctx, dep, b, res.Plan, "deploy", nil, logFile)
 	if err != nil {
@@ -396,6 +437,7 @@ func (d *Deployer) run(dep store.Deployment) {
 	build.Marker(logFile, "✔ live       v%d  %s  (%s)", rel.Version, d.opts.URL(dep.App, dep.Env), time.Since(dep.CreatedAt).Round(100*time.Millisecond))
 	logFile.Close()
 	d.finish(dep, store.Live, "", nil)
+	d.emit(ctx, events.DeploymentLive, dep, map[string]any{"version": rel.Version, "url": d.opts.URL(dep.App, dep.Env)})
 	d.log.Info("deployed", "app", dep.App, "env", dep.Env, "release", rel.Version, "build", b.ID, "deployment", dep.ID)
 	d.collect(dep.App, res.Plan.Deploy.KeepReleases)
 }
@@ -471,7 +513,11 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	}
 	d.db.SetDeploymentStatus(ctx, dep.ID, store.RollingOut)
 	if plan.Kind == manifest.KindProcess {
-		build.Marker(log, "▸ rollout    %s", formation(plan))
+		running, err := d.db.Formation(ctx, dep.App, dep.Env)
+		if err != nil {
+			return abandon(err)
+		}
+		build.Marker(log, "▸ rollout    %s", formationText(plan.WithFormation(running)))
 		if err := d.opts.Runtime.Rollout(ctx, dep.App, dep.Env, rel, b, plan); err != nil {
 			return abandon(err)
 		}
@@ -499,7 +545,8 @@ func (d *Deployer) runOnce(ctx context.Context, dep store.Deployment, rel store.
 	return d.opts.Runtime.RunOnce(ctx, dep.App, dep.Env, rel, b, plan, command, plan.Release.Timeout.Std(), log)
 }
 
-func formation(plan manifest.Plan) string {
+// formationText says how many instances of each process a plan runs.
+func formationText(plan manifest.Plan) string {
 	var parts []string
 	for _, name := range manifest.SortedProcesses(plan.Processes) {
 		p := plan.Processes[name]
@@ -535,18 +582,33 @@ func (d *Deployer) Publish(ctx context.Context, req PublishRequest) (store.Relea
 	if err := d.db.CreateDeployment(ctx, dep); err != nil {
 		return store.Release{}, dep, err
 	}
-	rel, err := d.publish(ctx, dep, b, plan, req.Reason, req.Config, nil)
+	logFile, err := logs.Open(LogPath(d.opts.DataDir, app, dep.ID), 0, 0)
+	if err != nil {
+		d.finish(dep, store.Failed, "cannot write the deployment log: "+err.Error(), nil)
+		return store.Release{}, dep, err
+	}
+	defer logFile.Close()
+	build.Marker(logFile, "moorage  %s · %s · %s", app, env, dep.ID)
+	rel, err := d.publish(ctx, dep, b, plan, req.Reason, req.Config, logFile)
 	if err != nil {
 		var rollout *reconcile.RolloutError
 		if errors.As(err, &rollout) {
+			build.Marker(logFile, "✘ failed     %s", rollout.Message)
 			d.finish(dep, store.Failed, rollout.Message, rollout.Output)
 		} else {
+			build.Marker(logFile, "✘ failed     %s", err)
 			d.finish(dep, store.Failed, err.Error(), nil)
 		}
 		return rel, dep, err
 	}
+	build.Marker(logFile, "✔ live       v%d  %s  (%s)", rel.Version, d.opts.URL(app, env), time.Since(dep.CreatedAt).Round(100*time.Millisecond))
 	d.finish(dep, store.Live, "", nil)
 	dep.Status, dep.ReleaseID, dep.Version = store.Live, rel.ID, rel.Version
+	if req.Reason == "deploy" {
+		d.emit(ctx, events.DeploymentLive, dep, map[string]any{"version": rel.Version, "url": d.opts.URL(app, env)})
+	} else {
+		d.emit(ctx, events.ReleaseCreated, dep, map[string]any{"version": rel.Version, "reason": req.Reason, "url": d.opts.URL(app, env)})
+	}
 	d.collect(app, plan.Deploy.KeepReleases)
 	return rel, dep, nil
 }
@@ -572,6 +634,7 @@ func (d *Deployer) collect(app string, keep int) {
 					d.log.Warn("remove an old image", "app", app, "build", b.ID, "image", b.ArtifactRef, "err", err)
 				}
 			}
+			removeTree(filepath.Join(d.opts.DataDir, "builds", app, b.ID)) // the source kept for a redeploy
 		} else if err := removeTree(filepath.Join(d.opts.DataDir, filepath.FromSlash(b.ArtifactRef))); err != nil {
 			d.log.Error("remove a build", "app", app, "build", b.ID, "err", err)
 			continue

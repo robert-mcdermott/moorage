@@ -15,12 +15,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/driver/native"
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -54,6 +56,8 @@ type Options struct {
 	// Containers runs apps in containers; without it, the server has no
 	// container engine.
 	Containers *container.Driver
+	// Events hears of instances that exit, sicken and recover.
+	Events *events.Bus
 }
 
 // runner is what the manager asks of a driver about an instance it runs.
@@ -318,8 +322,11 @@ func (m *Manager) Adopt(ctx context.Context) error {
 // starts missing instances and replaces those whose shim died.
 func (m *Manager) Run(ctx context.Context) {
 	m.ensure(ctx)
+	m.cleanLogs()
 	t := time.NewTicker(m.opts.Tick)
 	defer t.Stop()
+	clean := time.NewTicker(time.Hour)
+	defer clean.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -328,6 +335,49 @@ func (m *Manager) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			m.ensure(ctx)
+		case <-clean.C:
+			m.cleanLogs()
+		}
+	}
+}
+
+// LogRetention is how long the logs of an instance that has stopped are kept.
+const LogRetention = 14 * 24 * time.Hour
+
+// cleanLogs removes the logs of instances that stopped long ago.
+func (m *Manager) cleanLogs() {
+	running := map[string]bool{}
+	for _, es := range m.allEnvs() {
+		for _, in := range es.list() {
+			running[in.id] = true
+		}
+	}
+	removeOldLogs(m.opts.DataDir, running, LogRetention, m.log)
+}
+
+// removeOldLogs removes the log files of instances that are not running and have not been
+// written to for a while: every release leaves a file per instance, and they would
+// otherwise add up for ever.
+func removeOldLogs(dataDir string, running map[string]bool, age time.Duration, log *slog.Logger) {
+	dirs, _ := filepath.Glob(filepath.Join(dataDir, "logs", "apps", "*", "*"))
+	for _, dir := range dirs {
+		files, _ := filepath.Glob(filepath.Join(dir, "*.log*"))
+		for _, file := range files {
+			name := filepath.Base(file)
+			if i := strings.Index(name, ".log"); i >= 0 {
+				name = name[:i]
+			}
+			parts := strings.SplitN(name, ".", 3)
+			if len(parts) != 3 || running[parts[2]] {
+				continue
+			}
+			info, err := os.Stat(file)
+			if err != nil || time.Since(info.ModTime()) < age {
+				continue
+			}
+			if err := os.Remove(file); err != nil {
+				log.Warn("remove an old log", "file", file, "err", err)
+			}
 		}
 	}
 }
@@ -353,30 +403,53 @@ func (m *Manager) ensure(ctx context.Context) {
 			continue // a rollout is under way
 		}
 		rel, _, err := m.db.CurrentRelease(ctx, r.App, r.Env)
+		var formation map[string]int
 		if err == nil {
-			m.ensureEnv(ctx, es, rel, r.Build, plan)
+			formation, err = m.db.Formation(ctx, r.App, r.Env)
+		}
+		if err == nil {
+			err = m.ensureEnv(ctx, es, rel, r.Build, plan.WithFormation(formation))
+		}
+		if err != nil && ctx.Err() == nil {
+			m.log.Error("cannot start an instance", "app", r.App, "env", r.Env, "err", err)
 		}
 		es.rollout.Unlock()
 	}
 }
 
-func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan) {
+// ensureEnv brings an environment to what its plan says, by starting the instances
+// it lacks and stopping those beyond its number. It goes on after an instance that
+// cannot start, and returns the first such failure.
+func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan) error {
 	have := map[string]bool{}
+	var keep, extra []*instance
 	for _, in := range es.list() {
 		if in.releaseID != rel.ID {
+			continue
+		}
+		if proc, ok := plan.Processes[in.process]; !ok || in.index > *proc.Instances {
+			extra = append(extra, in)
 			continue
 		}
 		st, alive, err := in.run.Status(in.id)
 		if err == nil && (alive || st.Final()) {
 			have[fmt.Sprintf("%s/%d", in.process, in.index)] = true
+			keep = append(keep, in)
 			continue
 		}
 		m.log.Warn("an instance's shim or container is gone; replacing the instance", "app", es.app, "instance", in.id)
+		m.emit(es, in, events.InstanceReplaced, nil)
 		if err == nil {
 			in.run.CleanupOrphan(st)
 		}
 		m.retire(es, []*instance{in}, 0)
 	}
+	if len(extra) > 0 {
+		// Those going get no new requests, and finish the ones they have.
+		es.servePool(keep)
+		m.retire(es, extra, plan.Deploy.Drain.Std())
+	}
+	var failed error
 	changed := false
 	for _, name := range manifest.SortedProcesses(plan.Processes) {
 		proc := plan.Processes[name]
@@ -389,9 +462,11 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 				err = m.awaitReady(ctx, es, in)
 			}
 			if err != nil {
-				m.log.Error("cannot start an instance", "app", es.app, "process", name, "err", err)
 				if in != nil {
 					m.retire(es, []*instance{in}, 0)
+				}
+				if failed == nil {
+					failed = err
 				}
 				continue
 			}
@@ -402,6 +477,16 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 	if changed {
 		es.serve(rel.ID)
 	}
+	return failed
+}
+
+// emit says what happened to an instance.
+func (m *Manager) emit(es *envState, in *instance, kind string, data map[string]any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["process"], data["index"], data["instance"] = in.process, in.index, in.id
+	m.opts.Events.Publish(m.ctx, store.Event{Type: kind, App: es.app, Env: es.env, Data: data})
 }
 
 // logFile is an instance's log: logs/apps/<app>/<env>/<process>.<index>.<id>.log.

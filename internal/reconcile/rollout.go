@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -48,6 +50,11 @@ func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Releas
 	es := m.env(app, env)
 	es.rollout.Lock()
 	defer es.rollout.Unlock()
+	formation, err := m.db.Formation(ctx, app, env)
+	if err != nil {
+		return err
+	}
+	plan = plan.WithFormation(formation)
 
 	old := es.list()
 	if plan.Deploy.Strategy == "recreate" {
@@ -109,6 +116,81 @@ func (m *Manager) Restart(ctx context.Context, app, env string) error {
 		return fmt.Errorf("%s is a static site; it has no processes to restart", app)
 	}
 	return m.Rollout(ctx, app, env, rel, build, plan)
+}
+
+// ScaleError reports a formation that cannot be: a process the app does not have, or
+// a number out of range.
+type ScaleError struct{ Msg string }
+
+func (e *ScaleError) Error() string { return e.Msg }
+
+// Scale changes how many instances of the named processes an environment runs, and
+// brings it there: it starts the instances it lacks and stops, once their requests
+// finish, those beyond the number. The setting stays, over the manifest's
+// `instances`, for the releases to come. If an instance cannot start, the environment
+// goes back to how it was and the error says why. It returns the formation it runs.
+func (m *Manager) Scale(ctx context.Context, app, env string, change map[string]int) (map[string]int, error) {
+	es := m.env(app, env)
+	es.rollout.Lock()
+	defer es.rollout.Unlock()
+	rel, build, err := m.db.CurrentRelease(ctx, app, env)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := readPlan(build)
+	if err != nil {
+		return nil, err
+	}
+	if plan.Kind != manifest.KindProcess {
+		return nil, &ScaleError{app + " is a static site; it has no processes to scale"}
+	}
+	for _, name := range sortedKeys(change) {
+		if _, ok := plan.Processes[name]; !ok {
+			return nil, &ScaleError{fmt.Sprintf("%s has no process %s: it has %s", app, name, strings.Join(manifest.SortedProcesses(plan.Processes), ", "))}
+		}
+		if n := change[name]; n < 0 || n > manifest.MaxInstances {
+			return nil, &ScaleError{fmt.Sprintf("%s: the number of instances must be between 0 and %d", name, manifest.MaxInstances)}
+		}
+	}
+	before, err := m.db.Formation(ctx, app, env)
+	if err != nil {
+		return nil, err
+	}
+	after := map[string]int{}
+	for name, n := range before {
+		after[name] = n
+	}
+	for name, n := range change {
+		after[name] = n
+	}
+	if err := m.db.SetFormation(ctx, app, env, after); err != nil {
+		return nil, err
+	}
+	if err := m.ensureEnv(ctx, es, rel, build, plan.WithFormation(after)); err != nil {
+		// Whatever the caller does now, the environment goes back to what it was.
+		back := context.WithoutCancel(ctx)
+		if serr := m.db.SetFormation(back, app, env, before); serr != nil {
+			m.log.Error("restore a formation", "app", app, "env", env, "err", serr)
+		}
+		if berr := m.ensureEnv(back, es, rel, build, plan.WithFormation(before)); berr != nil {
+			m.log.Error("restore a formation", "app", app, "env", env, "err", berr)
+		}
+		return nil, err
+	}
+	running := map[string]int{}
+	for name, proc := range plan.WithFormation(after).Processes {
+		running[name] = *proc.Instances
+	}
+	return running, nil
+}
+
+func sortedKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Retire stops every instance of an environment, as when it starts serving
@@ -447,6 +529,7 @@ func (m *Manager) watch(es *envState, in *instance) {
 		t := time.NewTicker(h.Interval.Std())
 		defer t.Stop()
 		failures := 0
+		restarts := -1
 		for {
 			select {
 			case <-ctx.Done():
@@ -454,12 +537,20 @@ func (m *Manager) watch(es *envState, in *instance) {
 			case <-t.C:
 			}
 			ok := false
-			if st, alive, err := in.run.Status(in.id); err == nil && alive && st.Status == shim.Running {
+			st, alive, err := in.run.Status(in.id)
+			if err == nil {
+				if restarts >= 0 && st.Restarts > restarts && st.LastExit != nil {
+					m.emit(es, in, events.InstanceExited, map[string]any{"code": st.LastExit.Code, "signal": st.LastExit.Signal})
+				}
+				restarts = st.Restarts
+			}
+			if err == nil && alive && st.Status == shim.Running {
 				ok = in.backend == nil || m.probe(es, in)
 			}
 			if ok {
 				if failures >= h.Threshold {
 					m.log.Info("instance healthy again", "app", es.app, "instance", in.id)
+					m.emit(es, in, events.InstanceHealthy, nil)
 				}
 				failures = 0
 				if in.backend != nil {
@@ -471,6 +562,7 @@ func (m *Manager) watch(es *envState, in *instance) {
 			switch failures {
 			case h.Threshold:
 				m.log.Warn("instance unhealthy; it gets no traffic", "app", es.app, "instance", in.id)
+				m.emit(es, in, events.InstanceUnhealthy, nil)
 				if in.backend != nil {
 					in.backend.SetHealthy(false)
 				}

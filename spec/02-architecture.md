@@ -203,7 +203,9 @@ report ref status.
 **Console.** The daemon renders pages with Go templates on the console
 hostname (session cookie, CSRF-protected HTML forms) from the same service
 layer the API uses. Small plain-JavaScript modules keep one SSE connection to
-`/api/v1/events` for live status and stream logs and deployment output.
+`/api/v1/events/stream` for live status and stream logs and deployment output. A page
+out of sight closes it, and catches up from the last event when it returns: over plain
+HTTP a browser allows six connections to a server, and each open tab would hold one.
 
 ## On-disk layout
 
@@ -222,7 +224,8 @@ elevated Administrator on Windows), per-user otherwise (laptop mode):
   moorage.db                      SQLite database (+ -wal, -shm)
   keys/                           master key, SSH host keys, internal CA (0700)
   repos/<app>.git/                bare git repositories
-  builds/<app>/<build-id>/        immutable build outputs (built in place)
+  builds/<app>/<build-id>/        immutable build outputs (built in place), and
+                                  source.tar.gz: an upload, for a redeploy
   data/<app>/<env>/               persistent data directories
   logs/
     apps/<app>/<env>/<process>.<index>.<instance>.log[.N]
@@ -301,8 +304,10 @@ To run plain HTTP behind an existing TLS proxy such as nginx instead, set
 
 ### Install walkthrough
 
-1. Download the `moor` binary for the platform (or use the install script /
-   OS package) and put it on `PATH`.
+1. Install `moor`: `install.sh` piped from `curl` on macOS and Linux, or
+   `install.ps1` piped into `iex` on Windows, which pick the file for the platform
+   and check it against the release's checksums. As root, it goes to
+   `/usr/local/bin`.
 2. `sudo moor server init` asks a few questions — preset, domain, whether
    Moorage terminates TLS or sits behind your TLS proxy, admin email — checks
    DNS and ports as it goes, and writes `server.toml`. Behind a proxy, it also
@@ -448,7 +453,7 @@ Planned modules:
   there is no Node.js toolchain, bundler or transpiler anywhere.
 - Static assets are fingerprinted (content hash in the URL) at startup, so
   browsers cache them indefinitely and never see stale files after an upgrade.
-- `moor server --dev` serves templates and assets from the source tree and
+- `moor server run --dev` serves templates and assets from the source tree and
   re-parses templates on every request, so console changes show up on reload.
 - Releases are produced for `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`,
   `windows/{amd64,arm64}` with reproducible flags (`-trimpath`, fixed build

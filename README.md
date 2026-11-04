@@ -43,25 +43,55 @@ binary with its state in SQLite, and everything else is built in.
 - **Configures apps with variables and secrets.** Secrets are encrypted on
   the server and handed to apps in memory only; every change is a new
   release.
+- **A web console.** Deploy, scale, restart and roll back from the browser; watch a
+  deployment's stages and log as they happen; follow and search logs; change
+  variables. It works on a phone, and without scripts.
 - **Accounts for a team.** Sign in from any machine by approving it in a
   browser; scoped API tokens for CI; SSH keys for pushing; each deploy records
   who did it. On your own computer you need none of this.
 
+## The console
+
+Every server has one, at its own address. An app, with its instances, and what you can do
+to it:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/console-app-dark.png">
+    <img src="docs/assets/console-app-light.png" alt="An app in the web console: its status, address and release; Deploy, Redeploy, Restart and Roll back; its instances with their health; and how many of each process to run." width="800">
+  </picture>
+</p>
+
+Its logs, live, with what matters standing out:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/console-logs-dark.png">
+    <img src="docs/assets/console-logs-light.png" alt="An app's logs in the web console, following as they are written: filters for the instance, the time and the text, and for output, errors, builds, requests and events; errors in red and warnings in amber." width="800">
+  </picture>
+</p>
+
+[The console's guide](docs/console.md) has the rest.
+
 ## Quick start
 
-Try it on your own computer (Linux or macOS). Get `moor` from the
-[latest release](https://github.com/robert-mcdermott/moorage/releases/latest)
-— here for a Mac with Apple silicon; the
-[installation guide](docs/install.md) has the others and checks the
-download's checksum:
+Try it on your own computer. On macOS or Linux:
 
 ```bash
-curl -fLo moor https://github.com/robert-mcdermott/moorage/releases/latest/download/moor-darwin-arm64
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | sh
 ```
 
-```bash
-chmod +x moor && sudo mv moor /usr/local/bin/
+In PowerShell on Windows 11:
+
+```powershell
+irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
+
+That picks the file for your computer from the
+[latest release](https://github.com/robert-mcdermott/moorage/releases/latest), checks
+its checksum and needs no administrator rights. The
+[installation guide](docs/install.md) has the details, and how to read the script
+first.
 
 Start a server for this computer only (apps at `http://<app>.localhost:8080`):
 
@@ -172,16 +202,13 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.2.0 is a server on Linux or macOS for a team: it builds and deploys
-apps from their source or a `git push`, in containers or not, with accounts and
-API tokens. On Windows, `moor` works as a command line and `moor server run` works;
-the Windows service comes later. There is no web console yet: everything is done
-with `moor`.
+Moorage 0.3.0 is a server on Linux or macOS for a team: it builds and deploys
+apps from their source or a `git push`, in containers or not, with accounts, API
+tokens and a [web console](docs/console.md). On Windows, `moor` works as a command
+line and `moor server run` works; the Windows service comes later.
 
 Next, in the [roadmap](spec/11-roadmap.md):
 
-- **0.3.0, the console:** a web console for apps, deployments, logs and
-  variables.
 - **0.4.0, previews and sharing:** an environment and a URL for every pushed
   branch, sleeping when idle, shared behind a password, a sign-in or an
   expiring link.

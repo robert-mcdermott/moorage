@@ -268,6 +268,9 @@ func Files(path string) []string {
 	return rotated
 }
 
+// ReadAll reads one file of a log.
+func ReadAll(path string) ([]Line, error) { return readLines(path) }
+
 func readLines(path string) ([]Line, error) {
 	f, err := os.Open(path)
 	if err != nil {

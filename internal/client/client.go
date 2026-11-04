@@ -2,6 +2,7 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -388,6 +389,64 @@ func (c *Client) DeployStatic(ctx context.Context, app, env, dir string, rules m
 	return c.Deploy(ctx, app, env, dir, manifest.Plan{Kind: manifest.KindStatic, Static: &rules}, skip)
 }
 
+// Events lists what happened, newest first: to an app and an environment, if
+// given. limit bounds them.
+func (c *Client) Events(ctx context.Context, app, env string, limit int) ([]apitypes.Event, error) {
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
+	if app != "" {
+		q.Set("app", app)
+	}
+	if env != "" {
+		q.Set("env", env)
+	}
+	var page apitypes.Page[apitypes.Event]
+	err := c.do(ctx, http.MethodGet, "/api/v1/events?"+q.Encode(), nil, "", &page)
+	return page.Items, err
+}
+
+// FollowEvents calls fn with what happens, after the event named by after, until
+// the server stops, fn fails or ctx ends.
+func (c *Client) FollowEvents(ctx context.Context, app, env, after string, fn func(apitypes.Event) error) error {
+	q := url.Values{}
+	if app != "" {
+		q.Set("app", app)
+	}
+	if env != "" {
+		q.Set("env", env)
+	}
+	if after != "" {
+		q.Set("after", after)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+"/api/v1/events/stream?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	sc := bufio.NewScanner(res.Body)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() {
+		data, ok := strings.CutPrefix(sc.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		var e apitypes.Event
+		if err := json.Unmarshal([]byte(data), &e); err != nil {
+			return err
+		}
+		if err := fn(e); err != nil {
+			return err
+		}
+	}
+	if err := sc.Err(); err != nil && ctx.Err() == nil {
+		return err
+	}
+	return nil
+}
+
 // Instances lists an environment's instances.
 func (c *Client) Instances(ctx context.Context, app, env string) ([]apitypes.Instance, error) {
 	var out []apitypes.Instance
@@ -403,15 +462,30 @@ func (c *Client) Restart(ctx context.Context, app, env string) ([]apitypes.Insta
 	return out, err
 }
 
-// Logs calls fn with the last tail lines of an environment's log and, with
-// follow, with new lines until ctx ends. process, if set, keeps one process.
-func (c *Client) Logs(ctx context.Context, app, env, process string, tail int, follow bool, fn func(apitypes.LogLine) error) error {
-	q := url.Values{"tail": {strconv.Itoa(tail)}}
-	if follow {
+// LogQuery says which lines of an environment's logs to read.
+type LogQuery struct {
+	Process, Instance, Source, Grep, Since, Until string
+	Problems                                      bool
+	Tail                                          int
+	Follow                                        bool
+}
+
+// Logs calls fn with the newest lines of an environment's logs and, with Follow, with
+// new lines until ctx ends.
+func (c *Client) Logs(ctx context.Context, app, env string, lq LogQuery, fn func(apitypes.LogLine) error) error {
+	q := url.Values{"tail": {strconv.Itoa(lq.Tail)}}
+	if lq.Follow {
 		q.Set("follow", "1")
 	}
-	if process != "" {
-		q.Set("process", process)
+	if lq.Problems {
+		q.Set("problems", "1")
+	}
+	for name, value := range map[string]string{
+		"process": lq.Process, "instance": lq.Instance, "source": lq.Source, "grep": lq.Grep, "since": lq.Since, "until": lq.Until,
+	} {
+		if value != "" {
+			q.Set(name, value)
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+envPath(app, env, "logs")+"?"+q.Encode(), nil)
 	if err != nil {
@@ -504,4 +578,48 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 		return nil, apiErr
 	}
 	return res, nil
+}
+
+// Environment says how an environment stands.
+func (c *Client) Environment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.do(ctx, http.MethodGet, envDoc(app, env), nil, "", &out)
+	return out, err
+}
+
+// Scale sets how many instances of the named processes an environment runs.
+func (c *Client) Scale(ctx context.Context, app, env string, formation map[string]int) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPatch, envDoc(app, env), apitypes.EnvironmentChange{Formation: formation}, &out)
+	return out, err
+}
+
+// Redeploy builds what the current release was built from again.
+func (c *Client) Redeploy(ctx context.Context, app, env string) (apitypes.Deployment, error) {
+	var out apitypes.Deployment
+	err := c.do(ctx, http.MethodPost, envPath(app, env, "redeploy"), nil, "", &out)
+	return out, err
+}
+
+// Release returns a release, with what it runs.
+func (c *Client) Release(ctx context.Context, app, env string, version int) (apitypes.ReleaseDetail, error) {
+	var out apitypes.ReleaseDetail
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "releases/"+strconv.Itoa(version)), nil, "", &out)
+	return out, err
+}
+
+// ReleaseDiff says what changed from one release to another.
+func (c *Client) ReleaseDiff(ctx context.Context, app, env string, from, to int) (apitypes.ReleaseDiff, error) {
+	var out apitypes.ReleaseDiff
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "releases/"+strconv.Itoa(from)+"/diff/"+strconv.Itoa(to)), nil, "", &out)
+	return out, err
+}
+
+func envDoc(app, env string) string {
+	return strings.TrimSuffix(envPath(app, env, ""), "/")
+}
+
+// ChangePassword changes the caller's password.
+func (c *Client) ChangePassword(ctx context.Context, current, next string) error {
+	return c.post(ctx, http.MethodPost, "/api/v1/me/password", apitypes.PasswordChange{Current: current, New: next}, nil)
 }

@@ -135,6 +135,31 @@ jobs:
       - name: Deploy and push through nginx
         run: .github/scripts/proxy-check.sh
 
+  console:
+    # Tries the web console in real browsers, against a real server with a real app.
+    name: Console (${{ matrix.browser }})
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the browser
+        run: |
+          npm install --no-save playwright@1.56.0
+          npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Try the console
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: .github/scripts/console-check.sh
+
   upgrade:
     # Takes over the data directory and running apps of a server of the last
     # published release, with this code.
@@ -151,6 +176,43 @@ jobs:
           go-version-file: go.mod
       - name: Upgrade from the last release
         run: .github/scripts/upgrade-check.sh
+
+  install-unix:
+    # Runs install.sh for real, piped into a shell, against the published releases.
+    name: Install (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        if: runner.os == 'Linux'
+        run: |
+          sh -n install.sh
+          dash -n install.sh
+          shellcheck --shell=sh install.sh
+      - name: Install, upgrade and install as root
+        run: .github/scripts/install-check.sh
+
+  install-windows:
+    # Runs install.ps1 for real, piped into Invoke-Expression, in Windows PowerShell
+    # and PowerShell, on x64 and on Windows 11 for ARM.
+    name: Install (${{ matrix.os }}, ${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+        shell: [powershell, pwsh]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and upgrade
+        run: .github/scripts/install-check.ps1
 
   service:
     # Installs the server as a system service (systemd, launchd), restarts it

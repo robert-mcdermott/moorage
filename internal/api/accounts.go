@@ -6,14 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
-	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -222,29 +220,42 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" || len(name) > 100 || strings.ContainsAny(name, "/\\\n\r\t") {
-		s.failed(w, &auth.FieldError{Field: "name", Detail: "A token's name is up to 100 characters, without slashes."})
-		return
-	}
-	if len(req.Scopes) == 0 || slices.ContainsFunc(req.Scopes, func(c string) bool { return !auth.ValidScope(c) }) {
-		s.failed(w, &auth.FieldError{Field: "scopes", Detail: "A token's scopes are read, deploy, admin and gate."})
-		return
-	}
-	if !req.ExpiresAt.IsZero() && !req.ExpiresAt.After(time.Now()) {
-		s.failed(w, &auth.FieldError{Field: "expires_at", Detail: "That time has passed."})
-		return
-	}
-	secret := auth.NewToken()
-	t := store.APIToken{
-		ID: ids.New(ids.Token), UserID: who(r).UserID, Name: name, TokenHash: auth.Hex(secret), Scopes: req.Scopes,
-		App: req.App, ExpiresAt: req.ExpiresAt, CreatedAt: time.Now().UTC(),
-	}
-	if err := s.db.CreateToken(r.Context(), t); err != nil {
+	t, secret, err := s.auth.CreateToken(r.Context(), who(r).UserID, req.Name, req.Scopes, req.App, req.ExpiresAt)
+	if err != nil {
 		s.failed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, apitypes.CreatedToken{Token: tokenDoc(t), Secret: secret})
+}
+
+// changePassword changes the caller's password, and ends their other sessions.
+func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
+	p := who(r)
+	if p.Local() {
+		problem(w, http.StatusConflict, "no_account", "The server's admin token belongs to no account.")
+		return
+	}
+	var req apitypes.PasswordChange
+	if !decode(w, r, &req) {
+		return
+	}
+	if err := s.auth.ChangePassword(r.Context(), p.UserID, req.Current, req.New, p.SessionID, s.auth.ClientIP(r)); err != nil {
+		s.failed(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// endOtherSessions ends the caller's sessions but the one in use.
+func (s *Server) endOtherSessions(w http.ResponseWriter, r *http.Request) {
+	p := who(r)
+	if !p.Local() {
+		if err := s.db.DeleteOtherSessions(r.Context(), p.UserID, p.SessionID); err != nil {
+			s.internal(w, err)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {

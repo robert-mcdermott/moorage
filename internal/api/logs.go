@@ -2,154 +2,105 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/applogs"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
-	"github.com/robert-mcdermott/moorage/internal/reconcile"
 )
 
-// logs streams an environment's app logs as NDJSON: the last ?tail= lines
-// (default 100) of every instance merged by time, then, with ?follow=1, new
-// lines as they are written, until the client goes away. ?process= keeps one
-// process.
+// logs streams an environment's logs as NDJSON: the newest ?tail= lines (default 100),
+// merged by time, then, with ?follow=1, new ones as they are written, until the client
+// goes away. ?format=text sends them as plain text, and ?download=1 as a file to keep.
 func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 	app, env, ok := s.target(w, r)
 	if !ok {
 		return
 	}
 	q := r.URL.Query()
+	asText := q.Get("format") == "text"
+	download := q.Get("download") == "1"
 	tail := 100
+	limit := 10000
+	if download {
+		tail, limit = applogs.MaxLines, applogs.MaxLines
+	}
 	if v := q.Get("tail"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
 			problem(w, http.StatusBadRequest, "bad_request", "tail must be a number of lines")
 			return
 		}
-		tail = min(n, 10000)
+		tail = min(n, limit)
 	}
-	process := q.Get("process")
+	query := applogs.Query{Process: q.Get("process"), Instance: q.Get("instance"), Grep: q.Get("grep"), Tail: tail,
+		Problems: q.Get("problems") == "1" || q.Get("problems") == "true"}
+	var err error
+	if query.Sources, err = applogs.SplitSources(q.Get("source")); err != nil {
+		problem(w, http.StatusUnprocessableEntity, "invalid_source", err.Error())
+		return
+	}
+	now := time.Now()
+	for _, bound := range []struct {
+		name string
+		to   *time.Time
+	}{{"since", &query.Since}, {"until", &query.Until}, {"after", &query.After}} {
+		if *bound.to, err = applogs.ParseTime(q.Get(bound.name), now, time.Local); err != nil {
+			problem(w, http.StatusUnprocessableEntity, "invalid_time", bound.name+": "+err.Error())
+			return
+		}
+	}
 	follow := q.Get("follow") == "1" || q.Get("follow") == "true"
-	dir := reconcile.LogDir(s.dataDir, app, env)
 
-	w.Header().Set("Content-Type", apitypes.NDJSONType)
+	if asText {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	} else {
+		w.Header().Set("Content-Type", apitypes.NDJSONType)
+	}
+	if download {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+app+`-`+now.UTC().Format("20060102-150405")+`.log"`)
+	}
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(w)
 	rc := http.NewResponseController(w)
-
-	files := logFiles(dir, process)
-	var lines []apitypes.LogLine
-	for _, f := range files {
-		got, _ := logs.Tail(f.path, tail)
-		for _, l := range got {
-			lines = append(lines, f.line(l))
+	write := func(e applogs.Entry) error {
+		if asText {
+			_, err := fmt.Fprintf(w, "%s %s %s %s\n", e.Time.UTC().Format(logs.TimeFormat), e.Who(), e.Source, e.Text)
+			return err
 		}
+		return enc.Encode(apitypes.LogLine{
+			Time: e.Time, Instance: e.Instance, Process: e.Process, Index: e.Index, Stream: e.Stream(), Text: e.Text,
+			Source: e.Source, Level: e.Level, Message: e.Message,
+		})
 	}
-	sort.SliceStable(lines, func(i, j int) bool { return lines[i].Time.Before(lines[j].Time) })
-	if len(lines) > tail {
-		lines = lines[len(lines)-tail:]
-	}
-	for _, l := range lines {
-		enc.Encode(l)
-	}
-	rc.Flush()
+	reader := applogs.Reader{DB: s.db, DataDir: s.dataDir}
 	if !follow {
+		entries, _, err := reader.Read(r.Context(), app, env, query)
+		if err != nil {
+			s.log.Error("read an app's logs", "app", app, "err", err)
+			return
+		}
+		for _, e := range entries {
+			if write(e) != nil {
+				return
+			}
+		}
 		return
 	}
-
-	followers := map[string]*logs.Follower{}
-	byPath := map[string]logFile{}
-	for _, f := range files {
-		followers[f.path] = logs.NewFollower(f.path)
-		byPath[f.path] = f
+	rc.Flush()
+	err = reader.Follow(r.Context(), app, env, query, func(e applogs.Entry) error {
+		if err := write(e); err != nil {
+			return err
+		}
+		return rc.Flush()
+	})
+	if err != nil && r.Context().Err() == nil {
+		s.log.Warn("follow an app's logs", "app", app, "err", err)
 	}
-	t := time.NewTicker(300 * time.Millisecond)
-	defer t.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-t.C:
-		}
-		// Instances started since (a rollout, a restart) appear as new files.
-		for _, f := range logFiles(dir, process) {
-			if _, ok := followers[f.path]; !ok {
-				followers[f.path] = &logs.Follower{Path: f.path}
-				byPath[f.path] = f
-			}
-		}
-		var fresh []apitypes.LogLine
-		for path, fol := range followers {
-			got, _ := fol.Read()
-			for _, l := range got {
-				fresh = append(fresh, byPath[path].line(l))
-			}
-		}
-		sort.SliceStable(fresh, func(i, j int) bool { return fresh[i].Time.Before(fresh[j].Time) })
-		for _, l := range fresh {
-			if err := enc.Encode(l); err != nil {
-				return
-			}
-		}
-		if len(fresh) > 0 {
-			if err := rc.Flush(); err != nil {
-				return
-			}
-		}
-	}
-}
-
-type logFile struct {
-	path     string
-	process  string
-	index    int
-	instance string
-}
-
-func (f logFile) line(l logs.Line) apitypes.LogLine {
-	return apitypes.LogLine{Time: l.Time, Instance: f.instance, Process: f.process, Index: f.index, Stream: l.Stream, Text: l.Text}
-}
-
-// logFiles lists the current log files (<process>.<index>.<instance>.log) in
-// dir, oldest first by modification time.
-func logFiles(dir, process string) []logFile {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []logFile
-	type withTime struct {
-		logFile
-		mod time.Time
-	}
-	var all []withTime
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".log") {
-			continue
-		}
-		parts := strings.SplitN(strings.TrimSuffix(name, ".log"), ".", 3)
-		if len(parts) != 3 || (process != "" && parts[0] != process) {
-			continue
-		}
-		index, _ := strconv.Atoi(parts[1])
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		all = append(all, withTime{logFile{filepath.Join(dir, name), parts[0], index, parts[2]}, info.ModTime()})
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].mod.Before(all[j].mod) })
-	for _, f := range all {
-		out = append(out, f.logFile)
-	}
-	return out
 }

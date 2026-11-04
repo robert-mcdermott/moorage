@@ -217,30 +217,47 @@ func (db *DB) DeleteRelease(ctx context.Context, releaseID string) error {
 
 // CurrentRelease returns an environment's current release and its build.
 func (db *DB) CurrentRelease(ctx context.Context, app, env string) (Release, Build, error) {
-	var r Release
-	var b Build
-	var by sql.NullString
-	var plan, cfg string
-	var created, bcreated int64
-	err := db.Reader.QueryRowContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, e.app_id, r.config,
-			b.id, b.app_id, b.source_type, b.artifact_kind, b.artifact_ref, b.plan, b.files, b.size_bytes, b.created_at
-		FROM environments e JOIN apps a ON a.id = e.app_id
-		JOIN releases r ON r.id = e.current_release_id
-		JOIN builds b ON b.id = r.build_id
-		WHERE a.name = ? AND e.name = ?`, app, env).Scan(&r.ID, &r.Version, &r.BuildID, &r.Reason, &by, &created, &r.AppID, &cfg,
-		&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &bcreated)
+	r, b, err := db.release(ctx, `r.id = e.current_release_id`, app, env)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, b, fmt.Errorf("%s has nothing deployed to %s: %w", app, env, ErrNotFound)
 	}
+	return r, b, err
+}
+
+// ReleaseVersion returns a release of an environment and its build.
+func (db *DB) ReleaseVersion(ctx context.Context, app, env string, version int) (Release, Build, error) {
+	r, b, err := db.release(ctx, `r.env_id = e.id AND r.version = ?`, version, app, env)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, b, fmt.Errorf("%s has no release v%d: %w", app, version, ErrNotFound)
+	}
+	return r, b, err
+}
+
+// release reads the release that a condition on it joins to its environment, with
+// its build. The arguments are the condition's, then the app and environment.
+func (db *DB) release(ctx context.Context, on string, args ...any) (Release, Build, error) {
+	var r Release
+	var b Build
+	var by, current sql.NullString
+	var plan, cfg string
+	var created, bcreated int64
+	var collected sql.NullInt64
+	err := db.Reader.QueryRowContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, e.app_id, r.config, e.current_release_id,
+			b.id, b.app_id, b.source_type, b.artifact_kind, b.artifact_ref, b.plan, b.files, b.size_bytes, b.created_at, b.collected_at
+		FROM environments e JOIN apps a ON a.id = e.app_id
+		JOIN releases r ON `+on+`
+		JOIN builds b ON b.id = r.build_id
+		WHERE a.name = ? AND e.name = ?`, args...).Scan(&r.ID, &r.Version, &r.BuildID, &r.Reason, &by, &created, &r.AppID, &cfg, &current,
+		&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &bcreated, &collected)
 	if err != nil {
 		return r, b, err
 	}
-	r.CreatedBy, r.CreatedAt, r.Current = by.String, time.UnixMilli(created).UTC(), true
+	r.CreatedBy, r.CreatedAt, r.Current = by.String, time.UnixMilli(created).UTC(), r.ID == current.String
 	r.Files, r.SizeBytes = b.Files, b.SizeBytes
 	if err := json.Unmarshal([]byte(cfg), &r.Config); err != nil {
 		return r, b, err
 	}
-	b.Plan, b.CreatedAt = json.RawMessage(plan), time.UnixMilli(bcreated).UTC()
+	b.Plan, b.CreatedAt, b.Collected = json.RawMessage(plan), time.UnixMilli(bcreated).UTC(), collected.Valid
 	return r, b, nil
 }
 

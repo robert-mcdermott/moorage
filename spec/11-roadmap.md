@@ -669,23 +669,163 @@ directory, supervises it, and serves it on its own hostname.
      - The reference for `moorage.toml` did not mention the `dockerfile` and `image`
        runtimes, or list them under detection.
 
-## 0.3.0: the console (planned)
+## 0.3.0: the console (released 2026-11-03)
 
 ### Wave 3
 
-1. **Console foundation.** Layout and CSS design tokens (light and dark),
+1. **Installing.** One line to get `moor`: `install.sh` for macOS and Linux, piped
+   from `curl`, and `install.ps1` for Windows 11, piped into `iex`. Each picks the
+   file for the computer, checks it against the release's checksums and its own
+   version, and only then puts it in place, needing no administrator rights. The
+   README and the documentation lead with them.
+   - Done in slice 1:
+     - `install.sh` (POSIX sh) and `install.ps1` (Windows PowerShell 5.1 and later) at
+       the top of the repository: the pattern of checks a release must pass before it
+       replaces what is there, and settings through the environment, since a pipe takes
+       no options.
+     - As root, `install.sh` installs to `/usr/local/bin`, because a system service
+       should not run from someone's home directory. `moor server install` runs the
+       binary from where it finds it.
+     - Upgrading says what it upgraded from, and that a server goes on with the old
+       version until it restarts.
+     - Verified by tests that run both scripts as they are, against a release in a
+       directory with downloads standing in: each thing that can be wrong with a
+       download, leaving the installed copy alone. CI runs them for real against the
+       published releases: on Linux on x64 and ARM, macOS, Windows on x64 and Windows 11
+       on ARM, in both PowerShells, as root, and upgrading under a running server.
+   - Found by slice 1:
+     - An app's supervisors keep `moor.exe` open on Windows, so it cannot be replaced,
+       or stopped first, as a program with no such helpers can. It can be renamed: the
+       installer moves it aside, and a later run clears it away.
+     - A step's `shell` in a workflow cannot read the matrix, which made GitHub reject
+       the whole file with no jobs at all. The job's `defaults` can.
+     - Windows PowerShell started from PowerShell 7 inherits a module path where it
+       cannot find `Get-FileHash`. The tests start it that way, and a person could. The
+       installer computes the hash with .NET then.
+     - Until a release follows 0.2.0, CI on Windows can only show moving a running file
+       aside for a copy of the same version.
+2. **Console foundation.** Layout and CSS design tokens (light and dark),
    templates, the first-run wizard, grown from the account pages of wave 2,
    slice 3 (sign-in, the claim, CSRF-protected forms), the event
    bus with one SSE stream, the activity timeline, the command palette.
-2. **Apps and deployments.** The dashboard; the app overview with
+   - Done in slice 2:
+     - `internal/events`: the bus and its store, with 90 days' retention, and what
+       publishes: deployments, releases, changes of variables, instances that exit,
+       sicken, recover or are replaced, and the server starting.
+     - `GET /api/v1/events`, `GET /api/v1/events/stream` as server-sent events that
+       catch up after a reconnection, and `moor events [-f]`.
+     - The console's frame: templates and fingerprinted assets embedded in the binary,
+       CSS design tokens with light, dark and a manual choice, phone width, and a
+       strict CSP with no inline scripts or styles, which the account pages keep too.
+     - Pages: the apps list, Activity, and Getting started; the command palette;
+       copying commands; times that stay true; live updates over one stream.
+     - `moor server run --dev`, which reads the console from the source tree.
+     - Verified by tests of the pages (that each keeps to the policy, and that a signed-out
+       visitor is sent to sign in), of the bus, and of the stream through a whole server:
+       replay, restricted tokens, and a server stopping with followers. And in a real
+       browser against a real server, in both themes and at phone width, with events
+       arriving live and no console errors. WCAG AA contrast was computed for the text
+       colours on their surfaces, in both themes; a screen reader was not tried.
+   - Found by slice 2:
+     - The wizard was to set the domain and TLS. They are in `server.toml`, chosen by
+       `moor server init`, and the server needs them before anyone can reach the page. It
+       shows them, with the doctor's checks, and says how to fix what is wrong.
+     - The console needed the doctor, which needed the server, which serves the console.
+       The data directory's layout moved to `internal/layout`, below all three.
+     - A deployment's "started" comes a moment after its "queued", and made the timeline
+       three lines per deployment. It is now transient: for those following now, not kept.
+     - Over plain HTTP, a browser allows six connections to a server, and each page
+       following events holds one, so a seventh tab would hang. A page out of sight lets
+       its connection go, and catches up when it returns.
+     - Security events (sign-ins, tokens) wait for the audit log of wave 4: until roles
+       arrive, this feed is one that every member can read.
+3. **Apps and deployments.** The dashboard; the app overview with
    environments and instances; deployments with the live stage timeline and
    log, the resolved manifest and the release diff; deploy, rollback,
    redeploy, restart and scale actions.
-3. **Logs, variables and settings.** The live log viewer (instances, sources,
+   - Done in slice 3:
+     - The apps list says how each app stands: healthy, how many of how many, down,
+       deploying, scaled to zero, and a failed deployment behind a release that keeps
+       serving. An app's page has its instances, deployments and activity. A deployment's
+       page has its stages, read from the log's own markers, the log as it is written, the
+       resolved manifest and what changed since the release before.
+     - The parts of a page that change are drawn again by the server, when an event or a
+       poll says so, so that one place knows how they look; a part someone is typing in
+       stays as it is. Without scripts, every form works and a deployment under way
+       reloads itself.
+     - Deploy (a `.tar.gz` of source or an image's name, from the page), rollback, restart,
+       redeploy and scale, each a form with the session's token, doing what the API does:
+       the work moved from the API's handlers to the deployer, so that there is one of it.
+     - `moor scale` and `PATCH /apps/{app}/envs/{env}`; `moor redeploy` and its route;
+       `moor releases show` and `diff`, and their routes. The new-app flow is a name, then
+       the ways to deploy, waiting for the deployment that creates it.
+     - Verified with real instances from the console's pages (scaling up and down, a scale
+       that fails and goes back, rollback, redeploy, upload), a real push, Podman for an
+       image; and in a real browser against a real server, live and at phone width.
+   - Found by slice 3:
+     - Scaling was planned for wave 5, and nothing had it: the console's Scale button
+       needed it, so it is here. Workers already ran; a number that cannot be met goes back,
+       or the reconciler would retry it for ever.
+     - A build changes its source in place, so nothing could be rebuilt from one. An upload
+       is now kept beside its build, as is an image's manifest, whose build otherwise keeps
+       nothing. Builds from before this version say that they cannot be redeployed.
+     - Rollbacks and changes of variables wrote no log, which left their pages empty. They
+       do now.
+     - Without labels, the instances table was a column of bare numbers at phone width.
+     - Not yet: canceling a deployment and retrying a failed one (the deployer cannot stop
+       a build that has started, and has no way to rebuild but from what serves); restarting
+       one process; handing a process back to the manifest's number, other than by setting
+       it. Environment switching and `promote` wait for wave 4, and the dashboard's host
+       strip and sparklines for wave 5's metrics.
+     - Safari and Firefox are still untested, and a screen reader untried.
+4. **Logs, variables and settings.** The live log viewer (instances, sources,
    search, time range, download); variables with secret, source and override
    badges and bulk edit; account pages (SSH keys, tokens, sessions); server
    settings; the System page with the `doctor` results.
-4. **Release 0.3.0.**
+   - Done in slice 4:
+     - The logs page, on a reader (`internal/applogs`) shared with the API and `moor logs`:
+       instances, builds, the access log and events, merged by time and followed, narrowed
+       by process, instance, source, text, time and problems. JSON lines read as their
+       message and fields, and lines that name a level are coloured. Pause, wrap, older
+       lines, and a download of up to 200,000 lines.
+     - The variables page, with where each comes from and what overrides what, saving
+       without releasing, and a banner while something is unreleased. Editing as text shows
+       what would change, and only then does it; a secret stays masked, and keeps its value.
+     - The account pages: password (`moor password`, ending other sessions), SSH keys, API
+       tokens and sessions. Settings for administrators: what `server.toml` says, users,
+       registries, and the System page with what `moor server doctor` finds, also in the
+       API. Keys, tokens and passwords moved to one place in `internal/auth`, for the API
+       and the pages alike.
+     - A dialog of the console's own asks before what cannot be undone.
+     - Verified from the pages against a real server, with real instances running: every
+       form, every refusal, a member kept out of the settings, secrets never on a page. In
+       a real browser with an app logging structured and plain lines.
+   - Found by slice 4:
+     - Every release left a log file per instance, for ever, and the log reader reads them
+       all. The logs of stopped instances are now removed after 14 days, as designed, which
+       had not been built.
+     - Server settings live in `server.toml`, read before the database opens, and nothing at
+       run time needs setting yet: the page shows them, and says how to change them.
+     - Not yet: revealing a secret (with the audit log, wave 4); a level filter beyond
+       "only problems"; the logs of one-off runs and cron (with them, wave 5); and deleting
+       or renaming an app, which the design has and no slice did: added to wave 4.
+5. **Release 0.3.0.** The version, its CHANGELOG section and this roadmap; pull request
+   `wave3` → `main`; tag `v0.3.0`; release.
+   - Done in slice 5:
+     - Version 0.3.0 and its CHANGELOG section, led by what it means to someone upgrading;
+       the README and the documentation describe it, with pictures of the console.
+     - `.github/scripts/console-check.sh` and a CI job: a real server with a real app, and
+       the console driven as a person would in Chromium, Firefox and WebKit, at desktop and
+       phone width. Anything a page complains of fails it, above all what the
+       Content-Security-Policy refuses.
+   - Found by slice 5:
+     - All three browsers passed as they were, which closes what slices 2 and 3 left open.
+       A screen reader is still untried.
+     - WebKit does not resolve `*.localhost` by itself, as Chromium and Firefox do, so the
+       check gives it `localhost` as the console's address. That is what
+       `moor server resolver` is for on a Mac.
+     - From here, a release goes through without stopping to ask: pull request, merge once
+       CI is green, tag, and publish the draft once its binaries are there.
 
 ## 0.4.0: previews and sharing (planned)
 
@@ -693,23 +833,26 @@ directory, supervises it, and serves it on its own hostname.
 
 1. **Projects and roles.** Projects; viewer, deployer and maintainer roles
    enforced in the API; the audit log in the API, CLI and console.
-2. **Previews and environments.** Branch previews (naming, inheritance, TTL,
+2. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
+   zone and with `moor apps rename` and `delete`: its instances, builds, logs and
+   repository go, and what it keeps in its data directory is said first.
+3. **Previews and environments.** Branch previews (naming, inheritance, TTL,
    pinning, limits, destroyed with their branch), named environments,
    `promote`, deploy locks, the Previews page.
-3. **Sleep and wake.** Idle sleep with the waking-up page; per-process
+4. **Sleep and wake.** Idle sleep with the waking-up page; per-process
    opt-out.
-4. **Access gates.** Password, sign-in (with identity headers), share links,
+5. **Access gates.** Password, sign-in (with identity headers), share links,
    IP allow-lists, default gates per environment kind, `noindex` outside
    production; an independent review of the gate, cookie and CSRF design.
-5. **Paths and domains.** Path prefixes and path mode; custom domains with
+6. **Paths and domains.** Path prefixes and path mode; custom domains with
    DNS verification.
-6. **Release 0.4.0.**
+7. **Release 0.4.0.**
 
 ## 0.5.0: real apps, observed (planned)
 
 ### Wave 5
 
-1. **Processes.** Workers, scaling, cron jobs, one-off runs (`moor run`),
+1. **Processes.** Cron jobs, one-off runs (`moor run`), restarting one process,
    declared and generated variables, `watch` paths.
 2. **Metrics.** Collection (cgroups, process sampling, engine statistics,
    the ingress), tiered storage, console charts with deploy markers,

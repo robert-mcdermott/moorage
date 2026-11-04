@@ -25,8 +25,8 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/layout"
 	"github.com/robert-mcdermott/moorage/internal/platform"
-	"github.com/robert-mcdermott/moorage/internal/server"
 	"github.com/robert-mcdermott/moorage/internal/truststore"
 )
 
@@ -120,6 +120,13 @@ func Run(ctx context.Context, o Options) []Check {
 		checks = append(checks, checkPublic(ctx, o)...)
 	}
 	return checks
+}
+
+// Setup makes the checks of a server that is running, on what someone setting it
+// up decides: its DNS and its certificates.
+func Setup(ctx context.Context, o Options) []Check {
+	o.defaults()
+	return append(checkDNS(ctx, o), checkTLS(ctx, o, true)...)
 }
 
 // local turns a listening address into one to connect to.
@@ -351,7 +358,7 @@ func checkInternalCA(ctx context.Context, o Options, running bool) []Check {
 	cfg := o.Config
 	file := cfg.TLS.CACert
 	if file == "" {
-		file = filepath.Join(server.NewLayout(cfg.DataDir).Certs, "ca.crt")
+		file = filepath.Join(layout.New(cfg.DataDir).Certs, "ca.crt")
 	}
 	cert, err := readFirstCert(file)
 	switch {
@@ -455,24 +462,24 @@ func checkContainers(ctx context.Context, o Options) Check {
 
 func checkData(o Options) []Check {
 	cfg := o.Config
-	layout := server.NewLayout(cfg.DataDir)
-	if _, err := os.Stat(layout.Database); errors.Is(err, os.ErrNotExist) {
+	dirs := layout.New(cfg.DataDir)
+	if _, err := os.Stat(dirs.Database); errors.Is(err, os.ErrNotExist) {
 		return []Check{{Name: "data", Status: Info, Detail: cfg.DataDir + " has no database yet: the server makes it when it first starts"}}
 	}
 	var checks []Check
-	fi, err := os.Stat(layout.Database)
+	fi, err := os.Stat(dirs.Database)
 	if err != nil {
 		return []Check{{Name: "data", Status: Fail, Detail: err.Error(), Fix: "run moor server doctor as the server's user, or with sudo"}}
 	}
 	checks = append(checks, Check{Name: "data", Status: OK, Detail: fmt.Sprintf("%s, with a database of %s", cfg.DataDir, human(uint64(fi.Size())))})
 	if o.GOOS != "windows" {
-		if fi, err := os.Stat(layout.Keys); err == nil && fi.Mode().Perm()&0o077 != 0 {
-			checks = append(checks, Check{Name: "keys", Status: Fail, Detail: fmt.Sprintf("%s can be read by others (mode %o): it holds the master key", layout.Keys, fi.Mode().Perm()),
-				Fix: "chmod 700 " + layout.Keys})
+		if fi, err := os.Stat(dirs.Keys); err == nil && fi.Mode().Perm()&0o077 != 0 {
+			checks = append(checks, Check{Name: "keys", Status: Fail, Detail: fmt.Sprintf("%s can be read by others (mode %o): it holds the master key", dirs.Keys, fi.Mode().Perm()),
+				Fix: "chmod 700 " + dirs.Keys})
 		}
 	}
-	if _, err := os.Stat(layout.MasterKey); err == nil {
-		checks = append(checks, Check{Name: "keys", Status: Info, Detail: "secrets are encrypted with " + layout.MasterKey, Fix: "back it up apart from the data directory: without it they cannot be read"})
+	if _, err := os.Stat(dirs.MasterKey); err == nil {
+		checks = append(checks, Check{Name: "keys", Status: Info, Detail: "secrets are encrypted with " + dirs.MasterKey, Fix: "back it up apart from the data directory: without it they cannot be read"})
 	}
 	return checks
 }

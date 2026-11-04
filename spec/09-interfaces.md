@@ -79,7 +79,7 @@ Configuration
 Observing
   moor logs [-f] [--process p] [--instance n] [--source …] [--since 1h] [--grep text]
   moor metrics [--series …]           Terminal sparklines
-  moor events [-f]
+  moor events [-f] [--app a] [--env e] [-n 50]
 
 Account
   moor keys [list|add|remove]
@@ -129,7 +129,7 @@ Server administration
 
 ```text
 POST   /auth/login | /auth/logout | /auth/device (CLI device approval)
-GET    /me                                     · sessions · tokens · ssh-keys
+GET    /me                                     · sessions · tokens · ssh-keys · POST /me/password
 GET    /users               POST /users        PATCH /users/{user} · POST /users/{user}/invitation
 
 GET    /projects            POST /projects     · members
@@ -142,7 +142,7 @@ POST   /apps/{app}/envs/{env}/deployments      (multipart archive | git ref | im
 GET    /deployments/{id}    POST …/cancel · …/retry
 GET    /deployments/{id}/log                   (SSE when Accept: text/event-stream)
 GET    /apps/{app}/envs/{env}/releases         · /releases/{v} · /releases/{v}/diff/{w}
-POST   /apps/{app}/envs/{env}/rollback | /promote | /restart | /stop | /start | /sleep | /wake
+POST   /apps/{app}/envs/{env}/rollback | /redeploy | /promote | /restart | /stop | /start | /sleep | /wake
 
 GET    /apps/{app}/envs/{env}/instances
 GET    /apps/{app}/envs/{env}/vars             PUT (bulk) · PATCH · DELETE /vars/{name}
@@ -242,8 +242,10 @@ roll back to, promote.
 - *Image* — an image reference;
 - *Connect repository* (Phase 3).
 
-**First-run wizard.** One-time setup URL → admin account → base domain and
-routing mode with a live DNS check → TLS mode → "deploy your first app" with
-commands to copy.
+**First-run wizard.** One-time setup URL → admin account → the base domain, routing
+mode and TLS mode, as chosen by `moor server init` in `server.toml` (the server needs
+them before anyone can reach this page), with the doctor's check of each and how to fix
+what is wrong → "deploy your first app" with commands to copy, and a live "waiting for
+your first deployment" state.
 
 Every empty state shows the next command to run.

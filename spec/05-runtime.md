@@ -156,7 +156,10 @@ pass this way, and the deploy says so.
 ## Scaling and load balancing
 
 - `moor scale web=3 worker=2` sets the formation; the setting is stored
-  server-side and overrides the manifest's `instances`.
+  server-side and overrides the manifest's `instances`. The reconciler starts what
+  is missing and stops what is beyond the number, highest first, after their
+  requests finish. If an instance cannot start, the formation goes back to what it
+  was: a number that cannot be met would otherwise be retried for ever.
 - Requests are balanced across healthy instances with **power-of-two-choices
   on in-flight requests**: cheap, and naturally avoids a slow instance.
 - Connection failures to an instance are retried once on another instance for

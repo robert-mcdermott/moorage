@@ -3,7 +3,7 @@
 `moorage.toml`, at the top of an app's directory, says how Moorage builds
 and runs the app. It is optional: without it, Moorage detects the kind of
 app (see [Detection](#detection)), and `moor manifest explain` shows what it
-detected. This page describes the manifest as Moorage 0.2.0 implements it;
+detected. This page describes the manifest as Moorage 0.3.0 implements it;
 the [design](../spec/03-manifest.md) describes what later releases add.
 
 ```bash
@@ -128,7 +128,7 @@ An entry is a command (`worker = "python -m tasks.worker"`) or a table:
 | Key | Default | Description |
 |---|---|---|
 | `command` | the runtime's, for `web` | What to run. |
-| `instances` | `1` | How many instances run (0 to 20; `0` turns the process off). Requests are spread over the healthy ones. |
+| `instances` | `1` | How many instances run (0 to 20; `0` turns the process off). Requests are spread over the healthy ones. [`moor scale`](console.md#scaling) overrides it, on the server. |
 | `expose` | `true` for `web` | The process listens on `$PORT` (and `$HOST`). |
 | `health` | a TCP check of `$PORT` | See below. |
 | `stop_signal` | `"TERM"` | The signal that asks the process to stop: `TERM`, `INT`, `QUIT`, `HUP`, `USR1` or `USR2`. |

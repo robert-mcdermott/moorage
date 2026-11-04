@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -24,6 +25,7 @@ const password = "a long and unusual passphrase"
 type fixture struct {
 	t     *testing.T
 	svc   *auth.Service
+	db    *store.DB
 	url   string
 	ctx   context.Context
 	http  *http.Client
@@ -43,9 +45,15 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	svc := &auth.Service{DB: db, LocalToken: auth.Hash("moor_local"), ClaimFile: filepath.Join(dir, "keys", "claim-code"), Limits: auth.NewLimiter()}
-	ts := httptest.NewServer(New(svc, db, slog.New(slog.DiscardHandler)))
+	cfg := config.Config{Domain: "apps.test", ConsoleHost: "moorage.apps.test", Routing: "host", DataDir: dir,
+		Listen: config.Listen{HTTP: "127.0.0.1:80"}, TLS: config.TLS{Mode: "off"}, Proxy: config.Proxy{ExternalScheme: "http"}}
+	pages, err := New(Options{Auth: svc, DB: db, Config: cfg, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(pages)
 	t.Cleanup(ts.Close)
-	f := &fixture{t: t, svc: svc, url: ts.URL, ctx: ctx}
+	f := &fixture{t: t, svc: svc, db: db, url: ts.URL, ctx: ctx}
 	f.signOutClient()
 	return f
 }
@@ -171,8 +179,8 @@ func TestClaim(t *testing.T) {
 	}
 	f.extra = nil
 	res, _ = f.post("/setup", form)
-	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/" {
-		t.Fatalf("the claim: %d", res.StatusCode)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/welcome" {
+		t.Fatalf("the claim: %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
 	cookie := res.Cookies()[0]
 	if cookie.Name != "moorage_session" || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" || cookie.Domain != "" {
@@ -218,8 +226,8 @@ func TestClaimGuessingIsSlowed(t *testing.T) {
 func TestSignInAndOut(t *testing.T) {
 	f := newFixture(t)
 	f.addUser("a@example.com", store.RoleMember)
-	if res, body := f.get("/"); res.StatusCode != http.StatusOK || !strings.Contains(body, `href="/login"`) {
-		t.Errorf("the start page, signed out: %d", res.StatusCode)
+	if res, _ := f.get("/"); res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/login" {
+		t.Errorf("the start page, signed out: %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
 	res, body := f.post("/login", url.Values{"email": {"a@example.com"}, "password": {"wrong"}})
 	if res.StatusCode != http.StatusUnauthorized || !strings.Contains(body, "wrong") || !strings.Contains(body, `value="a@example.com"`) {
@@ -403,7 +411,7 @@ func TestDeviceApproval(t *testing.T) {
 func TestHeaders(t *testing.T) {
 	f := newFixture(t)
 	f.addUser("a@example.com", store.RoleMember)
-	for _, path := range []string{"/", "/login", "/nope"} {
+	for _, path := range []string{"/login", "/nope"} {
 		res, body := f.get(path)
 		h := res.Header
 		if !strings.Contains(h.Get("Content-Security-Policy"), "frame-ancestors 'none'") || !strings.Contains(h.Get("Content-Security-Policy"), "form-action 'self'") ||

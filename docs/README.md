@@ -1,7 +1,7 @@
 # Moorage documentation
 
 How to install Moorage, run it, and deploy apps to it. This documentation
-describes Moorage 0.2.0; the [design documents](../spec/README.md) describe
+describes Moorage 0.3.0; the [design documents](../spec/README.md) describe
 how it works inside and where it is going.
 
 ## Start here
@@ -14,6 +14,7 @@ how it works inside and where it is going.
 - [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
 - [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
   everything, and logs.
+- [The web console](console.md): the apps, what happened, and getting started.
 - The [examples](../examples/README.md): complete apps, ready to deploy.
 
 ## Deploying apps
@@ -45,17 +46,21 @@ how it works inside and where it is going.
 | `moor trust` | Trusts the server's CA on this machine |
 | `moor server doctor` | Checks the server and what it depends on, and says how to fix what it finds |
 | `moor apps` | Lists the apps |
+| `moor events` | Shows what happened on the server; `-f` follows it |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
-| `moor releases` | Lists an app's releases |
+| `moor releases` | Lists an app's releases; `show` one, and `diff` two |
 | `moor rollback [vN]` | Serves an earlier release again, in a moment |
+| `moor redeploy` | Builds the current release's source again, and rolls it out |
 | `moor ps` | Lists the app's instances: status, health, port, PID |
-| `moor logs [-f]` | Shows the app's output |
+| `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |
 | `moor restart` | Replaces the instances without downtime |
+| `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |
 | `moor env` | Lists and changes variables and secrets |
 | `moor manifest explain` | Shows how Moorage will build and run the app |
 | `moor server status` | Shows the server and its service |
 | `moor login [URL]` | Signs in to a server, approving it in a browser |
 | `moor whoami` | Shows who you are signed in as |
+| `moor password` | Changes your password |
 | `moor tokens` | Lists your API tokens; `create` and `revoke` them |
 | `moor server users` | Lists the users; `create`, `invite`, `role`, `disable` and `enable` them |
 

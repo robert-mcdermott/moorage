@@ -1,0 +1,579 @@
+{{define "logs"}}
+{{template "app-tabs" .}}
+{{$app := .App.Name}}
+{{$ranges := .TimeRanges}}
+{{with .Logs}}
+<form class="log-tools" method="get" action="/apps/{{$app}}/logs" data-log-form>
+  <div class="log-tools-row">
+    <div class="field">
+      <label for="log-of">Instance</label>
+      <select id="log-of" name="of" data-autosubmit>
+        <option value="">All of them</option>
+        {{$of := .Of}}
+        {{range .Processes}}<option value="{{.}}"{{if eq . $of}} selected{{end}}>{{.}}, all</option>{{end}}
+        {{range .Instances}}<option value="{{.}}"{{if eq . $of}} selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </div>
+    <div class="field">
+      <label for="log-range">When</label>
+      <select id="log-range" name="range" data-autosubmit data-range>
+        {{$range := .Range}}
+        {{range $ranges}}<option value="{{.Value}}"{{if eq .Value $range}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+    </div>
+    <div class="field field-grow">
+      <label for="log-q">Search</label>
+      <input id="log-q" type="search" name="q" value="{{.Grep}}" placeholder="Text in the line" autocomplete="off" spellcheck="false" data-log-search>
+    </div>
+    <button class="quiet" type="submit" data-log-submit>Show</button>
+  </div>
+  <div class="log-tools-row log-range-custom" data-range-custom{{if ne .Range "custom"}} hidden{{end}}>
+    <div class="field"><label for="log-from">From</label><input id="log-from" type="datetime-local" name="from" value="{{.From}}"></div>
+    <div class="field"><label for="log-to">To</label><input id="log-to" type="datetime-local" name="to" value="{{.To}}"></div>
+    <input type="hidden" name="tz" value="" data-tz>
+  </div>
+  <fieldset class="log-tools-row chips">
+    <legend class="visually-hidden">What to show</legend>
+    {{range .Sources}}<label class="chip"><input type="checkbox" name="source" value="{{.Name}}"{{if .On}} checked{{end}} data-autosubmit> {{.Label}}</label>{{end}}
+    <span class="chip-gap" aria-hidden="true"></span>
+    <label class="chip chip-problems"><input type="checkbox" name="problems" value="1"{{if .Problems}} checked{{end}} data-autosubmit> Only problems</label>
+  </fieldset>
+</form>
+{{with .FormError}}<p class="notice fail" role="alert">{{.}}</p>{{end}}
+<section class="log-view panel" aria-label="The lines">
+  <div class="log-bar">
+    <span class="muted small"><span data-log-lines>{{len .Lines}}</span> lines</span>
+    <span class="badge live-status" data-log-status hidden></span>
+    <span class="log-bar-end">
+      <button class="quiet small" type="button" data-log-pause hidden aria-pressed="false">Pause</button>
+      <button class="quiet small" type="button" data-log-wrap hidden aria-pressed="true">Wrap lines</button>
+      <a class="button quiet small" href="{{.Download}}">Download</a>
+    </span>
+  </div>
+  {{with .Older}}<p class="log-more"><a href="{{.}}">Older lines</a></p>{{end}}
+  {{if .Lines}}
+  <div class="logs" role="log" aria-live="off" tabindex="0" data-logs data-log-grep="{{.Grep}}"{{with .Stream}} data-logs-stream="{{.}}"{{end}}{{with .After}} data-logs-after="{{.}}"{{end}}>
+    {{range .Lines}}{{template "log-line" .}}{{end}}
+  </div>
+  {{else}}
+  <div class="logs" role="log" aria-live="off" tabindex="0" data-logs data-log-grep="{{.Grep}}"{{with .Stream}} data-logs-stream="{{.}}"{{end}}{{with .After}} data-logs-after="{{.}}"{{end}}>
+    <p class="logs-empty" data-logs-empty>{{if or .Grep .Problems .Range}}No lines match that.{{else}}Nothing has been written yet. Lines will appear here as they are.{{end}}</p>
+  </div>
+  {{end}}
+  <button class="log-jump" type="button" data-log-jump hidden>Newest lines</button>
+  {{with .Newest}}<p class="log-more"><a href="{{.}}">Newest lines</a></p>{{end}}
+</section>
+{{end}}
+{{end}}
+
+{{define "log-line"}}<div class="log-line s-{{.Source}}{{with .Level}} level-{{.}}{{end}}"{{with .Raw}} title="{{.}}"{{end}}><time data-clock datetime="{{iso .At}}">{{clock .At}}</time><span class="log-who">{{.Who}}</span><span class="log-text">{{.Text}}</span>
+</div>{{end}}
+
+{{define "variables"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{with .Variables}}
+{{if .Released}}<p class="notice-more muted small"><a href="/deployments/{{.Released}}">See the deployment</a></p>{{end}}
+{{if .BuildChanged}}<div class="notice warn" role="status"><p>A build variable reaches the app with its next build. <a href="/apps/{{$app}}">Redeploy it</a> to build with it now.</p></div>{{end}}
+{{if .Unreleased}}
+<div class="notice warn pending" role="status">
+  <div>
+    <p><strong>Not released yet:</strong> {{range $i, $v := .Unreleased}}{{if $i}}, {{end}}<code>{{.Name}}</code> {{.Change}}{{end}}.</p>
+    <p class="small">What runs now has the variables of its release.</p>
+  </div>
+  <form method="post" action="/apps/{{$app}}/variables/release" data-busy="Releasing…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button type="submit">Release them</button>
+  </form>
+</div>
+{{end}}
+<div class="page-actions">
+  <details class="add-var" {{if not .Vars}}open{{end}}>
+    <summary class="button">Add a variable</summary>
+    <form class="panel panel-pad var-form" method="post" action="/apps/{{$app}}/variables/set" data-busy="Saving…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="var-name">Name</label><input id="var-name" name="name" required autocomplete="off" spellcheck="false" placeholder="API_URL" pattern="[A-Za-z_][A-Za-z0-9_]*"></div>
+      <div class="field"><label for="var-value">Value</label><textarea id="var-value" name="value" rows="2" autocomplete="off" spellcheck="false"></textarea></div>
+      {{template "var-flags" dict "HasRelease" .HasRelease "Prefix" "new"}}
+      <div class="actions"><button type="submit">Add it</button></div>
+    </form>
+  </details>
+  <a class="button quiet" href="/apps/{{$app}}/variables/edit">Edit as text</a>
+</div>
+{{if .Vars}}
+<div class="panel table-scroll">
+  <table class="apps vars">
+    <thead><tr><th scope="col">Name</th><th scope="col">Value</th><th scope="col">From</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Vars}}
+    <tr{{if .Overridden}} class="overridden"{{end}}>
+      <td class="var-name"><code>{{.Name}}</code>{{if .Secret}} <span class="badge">Secret</span>{{end}}{{if .Build}} <span class="badge info">Build</span>{{end}}</td>
+      <td class="var-value">{{if .Secret}}<span class="muted" aria-label="Hidden">{{mask}}</span>{{else}}<code class="wrap">{{.Value}}</code>{{end}}</td>
+      <td data-label="From" class="muted small">
+        {{if eq .Source "manifest"}}moorage.toml{{else if eq .Source "app"}}Every environment{{else}}This environment{{end}}
+        {{if .Overridden}}<span class="badge warn">Overridden</span>{{end}}
+        {{if .UpdatedBy}}<div><time datetime="{{iso .UpdatedAt}}">{{ago .UpdatedAt}}</time> by {{.UpdatedBy}}</div>{{end}}
+      </td>
+      <td class="var-actions">
+        {{if ne .Source "manifest"}}
+        <details class="row-edit">
+          <summary class="button quiet small">Change</summary>
+          <form class="var-form" method="post" action="/apps/{{$app}}/variables/set" data-busy="Saving…">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="name" value="{{.Name}}">
+            {{if .Secret}}<input type="hidden" name="was_secret" value="1">{{end}}
+            {{if eq .Source "app"}}<input type="hidden" name="all_envs" value="1">{{end}}
+            <div class="field"><label for="change-{{.Name}}">New value of {{.Name}}</label><textarea id="change-{{.Name}}" name="value" rows="2" autocomplete="off" spellcheck="false"{{if .Secret}} required placeholder="A secret's value cannot be shown"{{end}}>{{.Value}}</textarea></div>
+            <label class="check"><input type="checkbox" name="secret" value="1"{{if .Secret}} checked{{end}}> Secret</label>
+            <label class="check"><input type="checkbox" name="build" value="1"{{if .Build}} checked{{end}}> Available to builds</label>
+            {{if $.Variables.HasRelease}}<label class="check"><input type="checkbox" name="hold" value="1"> Save without releasing</label>{{end}}
+            <div class="actions"><button type="submit">Save</button></div>
+          </form>
+        </details>
+        <form method="post" action="/apps/{{$app}}/variables/unset" data-confirm="Remove {{.Name}}? It takes effect at once." data-busy="Removing…">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="name" value="{{.Name}}">
+          {{if eq .Source "app"}}<input type="hidden" name="all_envs" value="1">{{end}}
+          <button class="quiet small danger" type="submit">Remove</button>
+        </form>
+        {{else if not .Overridden}}
+        <span class="muted small">Set one here to override it</span>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<section class="panel empty">
+  <h2>No variables yet</h2>
+  <p>Variables reach the app as its environment. Those set here are kept on the server, and a secret's value is sealed, and is never shown again. The same from the command line:</p>
+  {{template "command" "moor env set API_URL=https://example.com"}}
+</section>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "var-flags"}}
+<div class="var-flags">
+  <label class="check"><input type="checkbox" name="secret" value="1"> Secret: sealed, and never shown again</label>
+  <label class="check"><input type="checkbox" name="build" value="1"> Available to builds</label>
+  <label class="check"><input type="checkbox" name="all_envs" value="1"> For every environment</label>
+  {{if .HasRelease}}<label class="check"><input type="checkbox" name="hold" value="1"> Save without releasing</label>{{end}}
+</div>
+{{end}}
+
+{{define "variables-edit"}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{with .Variables}}
+{{with .Preview}}
+<section class="panel panel-pad">
+  <h2>{{if .Empty}}Nothing would change{{else}}What this would change{{end}}</h2>
+  {{if not .Empty}}
+  <table class="apps change-table">
+    <tbody>
+    {{range .Rows}}
+    <tr class="change-{{.Change}}">
+      <td class="var-name"><code>{{.Name}}</code>{{if .Secret}} <span class="badge">Secret</span>{{end}}</td>
+      <td><span class="badge {{if eq .Change "removed"}}fail{{else if eq .Change "added"}}ok{{else}}info{{end}}">{{.Change}}</span></td>
+      <td class="var-value">{{if .Secret}}<span class="muted">{{if eq .Change "removed"}}its value goes with it{{else}}its new value is sealed{{end}}</span>{{else}}{{if .Before}}<code class="wrap diff-del">{{.Before}}</code>{{end}}{{if and .Before .After}} → {{end}}{{if .After}}<code class="wrap diff-add">{{.After}}</code>{{end}}{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <p class="muted small">{{.Unchanged}} left as they are.</p>
+  <form method="post" action="/apps/{{$app}}/variables/apply" data-busy="Applying…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <input type="hidden" name="text" value="{{$.Variables.Editor}}">
+    {{if $.Variables.SecretNew}}<input type="hidden" name="secret_new" value="1">{{end}}
+    {{if $.Variables.BuildNew}}<input type="hidden" name="build_new" value="1">{{end}}
+    {{if $.Variables.HasRelease}}<label class="check"><input type="checkbox" name="hold" value="1"> Save without releasing</label>{{end}}
+    <div class="actions"><button type="submit">{{if $.Variables.HasRelease}}Apply and release{{else}}Apply{{end}}</button></div>
+  </form>
+  {{end}}
+</section>
+{{end}}
+<form class="panel panel-pad block var-editor" method="post" action="/apps/{{$app}}/variables/preview">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <label for="vars-text">Variables</label>
+  <textarea id="vars-text" name="text" rows="16" spellcheck="false" autocomplete="off">{{.Editor}}</textarea>
+  <label class="check"><input type="checkbox" name="secret_new" value="1"{{if .SecretNew}} checked{{end}}> Make the variables added here secrets</label>
+  <label class="check"><input type="checkbox" name="build_new" value="1"{{if .BuildNew}} checked{{end}}> Make those available to builds</label>
+  <div class="actions"><button class="{{if .Preview}}quiet{{end}}" type="submit">See what changes</button><a class="button quiet" href="/apps/{{$app}}/variables">Back without changing</a></div>
+</form>
+{{end}}
+{{end}}
+
+{{define "account-tabs"}}
+<nav class="tabs" aria-label="Your account">
+  <a href="/account"{{if eq .Tab "profile"}} aria-current="page"{{end}}>Profile</a>
+  <a href="/account/keys"{{if eq .Tab "keys"}} aria-current="page"{{end}}>SSH keys</a>
+  <a href="/account/tokens"{{if eq .Tab "tokens"}} aria-current="page"{{end}}>API tokens</a>
+  <a href="/account/sessions"{{if eq .Tab "sessions"}} aria-current="page"{{end}}>Sessions</a>
+</nav>
+{{end}}
+
+{{define "account"}}
+{{template "account-tabs" .}}
+{{template "failure" .}}
+{{with .Account.UserRecord}}
+<section class="panel panel-pad facts-panel">
+  <dl class="facts">
+    <dt>Email</dt><dd>{{.Email}}</dd>
+    <dt>Name</dt><dd>{{.Name}}</dd>
+    <dt>Role</dt><dd>{{if eq .Role "admin"}}Administrator{{else}}Member{{end}}</dd>
+    <dt>Since</dt><dd><time datetime="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time></dd>
+  </dl>
+</section>
+{{end}}
+<section class="block">
+  <div class="section-heading"><h2>Change your password</h2></div>
+  <form class="panel panel-pad narrow-form" method="post" action="/account/password" data-busy="Changing…">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="field"><label for="current">Current password</label><input id="current" type="password" name="current" required autocomplete="current-password"></div>
+    <div class="field"><label for="new">New password <span class="hint">(at least 12 characters)</span></label><input id="new" type="password" name="new" required minlength="12" autocomplete="new-password"></div>
+    <div class="field"><label for="confirm">The new password again</label><input id="confirm" type="password" name="confirm" required autocomplete="new-password"></div>
+    <p class="muted small">Your other sessions will end. API tokens and SSH keys go on working.</p>
+    <div class="actions"><button type="submit">Change it</button></div>
+  </form>
+</section>
+{{end}}
+
+{{define "account-keys"}}
+{{template "account-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Account}}
+{{if .Keys}}
+<div class="panel table-scroll">
+  <table class="apps">
+    <thead><tr><th scope="col">Name</th><th scope="col">Fingerprint</th><th scope="col">Added</th><th scope="col">Last used</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Keys}}
+    <tr>
+      <td class="app-name">{{.Name}}</td>
+      <td><code class="wrap small">{{.Fingerprint}}</code></td>
+      <td class="muted" data-label="Added"><time datetime="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time></td>
+      <td class="muted" data-label="Last used">{{if .LastUsedAt.IsZero}}Never{{else}}<time datetime="{{iso .LastUsedAt}}">{{ago .LastUsedAt}}</time>{{end}}</td>
+      <td class="row-end">
+        <form method="post" action="/account/keys/remove" data-confirm="Remove the key {{.Name}}? It will no longer push.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="key" value="{{.Fingerprint}}">
+          <button class="quiet small danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<section class="panel empty">
+  <h2>No SSH keys yet</h2>
+  <p>A key lets you <code>git push</code> over SSH. From the command line, this finds yours and adds it:</p>
+  {{template "command" "moor keys add"}}
+</section>
+{{end}}
+<section class="block">
+  <div class="section-heading"><h2>Add a key</h2></div>
+  <form class="panel panel-pad" method="post" action="/account/keys/add">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="key-text">Public key <span class="hint">(the contents of a .pub file)</span></label><textarea id="key-text" name="key" rows="3" required spellcheck="false" autocomplete="off" placeholder="ssh-ed25519 AAAA… you@laptop">{{.FormValue}}</textarea></div>
+    <div class="field narrow-form"><label for="key-name">Name <span class="hint">(optional: the key's comment, if not)</span></label><input id="key-name" name="name" value="{{.FormName}}" autocomplete="off" spellcheck="false"></div>
+    <div class="actions"><button type="submit">Add the key</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{define "account-tokens"}}
+{{template "account-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$apps := .AppNames}}
+{{with .Account}}
+{{with .NewToken}}
+<section class="panel panel-pad secret-once" role="status">
+  <h2>The token {{.Name}} is made</h2>
+  <p>Copy it now: this is the only time it is shown.</p>
+  {{template "command" $.Account.NewTokenSecret}}
+  <p class="muted small">Sign in with it from a script, or use it as the password for git over HTTPS:</p>
+  {{template "command" "moor login --with-token"}}
+</section>
+{{end}}
+{{if .Tokens}}
+<div class="panel table-scroll{{if .NewToken}} block{{end}}">
+  <table class="apps">
+    <thead><tr><th scope="col">Name</th><th scope="col">Can</th><th scope="col">For</th><th scope="col">Expires</th><th scope="col">Last used</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Tokens}}
+    <tr>
+      <td class="app-name">{{.Name}}</td>
+      <td data-label="Can">{{range $i, $s := .Scopes}}{{if $i}}, {{end}}{{$s}}{{end}}</td>
+      <td data-label="For">{{if .App}}{{.App}}{{else}}Every app{{end}}</td>
+      <td class="muted" data-label="Expires">{{if .ExpiresAt.IsZero}}Never{{else}}{{date .ExpiresAt}}{{end}}</td>
+      <td class="muted" data-label="Last used">{{if .LastUsedAt.IsZero}}Never{{else}}<time datetime="{{iso .LastUsedAt}}">{{ago .LastUsedAt}}</time>{{end}}</td>
+      <td class="row-end">
+        <form method="post" action="/account/tokens/revoke" data-confirm="Revoke the token {{.Name}}? What uses it will stop working.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="token" value="{{.ID}}">
+          <button class="quiet small danger" type="submit">Revoke</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{else if not .NewToken}}
+<section class="panel empty">
+  <h2>No API tokens yet</h2>
+  <p>A token lets a script or CI use the server as you: as far as you allow it, for as long as you say.</p>
+</section>
+{{end}}
+<section class="block">
+  <div class="section-heading"><h2>Make a token</h2></div>
+  <form class="panel panel-pad token-form" method="post" action="/account/tokens/create">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="token-name">Name</label><input id="token-name" name="name" value="{{.FormName}}" required maxlength="100" autocomplete="off" placeholder="CI"></div>
+    <fieldset class="field">
+      <legend>It can</legend>
+      <label class="check"><input type="radio" name="scope" value="read"> Read: see apps, deployments and logs</label>
+      <label class="check"><input type="radio" name="scope" value="deploy" checked> Deploy: also deploy, roll back and restart</label>
+      <label class="check"><input type="radio" name="scope" value="admin"> Everything you can do</label>
+    </fieldset>
+    <div class="field"><label for="token-app">For</label>
+      <select id="token-app" name="app">
+        <option value="">Every app</option>
+        {{$choice := .AppChoice}}
+        {{range $apps}}<option value="{{.}}"{{if eq . $choice}} selected{{end}}>{{.}} only</option>{{end}}
+      </select>
+    </div>
+    <div class="field"><label for="token-expires">Expires</label>
+      <select id="token-expires" name="expires">
+        <option value="90d" selected>In 90 days</option>
+        <option value="30d">In 30 days</option>
+        <option value="1y">In a year</option>
+        <option value="">Never</option>
+      </select>
+    </div>
+    <div class="actions"><button type="submit">Make the token</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{define "account-sessions"}}
+{{template "account-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Account}}
+<div class="panel table-scroll">
+  <table class="apps">
+    <thead><tr><th scope="col">Browser</th><th scope="col">From</th><th scope="col">Last seen</th><th scope="col">Signed in</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Sessions}}
+    <tr>
+      <td class="app-name">{{.Browser}}{{if .Current}} <span class="badge ok">This one</span>{{end}}</td>
+      <td data-label="From">{{orDash .IP}}</td>
+      <td class="muted" data-label="Last seen"><time datetime="{{iso .LastSeenAt}}">{{ago .LastSeenAt}}</time></td>
+      <td class="muted" data-label="Signed in"><time datetime="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time></td>
+      <td class="row-end">
+        <form method="post" action="/account/sessions/end"{{if .Current}} data-confirm="End this session? You will be signed out."{{end}}>
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="session" value="{{.ID}}">
+          <button class="quiet small" type="submit">End</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+<form class="block" method="post" action="/account/sessions/end-others">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <button class="quiet" type="submit">End the others</button>
+</form>
+{{end}}
+{{end}}
+
+{{define "settings-tabs"}}
+<nav class="tabs" aria-label="Settings">
+  <a href="/settings"{{if eq .Tab "server"}} aria-current="page"{{end}}>Server</a>
+  <a href="/settings/users"{{if eq .Tab "users"}} aria-current="page"{{end}}>Users</a>
+  <a href="/settings/registries"{{if eq .Tab "registries"}} aria-current="page"{{end}}>Registries</a>
+  <a href="/settings/system"{{if eq .Tab "system"}} aria-current="page"{{end}}>System</a>
+</nav>
+{{end}}
+
+{{define "settings"}}
+{{template "settings-tabs" .}}
+{{with .Settings}}
+<p class="muted lead">These are set in <code>{{with .ConfigPath}}{{.}}{{else}}server.toml{{end}}</code>: the server needs them before it can open its database. Change that file and restart the server.</p>
+{{template "command" "moor server restart"}}
+<div class="setting-groups block">
+  {{range .Groups}}
+  <section class="panel panel-pad">
+    <h2>{{.Title}}</h2>
+    <dl class="facts">{{range .Settings}}<dt>{{.Name}}</dt><dd>{{.Value}}</dd>{{end}}</dl>
+  </section>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "settings-users"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Settings}}
+{{if .Invitation}}
+<section class="panel panel-pad secret-once" role="status">
+  <h2>A link for {{.InvitationUser}}</h2>
+  <p>Send them this: it lets them choose a password, once, in the next 7 days. It is not shown again.</p>
+  {{template "command" .Invitation}}
+</section>
+{{end}}
+<div class="panel table-scroll{{if .Invitation}} block{{end}}">
+  <table class="apps users">
+    <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Users}}
+    <tr>
+      <td><span class="app-name">{{.Name}}</span>{{if .Self}} <span class="badge ok">You</span>{{end}}<div class="muted small">{{.Email}}</div></td>
+      <td>
+        <form class="inline-form" method="post" action="/settings/users/change" data-busy="…">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="user" value="{{.ID}}">
+          <input type="hidden" name="change" value="role">
+          <label class="visually-hidden" for="role-{{.ID}}">Role of {{.Email}}</label>
+          <select id="role-{{.ID}}" name="role" data-autosubmit>
+            <option value="member"{{if eq .Role "member"}} selected{{end}}>Member</option>
+            <option value="admin"{{if eq .Role "admin"}} selected{{end}}>Administrator</option>
+          </select>
+          <button class="quiet small" type="submit" data-autosubmit-button>Set</button>
+        </form>
+      </td>
+      <td data-label="Status">{{if .Disabled}}<span class="badge fail">Disabled</span>{{else if not .PasswordHash}}<span class="badge info">Invited</span>{{else}}<span class="badge ok">Active</span>{{end}}</td>
+      <td class="row-end">
+        <form class="inline-form" method="post" action="/settings/users/invite">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="user" value="{{.ID}}">
+          <button class="quiet small" type="submit">New link</button>
+        </form>
+        {{if .Disabled}}
+        <form class="inline-form" method="post" action="/settings/users/change">
+          <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="user" value="{{.ID}}"><input type="hidden" name="change" value="enable">
+          <button class="quiet small" type="submit">Enable</button>
+        </form>
+        {{else}}
+        <form class="inline-form" method="post" action="/settings/users/change" data-confirm="Disable {{.Email}}? Their sessions, tokens and keys stop working.">
+          <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="user" value="{{.ID}}"><input type="hidden" name="change" value="disable">
+          <button class="quiet small danger" type="submit">Disable</button>
+        </form>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+<section class="block">
+  <div class="section-heading"><h2>Add someone</h2></div>
+  <form class="panel panel-pad token-form" method="post" action="/settings/users/create">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="user-email">Email address</label><input id="user-email" type="email" name="email" value="{{.FormEmail}}" required autocomplete="off"></div>
+    <div class="field"><label for="user-name">Name <span class="hint">(optional)</span></label><input id="user-name" name="name" value="{{.FormName}}" autocomplete="off"></div>
+    <div class="field"><label for="user-role">Role</label>
+      <select id="user-role" name="role">
+        <option value="member"{{if ne .FormRole "admin"}} selected{{end}}>Member: uses the apps</option>
+        <option value="admin"{{if eq .FormRole "admin"}} selected{{end}}>Administrator: also the server and its users</option>
+      </select>
+    </div>
+    <p class="muted small">You get a link to send them: this server sends no email.</p>
+    <div class="actions"><button type="submit">Make the account</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{define "settings-registries"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Settings}}
+{{if .Registries}}
+<div class="panel table-scroll">
+  <table class="apps">
+    <thead><tr><th scope="col">Registry</th><th scope="col">Username</th><th scope="col">Added</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Registries}}
+    <tr>
+      <td class="app-name">{{.Host}}</td>
+      <td data-label="Username">{{.Username}}</td>
+      <td class="muted" data-label="Added"><time datetime="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time></td>
+      <td class="row-end">
+        <form method="post" action="/settings/registries/remove" data-confirm="Remove the credentials of {{.Host}}?">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="host" value="{{.Host}}">
+          <button class="quiet small danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<section class="panel empty">
+  <h2>No registries yet</h2>
+  <p>A public image needs nothing here. For a private one, keep its registry's credentials on the server: the engine uses them when it pulls.</p>
+</section>
+{{end}}
+<section class="block">
+  <div class="section-heading"><h2>Add a registry</h2></div>
+  <form class="panel panel-pad token-form" method="post" action="/settings/registries/set" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="reg-host">Host</label><input id="reg-host" name="host" value="{{.FormHost}}" required placeholder="ghcr.io" spellcheck="false" autocomplete="off"></div>
+    <div class="field"><label for="reg-user">Username</label><input id="reg-user" name="username" value="{{.FormUser}}" required spellcheck="false" autocomplete="off"></div>
+    <div class="field"><label for="reg-pass">Password or token</label><input id="reg-pass" type="password" name="password" required autocomplete="new-password"></div>
+    <p class="muted small">Sealed with the server's master key, and never shown again.</p>
+    <div class="actions"><button type="submit">Keep the credentials</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{define "settings-system"}}
+{{template "settings-tabs" .}}
+{{with .Settings}}
+<section class="system-head">
+  <div class="panel panel-pad summary {{if .Fails}}has-fail{{else if .Warns}}has-warn{{else}}all-ok{{end}}">
+    <h2>{{if .Fails}}{{countText .Fails "problem" "problems"}} to fix{{else if .Warns}}{{countText .Warns "thing" "things"}} to look at{{else}}All is well{{end}}</h2>
+    <p class="muted">{{countText .Oks "check passed" "checks passed"}}{{if .Warns}}, {{countText .Warns "warning" "warnings"}}{{end}}{{if .Fails}}, {{countText .Fails "failure" "failures"}}{{end}}. <a href="/settings/system">Check again</a></p>
+  </div>
+  <div class="panel panel-pad">
+    <dl class="facts">{{range .Facts}}<dt>{{.Name}}</dt><dd>{{.Value}}</dd>{{end}}</dl>
+  </div>
+</section>
+<section class="block">
+  <div class="section-heading"><h2>What the checks found</h2><span class="muted small">The same as <code>moor server doctor</code></span></div>
+  <div class="panel panel-pad">
+    <ul class="checks system-checks">
+      {{range .Checks}}
+      <li>
+        <span class="mark-{{.Status}}" aria-hidden="true">{{if eq .Status "ok"}}✓{{else if eq .Status "fail"}}✕{{else if eq .Status "warn"}}!{{else}}·{{end}}</span>
+        <span><span class="visually-hidden">{{.Status}}: </span><strong>{{.Name}}</strong> {{.Detail}}</span>
+        {{with .Fix}}<span class="fix">{{.}}</span>{{end}}
+      </li>
+      {{end}}
+    </ul>
+  </div>
+</section>
+{{end}}
+{{end}}

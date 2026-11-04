@@ -46,6 +46,16 @@ func (rs *Repos) Exists(app string) bool {
 	return err == nil
 }
 
+// Export writes the tree of a commit of app's repository into dir, which must be
+// empty: for building again what was pushed.
+func (rs *Repos) Export(app, commit, dir string) (Exported, error) {
+	st, err := rs.open(app)
+	if err != nil {
+		return Exported{}, err
+	}
+	return export(st, plumbing.NewHash(commit), dir, DefaultExportLimits)
+}
+
 // open opens app's repository. It is opened again for every request, so
 // that it sees the objects other pushes have added since.
 func (rs *Repos) open(app string) (storage.Storer, error) {
