@@ -53,8 +53,10 @@ may sign for, and warns of one that may sign for any site.
 
 On macOS and Windows, `moor trust` changes your own list, and the system asks you
 to confirm; with `sudo` or as an Administrator, it changes the machine's. On Linux
-it uses `sudo`, which may ask for your password. The fingerprint is also in the
-server's log when it starts. Each server's CA is at `/.moorage/ca.crt`, for anyone
+it uses `sudo`, which may ask for your password. On macOS, `--remove` may also ask
+someone at the screen to confirm removing the trust setting: after two minutes with
+no answer, the certificate is gone and the setting stays, and `moor trust` says so.
+The fingerprint is also in the server's log when it starts. Each server's CA is at `/.moorage/ca.crt`, for anyone
 who would rather install it by hand.
 
 `moor` itself uses the system's list. On a machine where you would rather not

@@ -1,6 +1,7 @@
 package truststore
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -45,6 +46,7 @@ type fake struct {
 	calls [][]string
 	files map[string]string // what commands read, while they ran
 	fail  string
+	hang  string // the arguments of a command that gets no answer
 	tools []string
 }
 
@@ -57,8 +59,12 @@ func newFake(t *testing.T, goos string, tools ...string) *fake {
 			}
 			return "", errors.New("not found")
 		},
-		Run: func(name string, args ...string) error {
+		Run: func(ctx context.Context, name string, args ...string) error {
 			f.calls = append(f.calls, append([]string{name}, args...))
+			if f.hang != "" && strings.HasPrefix(strings.Join(args, " "), f.hang) {
+				// As a dialog nobody answers does, for as long as the test allows.
+				return errors.New("refused for want of an answer")
+			}
 			for _, a := range args {
 				if strings.HasSuffix(a, ".crt") {
 					if data, err := os.ReadFile(a); err == nil {
@@ -106,8 +112,21 @@ func TestMacOS(t *testing.T) {
 	if _, err := f.Remove(ca); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(f.line(0), "security remove-trusted-cert ") || f.line(1) != "security delete-certificate -Z "+sum+" "+login {
+	if f.line(0) != "security delete-certificate -Z "+sum+" "+login || !strings.HasPrefix(f.line(1), "security remove-trusted-cert ") {
 		t.Errorf("%v", f.calls)
+	}
+
+	// macOS wants someone to confirm removing the trust setting, and nobody does:
+	// the certificate is gone all the same, and the user is told what stayed.
+	f = newFake(t, "darwin")
+	f.Privileged = true
+	f.hang = "remove-trusted-cert"
+	res, err = f.Remove(ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(f.line(0), "security delete-certificate") || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "kept its trust setting") {
+		t.Errorf("%v %+v", f.calls, res)
 	}
 
 	// The machine's, as root.
@@ -304,6 +323,32 @@ func TestFingerprint(t *testing.T) {
 func TestUnknownSystem(t *testing.T) {
 	f := newFake(t, "plan9")
 	if _, err := f.Install(testCA(t)); err == nil || !strings.Contains(err.Error(), "by hand") {
+		t.Errorf("%v", err)
+	}
+}
+
+func TestAToolThatWaitsForever(t *testing.T) {
+	calls := 0
+	s := System{Run: func(ctx context.Context, name string, args ...string) error {
+		calls++
+		if _, ok := ctx.Deadline(); !ok {
+			t.Error("a tool may wait forever")
+		}
+		return nil
+	}}
+	if err := s.run("security", "x"); err != nil || calls != 1 {
+		t.Errorf("%v %d", err, calls)
+	}
+
+	// One that outlasts its time is stopped, and it says why.
+	old := toolTimeout
+	toolTimeout = 20 * time.Millisecond
+	defer func() { toolTimeout = old }()
+	s.Run = func(ctx context.Context, name string, args ...string) error {
+		<-ctx.Done()
+		return errors.New("signal: killed")
+	}
+	if err := s.run("security", "x"); err == nil || !strings.Contains(err.Error(), "nobody answered") {
 		t.Errorf("%v", err)
 	}
 }

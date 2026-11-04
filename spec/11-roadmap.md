@@ -629,6 +629,15 @@ directory, supervises it, and serves it on its own hostname.
      - A `moor trust` that asks a server is trusting an unauthenticated answer. Beyond
        the fingerprint, it can at least check that the server's own certificate comes
        from the CA it offers, which catches much of what interception looks like.
+     - On macOS, removing a trust setting waits for someone to confirm, even as root,
+       with no end on a machine with nobody at it: `moor trust --remove` hung in CI.
+       It now deletes the certificate first, says if the setting stayed, and gives
+       every system tool two minutes. Adding one needs no confirmation as root.
+     - A Windows busy port is `WSAEADDRINUSE`, which `syscall.EADDRINUSE` does not
+       match, so neither the doctor nor the server's own message said what was wrong.
+     - An engine found by chance and not answering, as Docker is on a Windows runner,
+       is a warning: it matters only to apps in containers. One named in `server.toml`
+       is a problem.
      - The hosts-file block for Windows needs a server that runs as a service with
        rights to the file, so it waits for the Windows server of wave 7.
      - The doctor warned of 63 GiB free on a large disk, for being under 10%. Space is

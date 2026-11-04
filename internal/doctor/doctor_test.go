@@ -360,6 +360,14 @@ func TestContainers(t *testing.T) {
 	if c.Status != Fail || !strings.Contains(c.Detail, "cannot connect") || c.Fix != "podman machine start" {
 		t.Errorf("%+v", c)
 	}
+	// Found by chance rather than named, it is a warning: only container apps need it.
+	t.Setenv("PATH", dir)
+	cfg.Containers.Engine = "auto"
+	c = checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin"})
+	if c.Status != Warn || !strings.Contains(c.Detail, "cannot connect") {
+		t.Errorf("%+v", c)
+	}
+	cfg.Containers.Engine = bin
 	os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in --version) echo podman version 5 ;; esac\n"), 0o755)
 	if c := checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin"}); c.Status != OK || !strings.Contains(c.Detail, "podman version 5") {
 		t.Errorf("%+v", c)

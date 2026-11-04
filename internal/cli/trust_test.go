@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -84,7 +85,7 @@ func fakeTrust(t *testing.T) *[][]string {
 	trustSystem = func() truststore.System {
 		return truststore.System{GOOS: "darwin", Home: t.TempDir(),
 			LookPath: func(string) (string, error) { return "", os.ErrNotExist },
-			Run: func(name string, args ...string) error {
+			Run: func(_ context.Context, name string, args ...string) error {
 				*calls = append(*calls, append([]string{name}, args...))
 				return nil
 			}}

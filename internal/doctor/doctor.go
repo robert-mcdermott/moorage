@@ -443,7 +443,12 @@ func checkContainers(ctx context.Context, o Options) Check {
 		if engine.Kind == "podman" && (o.GOOS == "darwin" || o.GOOS == "windows") {
 			fix = "podman machine start"
 		}
-		return Check{Name: name, Status: Fail, Detail: fmt.Sprintf("%s does not answer: %v", engine.Bin, err), Fix: fix}
+		// One found by chance matters only to apps in containers, if there are any.
+		status := Warn
+		if setting := o.Config.Containers.Engine; setting != "" && setting != "auto" {
+			status = Fail
+		}
+		return Check{Name: name, Status: status, Detail: fmt.Sprintf("%s does not answer, so apps in containers cannot run: %v", engine.Bin, err), Fix: fix}
 	}
 	return Check{Name: name, Status: OK, Detail: version + ", answering"}
 }

@@ -39,7 +39,7 @@ server's files.
 | `listen.*` | That it answers on each address; while it is stopped, that it could listen there |
 | `dns` | The console's hostname and a made-up app's, through the system's resolver |
 | `tls` | The CA or certificate files: that they exist, match, cover the hostnames, and how long they have left. Plain HTTP where it should not be |
-| `containers` | That the engine is there and answers |
+| `containers` | That the engine is there and answers: a problem if `server.toml` names it, a warning if it was only found on this machine |
 | `data`, `keys` | The data directory, and that nobody else can read its keys |
 | `disk` | Free space where the data is |
 | `clock` | That the clock is synchronised (Linux) |

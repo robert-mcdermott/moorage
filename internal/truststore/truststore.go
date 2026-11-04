@@ -6,6 +6,7 @@ package truststore
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
@@ -18,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/platform"
 )
@@ -34,7 +36,7 @@ type System struct {
 	// directory of their own.
 	Root string
 	// Run runs a command with the terminal attached: it may ask for a password.
-	Run      func(name string, args ...string) error
+	Run      func(ctx context.Context, name string, args ...string) error
 	LookPath func(string) (string, error)
 }
 
@@ -44,12 +46,27 @@ func Local() System {
 	return System{
 		GOOS: runtime.GOOS, Privileged: platform.IsPrivileged(), UnderSudo: os.Getenv("SUDO_USER") != "", Home: home,
 		LookPath: exec.LookPath,
-		Run: func(name string, args ...string) error {
-			cmd := exec.Command(name, args...)
+		Run: func(ctx context.Context, name string, args ...string) error {
+			cmd := exec.CommandContext(ctx, name, args...)
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return cmd.Run()
 		},
 	}
+}
+
+// toolTimeout bounds a system's tool, which may be asking someone for a password
+// or to confirm in a dialog: time enough to answer, and not forever on a machine
+// with nobody at it.
+var toolTimeout = 2 * time.Minute
+
+func (s System) run(name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), toolTimeout)
+	defer cancel()
+	err := s.Run(ctx, name, args...)
+	if ctx.Err() != nil {
+		return fmt.Errorf("nobody answered it within %s", toolTimeout)
+	}
+	return err
 }
 
 // Result says what was changed, and what was not.
@@ -176,7 +193,7 @@ func (s System) installDarwin(cert *x509.Certificate, file string) (Result, erro
 		args = append(args, "-d")
 	}
 	args = append(args, "-r", result, "-k", keychain, file)
-	if err := s.Run("security", args...); err != nil {
+	if err := s.run("security", args...); err != nil {
 		if s.Privileged {
 			return Result{}, fmt.Errorf("add it to %s: %w (macOS wants someone at the screen to confirm this: run it from a desktop session)", name, err)
 		}
@@ -185,19 +202,24 @@ func (s System) installDarwin(cert *x509.Certificate, file string) (Result, erro
 	return Result{Places: []string{name}, Notes: []string{"Firefox may keep its own list: if it does not trust the server, import the CA certificate (moor trust --print) in its settings."}}, nil
 }
 
+// removeDarwin deletes the certificate first: macOS may want someone to confirm
+// removing its trust setting, even from root, and without the certificate that
+// setting no longer vouches for what a server sends unless the server also sends
+// the CA.
 func (s System) removeDarwin(cert *x509.Certificate, file string) (Result, error) {
 	keychain, name := s.keychain()
+	if err := s.run("security", "delete-certificate", "-Z", strings.ToUpper(sha1Hex(cert)), keychain); err != nil {
+		return Result{}, fmt.Errorf("remove it from %s: %w", name, err)
+	}
+	res := Result{Places: []string{name}}
 	args := []string{"remove-trusted-cert"}
 	if s.Privileged {
 		args = append(args, "-d")
 	}
-	if err := s.Run("security", append(args, file)...); err != nil {
-		return Result{}, fmt.Errorf("remove it from %s: %w", name, err)
+	if err := s.run("security", append(args, file)...); err != nil {
+		res.Notes = append(res.Notes, fmt.Sprintf("The certificate is gone, and macOS kept its trust setting (%v): see Keychain Access if you want that gone too.", err))
 	}
-	if err := s.Run("security", "delete-certificate", "-Z", strings.ToUpper(sha1Hex(cert)), keychain); err != nil {
-		return Result{}, fmt.Errorf("remove it from %s: %w", name, err)
-	}
-	return Result{Places: []string{name}}, nil
+	return res, nil
 }
 
 // Windows: the machine's list as an Administrator, or the user's own, for which
@@ -213,7 +235,7 @@ func (s System) windowsStore() (args []string, name string) {
 func (s System) installWindows(file string) (Result, error) {
 	scope, name := s.windowsStore()
 	args := append([]string{"-addstore", "-f"}, scope...)
-	if err := s.Run("certutil", append(args, "Root", file)...); err != nil {
+	if err := s.run("certutil", append(args, "Root", file)...); err != nil {
 		return Result{}, fmt.Errorf("add it to %s: %w", name, err)
 	}
 	return Result{Places: []string{name}, Notes: []string{"Firefox may keep its own list: if it does not trust the server, import the CA certificate (moor trust --print) in its settings."}}, nil
@@ -222,7 +244,7 @@ func (s System) installWindows(file string) (Result, error) {
 func (s System) removeWindows(cert *x509.Certificate) (Result, error) {
 	scope, name := s.windowsStore()
 	args := append([]string{"-delstore"}, scope...)
-	if err := s.Run("certutil", append(args, "Root", sha1Hex(cert))...); err != nil {
+	if err := s.run("certutil", append(args, "Root", sha1Hex(cert))...); err != nil {
 		return Result{}, fmt.Errorf("remove it from %s: %w", name, err)
 	}
 	return Result{Places: []string{name}}, nil
@@ -245,12 +267,12 @@ var linuxStores = []struct {
 // password if it needs one.
 func (s System) admin(name string, args ...string) error {
 	if s.Privileged {
-		return s.Run(name, args...)
+		return s.run(name, args...)
 	}
 	if _, err := s.LookPath("sudo"); err != nil {
 		return errors.New("changing the system's list needs root: run moor trust as root")
 	}
-	return s.Run("sudo", append([]string{name}, args...)...)
+	return s.run("sudo", append([]string{name}, args...)...)
 }
 
 // linuxStore finds this distribution's way of adding a CA.
@@ -343,7 +365,7 @@ func (s System) browsers(res Result, cert *x509.Certificate, file string, add bo
 		if add {
 			args = []string{"-A", "-d", "sql:" + list, "-t", "C,,", "-n", nick, "-i", file}
 		}
-		if err := s.Run("certutil", args...); err != nil {
+		if err := s.run("certutil", args...); err != nil {
 			if add { // removing what was never added is no failure
 				res.Notes = append(res.Notes, fmt.Sprintf("Could not change the browser list in %s: %v", list, err))
 			}

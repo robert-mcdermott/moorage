@@ -78,6 +78,9 @@ as root or an Administrator, the machine's. On Linux it uses sudo.`,
 					return err
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Removed it from %s.\n", strings.Join(res.Places, ", "))
+				for _, note := range res.Notes {
+					fmt.Fprintln(cmd.OutOrStdout(), note)
+				}
 				return nil
 			}
 			if truststore.Trusted(ca.cert) {
