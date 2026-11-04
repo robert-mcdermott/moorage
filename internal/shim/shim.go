@@ -322,6 +322,7 @@ func (s *supervisor) finish(status string, reply chan Response) int {
 // proc is a running app process.
 type proc struct {
 	cmd    *exec.Cmd
+	limits platform.TreeLimits
 	done   chan struct{}
 	exit   Exit
 	osProc osProc
@@ -348,7 +349,7 @@ func (s *supervisor) start() (*proc, error) {
 		cmd.Env = append(append([]string{}, s.spec.Env...), s.spec.ShellEnv...)
 	}
 	cmd.Dir = s.spec.Dir
-	p := &proc{cmd: cmd, done: make(chan struct{})}
+	p := &proc{cmd: cmd, done: make(chan struct{}), limits: s.spec.Isolate.TreeLimits()}
 	p.out = logs.NewWriter(s.log, logs.Stdout).Redact(s.secrets...)
 	p.errw = logs.NewWriter(s.log, logs.Stderr).Redact(s.secrets...)
 	cmd.Stdout, cmd.Stderr = p.out, p.errw

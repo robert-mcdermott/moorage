@@ -61,6 +61,9 @@ LimitNOFILE=1048576
 WantedBy={{.WantedBy}}
 `))
 
+// Definition reads the unit.
+func (s *Systemd) Definition() ([]byte, error) { return os.ReadFile(s.File()) }
+
 // Render returns the unit.
 func (s *Systemd) Render(spec Spec) ([]byte, error) {
 	if err := spec.Validate(); err != nil {

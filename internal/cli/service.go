@@ -131,7 +131,7 @@ var serviceFor = service.For
 // runsServer reports whether a service runs the server configured by this file:
 // a server tried out with a configuration of its own must not stop the real one.
 func runsServer(m service.Manager, configFile string) bool {
-	unit, err := os.ReadFile(m.File())
+	unit, err := m.Definition()
 	return err == nil && strings.Contains(string(unit), configFile)
 }
 
@@ -187,8 +187,8 @@ func newServerInstallCmd() *cobra.Command {
 		Use:   "install",
 		Short: "Install the server as a service and start it",
 		Long: `Install moor server run as a service — a systemd unit on Linux, a launchd
-job on macOS — that starts at boot (as root) or at login (otherwise), and
-start it.
+job on macOS, a Windows service — that starts at boot (as root or an
+administrator) or at login (otherwise, on Linux and macOS), and start it.
 
 The service is set up so that stopping or restarting it leaves the apps
 running: the server adopts them when it starts again. It runs this moor

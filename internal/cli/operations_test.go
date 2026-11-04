@@ -267,6 +267,8 @@ type fakeManager struct {
 
 func (m fakeManager) File() string { return m.file }
 
+func (m fakeManager) Definition() ([]byte, error) { return os.ReadFile(m.file) }
+
 func TestStopLeavesAnotherServersService(t *testing.T) {
 	unit := filepath.Join(t.TempDir(), "moorage.service")
 	os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config /etc/moorage/server.toml\n"), 0o644)

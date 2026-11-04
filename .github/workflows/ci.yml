@@ -76,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -317,6 +317,21 @@ jobs:
           go-version-file: go.mod
       - name: Install, deploy, restart under load, uninstall
         run: .github/scripts/service-check.sh
+
+  service-windows:
+    # The same on Windows, where a service is another kind of thing.
+    name: Service (windows-latest)
+    needs: changes
+    if: needs.changes.outputs.service == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install, deploy, restart, upgrade, go back, uninstall
+        shell: pwsh
+        run: .github/scripts/service-check.ps1
 
   build:
     name: Build all targets without cgo

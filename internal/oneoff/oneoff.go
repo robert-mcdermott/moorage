@@ -82,7 +82,7 @@ func Run(ctx context.Context, c Command) error {
 		return fmt.Errorf("start %q: %w", c.Command, err)
 	}
 	defer isolate.Remove(c.Isolate)
-	tree, err := platform.StartTree(cmd)
+	tree, err := platform.StartTreeLimited(cmd, c.Isolate.TreeLimits())
 	release()
 	if err != nil {
 		return fmt.Errorf("start %q: %w", c.Command, err)

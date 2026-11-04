@@ -4,10 +4,10 @@ package shim
 
 import (
 	"os"
-	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/robert-mcdermott/moorage/internal/platform"
 )
 
 // osProc holds the Job Object that contains the app and everything it
@@ -18,37 +18,9 @@ type osProc struct {
 }
 
 func startProcess(p *proc) error {
-	if p.cmd.SysProcAttr == nil {
-		p.cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	// A new process group on the shim's console, so that CTRL_BREAK reaches
-	// the app (as an interrupt) and not the shim.
-	p.cmd.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
-	job, err := windows.CreateJobObject(nil, nil)
+	job, err := platform.StartInJob(p.cmd, p.limits)
 	if err != nil {
 		return err
-	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
-		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-		},
-	}
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
-		windows.CloseHandle(job)
-		return err
-	}
-	if err := p.cmd.Start(); err != nil {
-		windows.CloseHandle(job)
-		return err
-	}
-	// The app is assigned to the job right after it starts. A child it
-	// starts in that instant escapes the job; creating the process inside
-	// the job would close the gap.
-	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(p.cmd.Process.Pid))
-	if err == nil {
-		windows.AssignProcessToJobObject(job, h)
-		windows.CloseHandle(h)
 	}
 	p.osProc.job = job
 	return nil

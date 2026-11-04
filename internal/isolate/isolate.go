@@ -42,6 +42,14 @@ type Limits struct {
 	CPUWeight int `json:"cpu_weight,omitempty"`
 }
 
+// TreeLimits says what a process and all it starts are held to, where the system does that itself.
+func (s *Spec) TreeLimits() platform.TreeLimits {
+	if s == nil {
+		return platform.TreeLimits{}
+	}
+	return platform.TreeLimits{Memory: s.Limits.Memory, CPU: s.Limits.CPU, Processes: s.Limits.PIDs}
+}
+
 // Any says whether it limits anything.
 func (l Limits) Any() bool { return l.Memory > 0 || l.CPU > 0 || l.PIDs > 0 || l.CPUWeight > 0 }
 
@@ -69,6 +77,8 @@ type Status struct {
 	CgroupRoot string
 	// Landlock is the version of Landlock this kernel has: 0 is none.
 	Landlock int
+	// JobLimits says that limits are held to with Job Objects, as on Windows.
+	JobLimits bool
 	// Notes say what is missing, and why.
 	Notes []string
 }
@@ -344,6 +354,10 @@ func (p *Policy) Instance(ctx context.Context, app, id string, dirs Dirs, limits
 	}
 	if p.Enforced() && (limits.Any() || p.Isolating()) {
 		s.Cgroup, s.Limits = filepath.Join(p.CgroupRoot, "apps", id), limits
+	}
+	if p.JobLimits && limits.Any() {
+		s.Limits = limits
+		return s, nil
 	}
 	if !s.Drop && s.Cgroup == "" {
 		return nil, nil

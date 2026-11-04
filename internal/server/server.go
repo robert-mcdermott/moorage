@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	stdlog "log"
 	"log/slog"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -114,6 +116,29 @@ func fetchToolchains(life context.Context, toolchains *toolchain.Manager, log *s
 			}
 		}()
 		return errors.New("it is being fetched")
+	}
+}
+
+// keepHostsBlock has the block in the hosts file name what is deployed now, if there is one and this server may write
+// to it, as one in an elevated terminal may and the service does not. Nothing else keeps it up to date on Windows.
+func keepHostsBlock(ctx context.Context, cfg config.Config, db *store.DB, log *slog.Logger) {
+	if goruntime.GOOS != "windows" || cfg.Domain != "localhost" {
+		return
+	}
+	path := filepath.Join(os.Getenv("SystemRoot"), "System32", "drivers", "etc", "hosts")
+	if !localdns.HasHostsBlock(path) {
+		return
+	}
+	routes, err := db.Routes(ctx)
+	if err != nil {
+		return
+	}
+	names := []string{cfg.ConsoleHost}
+	for _, r := range routes {
+		names = append(names, cfg.EnvHost(r.App, r.Env))
+	}
+	if _, err := localdns.WriteHostsBlock(path, names); err != nil && !errors.Is(err, fs.ErrPermission) {
+		log.Warn("keep the hosts file up to date", "err", err)
 	}
 }
 
@@ -385,7 +410,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		DataDir: cfg.DataDir,
 		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
 		Runtime: runtime,
-		Reload:  router.Reload,
+		Reload: func(ctx context.Context) error {
+			err := router.Reload(ctx)
+			keepHostsBlock(ctx, cfg, db, log)
+			return err
+		},
 		URL: func(app, env string) string {
 			return cfg.EnvURL(app, env)
 		},
