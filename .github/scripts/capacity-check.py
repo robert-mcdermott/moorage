@@ -116,6 +116,7 @@ for i in range(0, len(held), 4096):
     held[i] = 1
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    disable_nagle_algorithm = True
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-Length", "5")
