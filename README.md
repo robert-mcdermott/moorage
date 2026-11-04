@@ -209,20 +209,22 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.5.0 is a server on Linux or macOS for a team: it builds and deploys
+Moorage 0.6.0 is a server on Linux or macOS for a team: it builds and deploys
 apps from their source or a `git push`, in containers or not, with accounts, projects
 and roles, an audit log and a [web console](docs/console.md). Every branch can have
 [its own preview and address](docs/previews.md), which sleeps when idle, and [who can
 reach it](docs/access.md) is up to you: a password, a sign-in, a share link. Apps can have
 [domains of their own](docs/domains.md), [cron jobs and one-off commands](docs/cron.md),
 [metrics](docs/metrics.md) and [notifications](docs/notifications.md) when something goes
-wrong. On Windows, `moor` works as a command line and `moor server run` works; the Windows
-service comes later.
+wrong. On Linux, [each app runs as a user of its own](docs/isolation.md). [Backups](docs/backups.md)
+are built in, people can sign in with [a second factor, or through your identity provider](docs/sign-in.md),
+and a server [upgrades itself](docs/install.md#upgrading), with a way back. On Windows, `moor` works as a
+command line and `moor server run` works; the Windows service comes later.
 
 Next, in the [roadmap](spec/11-roadmap.md):
 
-- **0.6.0, hardened:** apps isolated from one another on Linux, backups to a path or S3,
-  single sign-on and two-factor sign-in, and upgrading itself with a way back.
+- **0.7.0, Windows, forges and the terminal:** the Windows service, deployments from a forge's
+  webhooks, and a terminal in the console.
 
 ## Building Moorage
 

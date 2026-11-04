@@ -1023,7 +1023,7 @@ directory, supervises it, and serves it on its own hostname.
      running `ps` so often. Windows says that access is denied when a folder has a file's name, so
      that errors should go by what is there, and not by what the error says.
 
-## 0.6.0: hardened (planned)
+## 0.6.0: hardened (released 2026-11-04)
 
 ### Wave 6
 
