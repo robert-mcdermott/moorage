@@ -55,11 +55,43 @@ func (l *Limiter) Wait(key string) time.Duration {
 	return 0
 }
 
+// Take says how long to wait, if at all, and otherwise counts an attempt, in one step: done apart, many at once
+// would all find that they need not wait, and get far more tries than the limit is there to give. Return gives
+// back an attempt that turned out not to have failed.
+func (l *Limiter) Take(key string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	if e := l.entries[key]; e != nil && now.Sub(e.last) <= limiterMemory {
+		if wait := e.until.Sub(now); wait > 0 {
+			return wait
+		}
+	}
+	l.fail(key, now)
+	return 0
+}
+
+// Return gives back an attempt that Take counted.
+func (l *Limiter) Return(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e := l.entries[key]
+	if e == nil {
+		return
+	}
+	if e.failures--; e.failures <= l.free {
+		e.until = time.Time{}
+	}
+}
+
 // Fail records a failed attempt of key.
 func (l *Limiter) Fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	now := l.now()
+	l.fail(key, l.now())
+}
+
+func (l *Limiter) fail(key string, now time.Time) {
 	if len(l.entries) > 100_000 { // a flood of addresses cannot grow it for ever
 		for k, e := range l.entries {
 			if now.Sub(e.last) > limiterMemory {

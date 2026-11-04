@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/layout"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/truststore"
@@ -111,6 +112,7 @@ func Run(ctx context.Context, o Options) []Check {
 	if o.GOOS == "linux" {
 		checks = append(checks, checkKernel(o))
 	}
+	checks = append(checks, checkIsolation(o))
 	if running && o.InstancePorts != nil {
 		if c, ok := checkApps(ctx, o); ok {
 			checks = append(checks, c)
@@ -551,6 +553,24 @@ func checkClock(ctx context.Context, o Options) (Check, bool) {
 }
 
 // checkKernel reports what isolation will use, in a later release.
+// checkIsolation says how apps would be kept from one another, by a server run as this user.
+func checkIsolation(o Options) Check {
+	exe, _ := os.Executable()
+	st, err := isolate.Probe(isolate.Config{Level: o.Config.Isolation.Level, DataDir: o.Config.DataDir, Binary: exe})
+	if err != nil {
+		return Check{Name: "isolation", Status: Fail, Detail: sentence(err.Error())}
+	}
+	c := Check{Name: "isolation", Status: OK, Detail: st.Describe()}
+	if st.Level == isolate.None {
+		c.Status = Info
+		c.Fix = "Apps are kept apart on Linux. On a server that others use, run it as root there, as the system service does: each app then gets a user of its own."
+	}
+	if len(st.Notes) > 0 {
+		c.Detail += " (" + strings.Join(st.Notes, "; ") + ")"
+	}
+	return c
+}
+
 func checkKernel(o Options) Check {
 	path := func(p string) string { return filepath.Join(o.Root, filepath.FromSlash(p)) }
 	var parts []string
@@ -616,4 +636,11 @@ func Worst(checks []Check) string {
 		}
 	}
 	return worst
+}
+
+func sentence(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

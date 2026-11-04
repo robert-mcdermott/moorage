@@ -198,6 +198,8 @@ type Me struct {
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Code is from an authenticator app, or a recovery code, for an account that has one.
+	Code string `json:"code,omitempty"`
 }
 
 // LoginResult is a new session: the session cookie is set, and
@@ -385,6 +387,71 @@ type RegistryLogin struct {
 	Password string `json:"password"`
 }
 
+// SSOConfig says how people sign in through an OpenID Connect provider. An empty client secret keeps
+// the one there is.
+type SSOConfig struct {
+	Issuer       string `json:"issuer"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret,omitempty"`
+	HasSecret    bool   `json:"has_secret"`
+	// RedirectURL is where the provider sends people back to, and which it has to be told.
+	RedirectURL string `json:"redirect_url,omitempty"`
+	Label       string `json:"label,omitempty"`
+	Scopes      string `json:"scopes,omitempty"`
+	// EmailDomains says whose addresses a first sign-in may be from, separated by spaces.
+	EmailDomains string `json:"email_domains,omitempty"`
+	// Provision makes an account for someone new, the first time they sign in.
+	Provision bool `json:"provision"`
+	// TrustEmails lets an address join someone to an account when the provider does not say that it is verified.
+	TrustEmails bool   `json:"trust_emails,omitempty"`
+	GroupClaim  string `json:"group_claim,omitempty"`
+	// GroupRules says what groups mean, one to a line: "ops = admin" or "web-team = project web maintainer".
+	GroupRules string `json:"group_rules,omitempty"`
+	// PasswordsOff leaves signing in to the provider.
+	PasswordsOff bool `json:"passwords_off"`
+}
+
+// Backup is a backup of the server, or an attempt at one.
+type Backup struct {
+	ID          string     `json:"id"`
+	StartedAt   time.Time  `json:"started_at"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	Status      string     `json:"status"`
+	Trigger     string     `json:"trigger"`
+	CreatedBy   string     `json:"created_by,omitempty"`
+	Destination string     `json:"destination"`
+	Name        string     `json:"name,omitempty"`
+	Size        int64      `json:"size,omitempty"`
+	Error       string     `json:"error,omitempty"`
+}
+
+// BackupConfig says where backups go and how often. An empty secret key keeps the one there is.
+type BackupConfig struct {
+	// Destination is a full path, or s3://bucket/prefix.
+	Destination string `json:"destination"`
+	Endpoint    string `json:"endpoint,omitempty"`
+	Region      string `json:"region,omitempty"`
+	AccessKey   string `json:"access_key,omitempty"`
+	SecretKey   string `json:"secret_key,omitempty"`
+	// Schedule is a cron expression, such as @daily: empty is only when asked.
+	Schedule string `json:"schedule,omitempty"`
+	// Keep is how many to keep when a scheduled one has finished: 0 is all of them.
+	Keep int `json:"keep"`
+}
+
+// Backups is where backups go, and what has been backed up, newest first.
+type Backups struct {
+	Destination  string     `json:"destination"`
+	Endpoint     string     `json:"endpoint,omitempty"`
+	Region       string     `json:"region,omitempty"`
+	AccessKey    string     `json:"access_key,omitempty"`
+	HasSecretKey bool       `json:"has_secret_key"`
+	Schedule     string     `json:"schedule,omitempty"`
+	Keep         int        `json:"keep"`
+	NextAt       *time.Time `json:"next_at,omitempty"`
+	Items        []Backup   `json:"items"`
+}
+
 // NotificationChannel is somewhere notifications can go. Where it goes and how the last attempt
 // went are for administrators.
 type NotificationChannel struct {
@@ -491,6 +558,18 @@ type Event struct {
 	Data map[string]any `json:"data,omitempty"`
 }
 
+// Isolation says how an environment's instances are kept from others.
+type Isolation struct {
+	// Level is none, user or sandbox: what is in effect, and not only what is asked for.
+	Level string `json:"level"`
+	// Limits are what the manifest asks. Enforced says that the kernel holds them to it; otherwise
+	// an instance over its memory limit is restarted, and the others are not held to.
+	Memory   int64   `json:"memory,omitempty"`
+	CPU      float64 `json:"cpu,omitempty"`
+	PIDs     int     `json:"pids,omitempty"`
+	Enforced bool    `json:"enforced"`
+}
+
 // Environment is how an environment stands: what it serves and what runs it.
 type Environment struct {
 	App     string   `json:"app"`
@@ -503,6 +582,8 @@ type Environment struct {
 	Instances []Instance     `json:"instances"`
 	// Asleep says that its instances are stopped until a request wakes it.
 	Asleep bool `json:"asleep,omitempty"`
+	// Isolation says how its instances are kept from others, and what limits them.
+	Isolation *Isolation `json:"isolation,omitempty"`
 	// Kind is production, named or preview, and Branch what deploys to it, if a branch does.
 	Kind   string `json:"kind,omitempty"`
 	Branch string `json:"branch,omitempty"`
@@ -830,4 +911,113 @@ type AuditEntry struct {
 	Target string         `json:"target,omitempty"`
 	Result string         `json:"result"`
 	Data   map[string]any `json:"data,omitempty"`
+}
+
+// ServerConfig is what a server keeps of its own settings, in a form that can be read, kept and brought to
+// another server. It holds no secrets: where one belongs, it names a variable of the environment instead.
+type ServerConfig struct {
+	Format     int              `json:"format" toml:"format"`
+	Users      []ConfigUser     `json:"users,omitempty" toml:"user,omitempty"`
+	Projects   []ConfigProject  `json:"projects,omitempty" toml:"project,omitempty"`
+	Registries []ConfigRegistry `json:"registries,omitempty" toml:"registry,omitempty"`
+	Channels   []ConfigChannel  `json:"channels,omitempty" toml:"channel,omitempty"`
+	Rules      []ConfigRule     `json:"rules,omitempty" toml:"rule,omitempty"`
+	Backups    *ConfigBackups   `json:"backups,omitempty" toml:"backups,omitempty"`
+	SignIn     *ConfigSignIn    `json:"sign_in,omitempty" toml:"sign_in,omitempty"`
+}
+
+// ConfigUser is someone with an account. Nothing of how they sign in goes with them.
+type ConfigUser struct {
+	Email string `json:"email" toml:"email"`
+	Name  string `json:"name,omitempty" toml:"name,omitempty"`
+	// Role is admin or member. Left out, someone new is a member, and someone there stays as they are.
+	Role     string `json:"role,omitempty" toml:"role,omitempty"`
+	Disabled bool   `json:"disabled,omitempty" toml:"disabled,omitempty"`
+}
+
+// ConfigProject is a project, and who is in it. What apps are in it comes from those apps.
+type ConfigProject struct {
+	Name string `json:"name" toml:"name"`
+	// EveryoneRole is the role of those who are not members, and empty is none. Left out, it stays as it is.
+	EveryoneRole   *string           `json:"everyone_role,omitempty" toml:"everyone_role,omitempty"`
+	ViewersSeeLogs *bool             `json:"viewers_see_logs,omitempty" toml:"viewers_see_logs,omitempty"`
+	Members        map[string]string `json:"members,omitempty" toml:"members,omitempty"`
+}
+
+// ConfigRegistry is the sign-in to a container registry.
+type ConfigRegistry struct {
+	Host     string `json:"host" toml:"host"`
+	Username string `json:"username" toml:"username"`
+	Password string `json:"password,omitempty" toml:"password,omitempty"`
+}
+
+// ConfigChannel is somewhere notifications go.
+type ConfigChannel struct {
+	Name     string   `json:"name" toml:"name"`
+	Kind     string   `json:"kind" toml:"kind"`
+	URL      string   `json:"url,omitempty" toml:"url,omitempty"`
+	Secret   string   `json:"secret,omitempty" toml:"secret,omitempty"`
+	Host     string   `json:"host,omitempty" toml:"host,omitempty"`
+	Port     int      `json:"port,omitempty" toml:"port,omitempty"`
+	Username string   `json:"username,omitempty" toml:"username,omitempty"`
+	Password string   `json:"password,omitempty" toml:"password,omitempty"`
+	From     string   `json:"from,omitempty" toml:"from,omitempty"`
+	To       []string `json:"to,omitempty" toml:"to,omitempty"`
+}
+
+// ConfigRule says what goes to a channel: for an app, a project or, with neither, the whole server.
+type ConfigRule struct {
+	Channel string   `json:"channel" toml:"channel"`
+	Project string   `json:"project,omitempty" toml:"project,omitempty"`
+	App     string   `json:"app,omitempty" toml:"app,omitempty"`
+	Events  []string `json:"events" toml:"events"`
+}
+
+// ConfigBackups says where backups go and how often. What is left out stays as it is.
+type ConfigBackups struct {
+	Destination *string `json:"destination,omitempty" toml:"destination,omitempty"`
+	Endpoint    *string `json:"endpoint,omitempty" toml:"endpoint,omitempty"`
+	Region      *string `json:"region,omitempty" toml:"region,omitempty"`
+	AccessKey   *string `json:"access_key,omitempty" toml:"access_key,omitempty"`
+	SecretKey   string  `json:"secret_key,omitempty" toml:"secret_key,omitempty"`
+	Schedule    *string `json:"schedule,omitempty" toml:"schedule,omitempty"`
+	Keep        *int    `json:"keep,omitempty" toml:"keep,omitempty"`
+}
+
+// ConfigSignIn is single sign-on. What is left out stays as it is.
+type ConfigSignIn struct {
+	Issuer       string  `json:"issuer" toml:"issuer"`
+	ClientID     string  `json:"client_id" toml:"client_id"`
+	ClientSecret string  `json:"client_secret,omitempty" toml:"client_secret,omitempty"`
+	Label        *string `json:"label,omitempty" toml:"label,omitempty"`
+	Scopes       *string `json:"scopes,omitempty" toml:"scopes,omitempty"`
+	EmailDomains *string `json:"email_domains,omitempty" toml:"email_domains,omitempty"`
+	Provision    *bool   `json:"provision,omitempty" toml:"provision,omitempty"`
+	TrustEmails  *bool   `json:"trust_emails,omitempty" toml:"trust_emails,omitempty"`
+	GroupClaim   *string `json:"group_claim,omitempty" toml:"group_claim,omitempty"`
+	GroupRules   *string `json:"group_rules,omitempty" toml:"group_rules,omitempty"`
+	PasswordsOff *bool   `json:"passwords_off,omitempty" toml:"passwords_off,omitempty"`
+}
+
+// The actions in a report of bringing in a configuration.
+const (
+	ConfigCreate = "create"
+	ConfigChange = "change"
+	ConfigSame   = "same"
+	ConfigSkip   = "skip"
+	ConfigFailed = "failed"
+)
+
+// ConfigItem says what became of one thing.
+type ConfigItem struct {
+	What   string `json:"what"`
+	Name   string `json:"name"`
+	Action string `json:"action"`
+	Note   string `json:"note,omitempty"`
+}
+
+// ConfigReport says what became of a configuration that was brought in, or would have.
+type ConfigReport struct {
+	DryRun bool         `json:"dry_run"`
+	Items  []ConfigItem `json:"items"`
 }

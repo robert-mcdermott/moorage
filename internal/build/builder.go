@@ -16,6 +16,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/ignore"
 	"github.com/robert-mcdermott/moorage/internal/ingress/static"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
@@ -24,6 +25,8 @@ import (
 
 // Builder builds apps in place.
 type Builder struct {
+	// Isolation says how builds run, if apart from one another.
+	Isolation  *isolate.Policy
 	DataDir    string
 	Toolchains *toolchain.Manager
 	// Shell runs `moor sh -c` for commands that are not simple; ShellEnv is
@@ -94,14 +97,22 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 		Marker(job.Log, "             %s", n)
 	}
 	if plan.Container != nil {
+		// Nothing of its own runs here, but its files are as much its own.
+		if err := isolate.CloseAbove(job.Dir); err != nil {
+			return Result{}, err
+		}
 		return b.buildImage(ctx, job, plan, appDir)
 	}
 
-	vars, err := b.environment(job, appDir)
+	vars, err := b.environment(job, appDir, b.Isolation.BuildCache(job.App))
 	if err != nil {
 		return Result{}, err
 	}
 	bins, err := b.toolchains(ctx, job, &plan, vars)
+	if err != nil {
+		return Result{}, err
+	}
+	iso, err := b.Isolation.Build(ctx, job.App, job.BuildID, job.Dir, filepath.Join(b.DataDir, "tmp", "build-"+job.BuildID))
 	if err != nil {
 		return Result{}, err
 	}
@@ -132,7 +143,7 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 			start := time.Now()
 			err := oneoff.Run(buildCtx, oneoff.Command{
 				Command: step.Command, Env: oneoff.List(vars), Dir: appDir,
-				Shell: b.Shell, ShellEnv: b.ShellEnv, Stdout: out, Stderr: errw,
+				Shell: b.Shell, ShellEnv: b.ShellEnv, Stdout: out, Stderr: errw, Isolate: iso,
 			})
 			out.Flush()
 			errw.Flush()
@@ -153,6 +164,9 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 		}
 	}
 
+	if err := b.Isolation.Seal(ctx, job.App, job.Dir); err != nil {
+		return Result{}, err
+	}
 	if err := Finish(&plan, appDir); err != nil {
 		var u *UnresolvedError
 		if errors.As(err, &u) {
@@ -164,7 +178,11 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 		return Result{}, err
 	}
 	if plan.Kind == manifest.KindStatic {
-		idx, err := static.BuildIndex(filepath.Join(job.Dir, filepath.FromSlash(plan.Root)))
+		root, err := siteRoot(job.Dir, plan.Root)
+		if err != nil {
+			return Result{}, err
+		}
+		idx, err := static.BuildIndex(root)
 		if err != nil {
 			return Result{}, err
 		}
@@ -180,6 +198,23 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Plan: plan, Files: files, Size: size}, nil
+}
+
+// siteRoot finds the directory a build's site is in, which has to be in the build. A build step can make links,
+// and a link on the way to another directory would publish that one, with what the server may read.
+func siteRoot(buildDir, root string) (string, error) {
+	base, err := filepath.EvalSymlinks(buildDir)
+	if err != nil {
+		return "", err
+	}
+	site, err := filepath.EvalSymlinks(filepath.Join(buildDir, filepath.FromSlash(root)))
+	if err != nil {
+		return "", &Error{Msg: fmt.Sprintf("the site's directory %s is not there", root), Err: err}
+	}
+	if site != base && !strings.HasPrefix(site, base+string(filepath.Separator)) {
+		return "", &Error{Msg: fmt.Sprintf("the site's directory %s leads outside the build", root)}
+	}
+	return site, nil
 }
 
 // buildImage builds an app's image, or fetches the one it names, and settles
@@ -283,8 +318,10 @@ func describe(plan manifest.Plan) string {
 
 // environment is what build commands run with, before the toolchains,
 // [env] and [build.env] are added.
-func (b *Builder) environment(job Job, appDir string) (map[string]string, error) {
-	cache := filepath.Join(b.DataDir, "cache")
+func (b *Builder) environment(job Job, appDir, cache string) (map[string]string, error) {
+	if cache == "" {
+		cache = filepath.Join(b.DataDir, "cache")
+	}
 	tmp := filepath.Join(b.DataDir, "tmp", "build-"+job.BuildID)
 	home := filepath.Join(tmp, "home")
 	bin := filepath.Join(appDir, ".moorage", "bin")

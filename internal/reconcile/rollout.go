@@ -18,6 +18,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
@@ -45,16 +46,23 @@ func (e *RolloutError) Error() string {
 // drained and stopped. With the recreate strategy, the old ones are stopped
 // first. If a new instance fails, the new instances are stopped and the old
 // ones keep serving (rolling) — the error says why.
-func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error {
-	return m.rollout(ctx, app, env, rel, build, plan, "")
-}
-
-// rollout is Rollout, of one process if it says, leaving the others running.
-func (m *Manager) rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, only string) error {
-	plan.Defaults()
+func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, commit func() error) error {
 	es := m.env(app, env)
 	es.rollout.Lock()
 	defer es.rollout.Unlock()
+	return m.rollout(ctx, es, rel, build, plan, "", commit)
+}
+
+// rollout is Rollout, of one process if it says, leaving the others running. It takes the environment's
+// rollout lock being held.
+//
+// Once the new instances are ready, commit records that this release is the current one, before they take the
+// traffic and with the lock still held. So nothing that takes the lock can find the old instances gone and the
+// old release still current, which would have it start the old release again. If commit fails, what was running
+// goes on running.
+func (m *Manager) rollout(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan, only string, commit func() error) error {
+	app, env := es.app, es.env
+	plan.Defaults()
 	kind, err := m.db.EnvKind(ctx, app, env)
 	if err != nil {
 		return err
@@ -110,6 +118,12 @@ func (m *Manager) rollout(ctx context.Context, app, env string, rel store.Releas
 		m.retire(es, fresh, 0)
 		return failed
 	}
+	if commit != nil {
+		if err := commit(); err != nil {
+			m.retire(es, fresh, 0)
+			return err
+		}
+	}
 	for _, in := range fresh {
 		m.watch(es, in)
 	}
@@ -123,6 +137,10 @@ func (m *Manager) rollout(ctx context.Context, app, env string, rel store.Releas
 // Restart rolls out the current release again: new instances replace the
 // running ones without downtime.
 func (m *Manager) Restart(ctx context.Context, app, env, process string) error {
+	es := m.env(app, env)
+	es.rollout.Lock()
+	defer es.rollout.Unlock()
+	// Read with the lock held, or this could go on to roll out a release that a deployment has just replaced.
 	rel, build, err := m.db.CurrentRelease(ctx, app, env)
 	if err != nil {
 		return err
@@ -137,7 +155,7 @@ func (m *Manager) Restart(ctx context.Context, app, env, process string) error {
 	if _, known := plan.Processes[process]; process != "" && !known {
 		return &ScaleError{app + " has no process named " + process}
 	}
-	return m.rollout(ctx, app, env, rel, build, plan, process)
+	return m.rollout(ctx, es, rel, build, plan, process, nil)
 }
 
 // ScaleError reports a formation that cannot be: a process the app does not have, or
@@ -339,8 +357,14 @@ func (m *Manager) spec(ctx context.Context, es *envState, rel store.Release, bui
 	if in.port != 0 {
 		vars["PORT"] = strconv.Itoa(in.port)
 	}
+	in.softLimit = m.softLimitOf(plan)
+	iso, err := m.isolation(ctx, es.app, in.id, build, vars["MOORAGE_DATA_DIR"], in.tmpDir, plan, in.port)
+	if err != nil {
+		return shim.Spec{}, nil, err
+	}
 	return shim.Spec{
 		ID:          in.id,
+		Isolate:     iso,
 		Dir:         m.appDir(build),
 		Command:     in.proc.Command,
 		Env:         oneoff.List(vars),
@@ -352,6 +376,16 @@ func (m *Manager) spec(ctx context.Context, es *envState, rel store.Release, bui
 		StopTimeout: in.proc.StopTimeout.Std(),
 		BackoffMin:  m.opts.BackoffMin,
 	}, oneoff.List(secrets), nil
+}
+
+// isolation says how a process of an app runs, with what its limits are.
+func (m *Manager) isolation(ctx context.Context, app, id string, build store.Build, data, tmp string, plan manifest.Plan, port int) (*isolate.Spec, error) {
+	var limits isolate.Limits
+	if r := plan.Resources; r != nil {
+		limits = isolate.Limits{Memory: r.Memory, CPU: r.CPU, PIDs: r.PIDs}
+	}
+	dirs := isolate.Dirs{Build: filepath.Join(m.opts.DataDir, filepath.FromSlash(build.ArtifactRef)), App: m.appDir(build), Data: data, Tmp: tmp}
+	return m.opts.Isolation.Instance(ctx, app, id, dirs, limits, port)
 }
 
 // appDir is the directory a build's app runs in.
@@ -390,9 +424,19 @@ func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release
 	}
 	var path []string
 	for _, t := range plan.Toolchains {
-		if t.Version != "system" && m.opts.ToolchainBins != nil {
-			path = append(path, m.opts.ToolchainBins(t.Name, t.Version)...)
+		if t.Version == "system" || m.opts.ToolchainBins == nil {
+			continue
 		}
+		bins := m.opts.ToolchainBins(t.Name, t.Version)
+		// A restored server has its builds and not their toolchains, which it fetches as it needs them, rather
+		// than run something else that happens to be on this machine's path.
+		if bins == nil && m.opts.EnsureToolchain != nil {
+			if err := m.opts.EnsureToolchain(ctx, t.Name, t.Version); err != nil {
+				return nil, nil, fmt.Errorf("this build needs %s %s, which is not here and could not be fetched: %w", t.Name, t.Version, err)
+			}
+			bins = m.opts.ToolchainBins(t.Name, t.Version)
+		}
+		path = append(path, bins...)
 	}
 	for _, p := range plan.Path {
 		path = append(path, filepath.Join(dir, filepath.FromSlash(p)))
@@ -468,13 +512,18 @@ func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Releas
 		return m.runContainerOnce(ctx, app, env, rel, build, plan, process, command, timeout, log)
 	}
 	// Several commands of a release can go at once: the first to end must not take away the others'.
-	tmp := m.tmpDir("run-" + ids.New(ids.Run))
+	id := "run-" + ids.New(ids.Run)
+	tmp := m.tmpDir(id)
 	defer os.RemoveAll(tmp)
 	vars, secrets, err := m.appEnv(ctx, app, env, rel, build, plan, tmp)
 	if err != nil {
 		return err
 	}
 	vars["MOORAGE_PROCESS"] = process
+	iso, err := m.isolation(ctx, app, id, build, vars["MOORAGE_DATA_DIR"], tmp, plan, isolate.NoPortRule)
+	if err != nil {
+		return err
+	}
 	values := make([]string, 0, len(secrets))
 	for k, v := range secrets {
 		vars[k] = v
@@ -487,7 +536,7 @@ func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Releas
 	return oneoff.Run(ctx, oneoff.Command{
 		Command: command, Env: oneoff.List(vars), Dir: m.appDir(build),
 		Shell: m.opts.Shell, ShellEnv: m.opts.ShellEnv,
-		Stdout: out, Stderr: errw, Timeout: timeout,
+		Stdout: out, Stderr: errw, Timeout: timeout, Isolate: iso,
 	})
 }
 

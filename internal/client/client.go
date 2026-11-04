@@ -299,6 +299,64 @@ func (c *Client) RegistryLogout(ctx context.Context, host string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/registries/"+url.PathEscape(host), nil, "", nil)
 }
 
+// TurnOffSSO turns off signing in through a provider, which gives passwords back.
+func (c *Client) TurnOffSSO(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/server/sso", nil, "", nil)
+}
+
+// SSO says how people sign in through a provider.
+func (c *Client) SSO(ctx context.Context) (apitypes.SSOConfig, error) {
+	var out apitypes.SSOConfig
+	err := c.do(ctx, http.MethodGet, "/api/v1/server/sso", nil, "", &out)
+	return out, err
+}
+
+// ConfigureSSO sets it up.
+func (c *Client) ConfigureSSO(ctx context.Context, in apitypes.SSOConfig) (apitypes.SSOConfig, error) {
+	var out apitypes.SSOConfig
+	err := c.post(ctx, http.MethodPut, "/api/v1/server/sso", in, &out)
+	return out, err
+}
+
+// ServerConfig reads the server's settings, with no secrets in them.
+func (c *Client) ServerConfig(ctx context.Context) (apitypes.ServerConfig, error) {
+	var out apitypes.ServerConfig
+	err := c.do(ctx, http.MethodGet, "/api/v1/server/config", nil, "", &out)
+	return out, err
+}
+
+// ImportServerConfig makes the server match a configuration, or says what that would do.
+func (c *Client) ImportServerConfig(ctx context.Context, in apitypes.ServerConfig, dryRun bool) (apitypes.ConfigReport, error) {
+	var out apitypes.ConfigReport
+	path := "/api/v1/server/config/import"
+	if dryRun {
+		path += "?dry_run=true"
+	}
+	err := c.post(ctx, http.MethodPost, path, in, &out)
+	return out, err
+}
+
+// Backups says where backups go, and what has been backed up.
+func (c *Client) Backups(ctx context.Context) (apitypes.Backups, error) {
+	var out apitypes.Backups
+	err := c.do(ctx, http.MethodGet, "/api/v1/server/backups", nil, "", &out)
+	return out, err
+}
+
+// StartBackup starts a backup.
+func (c *Client) StartBackup(ctx context.Context) (apitypes.Backup, error) {
+	var out apitypes.Backup
+	err := c.do(ctx, http.MethodPost, "/api/v1/server/backups", nil, "", &out)
+	return out, err
+}
+
+// ConfigureBackups says where backups go and how often.
+func (c *Client) ConfigureBackups(ctx context.Context, in apitypes.BackupConfig) (apitypes.Backups, error) {
+	var out apitypes.Backups
+	err := c.post(ctx, http.MethodPut, "/api/v1/server/backups/config", in, &out)
+	return out, err
+}
+
 // Notifications is what the caller has been told.
 func (c *Client) Notifications(ctx context.Context) (apitypes.Inbox, error) {
 	var out apitypes.Inbox

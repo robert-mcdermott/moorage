@@ -15,6 +15,8 @@ type Instance struct {
 	// Part is its process and index, such as web.1, which stays the same across releases.
 	Part string
 	PID  int
+	// SoftLimit is the memory it may use, to watch where the kernel will not enforce it.
+	SoftLimit int64
 }
 
 // Usage is what an instance is using.
@@ -33,8 +35,11 @@ type Collector struct {
 	Containers func(ctx context.Context) map[string]Usage
 	// DataDir is the volume whose space is watched.
 	DataDir string
+	// OverLimit hears of an instance that has stayed over its soft limit.
+	OverLimit func(id string, used, limit int64)
 
 	last map[string]cpuReading
+	over map[string]int
 }
 
 type cpuReading struct {
@@ -78,6 +83,25 @@ func (c *Collector) Sample(ctx context.Context, now time.Time) {
 	c.sampleHost(now)
 }
 
+// watchLimit tells of an instance over its soft limit for three samples in a row: a moment over it,
+// as an app starts or collects its garbage, is nothing to restart it for.
+func (c *Collector) watchLimit(in Instance, used int64) {
+	if c.over == nil {
+		c.over = map[string]int{}
+	}
+	if in.SoftLimit <= 0 || used <= in.SoftLimit {
+		delete(c.over, in.ID)
+		return
+	}
+	c.over[in.ID]++
+	if c.over[in.ID] >= 3 {
+		delete(c.over, in.ID)
+		if c.OverLimit != nil {
+			c.OverLimit(in.ID, used, in.SoftLimit)
+		}
+	}
+}
+
 func (c *Collector) sampleInstances(ctx context.Context, now time.Time) {
 	list := c.Instances(ctx)
 	if len(list) == 0 {
@@ -107,6 +131,7 @@ func (c *Collector) sampleInstances(ctx context.Context, now time.Time) {
 			continue
 		}
 		c.Store.Gauge(in.EnvID, Memory, in.Part, float64(rss), now)
+		c.watchLimit(in, int64(rss))
 		reading := cpuReading{seconds, now}
 		next[in.ID] = reading
 		if prev, ok := c.last[in.ID]; ok && now.After(prev.at) {

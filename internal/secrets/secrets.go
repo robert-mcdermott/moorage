@@ -185,6 +185,48 @@ func (k *Keyring) dataKey(ctx context.Context, appID string) (cipher.AEAD, error
 	return aead, nil
 }
 
+// SealTOTP encrypts the secret of someone's second factor, with the master key.
+func (k *Keyring) SealTOTP(userID string, value []byte) []byte {
+	return seal(k.master, value, []byte("moorage totp\x00"+userID))
+}
+
+// OpenTOTP decrypts it.
+func (k *Keyring) OpenTOTP(userID string, sealed []byte) ([]byte, error) {
+	plain, err := open(k.master, sealed, []byte("moorage totp\x00"+userID))
+	if err != nil {
+		return nil, errors.New("this account's second factor cannot be decrypted")
+	}
+	return plain, nil
+}
+
+// SealSSO encrypts the secret of the client of a sign-in provider, with the master key.
+func (k *Keyring) SealSSO(value string) []byte {
+	return seal(k.master, []byte(value), []byte("moorage sign-in provider"))
+}
+
+// OpenSSO decrypts it.
+func (k *Keyring) OpenSSO(sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, []byte("moorage sign-in provider"))
+	if err != nil {
+		return "", errors.New("the secret of the sign-in provider cannot be decrypted")
+	}
+	return string(plain), nil
+}
+
+// SealBackup encrypts the secret key of where backups go, with the master key.
+func (k *Keyring) SealBackup(value string) []byte {
+	return seal(k.master, []byte(value), []byte("moorage backup destination"))
+}
+
+// OpenBackup decrypts it.
+func (k *Keyring) OpenBackup(sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, []byte("moorage backup destination"))
+	if err != nil {
+		return "", errors.New("the secret key of where backups go cannot be decrypted")
+	}
+	return string(plain), nil
+}
+
 // channelAD binds what a notification channel needs to that channel.
 func channelAD(id string) []byte { return []byte("moorage channel\x00" + id) }
 

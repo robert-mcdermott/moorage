@@ -26,6 +26,14 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 
 // failed answers with an error of signing in or of an account's details.
 func (s *Server) failed(w http.ResponseWriter, err error) {
+	if errors.Is(err, auth.ErrSecondFactor) {
+		unauthorized(w, "bad_second_factor", sentenceOf(err))
+		return
+	}
+	if errors.Is(err, auth.ErrPasswordsOff) {
+		problem(w, http.StatusForbidden, "passwords_off", sentenceOf(err))
+		return
+	}
 	var limited *auth.RateLimitedError
 	var field *auth.FieldError
 	switch {
@@ -70,6 +78,21 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.failed(w, err)
 		return
+	}
+	needed, err := s.auth.NeedsSecondFactor(r.Context(), u.ID)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if needed {
+		if req.Code == "" {
+			unauthorized(w, "second_factor_needed", sentenceOf(auth.ErrSecondFactorNeeded))
+			return
+		}
+		if err := s.auth.CheckSecondFactor(r.Context(), u, req.Code, ip); err != nil {
+			s.failed(w, err)
+			return
+		}
 	}
 	value, err := s.auth.StartSession(r.Context(), u, ip, r.UserAgent())
 	if err != nil {
@@ -277,7 +300,7 @@ func (s *Server) lookupUser(w http.ResponseWriter, r *http.Request) (store.User,
 	var u store.User
 	var err error
 	if strings.Contains(which, "@") {
-		u, err = s.db.UserByEmail(r.Context(), strings.ToLower(which))
+		u, err = s.db.UserByEmail(r.Context(), auth.LowerASCII(which))
 	} else {
 		u, err = s.db.UserByID(r.Context(), which)
 	}

@@ -43,6 +43,8 @@ const (
 	ShareCreated         = "share.created"
 	ShareRevoked         = "share.revoked"
 	CronFailed           = "cron.failed"
+	BackupDone           = "backup.done"
+	BackupFailed         = "backup.failed"
 	DiskLow              = "server.disk_low"
 	DiskOK               = "server.disk_ok"
 	DomainAdded          = "domain.added"
@@ -180,6 +182,10 @@ func Level(kind string) string {
 		return "fail"
 	case DiskLow:
 		return "warn"
+	case BackupFailed:
+		return "fail"
+	case BackupDone:
+		return "ok"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
 	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked, EnvironmentWoke, AccessChanged, ShareCreated, ShareRevoked, DomainAdded, DomainRemoved:
@@ -290,6 +296,10 @@ func Summary(e store.Event) string {
 		return "Environment " + e.Env + " made"
 	case EnvironmentDeleted:
 		return "Environment " + e.Env + " removed" + by
+	case BackupDone:
+		return "A backup is at " + text(e, "destination")
+	case BackupFailed:
+		return "A backup failed: " + text(e, "error")
 	case DiskLow:
 		return fmt.Sprintf("The server's data volume is %v%% full", e.Data["percent"])
 	case DiskOK:

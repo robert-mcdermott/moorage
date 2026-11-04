@@ -18,6 +18,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
 func TestMatch(t *testing.T) {
@@ -129,7 +131,7 @@ func newFake(t *testing.T) (*fakeProvider, *Manager) {
 	t.Cleanup(srv.Close)
 	dir := t.TempDir()
 	m := New(filepath.Join(dir, "toolchains"), filepath.Join(dir, "cache"), Sources{
-		Go: srv.URL + "/go/", Node: srv.URL + "/node/", UV: srv.URL + "/uv",
+		Go: srv.URL + "/go/", Node: srv.URL + "/node/", UV: srv.URL + "/uv", NodeKeys: openpgp.EntityList{testSigner(t)},
 	})
 	return f, m
 }
@@ -221,7 +223,9 @@ func TestNodeAndUV(t *testing.T) {
 		}
 		data := archiveOf(t, name, "node-v"+r.v+"-"+platform+"/", files)
 		f.files["/node/v"+r.v+"/"+name] = data
-		f.files["/node/v"+r.v+"/SHASUMS256.txt"] = []byte(sum(data) + "  " + name + "\n" + strings.Repeat("0", 64) + "  other.tar.gz\n")
+		checksums := []byte(sum(data) + "  " + name + "\n" + strings.Repeat("0", 64) + "  other.tar.gz\n")
+		f.files["/node/v"+r.v+"/SHASUMS256.txt"] = checksums
+		f.files["/node/v"+r.v+"/SHASUMS256.txt.sig"] = signedBy(t, testSigner(t), checksums)
 		sums[r.v] = sum(data)
 		var lts any = false
 		if r.lts != "" {

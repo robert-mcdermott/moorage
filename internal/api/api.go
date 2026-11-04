@@ -17,14 +17,17 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
+	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -35,16 +38,18 @@ type Runtime interface {
 
 // Server serves the API.
 type Server struct {
-	metrics  *metrics.Store
-	db       *store.DB
-	cfg      config.Config
-	dataDir  string
-	auth     *auth.Service
-	runtime  Runtime
-	deployer *deploy.Deployer
-	keyring  RegistrySealer
-	bus      *events.Bus
-	notifier *notify.Service
+	metrics        *metrics.Store
+	db             *store.DB
+	cfg            config.Config
+	dataDir        string
+	auth           *auth.Service
+	runtime        Runtime
+	deployer       *deploy.Deployer
+	keyring        RegistrySealer
+	bus            *events.Bus
+	notifier       *notify.Service
+	backupsService *backup.Service
+	signIn         *sso.Service
 	// recheck is how often what stays open looks again at whether it may.
 	recheck time.Duration
 	log     *slog.Logger
@@ -53,8 +58,8 @@ type Server struct {
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, recheck time.Duration, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, recheck: recheck, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, backups *backup.Service, signIn *sso.Service, recheck time.Duration, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, backupsService: backups, signIn: signIn, recheck: recheck, log: log}
 	s.openapiDoc = sync.OnceValue(func() []byte { return openAPIDocument(s.routes()) })
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
@@ -414,8 +419,17 @@ func (s *Server) environmentDoc(ctx context.Context, app, env string) (apitypes.
 	plan.Defaults()
 	if plan.Kind == manifest.KindProcess {
 		doc.Formation = map[string]int{}
-		for name, proc := range plan.ForEnv(env, doc.Kind).WithFormation(formation).Processes {
+		running := plan.ForEnv(env, doc.Kind).WithFormation(formation)
+		for name, proc := range running.Processes {
 			doc.Formation[name] = *proc.Instances
+		}
+		if rt, ok := s.runtime.(interface{ Isolation() isolate.Status }); ok && running.Container == nil {
+			st := rt.Isolation()
+			iso := &apitypes.Isolation{Level: st.Level, Enforced: st.Enforced()}
+			if r := running.Resources; r != nil {
+				iso.Memory, iso.CPU, iso.PIDs = r.Memory, r.CPU, r.PIDs
+			}
+			doc.Isolation = iso
 		}
 	}
 	return doc, nil

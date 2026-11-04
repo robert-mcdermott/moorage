@@ -224,6 +224,122 @@
         ],
         "type": "object"
       },
+      "Backup": {
+        "properties": {
+          "created_by": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "status",
+          "trigger",
+          "destination"
+        ],
+        "type": "object"
+      },
+      "BackupConfig": {
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "region": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "secret_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination",
+          "keep"
+        ],
+        "type": "object"
+      },
+      "Backups": {
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "has_secret_key": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Backup"
+            },
+            "type": "array"
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "next_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination",
+          "has_secret_key",
+          "keep",
+          "items"
+        ],
+        "type": "object"
+      },
       "Check": {
         "properties": {
           "detail": {
@@ -243,6 +359,241 @@
           "name",
           "status",
           "detail"
+        ],
+        "type": "object"
+      },
+      "ConfigBackups": {
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "region": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "secret_key": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ConfigChannel": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ConfigItem": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "what": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "name",
+          "action"
+        ],
+        "type": "object"
+      },
+      "ConfigProject": {
+        "properties": {
+          "everyone_role": {
+            "type": "string"
+          },
+          "members": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "viewers_see_logs": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "ConfigRegistry": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "username"
+        ],
+        "type": "object"
+      },
+      "ConfigReport": {
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "dry_run",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ConfigRule": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "events"
+        ],
+        "type": "object"
+      },
+      "ConfigSignIn": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "email_domains": {
+            "type": "string"
+          },
+          "group_claim": {
+            "type": "string"
+          },
+          "group_rules": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "passwords_off": {
+            "type": "boolean"
+          },
+          "provision": {
+            "type": "boolean"
+          },
+          "scopes": {
+            "type": "string"
+          },
+          "trust_emails": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id"
+        ],
+        "type": "object"
+      },
+      "ConfigUser": {
+        "properties": {
+          "disabled": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
         ],
         "type": "object"
       },
@@ -610,6 +961,9 @@
             },
             "type": "array"
           },
+          "isolation": {
+            "$ref": "#/components/schemas/Isolation"
+          },
           "kind": {
             "type": "string"
           },
@@ -849,6 +1203,30 @@
         ],
         "type": "object"
       },
+      "Isolation": {
+        "properties": {
+          "cpu": {
+            "type": "number"
+          },
+          "enforced": {
+            "type": "boolean"
+          },
+          "level": {
+            "type": "string"
+          },
+          "memory": {
+            "type": "integer"
+          },
+          "pids": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "enforced"
+        ],
+        "type": "object"
+      },
       "LogLine": {
         "properties": {
           "index": {
@@ -892,6 +1270,9 @@
       },
       "LoginRequest": {
         "properties": {
+          "code": {
+            "type": "string"
+          },
           "email": {
             "type": "string"
           },
@@ -1818,6 +2199,104 @@
           "fingerprint",
           "public_key",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "SSOConfig": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "email_domains": {
+            "type": "string"
+          },
+          "group_claim": {
+            "type": "string"
+          },
+          "group_rules": {
+            "type": "string"
+          },
+          "has_secret": {
+            "type": "boolean"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "passwords_off": {
+            "type": "boolean"
+          },
+          "provision": {
+            "type": "boolean"
+          },
+          "redirect_url": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "string"
+          },
+          "trust_emails": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id",
+          "has_secret",
+          "provision",
+          "passwords_off"
+        ],
+        "type": "object"
+      },
+      "ServerConfig": {
+        "properties": {
+          "backups": {
+            "$ref": "#/components/schemas/ConfigBackups"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigChannel"
+            },
+            "type": "array"
+          },
+          "format": {
+            "type": "integer"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigProject"
+            },
+            "type": "array"
+          },
+          "registries": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigRegistry"
+            },
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigRule"
+            },
+            "type": "array"
+          },
+          "sign_in": {
+            "$ref": "#/components/schemas/ConfigSignIn"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigUser"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "format"
         ],
         "type": "object"
       },
@@ -6968,6 +7447,219 @@
         "x-moorage-permission": "signed-in"
       }
     },
+    "/server/backups": {
+      "get": {
+        "operationId": "getServerBackups",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backups"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Where backups go, and what has been backed up",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      },
+      "post": {
+        "operationId": "postServerBackups",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backup"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Start a backup",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/backups/config": {
+      "put": {
+        "operationId": "putServerBackupsConfig",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backups"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Say where backups go and how often",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/config": {
+      "get": {
+        "operationId": "getServerConfig",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Read the server's settings, with no secrets in them",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/config/import": {
+      "post": {
+        "operationId": "postServerConfigImport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Make the server match a configuration, in what it mentions, or with dry_run say what that would do",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
     "/server/doctor": {
       "get": {
         "operationId": "getServerDoctor",
@@ -7004,6 +7696,122 @@
           }
         ],
         "summary": "Check the server and what it depends on, as moor server doctor does",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/sso": {
+      "delete": {
+        "operationId": "deleteServerSso",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Turn off signing in through a provider, which gives passwords back",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      },
+      "get": {
+        "operationId": "getServerSso",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "How people sign in through a provider",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      },
+      "put": {
+        "operationId": "putServerSso",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SSOConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Set up signing in through a provider, once it has been found at its address",
         "tags": [
           "server"
         ],

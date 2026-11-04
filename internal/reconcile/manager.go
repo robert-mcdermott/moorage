@@ -24,6 +24,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/driver/native"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/shim"
@@ -54,6 +55,8 @@ type Options struct {
 	Trusted []netip.Prefix
 	// ToolchainBins returns the PATH directories of an installed toolchain.
 	ToolchainBins func(name, version string) []string
+	// EnsureToolchain fetches a toolchain that an app needs and this server does not have.
+	EnsureToolchain func(ctx context.Context, name, version string) error
 	// Secrets opens the sealed values of secret variables.
 	Secrets Opener
 	// Containers runs apps in containers; without it, the server has no
@@ -61,6 +64,8 @@ type Options struct {
 	Containers *container.Driver
 	// Events hears of instances that exit, sicken and recover.
 	Events *events.Bus
+	// Isolation says how apps are kept from one another.
+	Isolation *isolate.Policy
 }
 
 // runner is what the manager asks of a driver about an instance it runs.
@@ -116,6 +121,12 @@ type instance struct {
 	backend   *ingress.Backend // nil for a process that does not listen
 	run       runner           // the driver that runs it
 	container bool             // whether that is the container driver
+
+	// softLimit is the memory it may use, to watch where the kernel will not enforce it.
+	softLimit int64
+	// sharesUser says that it runs as the server does on a server that keeps apps apart: it was started before
+	// it did, and goes on so until it restarts.
+	sharesUser bool
 
 	stopHealth context.CancelFunc
 }
@@ -258,6 +269,9 @@ func (m *Manager) Adopt(ctx context.Context) error {
 			logFile: m.logFile(li.App, li.Env, li.Process, li.Index, li.ID), tmpDir: m.tmpDir(li.ID),
 			run: m.driver,
 		}
+		if kind, err := m.db.EnvKind(ctx, li.App, li.Env); err == nil {
+			in.softLimit = m.softLimitOf(plan.ForEnv(li.Env, kind))
+		}
 		var st shim.State
 		if li.Driver == driverContainer {
 			in.container = true
@@ -284,6 +298,10 @@ func (m *Manager) Adopt(ctx context.Context) error {
 		es := m.env(li.App, li.Env)
 		if li.Port != 0 {
 			in.backend = ingress.NewBackend(li.ID, fmt.Sprintf("127.0.0.1:%d", li.Port))
+		}
+		if m.opts.Isolation.Isolating() && !in.container && !m.driver.RunsAsItsOwnUser(li.ID) {
+			in.sharesUser = true
+			m.log.Warn("this instance started before apps were kept apart, and goes on as the server's user until it restarts", "app", li.App, "env", li.Env, "instance", li.ID)
 		}
 		es.add(in)
 		m.log.Info("adopted a running instance", "app", li.App, "env", li.Env, "instance", li.ID, "pid", st.AppPID)
@@ -416,6 +434,11 @@ func (m *Manager) ensureRoute(ctx context.Context, es *envState, r store.Route, 
 	if err != nil {
 		return err
 	}
+	// The route was read before the lock was held, and a rollout may have finished in between. Going by it
+	// would start a release that has just been replaced. The next look has the new one.
+	if rel.Version != r.Version {
+		return nil
+	}
 	formation, err := m.db.Formation(ctx, r.App, r.Env)
 	if err != nil {
 		return err
@@ -430,6 +453,9 @@ func (m *Manager) ensureRoute(ctx context.Context, es *envState, r store.Route, 
 // Settle brings an environment to what it should be running now, at once, and returns when it
 // is: its instances gone if it has gone to sleep, or healthy if it has woken.
 func (m *Manager) Settle(ctx context.Context, app, env string) error {
+	es := m.env(app, env)
+	es.rollout.Lock()
+	defer es.rollout.Unlock()
 	routes, err := m.db.Routes(ctx)
 	if err != nil {
 		return err
@@ -442,9 +468,6 @@ func (m *Manager) Settle(ctx context.Context, app, env string) error {
 		if err != nil || plan.Kind != manifest.KindProcess {
 			return err
 		}
-		es := m.env(app, env)
-		es.rollout.Lock()
-		defer es.rollout.Unlock()
 		return m.ensureRoute(ctx, es, r, plan)
 	}
 	return nil
@@ -455,9 +478,10 @@ func (m *Manager) Settle(ctx context.Context, app, env string) error {
 // cannot start, and returns the first such failure.
 func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan) error {
 	have := map[string]bool{}
-	var keep, extra []*instance
+	var keep, extra, earlier []*instance
 	for _, in := range es.list() {
 		if in.releaseID != rel.ID {
+			earlier = append(earlier, in)
 			continue
 		}
 		if proc, ok := plan.Processes[in.process]; !ok || in.index > *proc.Instances {
@@ -510,6 +534,13 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 	if changed {
 		es.serve(rel.ID)
 	}
+	// With the lock held, no rollout is under way, so that these are of a release that is not current: what a
+	// server that stopped part of the way through a rollout left, say. They go once what should be running is.
+	if len(earlier) > 0 && failed == nil {
+		m.log.Warn("instances of another release were running; stopping them", "app", es.app, "env", es.env, "instances", len(earlier), "release", rel.Version)
+		es.serve(rel.ID)
+		m.retire(es, earlier, plan.Deploy.Drain.Std())
+	}
 	return failed
 }
 
@@ -525,6 +556,66 @@ func (m *Manager) emit(es *envState, in *instance, kind string, data map[string]
 // logFile is an instance's log: logs/apps/<app>/<env>/<process>.<index>.<id>.log.
 func (m *Manager) logFile(app, env, process string, index int, id string) string {
 	return filepath.Join(LogDir(m.opts.DataDir, app, env), fmt.Sprintf("%s.%d.%s.log", process, index, id))
+}
+
+// Isolation says what is in effect on this server.
+func (m *Manager) Isolation() isolate.Status {
+	if m.opts.Isolation == nil {
+		return isolate.Status{Asked: isolate.None, Level: isolate.None}
+	}
+	st := m.opts.Isolation.Status
+	waiting := 0
+	for _, es := range m.allEnvs() {
+		waiting += es.sharingUser()
+	}
+	if waiting > 0 {
+		st.Notes = append(append([]string{}, st.Notes...), fmt.Sprintf("%d instances started before apps were kept apart, and go on as the server's user until they restart", waiting))
+	}
+	return st
+}
+
+// SharingUser says how many of an environment's instances still run as the server does.
+func (m *Manager) SharingUser(app, env string) int { return m.env(app, env).sharingUser() }
+
+func (es *envState) sharingUser() int {
+	n := 0
+	for _, in := range es.list() {
+		if in.sharesUser {
+			n++
+		}
+	}
+	return n
+}
+
+// softLimitOf is the memory to watch, where the kernel will not enforce the limit itself.
+func (m *Manager) softLimitOf(plan manifest.Plan) int64 {
+	if plan.Resources == nil || m.Isolation().Enforced() {
+		return 0
+	}
+	return plan.Resources.Memory
+}
+
+// OverMemory restarts an instance that has gone over its limit where nothing else would stop it.
+func (m *Manager) OverMemory(id string, used, limit int64) {
+	m.mu.Lock()
+	var found *instance
+	var where *envState
+	for _, es := range m.envs {
+		for _, in := range es.list() {
+			if in.id == id {
+				found, where = in, es
+			}
+		}
+	}
+	m.mu.Unlock()
+	if found == nil {
+		return
+	}
+	m.log.Warn("instance over its memory limit; restarting it", "app", where.app, "instance", id, "used", used, "limit", limit)
+	m.emit(where, found, events.InstanceExited, map[string]any{"code": -1, "signal": "OOM"})
+	if err := found.run.Restart(id); err != nil {
+		m.log.Warn("restart an instance", "app", where.app, "instance", id, "err", err)
+	}
 }
 
 // LogDir is the directory of an environment's app logs.
@@ -596,7 +687,7 @@ func (m *Manager) MetricsInstances(ctx context.Context) []metrics.Instance {
 			if err != nil || st.Status != shim.Running {
 				continue
 			}
-			out = append(out, metrics.Instance{EnvID: r.EnvID, ID: in.id, Part: fmt.Sprintf("%s.%d", in.process, in.index), PID: st.AppPID})
+			out = append(out, metrics.Instance{SoftLimit: in.softLimit, EnvID: r.EnvID, ID: in.id, Part: fmt.Sprintf("%s.%d", in.process, in.index), PID: st.AppPID})
 		}
 	}
 	return out

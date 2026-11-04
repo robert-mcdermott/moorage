@@ -58,6 +58,10 @@ type setting struct{ Name, Value string }
 type userRow struct {
 	store.User
 	Self bool
+	// SecondFactor says that they have two-factor sign-in on.
+	SecondFactor bool
+	// SSO says that they sign in through a provider.
+	SSO bool
 }
 
 // adminData is what the administrator's pages begin with: they are for admins alone.
@@ -90,6 +94,11 @@ var settingsNotices = map[string]string{
 	"channel-removed":  "The channel is removed, and the rules that used it.",
 	"rule":             "The rule is added.",
 	"rule-removed":     "The rule is removed.",
+	"backup":           "A backup has started. This page says how it goes.",
+	"backups-set":      "That is where backups go now.",
+	"sign-in-set":      "That is how people sign in now. Try it in a private window before you sign out.",
+	"sign-in-off":      "Single sign-on is off, and everyone signs in with a password.",
+	"two-factor-off":   "Two-factor sign-in is off for them. They can sign in with their password, and set it up again.",
 }
 
 // adminAction guards a form for administrators.
@@ -160,6 +169,9 @@ func (c *Console) settingsPage(w http.ResponseWriter, r *http.Request) {
 				{"Browsers see", cfg.Proxy.ExternalScheme},
 				{"Trusted proxies", orNone(strings.Join(cfg.Proxy.Trusted, ", "))},
 			}},
+			{"Keeping apps apart", []setting{
+				{"Asked for", orDefault(cfg.Isolation.Level, "auto")},
+			}},
 			{"Notifications", []setting{
 				{"May also reach", orNone(strings.Join(cfg.Notifications.Allow, ", "))},
 			}},
@@ -192,8 +204,18 @@ func (c *Console) showUsers(w http.ResponseWriter, r *http.Request, code int, vi
 		c.internal(w, err)
 		return
 	}
+	secondFactors, err := c.db.UsersWithTOTP(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	identities, err := c.db.UsersWithIdentity(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
 	for _, u := range list {
-		view.Users = append(view.Users, userRow{User: u, Self: u.ID == p.UserID})
+		view.Users = append(view.Users, userRow{User: u, Self: u.ID == p.UserID, SecondFactor: secondFactors[u.ID], SSO: identities[u.ID]})
 	}
 	d.Settings = view
 	d.Failure = failed
@@ -396,6 +418,15 @@ func (c *Console) systemPage(w http.ResponseWriter, r *http.Request) {
 	if stat, err := os.Stat(filepath.Join(c.cfg.DataDir, "moorage.db")); err == nil {
 		view.Facts = append(view.Facts, setting{"Database", humanSizeOf(stat.Size())})
 	}
+	st := c.isolation()
+	limits := "An instance over its memory limit is restarted"
+	if st.Enforced() {
+		limits = "Enforced by the kernel"
+	}
+	view.Facts = append(view.Facts, setting{"Isolation", sentence(st.Describe())}, setting{"Limits", limits})
+	for _, note := range st.Notes {
+		view.Facts = append(view.Facts, setting{"About isolation", sentence(note)})
+	}
 	d.Settings = view
 	c.render(w, http.StatusOK, "settings-system", d)
 }
@@ -411,4 +442,11 @@ func humanSizeOf(n int64) string {
 		exp++
 	}
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + string("KMGTPE"[exp]) + "iB"
+}
+
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }

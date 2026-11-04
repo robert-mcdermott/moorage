@@ -190,6 +190,8 @@ func (d *Deployer) finishRun(run store.Run, err error, runCtx context.Context) {
 		exit = &zero
 	case runCtx.Err() != nil && errors.Is(runCtx.Err(), context.Canceled):
 		status, failure = store.RunCanceled, "it was stopped"
+	case errors.As(err, &exited) && exited.OutOfMemory:
+		status, failure = store.RunFailed, "it ran out of memory"
 	case errors.As(err, &exited) && exited.TimedOut > 0:
 		status, failure = store.RunFailed, fmt.Sprintf("it ran out of time, after %s", exited.TimedOut)
 	case errors.As(err, &exited):

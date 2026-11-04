@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"io"
 	"net/http"
 	"os"
@@ -37,6 +38,11 @@ type Sources struct {
 	UV string
 	// Python, if set, is the mirror of Python builds handed to uv.
 	Python string
+	// NodeKeys are the keys that Node.js releases are signed with: those that come with moor if nil.
+	NodeKeys openpgp.EntityList
+	// SignaturesOnlyWarn goes on with a release whose signature cannot be checked, saying so in the build's
+	// log. A signature that is wrong is never accepted.
+	SignaturesOnlyWarn bool
 }
 
 // DefaultSources are the projects' official download locations.
@@ -89,7 +95,9 @@ type file struct {
 	name   string
 	url    string
 	sha256 string // empty: read it from the provider's checksum file
-	sumURL string
+	// sigURL is a signature of the checksum file, by one of the keys of the release it belongs to.
+	sigURL, signedAs string
+	sumURL           string
 }
 
 // indexTTL is how long a provider's list of releases is reused.
@@ -402,7 +410,7 @@ func (m *Manager) nodeIndex(ctx context.Context) (cached, error) {
 		c.releases = append(c.releases, release{v: v, lts: strings.ToLower(lts)})
 		name := "node-v" + v.String() + "-" + platform + ext
 		dir := m.src.Node + "v" + v.String() + "/"
-		c.files[v.String()] = file{name: name, url: dir + name, sumURL: dir + "SHASUMS256.txt"}
+		c.files[v.String()] = file{name: name, url: dir + name, sumURL: dir + "SHASUMS256.txt", sigURL: dir + "SHASUMS256.txt.sig", signedAs: "Node.js " + v.String()}
 	}
 	return c, nil
 }
@@ -482,7 +490,7 @@ func (m *Manager) install(ctx context.Context, name, ver string, f file, log io.
 	want := f.sha256
 	if want == "" {
 		var err error
-		if want, err = m.checksum(ctx, f); err != nil {
+		if want, err = m.checksum(ctx, f, log); err != nil {
 			return err
 		}
 	}
@@ -514,7 +522,7 @@ func (m *Manager) install(ctx context.Context, name, ver string, f file, log io.
 
 // checksum reads a file's published SHA-256 from its checksum file: either
 // SHASUMS256.txt ("<hash>  <name>" lines) or a <file>.sha256 next to it.
-func (m *Manager) checksum(ctx context.Context, f file) (string, error) {
+func (m *Manager) checksum(ctx context.Context, f file, log io.Writer) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.sumURL, nil)
 	if err != nil {
 		return "", err
@@ -530,6 +538,11 @@ func (m *Manager) checksum(ctx context.Context, f file) (string, error) {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return "", err
+	}
+	if f.sigURL != "" {
+		if err := m.checkSignature(ctx, f, data, log); err != nil {
+			return "", err
+		}
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)

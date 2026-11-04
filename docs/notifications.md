@@ -82,7 +82,7 @@ maintainer of it, who can add it on the project's page or from the command line:
 moor notifications rules add --channel alerts --project web
 ```
 
-A rule says what it wants. Without `--events` it has the first four of these:
+A rule says what it wants. Without `--events` it has the first five of these:
 
 | Event | When |
 |---|---|
@@ -90,6 +90,7 @@ A rule says what it wants. Without `--events` it has the first four of these:
 | `instance.crashloop` | A process has exited three times in five minutes |
 | `cron.failed` | A cron job fails |
 | `server.disk_low` | The data volume is 90% full, which only a rule of the whole server hears |
+| `backup.failed` | A [backup](backups.md) fails, which only a rule of the whole server hears |
 | `instance.unhealthy` | An instance fails its health check |
 | `deployment.live` | A deployment goes live |
 
@@ -98,7 +99,8 @@ A rule says what it wants. Without `--events` it has the first four of these:
 - a deployment goes live after one that failed;
 - a process that kept crashing has not exited for 10 minutes, or a new release has replaced it;
 - all the instances that were unhealthy are healthy, or a new release has replaced them;
-- the data volume is below 85%.
+- the data volume is below 85%;
+- a backup works after one that failed.
 
 ```bash
 moor notifications rules add --channel alerts --app shop --events deployment.failed,deployment.live

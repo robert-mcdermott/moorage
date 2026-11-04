@@ -204,6 +204,9 @@ For administrators.
 - **Users:** add someone, and send them the link it makes: the server sends no email. Change
   a role, disable an account, or make a new link for someone who has lost their password.
 - **Registries:** the credentials of private container registries, sealed.
+- **Sign-in:** [single sign-on](sign-in.md) with your identity provider.
+- **Backups:** [where they go and how often](backups.md), what has been backed up, and a button to
+  back up now.
 - **Notifications:** [channels](notifications.md#channels), each with when it last sent something and
   why it failed if it did, a way to send it a test, and the rules that say what goes to it.
 - **Audit log:** [who did what](accounts.md#who-did-what), to search and to download.

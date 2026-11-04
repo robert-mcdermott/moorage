@@ -234,6 +234,7 @@
   <a href="/account/keys"{{if eq .Tab "keys"}} aria-current="page"{{end}}>SSH keys</a>
   <a href="/account/tokens"{{if eq .Tab "tokens"}} aria-current="page"{{end}}>API tokens</a>
   <a href="/account/sessions"{{if eq .Tab "sessions"}} aria-current="page"{{end}}>Sessions</a>
+  <a href="/account/security"{{if eq .Tab "security"}} aria-current="page"{{end}}>Two-factor</a>
 </nav>
 {{end}}
 
@@ -261,6 +262,63 @@
     <div class="actions"><button type="submit">Change it</button></div>
   </form>
 </section>
+{{end}}
+
+{{define "account-security"}}
+{{template "account-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Account.Security}}
+{{if .NewCodes}}
+<section class="panel panel-pad secret-once" role="status">
+  <h2>Two-factor sign-in is on</h2>
+  <p>If you lose your authenticator app, one of these gets you in, once each. Keep them somewhere safe: this is the only time they are shown.</p>
+  <ul class="recovery-codes">{{range .NewCodes}}<li><code>{{.}}</code></li>{{end}}</ul>
+</section>
+{{end}}
+{{if .On}}
+<section class="panel panel-pad{{if .NewCodes}} block{{end}}">
+  <h2><span class="badge ok">On</span> Two-factor sign-in</h2>
+  <p class="muted">Signing in takes your password and a code from your authenticator app. You have {{countText .CodesLeft "recovery code" "recovery codes"}} left.{{if not .NewCodes}} Turn it off and on again for new ones.{{end}}</p>
+  <form class="narrow-form" method="post" action="/account/security/off" data-confirm="Turn off two-factor sign-in?">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="off-password">Your password</label><input id="off-password" type="password" name="password" required autocomplete="current-password"></div>
+    <div class="actions"><button class="quiet danger" type="submit">Turn it off</button></div>
+  </form>
+</section>
+{{else if .URI}}
+<section class="panel panel-pad two-factor-setup">
+  <div class="qr" role="img" aria-label="A QR code to add this account to an authenticator app">{{.QR}}</div>
+  <div>
+    <h2>Add this account to your authenticator app</h2>
+    <p class="muted">Scan the code, or type this key by hand.</p>
+    {{template "command" .Key}}
+    <form method="post" action="/account/security/confirm" autocomplete="off" data-busy="Turning it on…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="confirm-code">Then enter the code it shows, to show that it works</label>
+        <input id="confirm-code" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="8" spellcheck="false" autofocus>
+      </div>
+      <div class="actions"><button type="submit">Turn it on</button></div>
+    </form>
+  </div>
+</section>
+{{else if .ThroughProvider}}
+<section class="panel panel-pad">
+  <h2><span class="badge">Off</span> Two-factor sign-in</h2>
+  <p class="muted">You do not sign in here with a password, so that a code here would have nothing to add to. Whoever signs you in decides what that takes.</p>
+</section>
+{{else}}
+<section class="panel panel-pad">
+  <h2><span class="badge">Off</span> Two-factor sign-in</h2>
+  <p class="muted">With this on, signing in takes your password and a code from an authenticator app on your phone, so that a password someone has found gets them nowhere.</p>
+  <form class="narrow-form" method="post" action="/account/security/start">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="start-password">Your password</label><input id="start-password" type="password" name="password" required autocomplete="current-password"></div>
+    <div class="actions"><button type="submit">Set it up</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
 {{end}}
 
 {{define "account-keys"}}
@@ -427,7 +485,9 @@
   <a href="/settings"{{if eq .Tab "server"}} aria-current="page"{{end}}>Server</a>
   <a href="/settings/users"{{if eq .Tab "users"}} aria-current="page"{{end}}>Users</a>
   <a href="/settings/registries"{{if eq .Tab "registries"}} aria-current="page"{{end}}>Registries</a>
+  <a href="/settings/sign-in"{{if eq .Tab "sign-in"}} aria-current="page"{{end}}>Sign-in</a>
   <a href="/settings/notifications"{{if eq .Tab "notifications"}} aria-current="page"{{end}}>Notifications</a>
+  <a href="/settings/backups"{{if eq .Tab "backups"}} aria-current="page"{{end}}>Backups</a>
   <a href="/settings/audit"{{if eq .Tab "audit"}} aria-current="page"{{end}}>Audit log</a>
   <a href="/settings/system"{{if eq .Tab "system"}} aria-current="page"{{end}}>System</a>
 </nav>
@@ -463,7 +523,7 @@
 {{end}}
 <div class="panel table-scroll{{if .Invitation}} block{{end}}">
   <table class="apps users">
-    <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Two-factor</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
     <tbody>
     {{range .Users}}
     <tr>
@@ -481,7 +541,13 @@
           <button class="quiet small" type="submit" data-autosubmit-button>Set</button>
         </form>
       </td>
-      <td data-label="Status">{{if .Disabled}}<span class="badge fail">Disabled</span>{{else if not .PasswordHash}}<span class="badge info">Invited</span>{{else}}<span class="badge ok">Active</span>{{end}}</td>
+      <td data-label="Two-factor">{{if .SecondFactor}}<span class="badge ok">On</span>
+        <form class="inline-form" method="post" action="/settings/users/second-factor-off" data-confirm="Turn off two-factor sign-in for {{.Email}}? Do this for someone who has lost their authenticator app and their recovery codes.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="user" value="{{.ID}}">
+          <button class="quiet small" type="submit">Turn off</button>
+        </form>{{else}}<span class="muted">Off</span>{{end}}</td>
+      <td data-label="Status">{{if .Disabled}}<span class="badge fail">Disabled</span>{{else if .SSO}}<span class="badge ok">Single sign-on</span>{{else if not .PasswordHash}}<span class="badge info">Invited</span>{{else}}<span class="badge ok">Active</span>{{end}}</td>
       <td class="row-end">
         <form class="inline-form" method="post" action="/settings/users/invite">
           <input type="hidden" name="csrf" value="{{$csrf}}">
@@ -566,6 +632,131 @@
     <div class="field"><label for="reg-pass">Password or token</label><input id="reg-pass" type="password" name="password" required autocomplete="new-password"></div>
     <p class="muted small">Sealed with the server's master key, and never shown again.</p>
     <div class="actions"><button type="submit">Keep the credentials</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{define "settings-sign-in"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .SignIn}}
+<section class="panel panel-pad">
+  <h2>{{if .On}}<span class="badge ok">On</span> Single sign-on{{else}}<span class="badge">Off</span> Single sign-on{{end}}</h2>
+  <p class="muted">People sign in through your identity provider, with OpenID Connect. Tell it this address to send them back to:</p>
+  {{template "command" .Redirect}}
+  {{if .On}}
+  <form method="post" action="/settings/sign-in/off" data-confirm="Turn off single sign-on? Everyone goes back to signing in with a password.">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="actions"><button class="quiet danger" type="submit">Turn it off</button></div>
+  </form>
+  {{end}}
+</section>
+<form class="panel panel-pad block rule-form" method="post" action="/settings/sign-in" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <h3>Your provider</h3>
+  <div class="field"><label for="sso-issuer">Its address</label><input id="sso-issuer" name="issuer" value="{{.Issuer}}" type="url" required spellcheck="false" autocomplete="off" placeholder="https://login.example.com/realms/acme"></div>
+  <div class="field"><label for="sso-client">Client ID</label><input id="sso-client" name="client_id" value="{{.ClientID}}" required spellcheck="false" autocomplete="off"></div>
+  <div class="field"><label for="sso-secret">Client secret</label><input id="sso-secret" name="client_secret" type="password" autocomplete="new-password"{{if .HasSecret}} placeholder="Kept, sealed: leave this to keep it"{{end}}></div>
+  <div class="field"><label for="sso-label">What the button says</label><input id="sso-label" name="label" value="{{.Label}}" autocomplete="off" placeholder="Acme login"></div>
+  <div class="field"><label for="sso-scopes">More scopes to ask for</label><input id="sso-scopes" name="scopes" value="{{.Scopes}}" spellcheck="false" autocomplete="off" placeholder="groups">
+    <p class="hint small">Beyond <code>openid</code>, <code>email</code> and <code>profile</code>. Separated by spaces.</p>
+  </div>
+  <h3>Who gets in</h3>
+  <div class="field"><label for="sso-domains">Addresses at</label><input id="sso-domains" name="email_domains" value="{{.EmailDomains}}" spellcheck="false" autocomplete="off" placeholder="example.com example.org">
+    <p class="hint small">Those a first sign-in may be from. Empty is anyone your provider signs in.</p>
+  </div>
+  <label class="check"><input type="checkbox" name="provision" value="1"{{if .Provision}} checked{{end}}> Make an account for someone new, the first time they sign in, who can look at the default project and do nothing else until you say</label>
+  <label class="check"><input type="checkbox" name="trust_emails" value="1"{{if .TrustEmails}} checked{{end}}> Take your provider's word for an address it does not call verified</label>
+  <p class="hint small">Someone joins the account with their address the first time they sign in. That needs your provider to say the address is verified, or whoever can set an address there could be anyone here, an administrator included. Tick this only if your provider leaves that out and nobody can choose their own address there.</p>
+  <h3>What they may do</h3>
+  <div class="field"><label for="sso-claim">The claim with their groups</label><input id="sso-claim" name="group_claim" value="{{.GroupClaim}}" spellcheck="false" autocomplete="off" placeholder="groups"></div>
+  <div class="field"><label for="sso-rules">What those groups mean</label><textarea id="sso-rules" name="group_rules" rows="4" spellcheck="false" placeholder="ops = admin&#10;web-team = project web maintainer">{{.GroupRules}}</textarea>
+    <p class="hint small">One to a line: <code>GROUP = admin</code>, or <code>GROUP = project NAME</code> and a role of <code>viewer</code>, <code>deployer</code> or <code>maintainer</code>. They are applied each time someone signs in. What they do not mention stays as you set it.</p>
+  </div>
+  <h3>Passwords</h3>
+  <label class="check"><input type="checkbox" name="passwords_off" value="1"{{if .PasswordsOff}} checked{{end}}> Only sign in through the provider, and not with passwords</label>
+  <p class="hint small">If your provider then goes away, <code>moor server sso off</code> on this server gives passwords back. Two-factor sign-in is then up to your provider too.</p>
+  <div class="actions"><button type="submit">Save</button></div>
+</form>
+{{end}}
+{{end}}
+
+{{define "settings-backups"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Backups}}
+<section class="panel panel-pad backup-head">
+  <div>
+    <h2>{{if .InEffectSchedule}}On a schedule: <code>{{.InEffectSchedule}}</code>{{else}}No schedule yet{{end}}</h2>
+    <p class="muted">{{if .Next.IsZero}}Backups happen when you ask for them.{{else}}The next one is <time datetime="{{iso .Next}}">{{untilText .Next}}</time>.{{end}} They go to <code>{{if .Bucket}}{{.Bucket}}{{else if .Path}}{{.Path}}{{else}}{{.Default}}{{end}}</code>.</p>
+    {{if .InEffectLocal}}<p class="notice warn">That is on this server's own disk, which is a start and not a plan: if the disk goes, so do they. Say somewhere else below.</p>{{end}}
+    <p class="muted small">They leave out the master key, without which their secrets cannot be read. Keep <code>{{.KeyPath}}</code> safe, and apart from them. <a href="https://github.com/robert-mcdermott/moorage/blob/main/docs/backups.md">How to restore</a></p>
+  </div>
+  <form method="post" action="/settings/backups/now" data-busy="Starting…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button type="submit"{{if .Going}} disabled{{end}}>Back up now</button>
+  </form>
+</section>
+<section class="block">
+  <div class="section-heading"><h2>What has been backed up</h2></div>
+  <div data-refresh="backups"{{if .Going}} data-poll{{end}}>
+  {{if .Items}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Status</th><th scope="col">When</th><th scope="col">Size</th><th scope="col">Took</th><th scope="col">Where</th></tr></thead>
+      <tbody>
+      {{range .Items}}
+      <tr>
+        <td>{{if eq .Status "done"}}<span class="badge ok">Done</span>{{else if eq .Status "running"}}<span class="badge pulse">Going on</span>{{else}}<span class="badge fail">Failed</span>{{end}}</td>
+        <td class="muted" data-label="When"><time datetime="{{iso .StartedAt}}">{{ago .StartedAt}}</time>{{if .CreatedBy}} by {{.CreatedBy}}{{else if eq .Trigger "schedule"}}, on schedule{{else if eq .Trigger "command"}}, from the command line{{end}}</td>
+        <td data-label="Size">{{with .Size}}{{.}}{{else}}—{{end}}</td>
+        <td class="muted" data-label="Took">{{with .Took}}{{.}}{{else}}—{{end}}</td>
+        <td class="wrap-anywhere" data-label="Where">{{.Destination}}{{with .Name}}<div class="muted small">{{.}}</div>{{end}}{{with .Error}}<div class="small fail-text">{{.}}</div>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <section class="panel empty">
+    <h2>Nothing backed up yet</h2>
+    <p>A backup holds the database, repositories, builds, apps' data and certificates, and the server can go on running while it is made.</p>
+  </section>
+  {{end}}
+  </div>
+</section>
+<section class="block">
+  <div class="section-heading"><h2>Where they go, and how often</h2></div>
+  <form class="panel panel-pad rule-form" method="post" action="/settings/backups/config" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="backup-kind">Where</label>
+      <select id="backup-kind" name="kind" data-kind-choice>
+        <option value="path"{{if eq .Kind "path"}} selected{{end}}>A directory on this server</option>
+        <option value="s3"{{if eq .Kind "s3"}} selected{{end}}>A bucket, S3 or a service like it</option>
+      </select>
+    </div>
+    <div data-kinds="path">
+      <div class="field"><label for="backup-path">Directory</label><input id="backup-path" name="path" value="{{.Path}}" spellcheck="false" autocomplete="off" placeholder="{{.Default}}">
+        <p class="hint small">A full path. Another disk, or one mounted from elsewhere, is what makes it a backup.</p>
+      </div>
+    </div>
+    <div data-kinds="s3">
+      <div class="field"><label for="backup-bucket">Bucket</label><input id="backup-bucket" name="bucket" value="{{.Bucket}}" spellcheck="false" autocomplete="off" placeholder="s3://acme-backups/moorage"></div>
+      <div class="field"><label for="backup-endpoint">Address of the service, if not AWS</label><input id="backup-endpoint" name="endpoint" value="{{.Endpoint}}" type="url" spellcheck="false" autocomplete="off" placeholder="https://s3.example.com"></div>
+      <div class="field"><label for="backup-region">Region</label><input id="backup-region" name="region" value="{{.Region}}" spellcheck="false" autocomplete="off" placeholder="us-east-1"></div>
+      <div class="field"><label for="backup-access">Access key</label><input id="backup-access" name="access_key" value="{{.AccessKey}}" spellcheck="false" autocomplete="off"></div>
+      <div class="field"><label for="backup-secret">Secret key</label><input id="backup-secret" name="secret_key" type="password" autocomplete="new-password"{{if .HasSecret}} placeholder="Kept, sealed: leave this to keep it"{{end}}></div>
+    </div>
+    <div class="field"><label for="backup-schedule">Schedule</label><input id="backup-schedule" name="schedule" value="{{.Schedule}}" spellcheck="false" autocomplete="off" placeholder="@daily">
+      <p class="hint small">A cron expression, such as <code>@daily</code> or <code>0 3 * * *</code>. Empty is only when you ask.</p>
+    </div>
+    <div class="field"><label for="backup-keep">How many to keep</label><input id="backup-keep" name="keep" value="{{.Keep}}" inputmode="numeric" autocomplete="off">
+      <p class="hint small">When a scheduled one finishes, older ones go. 0 keeps them all.</p>
+    </div>
+    <div class="actions"><button class="quiet" type="submit">Save</button></div>
   </form>
 </section>
 {{end}}
@@ -771,6 +962,13 @@
       </li>
       {{end}}
     </ul>
+  </div>
+</section>
+<section class="block">
+  <div class="section-heading"><h2>This server's configuration</h2></div>
+  <div class="panel panel-pad">
+    <p class="muted">People, projects, registries, notifications, backups and sign-in, as a file to keep or to bring to another server with <code>moor server config import</code>. It has no secrets in it. <a href="https://github.com/robert-mcdermott/moorage/blob/main/docs/backups.md#the-servers-configuration">More about this</a></p>
+    <p class="actions"><a class="button quiet" href="/settings/system/configuration" download>Download</a></p>
   </div>
 </section>
 {{end}}

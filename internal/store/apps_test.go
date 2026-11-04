@@ -228,3 +228,37 @@ func TestPruneRuns(t *testing.T) {
 		}
 	}
 }
+
+// TestAppUID gives an app a user for good, and never gives it to another.
+func TestAppUID(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	for _, app := range []string{"shop", "blog"} {
+		if _, _, err := db.EnsureApp(ctx, app); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shop, err := db.AppUID(ctx, "shop", 300000)
+	if err != nil || shop != 300000 {
+		t.Fatalf("%d %v", shop, err)
+	}
+	blog, err := db.AppUID(ctx, "blog", 300000)
+	if err != nil || blog != 300002 {
+		t.Fatalf("%d %v", blog, err)
+	}
+	if again, err := db.AppUID(ctx, "shop", 300000); err != nil || again != shop {
+		t.Errorf("%d %v", again, err)
+	}
+	if _, err := db.AppUID(ctx, "nothing", 300000); err == nil {
+		t.Error("a user for no app")
+	}
+	if err := db.DeleteApp(ctx, "blog"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.EnsureApp(ctx, "next"); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := db.AppUID(ctx, "next", 300000); err != nil || next != 300004 {
+		t.Errorf("the user of a deleted app: %d %v", next, err)
+	}
+}

@@ -1023,20 +1023,66 @@ directory, supervises it, and serves it on its own hostname.
      running `ps` so often. Windows says that access is denied when a folder has a file's name, so
      that errors should go by what is there, and not by what the error says.
 
-## 0.6.0: hardened (planned)
+## 0.6.0: hardened (released 2026-11-04)
 
 ### Wave 6
 
 1. **Linux isolation.** Per-app UIDs, cgroup limits, the Landlock sandbox,
    soft enforcement elsewhere; limits and the effective isolation level in
    the console. Runs spike S7.
+   - Done in slice 1: all of that, as `[isolation]` in `server.toml` and `[resources]` in the
+     manifest, with `.github/scripts/isolation-check.py` trying it on a real server as root in CI.
+     Builds have a user and a cache of their own, in the app's group.
+   - Found by slice 1: limits are not a level, so that `[resources]` is enforced as far as a server
+     can at any level. The service's own cgroup cannot hand out controllers on a systemd older than
+     254, whose restart then fails, so that limits have a top-level group. A change of user cancels
+     the parent-death signal. Landlock is per thread until exec, so that the helper keeps to one.
 2. **Backups.** On demand and scheduled, to a local path or S3-compatible
    storage; restore; an automated restore drill in CI.
+   - Done in slice 2: all of that, with `moor server backup`, `restore` and a page in Settings. S3 is
+     a small client of its own, signed and uploading in parts, rather than a large dependency.
+   - Found by slice 2: builds have to be in a backup as well, or a restored server cannot run what it
+     served, and an upload has nothing to rebuild from. A snapshot has to record its own backup as
+     done, or the restored server says that it was interrupted. An archive needs an end, so that one
+     that stopped halfway cannot be mistaken for a smaller backup.
 3. **Identity.** OIDC single sign-on, TOTP, trusted-header authentication
    behind an authenticating proxy.
+   - Done in slice 3: all of those, with **Settings → Sign-in**, **Your account → Two-factor** and
+     `[auth]` in `server.toml`.
+   - Found by slice 3: a provider's subject identifies someone, and an address can only join them up
+     once, or whoever can change an address at the provider becomes someone else. Turning off
+     passwords needs a way back that does not depend on the provider. An invitation that signs
+     someone in would be a way around a second factor. Trusting a header from this machine's own address trusts
+     every app on it, so the server warns. The S3 server image that the restore drill used is no longer
+     published, so it runs against another. With a real bucket in it, the drill found that two restores
+     within a second collided part of the way through, leaving half of each: restores now get a directory
+     of their own, and put everything back if they fail.
 4. **Lifecycle.** Self-upgrade with rollback; server configuration export and
    import; provenance checks for toolchain downloads where published.
+   - Done in slice 4: `moor server upgrade`, with `--check`, `--version`, `--from`, `--wait` and `--rollback`; a
+     list of what went into a release; an attestation of the workflow that built it.
+     `moor server config export` and `import`, with `--dry-run`, and **Settings → System** to download it.
+     The signature on Node.js's checksums, against its releasers' keys, which come with moor.
+   - Found by slice 4: a file of settings is only worth keeping if it holds no secrets, and only safe to bring
+     in if it removes nothing, so that it names variables of the environment and keeps what is there.
+     Of the toolchains, only Node.js publishes a signature that can be checked with what moor already has: Go's
+     index and uv's checksums stay as they were, and uv's attestations would take a Sigstore client. A new
+     releaser's key needs a new moor, so `signatures = "warn"` is there for when that comes first; a signature
+     that is wrong is refused either way. The service check, on real systemd and launchd, found that going
+     back from a version that had not come up left the server stopped.
+     Rolling back should cost nothing unless it must, so the database only goes back if
+     the schema moved on. A release's binary should not run at all until it has passed its checks. The
+     browser check counted the sign-in page as a page that worked, so a signed-out browser passed it; and
+     its failure once in three runs on WebKit turned out to be that browser losing its cookies, which it now
+     shows by finding the session still on the server.
 5. **Release 0.6.0.**
+   - Found by independent review, and fixed, among much else: as root, a server wrote and read through links that
+     a build step had left, and sealing a build changed files it shared with other apps' builds through a package
+     manager's cache. What never runs as an app was open to every app. Restoring took whatever an archive held, and
+     a backup read through links that an app could swap in. Exporting a configuration could run for ever, and
+     importing one took away what it did not mention. An address a provider did not call verified could join an
+     administrator's account. The lesson of it: unit tests found few of these, and a person's scenario or an
+     attacker's plan found most. The drills on real services found what no test had.
 
 ## 0.7.0: Windows, forges and the terminal (planned)
 
@@ -1162,4 +1208,4 @@ slice before code is built on a failed assumption.
   the OpenAPI contract once it exists), the CHANGELOG's Unreleased section
   updated, CI green on every target.
 - **Releases:** binaries for six targets with SHA-256 checksums, drafted from
-  the CHANGELOG; signatures and an SBOM from wave 6.
+  the CHANGELOG; an SBOM and an attestation from wave 6.

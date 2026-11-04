@@ -56,12 +56,32 @@
 
 {{define "login"}}
 <h1>Sign in</h1>
+{{with .SSOLabel}}
+<p class="actions"><a class="button{{if $.Passwords}} quiet{{end}}" href="/login/sso?next={{urlquery $.Next}}">Sign in with {{.}}</a></p>
+{{end}}
+{{if .Passwords}}
+{{if .SSOLabel}}<p class="muted small or-line">or with a password</p>{{end}}
 <form method="post" action="/login">
   <input type="hidden" name="next" value="{{.Next}}">
   <label for="email">Email address</label>
-  <input id="email" name="email" type="email" autocomplete="username" value="{{.Email}}" required autofocus>
+  <input id="email" name="email" type="email" autocomplete="username" value="{{.Email}}" required{{if not .SSOLabel}} autofocus{{end}}>
   <label for="password">Password</label>
   <input id="password" name="password" type="password" autocomplete="current-password" required>
+  {{template "alert" .}}
+  <div class="actions"><button type="submit">Sign in</button></div>
+</form>
+{{else}}
+{{template "alert" .}}
+{{end}}
+{{end}}
+
+{{define "login-code"}}
+<h1>Enter the code</h1>
+<p>From your authenticator app, or one of your recovery codes.</p>
+<form method="post" action="/login/code" autocomplete="off">
+  <input type="hidden" name="next" value="{{.Next}}">
+  <label for="code">Code</label>
+  <input id="code" name="code" autocomplete="one-time-code" autocapitalize="off" required spellcheck="false" autofocus>
   {{template "alert" .}}
   <div class="actions"><button type="submit">Sign in</button></div>
 </form>

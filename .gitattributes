@@ -1,0 +1,3 @@
+# These are checked byte for byte against their signatures, so a checkout must not change their line endings.
+internal/toolchain/testdata/* -text
+internal/toolchain/node-release-keys/*.asc -text

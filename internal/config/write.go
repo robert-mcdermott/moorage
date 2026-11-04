@@ -162,6 +162,28 @@ production = {{q .Access.Production}}
 named      = {{q .Access.Named}}
 preview    = {{q .Access.Preview}}
 
+{{- if .Auth.TrustedHeader}}
+[auth]
+trusted_header = {{q .Auth.TrustedHeader}}
+{{- if .Auth.TrustedNameHeader}}
+trusted_name_header = {{q .Auth.TrustedNameHeader}}
+{{- end}}
+trusted_provision = {{.Auth.TrustedProvision}}
+
+{{- end}}
+[isolation]
+# How apps are kept from one another: "auto" is "user" where the server runs as root on
+# Linux and "none" elsewhere. "user" gives each app an operating system user of its own, and
+# "sandbox" also confines it to its own files with Landlock.
+{{- if .Isolation.Level}}
+level = {{q .Isolation.Level}}
+{{- else}}
+# level = "auto"
+{{- end}}
+{{- if .Isolation.UIDBase}}
+uid_base = {{.Isolation.UIDBase}}
+{{- end}}
+
 [notifications]
 # What webhooks and mail servers may be at, though they would be refused as this machine,
 # a link-local address or a cloud's metadata service.
@@ -221,6 +243,9 @@ external_scheme = {{q .Proxy.ExternalScheme}}
 # node_url   = "https://nodejs.org/dist/"
 # uv_url     = "https://github.com/astral-sh/uv/releases"
 # python_url = ""   # handed to uv as its Python mirror
+# A Node.js release has to be signed by a releaser this moor knows. "warn" goes on if that cannot be checked,
+# for a mirror with no signatures, or a new releaser. A signature that is wrong is always refused.
+# signatures = "warn"
 
 [containers]
 # What runs apps in containers: "auto" for Podman if it is installed, or else

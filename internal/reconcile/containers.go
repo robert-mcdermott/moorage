@@ -11,6 +11,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/ids"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/shim"
@@ -48,6 +49,9 @@ func (m *Manager) containerData(app, env string) (string, error) {
 		return "", err
 	}
 	if err := os.Chmod(dir, 0o777); err != nil {
+		return "", err
+	}
+	if err := isolate.CloseAbove(dir); err != nil {
 		return "", err
 	}
 	return dir, nil

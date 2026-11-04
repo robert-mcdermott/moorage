@@ -12,6 +12,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -200,7 +201,7 @@ func (d *Deployer) RenameApp(ctx context.Context, app, name, by string) error {
 	moved := [][2]string{}
 	undo := func() {
 		for i := len(moved) - 1; i >= 0; i-- {
-			if err := os.Rename(moved[i][1], moved[i][0]); err != nil {
+			if err := platform.RenameDir(moved[i][1], moved[i][0]); err != nil {
 				d.log.Error("put an app's files back", "from", moved[i][1], "to", moved[i][0], "err", err)
 			}
 		}
@@ -214,7 +215,7 @@ func (d *Deployer) RenameApp(ctx context.Context, app, name, by string) error {
 			undo()
 			return err
 		}
-		if err := os.Rename(dir, targets[i]); err != nil {
+		if err := platform.RenameDir(dir, targets[i]); err != nil {
 			undo()
 			return fmt.Errorf("move %s: %w", dir, err)
 		}

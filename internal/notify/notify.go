@@ -48,6 +48,7 @@ var RuleEvents = []RuleEvent{
 	{CrashLoop, "An app keeps crashing", true},
 	{events.CronFailed, "A cron job fails", true},
 	{events.DiskLow, "The server's disk is nearly full", true},
+	{events.BackupFailed, "A backup fails", true},
 	{events.InstanceUnhealthy, "An instance is unhealthy", false},
 	{events.DeploymentLive, "A deployment goes live", false},
 }
@@ -302,6 +303,14 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 	case events.DiskLow:
 		s.failing[diskKey] = true
 		alerts = append(alerts, events.DiskLow)
+	case events.BackupFailed:
+		s.failing[backupKey] = true
+		alerts = append(alerts, events.BackupFailed)
+	case events.BackupDone:
+		if s.failing[backupKey] {
+			delete(s.failing, backupKey)
+			recovered = append(recovered, recovery{kind: events.BackupFailed, summary: "A backup worked after one that failed"})
+		}
 	case events.DiskOK:
 		if s.failing[diskKey] {
 			delete(s.failing, diskKey)
@@ -311,7 +320,10 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 	return alerts, recovered
 }
 
-const diskKey = "disk"
+const (
+	diskKey   = "disk"
+	backupKey = "backup"
+)
 
 func (s *Service) anyUnhealthy(where string) bool {
 	for key := range s.unhealthy {
@@ -388,6 +400,9 @@ func (s *Service) linkOf(e store.Event) string {
 			link += "?env=" + url.QueryEscape(e.Env)
 		}
 		return link
+	}
+	if strings.HasPrefix(e.Type, "backup.") {
+		return s.ConsoleURL + "/settings/backups"
 	}
 	return s.ConsoleURL + "/settings/system"
 }
@@ -545,6 +560,18 @@ func (s *Service) noteResult(ctx context.Context, c store.NotificationChannel, e
 	}
 }
 
+// ChannelConfig opens what a channel keeps sealed.
+func (s *Service) ChannelConfig(c store.NotificationChannel) (Config, error) { return s.configOf(c) }
+
+// SetChannelConfig changes where a channel goes, keeping it, and so its rules.
+func (s *Service) SetChannelConfig(ctx context.Context, c store.NotificationChannel, cfg Config) error {
+	plain, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return s.DB.SetNotificationChannelSealed(ctx, c.ID, s.Keyring.SealChannel(c.ID, plain))
+}
+
 func (s *Service) configOf(c store.NotificationChannel) (Config, error) {
 	var cfg Config
 	plain, err := s.Keyring.OpenChannel(c.ID, c.Sealed)
@@ -592,13 +619,13 @@ func (s *Service) Target(c store.NotificationChannel) string {
 	return u.Host
 }
 
-// AddRule keeps a rule: for an app, or a project, or the whole server.
-func (s *Service) AddRule(ctx context.Context, channel, project, app string, kinds []string, by string) (store.NotificationRule, error) {
+// CheckRule says what is wrong with a rule, if anything is.
+func CheckRule(project, app string, kinds []string) error {
 	if project != "" && app != "" {
-		return store.NotificationRule{}, &InvalidError{"A rule is for a project or an app, not both."}
+		return &InvalidError{"A rule is for a project or an app, not both."}
 	}
 	if len(kinds) == 0 {
-		return store.NotificationRule{}, &InvalidError{"A rule needs something to ask for."}
+		return &InvalidError{"A rule needs something to ask for."}
 	}
 	for _, k := range kinds {
 		known := k == Everything
@@ -606,8 +633,16 @@ func (s *Service) AddRule(ctx context.Context, channel, project, app string, kin
 			known = known || e.Kind == k
 		}
 		if !known {
-			return store.NotificationRule{}, &InvalidError{fmt.Sprintf("%q is not something a rule can ask for.", k)}
+			return &InvalidError{fmt.Sprintf("%q is not something a rule can ask for.", k)}
 		}
+	}
+	return nil
+}
+
+// AddRule keeps a rule: for an app, or a project, or the whole server.
+func (s *Service) AddRule(ctx context.Context, channel, project, app string, kinds []string, by string) (store.NotificationRule, error) {
+	if err := CheckRule(project, app, kinds); err != nil {
+		return store.NotificationRule{}, err
 	}
 	c, err := s.DB.NotificationChannel(ctx, channel)
 	if err != nil {
@@ -634,7 +669,7 @@ func (s *Service) Test(ctx context.Context, channel, by string) (store.Notificat
 }
 
 // toldInConsole are the alerts people are told of in the console, whatever the rules say.
-var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow}
+var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow, events.BackupFailed}
 
 // tellPeople puts an alert in the console of those it concerns: a project's maintainers, whoever
 // pushed a deployment that failed and, for all of it, the server's administrators.

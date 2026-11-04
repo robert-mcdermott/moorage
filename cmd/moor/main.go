@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/robert-mcdermott/moorage/internal/cli"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/shell"
 	"github.com/robert-mcdermott/moorage/internal/shim"
 )
@@ -19,6 +20,8 @@ func main() {
 			os.Exit(shim.Main(os.Args[2:]))
 		case "sh":
 			os.Exit(shell.Main(os.Args[2:]))
+		case isolate.HelperArg:
+			os.Exit(isolate.Main(os.Args[2:]))
 		}
 	}
 	os.Exit(cli.Main(os.Args[1:], os.Stdout, os.Stderr))

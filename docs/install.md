@@ -1,7 +1,7 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. Version 0.5.0 runs on Linux and macOS (amd64 and arm64); on Windows,
+to it. Version 0.6.0 runs on Linux and macOS (amd64 and arm64); on Windows,
 `moor` runs as a command line and `moor server run` works, but installing the
 server as a service arrives in a later release.
 
@@ -52,18 +52,18 @@ sudo sh install-moor.sh
 
 | Variable | `install.sh` | `install.ps1` | |
 |---|---|---|---|
-| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.5.0`. By default, the latest |
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.6.0`. By default, the latest |
 | `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
 | `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
 | `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
 | `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.5.0 sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.6.0 sh
 ```
 
 ```powershell
-$env:MOOR_VERSION = 'v0.5.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+$env:MOOR_VERSION = 'v0.6.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
 
 **On Windows,** `irm … | iex` reads the script into memory and runs it, so the
@@ -285,34 +285,86 @@ need room as well, which depends on what you build, and logs and [metrics](metri
 
 ## Back up
 
-The data directory holds everything: the database, the builds, the apps'
-data directories and the keys. **Back up `keys/master.key` on its own**: it
-encrypts the apps' secrets, and a copy of the database is of no use for
-them without it. Take a copy of the database while the server runs with
-`sqlite3 moorage.db ".backup backup.db"`, or stop the server first (the
-apps keep running).
+```bash
+moor server backup --to /mnt/backups
+```
+
+That holds the database, repositories, builds, apps' data and certificates, and the server goes on
+running. **Keep `keys/master.key` safe, and apart from your backups**: it encrypts the apps' secrets,
+and a backup leaves it out. See [backups](backups.md) for a schedule, buckets and restoring.
 
 ## Upgrading
 
-Run the installer again, as the same user: it replaces `moor` where it is, and says
-what it upgraded from. To go back, give it an earlier release with `MOOR_VERSION`.
+From 0.6.0, a server upgrades itself. To get to 0.6.0 from an earlier version, [run the installer](#with-the-installer)
+once, and restart the server.
 
-Then restart the server, to use the new version:
+```bash
+moor server upgrade --check
+```
+
+```bash
+sudo moor server upgrade
+```
+
+That downloads the newest release and checks it against the checksum published with it. It then keeps a copy of the database and of the binary, puts the new binary in place, and
+restarts the server. Running apps keep running, and the new server takes them over. **If the server does not
+come up on the new version, everything goes back by itself.** A database from a large server can take a
+while to migrate: `--wait 10m` gives it longer than the 2 minutes it otherwise has.
+
+| Option | What it does |
+|---|---|
+| `--check` | Only says whether there is a newer version |
+| `--version 0.6.1` | Upgrades to that version, and not the newest |
+| `--from DIR` | Takes the release from a directory or an address, for a mirror or a machine with no way out. It holds a release's files |
+| `--wait 10m` | Gives the new version longer to come up |
+
+To go back later:
+
+```bash
+sudo moor server upgrade --rollback
+```
+
+That puts back the binary, and leaves the database alone if the new version did not change it. If it did, the
+previous version could not read it, so it goes back to its copy from before the upgrade. What has happened
+since is then lost from it, so after 10 minutes this takes `--force`, and what it replaced is kept beside the
+copy, in `upgrades` in the data directory. There is one way back: from the last upgrade.
+
+A server that nothing manages, run with `moor server run`, gets its new binary, and goes on with the version
+it started with until you restart it. To go back, stop it first.
+
+Upgrade `moor` on the other machines that use the server too, by running the installer again: a newer server
+may change what the API answers. `moor server doctor` then checks the result.
+
+### With the installer
+
+The installer can upgrade a server as well, without the copies or the way back. Run it again as the same
+user, which replaces `moor` where it is and says what it upgraded from, and restart the server:
 
 ```bash
 sudo moor server restart
 ```
 
-Running apps keep running, and the new server takes them over. Until you restart it, a
-server goes on with the version it started with. It migrates the database as it
-starts, after keeping a snapshot in `backups` in the data directory. Upgrade `moor` on
-the other machines that use the server too: a newer server may change what the API
-answers. `moor server doctor` then checks the result.
+Until you do, a server goes on with the version it started with. A newer server changes the database as it starts,
+after keeping a copy in `backups` in the data directory, and an older one refuses a database that has moved on.
+So to go back to an earlier version in this way: stop the server, put that copy in the place of `moorage.db`,
+and give the installer the version with `MOOR_VERSION`. `moor server upgrade --rollback` only goes back from the
+version it upgraded to, and says so if the installer has been at work since.
 
-On Windows, the server and the supervisors of its apps run from `moor.exe`, and a
-running program cannot be replaced there. The installer moves it aside as
-`moor.previous.*.exe`, which goes on running, and clears that away on a later upgrade
-once nothing uses it. Press Ctrl+C where the server runs, and start it again.
+On Windows, the server and the supervisors of its apps run from `moor.exe`, and a running program cannot be
+replaced there, so both ways move it aside, where it goes on running. Press Ctrl+C where the server runs, and
+start it again.
+
+### What a release can be checked against
+
+Each release has `SHA256SUMS`, a list of what went into the binaries in `moorage-sbom.cdx.json`, and an attestation
+of the workflow that built them. An upgrade and the installer both check a download against `SHA256SUMS`, which comes
+from the same place over HTTPS. That catches a damaged download, and a change on the way, and would not catch someone
+who could change the release itself. The attestation is GitHub's own record of what its build made, and that you can
+look at yourself:
+
+```bash
+gh attestation verify moor-linux-amd64 --repo robert-mcdermott/moorage
+```
 
 From 0.1.0, the server has no accounts yet: `moor server status` shows the link to
 create the first, and until then the admin token works from anywhere, as it did.

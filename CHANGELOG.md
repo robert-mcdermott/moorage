@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0 (2026-11-04)
+
+Moorage 0.6.0 is about a server you can rely on. On Linux, apps are kept apart from one another. Backups and restoring are built in, and were tried on real services. People can sign in with a second factor, through your identity provider, or through a proxy. A server can upgrade itself, and go back. Moorage is now open source, under the Apache License 2.0.
+
+To upgrade from 0.5.0, run the installer once and restart the server, as `moor server upgrade` starts with this version. Running apps are taken over without a restart. Some things behave differently:
+
+- **On a server that runs as root on Linux, apps get users of their own as they next start.** That is the system service, as `level = "auto"` under `[isolation]` means this. An app can then only write to `$MOORAGE_DATA_DIR` and `$TMPDIR`, as its build is read-only, and cannot read what only root can. `level = "none"` keeps it as it was while you look into anything that minds. Instances that go on through the upgrade go on as root until they restart: **Settings → System** and the app's page say which, and `moor restart APP` does it with no downtime. See [isolation](docs/isolation.md).
+- **To go back to 0.5.0,** stop the server, put the copy of the database that this version kept in `backups` in the data directory in the place of `moorage.db`, and give the installer `MOOR_VERSION=v0.5.0`. 0.5.0 refuses a database that has moved on.
+- **A site's directory has to be inside its build.** One reached through a link to somewhere else now fails the build.
+
+### Added
+
+- **Apps kept apart on Linux.** A server running as root gives each app an operating system user of its own, and its builds another: its data is its own, its build is read-only, and other apps cannot read its secrets. `level = "sandbox"` under `[isolation]` in `server.toml` adds Landlock and `no_new_privs`. See [how apps are kept apart](docs/isolation.md).
+- **`[resources]` outside containers.** Memory, CPU and process limits for any app, enforced by the kernel where the server runs as root on Linux. Elsewhere an instance that stays over its memory limit is restarted, and the console says what is not held to. An instance killed for its memory says that it ran out of memory.
+- **Backups.** `moor server backup` and **Settings → Backups** make a backup of a running server, on demand or on a schedule, to a directory or a bucket on S3 or a service like it. `moor server restore` brings it all back: apps, data, secrets and accounts. A restore checks everything before it changes anything, and is tried in CI. See [backups](docs/backups.md).
+- **Two-factor sign-in.** **Your account → Two-factor** adds a code from an authenticator app to signing in, with recovery codes for if you lose it. See [accounts](docs/accounts.md#two-factor-sign-in).
+- **Single sign-on.** **Settings → Sign-in** connects to any OpenID Connect provider, with accounts made the first time, roles from groups, and an option to turn off passwords. `trusted_header` under `[auth]` believes a proxy that signs people in. See [how people sign in](docs/sign-in.md).
+- **`moor server upgrade`.** A server upgrades itself: it checks a release against its published checksum, keeps a copy of the database and the binary, swaps them, restarts, and goes back by itself if the new version does not come up. `--rollback` goes back later on. Apps keep running throughout. Releases now come with a list of what went into them, and an attestation of the workflow that built them. See [upgrading](docs/install.md#upgrading).
+- **The server's configuration, as a file.** `moor server config export` writes out people, projects, registries, notifications, backups and sign-in, with no secrets, and `moor server config import` brings it in on that server or another, with `--dry-run` to look first. See [the server's configuration](docs/backups.md#the-servers-configuration).
+- **Node.js downloads are checked against its signature.** The checksums of a Node.js release have to be signed by one of its releasers, whose keys come with moor. A new releaser's key needs a new moor, or `signatures = "warn"` under `[toolchains]`. A signature that is wrong is always refused.
+
+### Fixed
+
+- **A deployment could bring the release before it back.** What keeps instances running could look at the current release just before a deployment recorded the new one, and start an instance of the old one after the rollout had finished. That instance then took the traffic, until the next deployment. It was rare, and has been possible since 0.1.0. A release is now recorded before its instances take the traffic, and an instance of any other release is stopped.
+
 ## 0.5.0 (2026-11-04)
 
 Moorage 0.5.0 is about apps once they are running. They can have cron jobs and one-off commands, charts of how they are doing, and notifications when they are not. Drop a folder in the console and it is a static site, with every release at an address of its own. A server of 4 CPUs and 8 GB holds 60 environments with sleep on, as [measured](docs/install.md#how-big-a-machine). Moorage is now licensed under the [Apache License 2.0](LICENSE).

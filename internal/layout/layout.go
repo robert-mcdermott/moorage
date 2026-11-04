@@ -86,6 +86,11 @@ func (l Layout) Prepare() error {
 			return err
 		}
 		if d.mode == 0o700 {
+			// A temporary directory that isolation made passable stays so, for the apps running
+			// from it through a restart: isolation looks to what is in it.
+			if fi, err := os.Stat(d.path); err == nil && d.path == l.Tmp && fi.Mode().Perm() == 0o711 {
+				continue
+			}
 			// MkdirAll leaves an existing directory's mode alone.
 			if err := os.Chmod(d.path, d.mode); err != nil {
 				return err

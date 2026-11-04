@@ -6,7 +6,7 @@
 set -u
 
 all() {
-	for job in installer trust service upgrade; do
+	for job in installer trust service upgrade isolation backup; do
 		echo "$job=true"
 	done
 	exit 0
@@ -28,5 +28,7 @@ touches() {
 
 touches installer '^(install\.sh|install\.ps1|\.github/scripts/install-check)'
 touches trust '^(internal/truststore/|internal/localdns/|internal/ingress/tls|internal/cli/(trust|resolver)|\.github/scripts/trust-check)'
-touches service '^(cmd/|internal/(service|shim|reconcile|server|platform)/|internal/cli/(service|server)|\.github/scripts/service-check)'
+touches service '^(cmd/|internal/(service|shim|reconcile|server|platform|upgrade)/|internal/cli/(service|server|upgrade)|\.github/scripts/service-check)'
+touches isolation '^(cmd/|internal/(isolate|shim|reconcile|oneoff|build|server|platform|config)/|\.github/scripts/isolation-check)'
+touches backup '^(cmd/|internal/(backup|store|secrets|server|layout)/|internal/cli/backup|\.github/scripts/backup-check)'
 touches upgrade '^(cmd/|internal/(store|shim|reconcile|server|platform|config|secrets)/|\.github/scripts/upgrade-check)'

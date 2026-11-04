@@ -34,11 +34,34 @@ function moor(...args) {
   // WebKit on Linux also gives up on a resource now and then, with an internal error of its own.
   const letGo = text => /WebKit encountered an internal error/.test(text) ||
     /\/api\/v1\//.test(text) && /can.t establish a connection|was interrupted while the page was loading|due to access control checks/.test(text);
-  page.on('console', m => { if (m.type() === 'error' && !letGo(m.text())) { problems.push(m.text()); } });
-  page.on('pageerror', e => { if (!letGo(String(e))) { problems.push(String(e)); } });
+  // What was let go is kept, to say so if something then does not work.
+  const letGoOf = [];
+  const heard = text => { if (letGo(text)) { letGoOf.push(text); } else { problems.push(text); } };
+  page.on('console', m => { if (m.type() === 'error') { heard(m.text()); } });
+  page.on('pageerror', e => heard(String(e)));
   const quiet = what => {
     check(`${what}: nothing went wrong in the page`, problems.length === 0, problems.join(' | '));
     problems.length = 0;
+  };
+
+  // Signed out, a page still answers, as the sign-in page: so what was asked for has to be what came.
+  const onSignIn = () => new URL(page.url()).pathname === '/login';
+  let inSession = false;
+  let sessions = 1;
+
+  // WebKit on Linux, when it gives up with an internal error, can lose the cookies of a whole context:
+  // they are held in memory by a process of its own. That is the browser's doing only if the server
+  // still has the session, so this signs in again and looks, and otherwise the check fails.
+  const lostItsCookies = async () => {
+    console.log(`note  ${browserName}: the browser no longer has its session, at ${page.url()}; let go of: ${letGoOf.slice(-3).join(' | ') || 'nothing'}`);
+    await page.fill('input[name=email]', 'owner@example.com');
+    await page.fill('input[name=password]', passphrase);
+    await page.click('button[type=submit]');
+    await page.waitForURL(url => new URL(url).pathname !== '/login');
+    sessions++;
+    await page.goto(`${base}/account/sessions`);
+    const listed = await page.locator('main table tbody tr').count();
+    check('a session the browser lost is one the server still has', listed === sessions, `${listed} listed, and ${sessions} made`);
   };
 
   // WebKit on Linux now and then gives up on a navigation that interrupts a stream the
@@ -46,7 +69,12 @@ function moor(...args) {
   const visit = async (page, url) => {
     for (let tries = 3; ; tries--) {
       try {
-        return await page.goto(url);
+        const res = await page.goto(url);
+        if (browserName === 'webkit' && inSession && onSignIn()) {
+          await lostItsCookies();
+          continue;
+        }
+        return res;
       } catch (e) {
         if (tries <= 1 || !/internal error/.test(e.message)) { throw e; }
         await page.waitForTimeout(250);
@@ -62,16 +90,17 @@ function moor(...args) {
   await page.click('button[type=submit]');
   await page.waitForURL('**/welcome');
   check('claiming the server goes to getting started', true);
+  inSession = true;
 
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
     '/apps/shop/variables/edit', '/apps/shop/deploy', '/apps/shop/settings', '/account', '/account/keys', '/account/tokens', '/account/sessions',
-    '/settings', '/settings/users', '/settings/registries', '/settings/notifications', '/notifications', '/settings/system', '/settings/audit', '/projects', '/projects/default', '/previews', '/apps/shop/environments', '/apps/shop?env=staging', '/apps/shop/logs?env=staging', '/apps/shop/variables?env=staging', '/apps/shop/access', '/apps/shop/access?env=staging', '/apps/shop/cron', '/apps/shop/metrics', '/apps/shop/metrics?range=live', '/apps/shop/metrics?range=7d'];
+    '/settings', '/settings/users', '/settings/registries', '/settings/notifications', '/settings/sign-in', '/settings/backups', '/notifications', '/settings/system', '/settings/audit', '/projects', '/projects/default', '/previews', '/apps/shop/environments', '/apps/shop?env=staging', '/apps/shop/logs?env=staging', '/apps/shop/variables?env=staging', '/apps/shop/access', '/apps/shop/access?env=staging', '/apps/shop/cron', '/apps/shop/metrics', '/apps/shop/metrics?range=live', '/apps/shop/metrics?range=7d'];
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
     for (const path of pages) {
       const res = await visit(page, base + path);
-      check(`${path} at ${width}px answers`, res.status() === 200, String(res.status()));
+      check(`${path} at ${width}px answers`, res.status() === 200 && !onSignIn(), `${res.status()}, at ${page.url()}`);
       const over = await page.evaluate(() => {
         const limit = document.documentElement.clientWidth;
         const wide = [...document.querySelectorAll('body *')]
@@ -93,8 +122,23 @@ function moor(...args) {
       await page.waitForSelector('#palette[open]', { timeout: 5000 });
       break;
     } catch (e) {
+      // Whether the page's script ran, and whether the page has the keyboard, say what went wrong.
+      const state = await page.evaluate(() => {
+        const button = document.querySelector('[data-palette-open]');
+        return {
+          url: location.href,
+          title: document.title,
+          ready: document.readyState,
+          button: button ? (button.hidden ? 'hidden' : 'shown') : 'none',
+          focused: document.hasFocus(),
+          active: document.activeElement && document.activeElement.tagName,
+          body: document.body ? document.body.innerText.slice(0, 160) : '',
+        };
+      }).catch(err => String(err));
+      console.log(`note  ${browserName}: the palette did not open: ${JSON.stringify(state)}; let go of: ${letGoOf.slice(-3).join(' | ') || 'nothing'}`);
       if (tries <= 1) { throw e; }
       await visit(page, page.url());
+      await page.bringToFront();
     }
   }
   await page.keyboard.type('logs shop');
@@ -292,6 +336,7 @@ function moor(...args) {
 
   // Signing out.
   await visit(page, base + '/account');
+  inSession = false;
   await page.click('#signout button');
   await page.waitForURL(url => !url.pathname.startsWith('/account'));
   const res = await visit(page, base + '/apps/shop');

@@ -133,7 +133,14 @@ func (s *Systemd) Uninstall() error {
 	return err
 }
 
-func (s *Systemd) Start() error   { _, err := s.ctl("start", UnitName); return err }
+// Start starts the server, even if it has failed so often lately that systemd has given up on it, which
+// would otherwise refuse this too.
+func (s *Systemd) Start() error {
+	_, _ = s.ctl("reset-failed", UnitName)
+	_, err := s.ctl("start", UnitName)
+	return err
+}
+
 func (s *Systemd) Stop() error    { _, err := s.ctl("stop", UnitName); return err }
 func (s *Systemd) Restart() error { _, err := s.ctl("restart", UnitName); return err }
 
@@ -154,6 +161,7 @@ func (s *Systemd) Status() (Status, error) {
 		}
 	}
 	st.Running = props["ActiveState"] == "active"
+	st.Starting = props["ActiveState"] == "activating"
 	st.PID, _ = strconv.Atoi(props["MainPID"])
 	st.Detail = fmt.Sprintf("%s (%s)", props["ActiveState"], props["SubState"])
 	return st, nil

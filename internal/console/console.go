@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/brand"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
@@ -27,6 +28,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
+	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -36,13 +38,13 @@ var embedded embed.FS
 // cards are the pages shown alone in a card, for someone not yet at home here;
 // the others are in the console's frame.
 var cards = map[string]bool{
-	"unclaimed": true, "setup": true, "login": true, "invite": true,
+	"unclaimed": true, "setup": true, "login": true, "login-code": true, "invite": true,
 	"device-enter": true, "device-confirm": true, "message": true,
 }
 
 func pageNames() []string {
-	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-notifications", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
+	names := []string{"login-code", "apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
+		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -107,6 +109,10 @@ type Options struct {
 	Metrics *metrics.Store
 	// Notifier sends what the settings pages set up.
 	Notifier *notify.Service
+	// Backups makes backups.
+	Backups *backup.Service
+	// SSO signs people in through a provider.
+	SSO *sso.Service
 }
 
 // Console serves the pages.
@@ -128,11 +134,13 @@ type Console struct {
 	gateRoute func(host, path string) (ingress.RouteInfo, bool)
 	metrics   *metrics.Store
 	notifier  *notify.Service
+	backups   *backup.Service
+	sso       *sso.Service
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{notifier: o.Notifier, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
+	c := &Console{notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -227,6 +235,14 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /settings/notifications/channels/remove", c.adminAction(c.removeChannel))
 	mux.HandleFunc("POST /settings/notifications/rules", c.adminAction(c.addServerRule))
 	mux.HandleFunc("POST /settings/notifications/rules/remove", c.adminAction(c.removeServerRule))
+	mux.HandleFunc("GET /settings/backups", c.backupsPage)
+	mux.HandleFunc("POST /settings/backups/now", c.adminAction(c.startBackup))
+	mux.HandleFunc("POST /settings/backups/config", c.adminAction(c.configureBackups))
+	mux.HandleFunc("GET /account/security", c.securityPage)
+	mux.HandleFunc("POST /account/security/start", c.accountAction(c.startSecondFactor))
+	mux.HandleFunc("POST /account/security/confirm", c.accountAction(c.confirmSecondFactor))
+	mux.HandleFunc("POST /account/security/off", c.accountAction(c.turnOffSecondFactor))
+	mux.HandleFunc("POST /settings/users/second-factor-off", c.adminAction(c.adminSecondFactorOff))
 	mux.HandleFunc("GET /notifications", c.inbox)
 	mux.HandleFunc("POST /notifications/read", c.accountAction(c.readInbox))
 	mux.HandleFunc("POST /projects/{project}/notifications", c.projectAction(c.addProjectRule))
@@ -241,6 +257,14 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /setup", c.post(c.setup))
 	mux.HandleFunc("GET /login", c.loginPage)
 	mux.HandleFunc("POST /login", c.post(c.login))
+	mux.HandleFunc("GET /login/sso", c.ssoBegin)
+	mux.HandleFunc("GET "+sso.CallbackPath, c.ssoCallback)
+	mux.HandleFunc("GET /settings/system/configuration", c.downloadConfiguration)
+	mux.HandleFunc("GET /settings/sign-in", c.signInSettings)
+	mux.HandleFunc("POST /settings/sign-in", c.adminAction(c.configureSignIn))
+	mux.HandleFunc("POST /settings/sign-in/off", c.adminAction(c.turnOffSignIn))
+	mux.HandleFunc("GET /login/code", c.codePage)
+	mux.HandleFunc("POST /login/code", c.post(c.code))
 	mux.HandleFunc("POST /logout", c.post(c.logout))
 	mux.HandleFunc("GET /invite", c.invitePage)
 	mux.HandleFunc("POST /invite", c.post(c.invite))
@@ -249,7 +273,7 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		c.message(w, http.StatusNotFound, data{Title: "Not found", Heading: "Not found", Message: "There is nothing at this address.", Link: "/", LinkText: "Back to the start"})
 	})
-	return mux, nil
+	return c.trustedSignIn(mux), nil
 }
 
 // data is what a page shows.
@@ -311,6 +335,12 @@ type data struct {
 	Project  projectView
 	// Notifications is the pages of notifications.
 	Notifications notificationsView
+	// Backups is the page of backups.
+	Backups backupsView
+	// SignIn is the page of how people sign in, and SSOLabel and Passwords what the sign-in page offers.
+	SignIn    signInView
+	SSOLabel  string
+	Passwords bool
 	// Unread is how many notifications they have not read.
 	Unread int
 
@@ -460,6 +490,12 @@ func (c *Console) failed(w http.ResponseWriter, page string, d data, err error) 
 	case errors.Is(err, auth.ErrBadCredentials):
 		d.Error = "The email address or password is wrong."
 		c.render(w, http.StatusUnauthorized, page, d)
+	case errors.Is(err, auth.ErrPasswordsOff):
+		d.Error = "This server signs people in through its provider, and not with passwords."
+		c.render(w, http.StatusForbidden, page, d)
+	case errors.Is(err, auth.ErrSecondFactor):
+		d.Error = "That code is not right. Each one works once."
+		c.render(w, http.StatusUnauthorized, page, d)
 	default:
 		c.internal(w, err)
 	}
@@ -580,16 +616,75 @@ func (c *Console) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	c.render(w, http.StatusOK, "login", data{Title: "Sign in", Next: next})
+	d := data{Title: "Sign in", Next: next, Passwords: true}
+	if c.sso != nil {
+		d.SSOLabel, d.Passwords = c.sso.Button(r.Context())
+	}
+	c.render(w, http.StatusOK, "login", d)
 }
 
 func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 	email, next := r.PostFormValue("email"), safeNext(r.PostFormValue("next"))
 	u, err := c.auth.SignIn(r.Context(), email, r.PostFormValue("password"), c.auth.ClientIP(r))
 	if err != nil {
-		c.failed(w, "login", data{Title: "Sign in", Email: email, Next: next}, err)
+		d := data{Title: "Sign in", Email: email, Next: next, Passwords: true}
+		if c.sso != nil {
+			d.SSOLabel, d.Passwords = c.sso.Button(r.Context())
+		}
+		c.failed(w, "login", d, err)
 		return
 	}
+	needed, err := c.auth.NeedsSecondFactor(r.Context(), u.ID)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if needed {
+		http.SetCookie(w, c.pendingCookie(c.auth.PendingSecondFactor(u), secondFactorMaxAge))
+		http.Redirect(w, r, "/login/code?next="+url.QueryEscape(next), http.StatusSeeOther)
+		return
+	}
+	if c.startSession(w, r, u) {
+		http.Redirect(w, r, next, http.StatusSeeOther)
+	}
+}
+
+const secondFactorMaxAge = 300
+
+// pendingCookie is what a browser holds between a password and a code.
+func (c *Console) pendingCookie(value string, maxAge int) *http.Cookie {
+	return &http.Cookie{Name: "moorage_pending", Value: value, Path: "/login", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: c.auth.Secure}
+}
+
+func (c *Console) codePage(w http.ResponseWriter, r *http.Request) {
+	next := safeNext(r.URL.Query().Get("next"))
+	cookie, err := r.Cookie("moorage_pending")
+	if err == nil {
+		if _, err = c.auth.PendingUser(r.Context(), cookie.Value); err == nil {
+			c.render(w, http.StatusOK, "login-code", data{Title: "Sign in", Next: next})
+			return
+		}
+	}
+	http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+}
+
+func (c *Console) code(w http.ResponseWriter, r *http.Request) {
+	next := safeNext(r.PostFormValue("next"))
+	cookie, err := r.Cookie("moorage_pending")
+	if err != nil {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+		return
+	}
+	u, err := c.auth.PendingUser(r.Context(), cookie.Value)
+	if err != nil {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+		return
+	}
+	if err := c.auth.CheckSecondFactor(r.Context(), u, r.PostFormValue("code"), c.auth.ClientIP(r)); err != nil {
+		c.failed(w, "login-code", data{Title: "Sign in", Next: next}, err)
+		return
+	}
+	http.SetCookie(w, c.pendingCookie("", -1))
 	if c.startSession(w, r, u) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 	}
@@ -652,6 +747,11 @@ func (c *Console) invite(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		c.failed(w, "invite", d, err)
+		return
+	}
+	// A link replaces a password, and not a second factor.
+	if needed, err := c.auth.NeedsSecondFactor(r.Context(), u.ID); err != nil || needed {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	if u.Disabled() {

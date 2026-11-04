@@ -425,3 +425,28 @@ func TestUpgradeAndWorker(t *testing.T) {
 		t.Errorf("processes still run after a static deploy: %+v", ins)
 	}
 }
+
+// TestAnEarlierReleaseDoesNotComeBack deploys again and again while what keeps instances running looks all
+// the time. It used to be able to read the release that was current just before a deployment recorded the new
+// one, and to start that one's instance after the rollout had finished, which then took the traffic.
+func TestAnEarlierReleaseDoesNotComeBack(t *testing.T) {
+	cfg := testConfig(t)
+	addrs := startWith(t, cfg, func(o *Options) { o.Tick = time.Millisecond })
+	c := apiClient(t, cfg, addrs)
+	for i := 1; i <= 25; i++ {
+		body := fmt.Sprintf("release %d", i)
+		if _, err := deployApp(t, c, "shop", appPlan(map[string]string{"TESTAPP_BODY": body})); err != nil {
+			t.Fatal(err)
+		}
+		// Several looks at it, for one that comes back a moment later.
+		for look := 0; look < 3; look++ {
+			if _, got := get(t, addrs.HTTP, "shop.localhost", "/"); !strings.Contains(got, body) {
+				t.Fatalf("after deploying %q, it serves %q", body, got)
+			}
+			time.Sleep(3 * time.Millisecond)
+		}
+		if ins := instances(t, c, "shop"); len(ins) != 1 {
+			t.Fatalf("after %q, %d instances: %+v", body, len(ins), ins)
+		}
+	}
+}

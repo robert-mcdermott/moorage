@@ -220,6 +220,8 @@ main { flex: 1; width: 100%; max-width: 68rem; padding: var(--s5) var(--s6) var(
 .timeline .unread time { color: var(--text); }
 .rule-form h3 { margin: 0 0 var(--s3); font-size: 1.05rem; }
 .rule-form .field { max-width: 32rem; }
+.rule-form h3:not(:first-of-type) { margin-top: var(--s4); }
+.or-line { text-align: center; margin: var(--s3) 0; }
 .check-list { border: 0; margin: 0; padding: 0; display: grid; gap: var(--s2); }
 .check-list legend { padding: 0; margin-bottom: var(--s2); font-weight: 600; }
 .row-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
@@ -352,6 +354,18 @@ details > summary { cursor: pointer; font-weight: 600; }
 .dropzone-progress progress { flex: 1 1 12rem; accent-color: var(--accent); }
 .dropzone .notice { margin: var(--s3) 0 0; }
 .block-after { margin-bottom: var(--s4); }
+.block-note { margin: var(--s2) 0 0; }
+.two-factor-setup { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: flex-start; }
+.two-factor-setup > div:last-child { flex: 1 1 20rem; min-width: 0; }
+.two-factor-setup h2 { margin-top: 0; font-size: 1.05rem; }
+.qr { flex: none; width: 13rem; padding: var(--s2); background: #fff; border-radius: var(--radius); }
+.qr svg { display: block; width: 100%; height: auto; }
+.recovery-codes { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--s1) var(--s3); margin: var(--s3) 0 0; padding: 0; list-style: none; }
+.backup-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--s3) var(--s5); }
+.backup-head > div { flex: 1 1 24rem; min-width: 0; }
+.backup-head h2 { margin-top: 0; font-size: 1.05rem; }
+.backup-head code { overflow-wrap: anywhere; }
+.fail-text { color: var(--fail); }
 .deploy-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); gap: var(--s4); }
 .deploy-ways > * { min-width: 0; }
 .deploy-ways select { min-width: 0; max-width: 100%; }

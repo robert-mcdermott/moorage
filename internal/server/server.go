@@ -15,14 +15,18 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 
 	"github.com/robert-mcdermott/moorage/internal/api"
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/build"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
@@ -32,6 +36,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/layout"
 	"github.com/robert-mcdermott/moorage/internal/localdns"
 	"github.com/robert-mcdermott/moorage/internal/notify"
@@ -39,6 +44,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/secrets"
+	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
 	"github.com/robert-mcdermott/moorage/internal/toolchain"
 	"github.com/robert-mcdermott/moorage/internal/truststore"
@@ -49,6 +55,87 @@ type Layout = layout.Layout
 
 // NewLayout returns the layout of the data directory root.
 func NewLayout(root string) Layout { return layout.New(root) }
+
+// logWriter writes what a tool says, a line at a time, to the server's log.
+type logWriter struct {
+	log  *slog.Logger
+	what []any
+}
+
+func (w logWriter) Write(p []byte) (int, error) {
+	for _, line := range strings.Split(strings.TrimSpace(string(p)), "\n") {
+		if line != "" {
+			w.log.Info(line, w.what...)
+		}
+	}
+	return len(p), nil
+}
+
+// fetchToolchains gets the toolchains that apps need and this server does not have, as on a restored server, which
+// has their builds and not those. It happens on its own: what keeps instances running goes through apps one at a
+// time, and one waiting for a download should not hold up the rest. The app starts the next time it is looked at.
+func fetchToolchains(life context.Context, toolchains *toolchain.Manager, log *slog.Logger) func(ctx context.Context, name, version string) error {
+	var mu sync.Mutex
+	going := map[string]bool{}
+	failedAt := map[string]time.Time{}
+	return func(_ context.Context, name, version string) error {
+		key := name + "@" + version
+		mu.Lock()
+		defer mu.Unlock()
+		if going[key] {
+			return errors.New("it is being fetched")
+		}
+		if time.Since(failedAt[key]) < time.Minute {
+			return errors.New("fetching it failed a moment ago: the server's log says why, and it tries again")
+		}
+		going[key] = true
+		go func() {
+			ctx, cancel := context.WithTimeout(life, 15*time.Minute)
+			defer cancel()
+			say := logWriter{log, []any{"toolchain", name, "version", version}}
+			log.Info("fetching a toolchain that an app needs", say.what...)
+			var uv *toolchain.Installed
+			var err error
+			if name == "python" {
+				var found toolchain.Installed
+				if found, err = toolchains.Ensure(ctx, "uv", "", nil, say); err == nil {
+					uv = &found
+				}
+			}
+			if err == nil {
+				_, err = toolchains.Ensure(ctx, name, version, uv, say)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			delete(going, key)
+			if err != nil {
+				failedAt[key] = time.Now()
+				log.Error("a toolchain that an app needs could not be fetched", "toolchain", name, "version", version, "err", err)
+			}
+		}()
+		return errors.New("it is being fetched")
+	}
+}
+
+// trustsThisMachine finds a trusted range that holds an address of this machine.
+func trustsThisMachine(trusted []netip.Prefix) (netip.Prefix, bool) {
+	own := []netip.Addr{netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")}
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			if p, err := netip.ParsePrefix(a.String()); err == nil {
+				own = append(own, p.Addr().Unmap())
+			}
+		}
+	}
+	for _, p := range trusted {
+		for _, a := range own {
+			if p.Contains(a) {
+				return p, true
+			}
+		}
+	}
+	return netip.Prefix{}, false
+}
 
 // Addrs are the addresses the listeners are bound to; HTTPS is nil when
 // Moorage does not terminate TLS.
@@ -84,6 +171,8 @@ type Options struct {
 	GCMinAge time.Duration
 	// MetricsEvery, if set, overrides how often metrics are sampled (tests).
 	MetricsEvery time.Duration
+	// BackupTick, if set, overrides how often the schedule of backups is looked at (tests).
+	BackupTick time.Duration
 	// NotifyRetry, if set, overrides how long a notification waits before trying again (tests).
 	NotifyRetry time.Duration
 	// CronTick, if set, overrides how often cron jobs are looked at (tests).
@@ -234,8 +323,23 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	router.SetMetrics(metricsStore)
 	toolchains := toolchain.New(filepath.Join(cfg.DataDir, "toolchains"), filepath.Join(cfg.DataDir, "cache"), toolchain.Sources{
 		Go: cfg.Toolchains.GoURL, Node: cfg.Toolchains.NodeURL, UV: cfg.Toolchains.UVURL, Python: cfg.Toolchains.PythonURL,
+		SignaturesOnlyWarn: cfg.Toolchains.Signatures == "warn",
 	})
 	shell := []string{exe, "sh", "-c"}
+	uidBase := cfg.Isolation.UIDBase
+	if uidBase == 0 {
+		uidBase = isolate.DefaultUIDBase
+	}
+	isolation, err := isolate.New(isolate.Config{Level: cfg.Isolation.Level, UIDBase: uidBase, DataDir: cfg.DataDir, Binary: exe}, func(ctx context.Context, app string) (uint32, error) {
+		return db.AppUID(ctx, app, uidBase)
+	})
+	if err != nil {
+		return err
+	}
+	log.Info("isolation", "level", isolation.Level, "limits_enforced", isolation.Enforced(), "landlock", isolation.Landlock)
+	for _, note := range isolation.Notes {
+		log.Warn("isolation: " + note)
+	}
 	engine, containers := findContainers(cfg, db, keyring, log)
 	bus := events.New(db, log)
 	defer bus.Close()
@@ -248,19 +352,21 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	}
 	router.SetProxyToken(proxyToken)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
-		ProxyToken:    proxyToken,
-		DataDir:       cfg.DataDir,
-		ShimCmd:       []string{exe, "shim"},
-		ShimEnv:       opts.ShimEnv,
-		Shell:         shell,
-		ShellEnv:      opts.ShellEnv,
-		BackoffMin:    opts.BackoffMin,
-		Tick:          opts.Tick,
-		Trusted:       router.Trusted(),
-		ToolchainBins: toolchains.BinDirs,
-		Secrets:       keyring,
-		Containers:    containers,
-		Events:        bus,
+		ProxyToken:      proxyToken,
+		DataDir:         cfg.DataDir,
+		Isolation:       isolation,
+		ShimCmd:         []string{exe, "shim"},
+		ShimEnv:         opts.ShimEnv,
+		Shell:           shell,
+		ShellEnv:        opts.ShellEnv,
+		BackoffMin:      opts.BackoffMin,
+		Tick:            opts.Tick,
+		Trusted:         router.Trusted(),
+		ToolchainBins:   toolchains.BinDirs,
+		EnsureToolchain: fetchToolchains(ctx, toolchains, log),
+		Secrets:         keyring,
+		Containers:      containers,
+		Events:          bus,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)
@@ -277,7 +383,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
-		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
+		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
 		Runtime: runtime,
 		Reload:  router.Reload,
 		URL: func(app, env string) string {
@@ -303,7 +409,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		sweep = time.Minute
 	}
 	go deployer.Sweep(ctx, sweep)
-	collector := &metrics.Collector{Store: metricsStore, Log: log, Instances: runtime.MetricsInstances, Containers: runtime.MetricsContainers, DataDir: cfg.DataDir}
+	collector := &metrics.Collector{Store: metricsStore, Log: log, Instances: runtime.MetricsInstances, Containers: runtime.MetricsContainers, DataDir: cfg.DataDir, OverLimit: runtime.OverMemory}
 	go collector.Run(ctx, opts.MetricsEvery)
 	cronTick := opts.CronTick
 	if cronTick == 0 {
@@ -321,7 +427,14 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		stopNotifying()
 		notifier.Wait()
 	}()
+	if cfg.Auth.TrustedHeader != "" {
+		if own, ok := trustsThisMachine(router.Trusted()); ok {
+			log.Warn("auth.trusted_header is believed from this machine's own addresses, and apps deployed here can use those too: they could say that they are anyone. Run the proxy on another machine, and trust only its address", "trusted", own.String())
+		}
+	}
 	authn := &auth.Service{
+		Sealer: keyring, SecondFactorKey: masterKey.Derive("second factor v1"),
+		TrustedHeader: cfg.Auth.TrustedHeader, TrustedNameHeader: cfg.Auth.TrustedNameHeader, TrustedProvision: cfg.Auth.TrustedProvision,
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
 	}
@@ -339,12 +452,21 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, opts.GateRecheck, log))
+	backups := &backup.Service{DB: db, Bus: bus, Keyring: keyring, Keys: masterKey, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
+	backupCtx, stopBackups := context.WithCancel(ctx)
+	go backups.Run(backupCtx)
+	defer func() {
+		stopBackups()
+		backups.Wait()
+	}()
+	signIn := &sso.Service{DB: db, Auth: authn, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), StateKey: masterKey.Derive("sso state v1")}
+	authn.PasswordsOff = signIn.PasswordsOff
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, opts.GateRecheck, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

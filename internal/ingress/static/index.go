@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -87,13 +88,26 @@ func ReadIndex(path string) (*Index, error) {
 	return &idx, nil
 }
 
-// WriteIndex saves the index as JSON.
+// WriteIndex saves the index as JSON. A build has had the run of the directory this goes in, and may have left
+// a link at this name for a server running as root to write through, so that whatever is there goes first and
+// only a new file will do.
 func (idx *Index) WriteIndex(path string) error {
 	data, err := json.Marshal(idx)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if closed := f.Close(); err == nil {
+		err = closed
+	}
+	return err
 }
 
 // TotalSize is the size of all files.

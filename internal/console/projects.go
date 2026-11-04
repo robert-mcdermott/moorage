@@ -200,7 +200,7 @@ func (c *Console) changeProjectSettings(w http.ResponseWriter, r *http.Request, 
 }
 
 func (c *Console) setProjectMember(w http.ResponseWriter, r *http.Request, p auth.Principal, project store.Project) {
-	email := strings.ToLower(strings.TrimSpace(r.PostFormValue("email")))
+	email := auth.LowerASCII(strings.TrimSpace(r.PostFormValue("email")))
 	role := r.PostFormValue("role")
 	if !store.ValidRole(role) {
 		c.showProject(w, r, http.StatusUnprocessableEntity, projectView{FormEmail: email}, &failure{Message: "A role is viewer, deployer or maintainer."})

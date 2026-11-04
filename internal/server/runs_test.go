@@ -728,3 +728,50 @@ func TestStreamsEndWithAccess(t *testing.T) {
 		t.Fatal("following went on with a revoked token")
 	}
 }
+
+// TestMemoryLimitWithoutTheKernel restarts an instance that stays over its limit, where nothing in the
+// kernel would, and says that it ran out of memory.
+func TestMemoryLimitWithoutTheKernel(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	b := signIn(t, cfg, addrs)
+	ctx := context.Background()
+	deployedSource(t, c, "shop", appManifest(`
+[resources]
+memory = "1MiB"
+cpu = 0.5
+`))
+	waitUntil(t, "it to be restarted for its memory", func() bool {
+		list, err := c.Instances(ctx, "shop", "production")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, in := range list {
+			if in.Restarts > 0 {
+				return true
+			}
+		}
+		return false
+	})
+	events, err := c.Events(ctx, "shop", "production", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := false
+	for _, e := range events {
+		if e.Type == "instance.exited" && strings.Contains(e.Summary, "out of memory") {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("nothing says that it ran out of memory: %+v", events)
+	}
+	env, err := c.Environment(ctx, "shop", "production")
+	if err != nil || env.Isolation == nil || env.Isolation.Memory != 1<<20 || env.Isolation.CPU != 0.5 || env.Isolation.Enforced || env.Isolation.Level != "none" {
+		t.Errorf("%+v %v", env.Isolation, err)
+	}
+	if _, page := b.get("/apps/shop"); !strings.Contains(page, "this server cannot enforce") {
+		t.Errorf("the app's page does not say so:\n%s", page)
+	}
+}

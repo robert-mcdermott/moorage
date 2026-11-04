@@ -112,18 +112,23 @@ of per instance).
 
 Service managers normally kill everything a service started when the service
 stops — which would defeat the shims. On Linux the systemd unit is therefore
-configured with `Delegate=yes`, `DelegateSubgroup=supervisor`,
-`KillMode=process` and `TasksMax=infinity` (the same arrangement container
-engines use so containers outlive their daemon):
+configured with `Delegate=yes`, `KillMode=process` and `TasksMax=infinity` (the
+same arrangement container engines use so containers outlive their daemon).
+
+Limits go in a top-level group of the server's own, with the shims left where
+they started, so that a shim survives an OOM kill of its app and reports it:
 
 ```text
-<moorage.service cgroup>/
-  supervisor/                   the daemon (cgroup v2 allows processes only in leaf groups)
-  apps/<env>/<instance>/
-    shim/                       the shim: no limits, so it survives an OOM kill of its app and reports it
-    app/                        the app's process tree: memory.max, cpu.max, pids.max, memory.oom.group=1
-  builds/<build-id>/            build processes: limits plus a reduced cpu.weight
+/sys/fs/cgroup/moorage/
+  apps/<instance>/              the app's process tree: memory.max, cpu.max, pids.max, memory.oom.group=1
+  builds/<build-id>/            build processes: a reduced cpu.weight
 ```
+
+They are not under the service's own group, since a group with controllers
+enabled for its children may hold no processes itself: a systemd older than 254,
+which has no `DelegateSubgroup`, could then not restart the service, which it starts
+in that group. A server not running as root has no cgroups, and watches memory
+instead.
 
 - `KillMode=process` means `systemctl restart moorage` stops only the daemon;
   the delegated subtree — shims and apps — is left alone.
@@ -133,11 +138,9 @@ engines use so containers outlive their daemon):
 - On host shutdown the daemon holds a shutdown inhibitor ("delay" lock) and
   stops apps gracefully before the system kills what is left;
   `moor server stop --all` does the same on demand.
-- Apps are spawned directly into their `app` cgroup (clone-into-cgroup, Linux
-  ≥ 5.7) and stopped with `cgroup.kill` (Linux ≥ 5.14); older kernels fall back
-  to process-group signalling. With systemd older than 254 (no
-  `DelegateSubgroup`), the daemon moves itself into `supervisor/` at startup
-  before enabling controllers.
+- Apps are spawned directly into their cgroup (clone-into-cgroup, Linux ≥ 5.7, and
+  without it there are no cgroups) and what is left of them is stopped with
+  `cgroup.kill` (Linux ≥ 5.14) as well as by process group.
 
 ### Containers
 
@@ -341,10 +344,11 @@ instances immediately.
 stop apps too.
 
 **Upgrade:** `moor server upgrade` downloads the new release, verifies its
-signature and checksum, snapshots the database, swaps the binary (keeping the
-previous one) and restarts the service. If the new version fails its startup
-checks, `moor server upgrade --rollback` restores the previous binary and
-database snapshot. Because the proxy, TLS and git server are compiled in,
+checksum, runs it only then, to ask what it is, snapshots the database,
+swaps the binary (keeping the previous one) and restarts the service. If the new
+version does not come up, it goes back by itself. `moor server upgrade --rollback` does
+so later on: the previous binary, and the database snapshot only if the schema has moved
+on, since that loses what has happened since. Because the proxy, TLS and git server are compiled in,
 there are no separately versioned components that can drift out of sync. On Linux
 the listening sockets can be held by systemd socket activation so not even a
 connection is refused during the restart; elsewhere the gap is well under a
@@ -359,7 +363,7 @@ second.
 | Container driver | ✅ Podman/Docker | ✅ Podman machine / Docker Desktop | ✅ Podman machine / Docker Desktop |
 | Apps survive daemon restart (shims) | ✅ | ✅ | ✅ |
 | Per-app OS user | ✅ | — | — |
-| Memory/CPU/PID limits for native apps | ✅ cgroup v2 | ⚠️ rlimits + soft enforcement | ✅ Job Objects (memory commit cap, CPU hard cap) |
+| Memory/CPU/PID limits for native apps | ✅ cgroup v2, as root | ⚠️ soft enforcement of memory | ✅ Job Objects (memory commit cap, CPU hard cap) |
 | Filesystem sandbox for native apps | ✅ Landlock (kernel ≥ 5.13) | — | — |
 | Accurate per-app metrics | ✅ cgroup stats | ✅ process tree sampling | ✅ Job Object accounting |
 | Service install | systemd | launchd | Windows Service |
@@ -461,7 +465,7 @@ Planned modules:
   re-parses templates on every request, so console changes show up on reload.
 - Releases are produced for `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`,
   `windows/{amd64,arm64}` with reproducible flags (`-trimpath`, fixed build
-  IDs), SHA-256 checksums, signatures and an SBOM.
+  IDs), SHA-256 checksums, an SBOM and an attestation of the workflow that built them.
 - Version information (`moor version`) includes version, commit and build
   date.
 

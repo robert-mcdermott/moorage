@@ -72,9 +72,20 @@ hosting needs VM-level isolation and is out of scope.
 - **Brute-force protection:** per-IP and per-account rate limits with backoff
   on sign-in, gate passwords, share-link redemption and SSH authentication;
   failures are logged as security events.
-- **Later phases:** TOTP two-factor and passkeys; OIDC single sign-on with
-  group-to-role mapping, just-in-time provisioning and an option to disable
-  local passwords.
+- **Two-factor:** TOTP, with single-use codes (the step of time is recorded) and
+  recovery codes stored hashed. The secret is sealed with the master key. Between
+  a password and a code, a browser holds only a signed, short-lived statement bound
+  to the password's hash. An invitation does not get around it.
+- **Single sign-on:** OIDC with PKCE, state and nonce in a signed cookie bound to the
+  browser, group-to-role mapping, just-in-time provisioning and an option to disable
+  local passwords, with `moor server sso off` as the way back. A subject identifies
+  someone; an email joins an account once, if the provider says that it is verified, or the
+  server has been told to take its word.
+- **Trusted headers:** believed only from `[proxy] trusted`, which the server refuses to
+  start without, and ignored until the server has been claimed.
+- **Accounts nobody chose to give:** made by a provider or a proxy, they can look at the projects
+  where everyone has a role, and nothing more, until a group or an administrator says otherwise.
+- **Later phases:** passkeys.
 
 ## Authorisation
 
@@ -180,8 +191,11 @@ See [Runtime → Isolation levels](05-runtime.md#isolation-levels). Key points:
 - Toolchains are downloaded over HTTPS and verified against the provider's
   published checksums (and signatures where available) before use; exact
   versions are cached and never silently replaced.
-- Moorage releases are signed and checksummed and ship with an SBOM;
-  `moor server upgrade` verifies both before swapping the binary.
+- Moorage releases ship with checksums, an SBOM and an attestation of the workflow that built
+  them. `moor server upgrade`, like the installer, checks a release against its checksum, over
+  HTTPS, and runs nothing it has downloaded until that has passed. That does not protect against
+  someone who could change the project's releases: signing them with a key of the project's own
+  would, and is left for if it is ever wanted (decision Q10).
 - Few, pure-Go dependencies; `govulncheck` and dependency updates in CI.
 
 ## Network exposure
@@ -200,10 +214,17 @@ exportable as JSON lines; visible to admins.
 
 ## Backups and recovery (Phase 3)
 
-`moor server backup` produces a consistent snapshot — the SQLite database
-(online backup), repositories, data directories, certificates and, optionally,
-keys — to a local path or S3-compatible storage, on demand or on a schedule.
-`moor server restore` reverses it. Restores are tested in CI.
+`moor server backup` produces a snapshot — the SQLite database (online backup),
+repositories, builds, data directories, certificates and, optionally, keys — to a
+local path or S3-compatible storage, on demand or on a schedule. `moor server
+restore` reverses it. Restores are tested in CI. The database is consistent; data
+directories are read while apps run, which an app's own database needs a dump for.
+
+Without keys, an archive names the fingerprint of the master key it needs, and a
+restore refuses early if that is missing or another. An archive with keys may not go
+to a bucket. A restore extracts through `os.Root` to one side, verifies that the
+archive is complete and hashes to what was noted, and only then swaps, moving
+what was there aside.
 
 ## Operator hardening checklist
 

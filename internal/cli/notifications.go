@@ -277,7 +277,7 @@ an admin, and one of a project or an app takes a maintainer of it.`,
 }
 
 // failureEvents are what a rule asks for unless it says.
-var failureEvents = []string{"deployment.failed", "instance.crashloop", "cron.failed", "server.disk_low"}
+var failureEvents = []string{"deployment.failed", "instance.crashloop", "cron.failed", "server.disk_low", "backup.failed"}
 
 func newRuleAddCmd() *cobra.Command {
 	var (
@@ -288,8 +288,8 @@ func newRuleAddCmd() *cobra.Command {
 		Use:   "add",
 		Short: "Send events to a channel",
 		Long: `Send events to a channel: of an app, or a project, or the whole server if neither is given.
-Without --events it asks for failures: deployment.failed, instance.crashloop, cron.failed and
-server.disk_low. It can also ask for instance.unhealthy and deployment.live, or for * to have them
+Without --events it asks for failures: deployment.failed, instance.crashloop, cron.failed,
+server.disk_low and backup.failed. It can also ask for instance.unhealthy and deployment.live, or for * to have them
 all. A channel that is told something went wrong is also told when it has come right.`,
 		Example: `  moor notifications rules add --channel alerts
   moor notifications rules add --channel alerts --project web

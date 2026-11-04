@@ -40,6 +40,8 @@ type Plan struct {
 
 	// Container, if set, says that the app runs in containers.
 	Container *ContainerPlan `json:"container,omitempty"`
+	// Resources limit each instance of an app that does not.
+	Resources *ResourcePlan `json:"resources,omitempty"`
 
 	Processes map[string]Process `json:"processes,omitempty"`
 	Release   *Release           `json:"release,omitempty"`
@@ -132,6 +134,15 @@ type EnvPlan struct {
 	Instances  map[string]int    `json:"instances,omitempty"`
 	// Access is the gate it asks for.
 	Access string `json:"access,omitempty"`
+	// Resources are its limits, over those of [resources].
+	Resources *ResourcePlan `json:"resources,omitempty"`
+}
+
+// ResourcePlan limits an instance: memory in bytes, CPU in cores, and processes.
+type ResourcePlan struct {
+	Memory int64   `json:"memory,omitempty"`
+	CPU    float64 `json:"cpu,omitempty"`
+	PIDs   int     `json:"pids,omitempty"`
 }
 
 // PreviewPlan says what previews an app wants.
@@ -223,6 +234,22 @@ func (p Plan) ForEnv(name, kind string) Plan {
 		}
 		p.Env = env
 	}
+	if over.Resources != nil {
+		merged := ResourcePlan{}
+		if p.Resources != nil {
+			merged = *p.Resources
+		}
+		if over.Resources.Memory > 0 {
+			merged.Memory = over.Resources.Memory
+		}
+		if over.Resources.CPU > 0 {
+			merged.CPU = over.Resources.CPU
+		}
+		if over.Resources.PIDs > 0 {
+			merged.PIDs = over.Resources.PIDs
+		}
+		p.Resources = &merged
+	}
 	return p.WithFormation(over.Instances)
 }
 
@@ -234,6 +261,9 @@ func (m *Manifest) ApplyEnvironments(p *Plan) {
 			p.Environments = map[string]EnvPlan{}
 		}
 		over := EnvPlan{Branch: e.Branch, Env: e.Env, SleepAfter: e.SleepAfter, Access: e.Access}
+		if r := e.Resources; r != nil {
+			over.Resources = &ResourcePlan{Memory: int64(r.Memory), CPU: r.CPU, PIDs: r.PIDs}
+		}
 		for process, proc := range e.Processes {
 			if proc.Instances != nil {
 				if over.Instances == nil {

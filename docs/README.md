@@ -1,7 +1,7 @@
 # Moorage documentation
 
 How to install Moorage, run it, and deploy apps to it. This documentation
-describes Moorage 0.5.0; the [design documents](../spec/README.md) describe
+describes Moorage 0.6.0; the [design documents](../spec/README.md) describe
 how it works inside and where it is going.
 
 ## Start here
@@ -10,8 +10,12 @@ how it works inside and where it is going.
   as a service, back it up.
 - [Accounts and access](accounts.md): claiming a server, signing in, users,
   API tokens and SSH keys.
+- [How people sign in](sign-in.md): single sign-on with your identity provider, and
+  signing in through a proxy.
 - [TLS and trusting the server](tls.md): the certificates, and `moor trust`.
 - [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
+- [Backups](backups.md): on demand and on a schedule, to a directory or a bucket, and
+  restoring them
 - [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
   everything, and logs.
 - [The web console](console.md): the apps, what happened, and getting started.
@@ -35,6 +39,8 @@ how it works inside and where it is going.
 - [Metrics](metrics.md): charts in the console, and for Prometheus
 - [Notifications](notifications.md): told when something goes wrong, in the console,
   by webhook, in chat and by email
+- [How apps are kept apart](isolation.md): a user of its own for each app, limits and a
+  sandbox
 - [Who can reach an app](access.md): passwords, signing in, share links and lists
   of addresses
 - [Your own domains, and paths](domains.md): hostnames of your own, several apps on one

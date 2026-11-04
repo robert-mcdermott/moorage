@@ -34,6 +34,10 @@ type Config struct {
 	Access      Access     `toml:"access"`
 	// Notifications says what they may reach.
 	Notifications Notifications `toml:"notifications"`
+	// Isolation says how apps are kept from one another.
+	Isolation Isolation `toml:"isolation"`
+	// Auth says how people sign in, beyond what the console can set.
+	Auth Auth `toml:"auth"`
 
 	// Path is the file the configuration was read from.
 	Path string `toml:"-"`
@@ -45,6 +49,25 @@ type Access struct {
 	Production string `toml:"production"`
 	Named      string `toml:"named"`
 	Preview    string `toml:"preview"`
+}
+
+// Auth is how people sign in, in what has to be settled before anyone can.
+type Auth struct {
+	// TrustedHeader names the header in which a proxy that signs people in says who they are. It
+	// counts only from the addresses in [proxy] trusted, which have to replace any that a client sends.
+	TrustedHeader string `toml:"trusted_header"`
+	// TrustedNameHeader names the header with their name, if there is one.
+	TrustedNameHeader string `toml:"trusted_name_header"`
+	// TrustedProvision makes an account for someone new, the first time the proxy says who they are.
+	TrustedProvision bool `toml:"trusted_provision"`
+}
+
+// Isolation is how apps are kept from one another (docs/isolation.md).
+type Isolation struct {
+	// Level is "auto", "none", "user" or "sandbox".
+	Level string `toml:"level"`
+	// UIDBase is where the users of apps start.
+	UIDBase uint32 `toml:"uid_base"`
 }
 
 // Notifications is how notifications are sent.
@@ -141,6 +164,9 @@ type Toolchains struct {
 	UVURL string `toml:"uv_url"`
 	// PythonURL serves the Python builds uv installs.
 	PythonURL string `toml:"python_url"`
+	// Signatures says what to do with a release whose signature cannot be checked: "require" refuses it,
+	// which is the default, and "warn" goes on and says so. A signature that is wrong is always refused.
+	Signatures string `toml:"signatures"`
 }
 
 // Log configures the server's own log.
@@ -309,6 +335,18 @@ func (c Config) Validate() error {
 	}
 	if c.Routing == "path" && c.ConsoleHost == c.Domain {
 		add("with routing = \"path\", console_host must be another hostname than domain: pages of apps must not share an origin with the console, or a script in any of them could act as whoever is signed in")
+	}
+	if c.Auth.TrustedHeader != "" && len(c.Proxy.Trusted) == 0 {
+		add("auth.trusted_header needs proxy.trusted: otherwise anyone could say who they are")
+	}
+	if !oneOf(c.Toolchains.Signatures, []string{"", "require", "warn"}) {
+		add("toolchains.signatures %q must be require or warn", c.Toolchains.Signatures)
+	}
+	if !oneOf(c.Isolation.Level, []string{"", "auto", "none", "user", "sandbox"}) {
+		add("isolation.level %q must be auto, none, user or sandbox", c.Isolation.Level)
+	}
+	if c.Isolation.UIDBase != 0 && (c.Isolation.UIDBase < 1000 || c.Isolation.UIDBase > 1<<30) {
+		add("isolation.uid_base %d must be between 1000 and %d", c.Isolation.UIDBase, 1<<30)
 	}
 	for _, a := range c.Notifications.Allow {
 		if _, err := ParseTrusted(a); err != nil {
