@@ -115,7 +115,8 @@ Every meaningful change is an event:
 
 - deployments: queued, started, succeeded, failed, superseded, canceled;
 - releases: created (deploy, config change, rollback, promote);
-- instances: started, exited, restarted, crashed, OOM-killed;
+- instances: started, exited, restarted, crashed, OOM-killed; all of them replaced
+  on request (`app.restarted`);
 - health: environment status changes;
 - environments: created, slept, woke, expired, destroyed;
 - domains and certificates: verified, issued, renewed, failing;

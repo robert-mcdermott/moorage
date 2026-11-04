@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -102,6 +103,68 @@ are healthy, and stop the old ones after their requests finish.`,
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Restarted %s.\n\n", appName)
 			return printInstances(cmd, appName, ins)
+		},
+	}
+	conn.addFlags(cmd)
+	cmd.Flags().StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
+	cmd.Flags().StringVar(&env, "env", names.Production, "environment")
+	return cmd
+}
+
+// parseFormation reads what `moor scale` asks for: web=3 worker=1.
+func parseFormation(args []string) (map[string]int, error) {
+	formation := map[string]int{}
+	for _, arg := range args {
+		name, count, ok := strings.Cut(arg, "=")
+		n, err := strconv.Atoi(count)
+		if !ok || name == "" || err != nil || n < 0 {
+			return nil, usageError{fmt.Errorf("%q is not a process and a number, such as web=3", arg)}
+		}
+		formation[name] = n
+	}
+	return formation, nil
+}
+
+func newScaleCmd() *cobra.Command {
+	var conn connection
+	var app, env string
+	cmd := &cobra.Command{
+		Use:   "scale [PROCESS=N ...]",
+		Short: "Show or change how many instances of each process run",
+		Long: `Set how many instances of each named process run. New ones start beside those
+running; those beyond the number finish their requests and stop. If a new
+instance cannot start, the app goes back to how it was.
+
+The setting stays, over the manifest's instances, for the releases to come.
+Without arguments, it shows how many run.`,
+		Example: `  moor scale --app shop
+  moor scale web=3 worker=1 --app shop`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formation, err := parseFormation(args)
+			if err != nil {
+				return err
+			}
+			appName, _, err := resolveApp(app)
+			if err != nil {
+				return err
+			}
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			var state apitypes.Environment
+			if len(formation) == 0 {
+				state, err = c.Environment(cmd.Context(), appName, env)
+			} else {
+				state, err = c.Scale(cmd.Context(), appName, env, formation)
+			}
+			if err != nil {
+				return err
+			}
+			if len(formation) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Scaled %s.\n\n", appName)
+			}
+			return printInstances(cmd, appName, state.Instances)
 		},
 	}
 	conn.addFlags(cmd)

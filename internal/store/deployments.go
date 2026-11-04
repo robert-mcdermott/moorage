@@ -41,13 +41,16 @@ type Deployment struct {
 	BuildID       string
 	ReleaseID     string
 	// Version is the release's number, once there is a release.
-	Version    int
-	Error      string
-	Output     []string
-	CreatedBy  string
-	CreatedAt  time.Time
-	StartedAt  time.Time
-	FinishedAt time.Time
+	Version int
+	// BuildCollected reports that the build was removed to save space, so that
+	// its release can no longer be served again.
+	BuildCollected bool
+	Error          string
+	Output         []string
+	CreatedBy      string
+	CreatedAt      time.Time
+	StartedAt      time.Time
+	FinishedAt     time.Time
 }
 
 // CreateDeployment records a new deployment of an existing environment.
@@ -120,20 +123,22 @@ func (db *DB) InterruptDeployments(ctx context.Context) (int, error) {
 }
 
 const deploymentColumns = `SELECT d.id, a.name, e.name, d.source_type, d.source_ref, d.source_commit, d.source_message, d.status, d.build_id, d.release_id, r.version,
-	d.error, d.output, d.created_by, d.created_at, d.started_at, d.finished_at
+	d.error, d.output, d.created_by, d.created_at, d.started_at, d.finished_at, b.collected_at
 	FROM deployments d JOIN environments e ON e.id = d.env_id JOIN apps a ON a.id = e.app_id
-	LEFT JOIN releases r ON r.id = d.release_id`
+	LEFT JOIN releases r ON r.id = d.release_id
+	LEFT JOIN builds b ON b.id = d.build_id`
 
 func scanDeployment(row interface{ Scan(...any) error }) (Deployment, error) {
 	var d Deployment
 	var buildID, releaseID, errMsg, output, by, ref, commit, message sql.NullString
-	var version, started, finished sql.NullInt64
+	var version, started, finished, collected sql.NullInt64
 	var created int64
 	if err := row.Scan(&d.ID, &d.App, &d.Env, &d.SourceType, &ref, &commit, &message, &d.Status, &buildID, &releaseID, &version,
-		&errMsg, &output, &by, &created, &started, &finished); err != nil {
+		&errMsg, &output, &by, &created, &started, &finished, &collected); err != nil {
 		return Deployment{}, err
 	}
 	d.SourceRef, d.SourceCommit, d.SourceMessage = ref.String, commit.String, message.String
+	d.BuildCollected = collected.Valid
 	d.BuildID, d.ReleaseID, d.Version, d.Error, d.CreatedBy = buildID.String, releaseID.String, int(version.Int64), errMsg.String, by.String
 	if output.Valid {
 		json.Unmarshal([]byte(output.String), &d.Output)
@@ -155,6 +160,37 @@ func (db *DB) Deployment(ctx context.Context, id string) (Deployment, error) {
 		return Deployment{}, fmt.Errorf("no deployment %s: %w", id, ErrNotFound)
 	}
 	return d, err
+}
+
+// BuildDeployment returns the deployment that made a build: what it was made from.
+func (db *DB) BuildDeployment(ctx context.Context, buildID string) (Deployment, error) {
+	d, err := scanDeployment(db.Reader.QueryRowContext(ctx, deploymentColumns+` WHERE d.build_id = ?
+		ORDER BY d.created_at, d.id LIMIT 1`, buildID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Deployment{}, fmt.Errorf("no deployment of the build %s: %w", buildID, ErrNotFound)
+	}
+	return d, err
+}
+
+// LatestDeployments returns the newest deployment of each app to an environment, by
+// app.
+func (db *DB) LatestDeployments(ctx context.Context, env string) (map[string]Deployment, error) {
+	rows, err := db.Reader.QueryContext(ctx, deploymentColumns+` WHERE d.id IN (
+		SELECT (SELECT d2.id FROM deployments d2 WHERE d2.env_id = e2.id ORDER BY d2.created_at DESC, d2.id DESC LIMIT 1)
+		FROM environments e2 WHERE e2.name = ?)`, env)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]Deployment{}
+	for rows.Next() {
+		d, err := scanDeployment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[d.App] = d
+	}
+	return out, rows.Err()
 }
 
 // Deployments lists an environment's deployments, newest first.

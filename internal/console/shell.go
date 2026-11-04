@@ -28,10 +28,20 @@ const maxListedApps = 500
 // appRow is a line of the apps list.
 type appRow struct {
 	Name, URL string
+	Status    status
 	Version   int
 	ChangedAt time.Time
 	ChangedBy string
+	// Instances says how many are healthy, of how many.
+	Instances string
+	// Last says what its newest deployment deployed, LastFailed that it failed
+	// while a release keeps serving, and Deploying that it is under way.
+	Last                  string
+	LastFailed, Deploying bool
 }
+
+// crumb is a step of the way back from a page.
+type crumb struct{ Label, Href string }
 
 // eventRow is an entry of the timeline.
 type eventRow struct {
@@ -103,10 +113,13 @@ func (c *Console) palette(apps []store.AppSummary) []paletteItem {
 		{Label: "Apps", Hint: "Page", Href: "/"},
 		{Label: "Activity", Hint: "Page", Href: "/activity"},
 		{Label: "Getting started", Hint: "Page", Href: "/welcome"},
+		{Label: "New app", Hint: "Page", Href: "/new"},
 	}
 	for _, a := range apps {
 		items = append(items,
-			paletteItem{Label: a.Name, Hint: "Activity of this app", Href: "/activity?app=" + url.QueryEscape(a.Name)},
+			paletteItem{Label: a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name)},
+			paletteItem{Label: "Deployments of " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/deployments"},
+			paletteItem{Label: "Deploy " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/deploy"},
 			paletteItem{Label: "Open " + a.Name, Hint: "Its address", Href: c.appURL(a.Name), External: true},
 		)
 	}
@@ -116,28 +129,6 @@ func (c *Console) palette(apps []store.AppSummary) []paletteItem {
 		paletteItem{Label: "Use the dark theme", Hint: "Theme", Action: "theme:dark"},
 		paletteItem{Label: "Sign out", Hint: "Account", Action: "signout"},
 	)
-}
-
-func (c *Console) appRows(apps []store.AppSummary) []appRow {
-	rows := make([]appRow, 0, len(apps))
-	for _, a := range apps {
-		row := appRow{Name: a.Name, URL: c.appURL(a.Name)}
-		if a.Production != nil {
-			row.Version, row.ChangedAt, row.ChangedBy = a.Production.Version, a.Production.CreatedAt, a.Production.CreatedBy
-		}
-		rows = append(rows, row)
-	}
-	return rows
-}
-
-func (c *Console) appsPage(w http.ResponseWriter, r *http.Request, p auth.Principal) {
-	d, apps, err := c.shellData(r, p, "apps", "Apps")
-	if err != nil {
-		c.internal(w, err)
-		return
-	}
-	d.Apps = c.appRows(apps)
-	c.render(w, http.StatusOK, "apps", d)
 }
 
 func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
@@ -190,9 +181,9 @@ func (c *Console) welcome(w http.ResponseWriter, r *http.Request) {
 		c.internal(w, err)
 		return
 	}
-	for _, a := range c.appRows(apps) {
-		if a.Version > 0 {
-			d.Apps = append(d.Apps, a)
+	for _, a := range apps {
+		if a.Production != nil {
+			d.Apps = append(d.Apps, appRow{Name: a.Name})
 		}
 	}
 	console := c.cfg.PublicURL(c.cfg.ConsoleHost)

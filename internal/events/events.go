@@ -29,6 +29,8 @@ const (
 	InstanceHealthy      = "instance.healthy"
 	InstanceReplaced     = "instance.replaced"
 	ConfigChanged        = "config.changed"
+	ScaleChanged         = "scale.changed"
+	AppRestarted         = "app.restarted"
 	ServerStarted        = "server.started"
 )
 
@@ -161,7 +163,7 @@ func Level(kind string) string {
 		return "fail"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
-	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged:
+	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted:
 		return "info"
 	}
 	return ""
@@ -247,6 +249,10 @@ func Summary(e store.Event) string {
 	case ConfigChanged:
 		changed := append(append([]string{}, names(e, "set")...), names(e, "unset")...)
 		return "Variables changed" + by + ": " + strings.Join(changed, ", ")
+	case ScaleChanged:
+		return "Scaled to " + text(e, "formation") + by
+	case AppRestarted:
+		return "Restarted" + by
 	case ServerStarted:
 		if v := text(e, "version"); v != "" {
 			return "The server started, version " + v

@@ -37,6 +37,23 @@ curl -H "Authorization: Bearer $MOOR_TOKEN" "https://moorage.apps.example.com/ap
 }
 ```
 
+## Running an app
+
+`GET /api/v1/apps/{app}/envs/{env}` says how an environment stands: its release, how many
+instances of each process it runs, and those instances. `PATCH` scales it, and answers
+the same, once it has got there; a new instance that cannot start leaves it as it was,
+with the code `scale_failed`:
+
+```bash
+curl -X PATCH -H "Authorization: Bearer $MOOR_TOKEN" -d '{"formation": {"web": 3}}' \
+  https://moorage.apps.example.com/api/v1/apps/shop/envs/production
+```
+
+`POST …/redeploy` builds what the current release was built from again, and answers with
+the queued deployment, as a deploy does. `GET …/releases/{version}` has a release with its
+resolved manifest, and `GET …/releases/{version}/diff/{other}` what changed between two:
+of variables, their names only.
+
 ## What happened
 
 `GET /api/v1/events` lists what happened on the server, newest first, in pages, for an

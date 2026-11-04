@@ -151,3 +151,24 @@ func (p *Plan) Defaults() {
 type planError struct{ msg string }
 
 func (e *planError) Error() string { return e.msg }
+
+// MaxInstances is how many instances of a process an environment may run.
+const MaxInstances = 20
+
+// WithFormation returns the plan with as many instances of its processes as the
+// formation says. Those it does not name keep the manifest's number, and one the plan
+// does not have is passed over: a later release may have it again.
+func (p Plan) WithFormation(formation map[string]int) Plan {
+	if len(formation) == 0 {
+		return p
+	}
+	processes := make(map[string]Process, len(p.Processes))
+	for name, proc := range p.Processes {
+		if n, ok := formation[name]; ok {
+			proc.Instances = &n
+		}
+		processes[name] = proc
+	}
+	p.Processes = processes
+	return p
+}

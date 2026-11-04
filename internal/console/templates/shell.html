@@ -9,6 +9,7 @@
 <script src="{{asset "theme.js"}}"></script>
 <link rel="stylesheet" href="{{asset "console.css"}}">
 <script src="{{asset "console.js"}}" defer></script>
+{{if .Noscript}}<noscript><meta http-equiv="refresh" content="5"></noscript>{{end}}
 </head>
 <body data-live{{with .Stream}} data-stream="{{.}}"{{end}}>
 <a class="skip" href="#main">Skip to the content</a>
@@ -42,10 +43,13 @@
   </aside>
   <div class="content">
     <header class="topbar">
-      <h1>{{.Heading}}</h1>
+      <div class="topbar-title">
+        {{with .Crumbs}}<nav class="crumbs" aria-label="The way back"><ol>{{range .}}<li><a href="{{.Href}}">{{.Label}}</a></li>{{end}}</ol></nav>{{end}}
+        <h1>{{.Heading}}</h1>
+      </div>
       <button class="quiet palette-open" type="button" data-palette-open hidden>Search and jump <kbd data-palette-key>Ctrl+K</kbd></button>
     </header>
-    <main id="main">
+    <main id="main"{{with .RefreshOn}} data-refresh-on="{{.}}"{{end}}>
 {{template "body" .}}
     </main>
   </div>
@@ -61,32 +65,6 @@
 {{end}}
 
 {{define "command"}}<div class="command"><pre><code>{{.}}</code></pre></div>{{end}}
-
-{{define "apps"}}
-{{if .Apps}}
-<div class="panel" data-apps>
-  <table class="apps">
-    <thead><tr><th scope="col">App</th><th scope="col">Address</th><th scope="col">Release</th><th scope="col">Last changed</th></tr></thead>
-    <tbody>
-    {{range .Apps}}
-      <tr data-app-row="{{.Name}}">
-        <td><a class="app-name" href="/activity?app={{.Name}}">{{.Name}}</a></td>
-        <td><a href="{{.URL}}">{{.URL}}</a></td>
-        <td>{{if .Version}}<span class="badge ok" data-app-status>v{{.Version}}</span>{{else}}<span class="badge" data-app-status>Not deployed</span>{{end}}</td>
-        <td class="muted">{{if .Version}}<time datetime="{{iso .ChangedAt}}">{{ago .ChangedAt}}</time>{{with .ChangedBy}} by {{.}}{{end}}{{else}}—{{end}}</td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
-</div>
-{{else}}
-<div class="panel empty" data-apps>
-  <h2>No apps yet</h2>
-  <p>Deploy one from its directory, and it will be at its own address in a moment. <a href="/welcome">Getting started</a> has the rest.</p>
-  {{template "command" "moor deploy"}}
-</div>
-{{end}}
-{{end}}
 
 {{define "activity"}}
 <form class="filters" method="get" action="/activity">
@@ -113,7 +91,7 @@
     {{range .Events}}
     <li data-id="{{.ID}}">
       <span class="dot {{.Level}}" aria-hidden="true"></span>
-      <span class="what">{{with .App}}<a class="where" href="/activity?app={{.}}">{{.}}</a> {{end}}{{.Summary}}</span>
+      <span class="what">{{with .App}}<a class="where" href="/apps/{{.}}">{{.}}</a> {{end}}{{.Summary}}</span>
       <time datetime="{{iso .At}}">{{ago .At}}</time>
     </li>
     {{end}}

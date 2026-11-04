@@ -310,7 +310,7 @@ notifications are emitted, and garbage collection is scheduled.
 | Action | What happens | Speed |
 |---|---|---|
 | `moor rollback [vN]` | New release pointing at an earlier build, with the **current** configuration (`--with-config` restores that release's configuration too). The release command does not run again. | Seconds — no build |
-| `moor redeploy [--no-cache]` | Rebuild the current commit (e.g. after a toolchain update) and roll out. | Build time |
+| `moor redeploy [--no-cache]` | Build the current release's source again (the same commit, upload or image name: e.g. after a toolchain update) and roll out. An upload is kept for this, as `source.tar.gz` beside its build; a build uploaded ready to run has nothing to rebuild. `--no-cache` comes with a build cache. | Build time |
 | `moor promote --from <env> --to <env>` | Release the exact build running in one environment (e.g. `staging`) to another (e.g. `production`). Warns if build-time variables differ. | Seconds |
 | `moor restart [process]` | Rolling restart of the current release. | Seconds |
 | `moor env set A=1 B=2` | New release with the same build and new configuration, rolled out; the release command does not run again. `--no-restart` stages the change for the next deploy. | Seconds |

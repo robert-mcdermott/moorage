@@ -362,6 +362,21 @@ health = { path = "/index.html", interval = "200ms", startup = "60s" }
 		t.Errorf("the manifest's port: %s", got)
 	}
 
+	// Deploying the image's name again, with the manifest it came with: its port.
+	again, err := c.Redeploy(ctx, "image", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err = c.FollowDeployment(ctx, again.ID, func(apitypes.LogLine) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if again.Status != "live" || again.Source != "image" || again.Ref != boxImage {
+		t.Errorf("redeployed: %+v", again)
+	}
+	if got := engineOutput(t, e, "port", containerName(t, e, cfg, instances(t, c, "image")[0].ID)); !strings.HasPrefix(got, "8123/tcp") {
+		t.Errorf("the manifest's port, after a redeploy: %s", got)
+	}
+
 	// Nothing in the image, and no manifest: the app needs a name, and the image
 	// must exist.
 	empty := t.TempDir()

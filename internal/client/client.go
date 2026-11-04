@@ -564,3 +564,42 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 	}
 	return res, nil
 }
+
+// Environment says how an environment stands.
+func (c *Client) Environment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.do(ctx, http.MethodGet, envDoc(app, env), nil, "", &out)
+	return out, err
+}
+
+// Scale sets how many instances of the named processes an environment runs.
+func (c *Client) Scale(ctx context.Context, app, env string, formation map[string]int) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPatch, envDoc(app, env), apitypes.EnvironmentChange{Formation: formation}, &out)
+	return out, err
+}
+
+// Redeploy builds what the current release was built from again.
+func (c *Client) Redeploy(ctx context.Context, app, env string) (apitypes.Deployment, error) {
+	var out apitypes.Deployment
+	err := c.do(ctx, http.MethodPost, envPath(app, env, "redeploy"), nil, "", &out)
+	return out, err
+}
+
+// Release returns a release, with what it runs.
+func (c *Client) Release(ctx context.Context, app, env string, version int) (apitypes.ReleaseDetail, error) {
+	var out apitypes.ReleaseDetail
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "releases/"+strconv.Itoa(version)), nil, "", &out)
+	return out, err
+}
+
+// ReleaseDiff says what changed from one release to another.
+func (c *Client) ReleaseDiff(ctx context.Context, app, env string, from, to int) (apitypes.ReleaseDiff, error) {
+	var out apitypes.ReleaseDiff
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "releases/"+strconv.Itoa(from)+"/diff/"+strconv.Itoa(to)), nil, "", &out)
+	return out, err
+}
+
+func envDoc(app, env string) string {
+	return strings.TrimSuffix(envPath(app, env, ""), "/")
+}

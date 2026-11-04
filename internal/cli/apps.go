@@ -447,9 +447,173 @@ func newReleasesCmd() *cobra.Command {
 		},
 	}
 	conn.addFlags(cmd)
+	cmd.PersistentFlags().StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
+	cmd.PersistentFlags().StringVar(&env, "env", names.Production, "environment")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	cmd.AddCommand(newReleaseShowCmd(&conn, &app, &env), newReleaseDiffCmd(&conn, &app, &env))
+	return cmd
+}
+
+// parseVersion reads a release version, such as v3 or 3.
+func parseVersion(s string) (int, error) {
+	v, err := strconv.Atoi(strings.TrimPrefix(s, "v"))
+	if err != nil || v <= 0 {
+		return 0, usageError{fmt.Errorf("%q is not a release version such as v3", s)}
+	}
+	return v, nil
+}
+
+func newReleaseShowCmd(conn *connection, app, env *string) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:     "show vN",
+		Short:   "Show a release and its resolved manifest",
+		Example: "  moor releases show v3 --app docs",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			version, err := parseVersion(args[0])
+			if err != nil {
+				return err
+			}
+			appName, _, err := resolveApp(*app)
+			if err != nil {
+				return err
+			}
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			rel, err := c.Release(cmd.Context(), appName, *env, version)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printJSON(cmd.OutOrStdout(), rel)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "v%d of %s: %s, %s (the build %s)\n\n%s", rel.Version, appName, rel.Reason, ago(rel.CreatedAt), rel.Build, rel.Manifest)
+			return nil
+		},
+	}
+	conn.addFlags(cmd)
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func newReleaseDiffCmd(conn *connection, app, env *string) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "diff vN vM",
+		Short: "Show what changed from one release to another",
+		Long: `Show what changed from one release to another: whether the build did, the
+lines of the resolved manifest, and which variables. Of variables it shows
+the names only.`,
+		Example: "  moor releases diff v3 v4 --app docs",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			from, err := parseVersion(args[0])
+			if err != nil {
+				return err
+			}
+			to, err := parseVersion(args[1])
+			if err != nil {
+				return err
+			}
+			appName, _, err := resolveApp(*app)
+			if err != nil {
+				return err
+			}
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			diff, err := c.ReleaseDiff(cmd.Context(), appName, *env, from, to)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printJSON(cmd.OutOrStdout(), diff)
+			}
+			printDiff(cmd.OutOrStdout(), diff)
+			return nil
+		},
+	}
+	conn.addFlags(cmd)
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func printDiff(w io.Writer, diff apitypes.ReleaseDiff) {
+	if diff.BuildChanged {
+		fmt.Fprintf(w, "v%d and v%d are different builds.\n", diff.From, diff.To)
+	} else {
+		fmt.Fprintf(w, "v%d and v%d are the same build.\n", diff.From, diff.To)
+	}
+	changed := false
+	for _, l := range diff.Manifest {
+		changed = changed || l.Op != apitypes.DiffSame
+	}
+	if changed {
+		fmt.Fprintln(w, "\nThe resolved manifest:")
+		for _, l := range diff.Manifest {
+			if l.Op != apitypes.DiffSame {
+				fmt.Fprintf(w, "%s %s\n", l.Op, l.Text)
+			}
+		}
+	}
+	if len(diff.Vars) > 0 {
+		fmt.Fprintln(w, "\nVariables:")
+		for _, v := range diff.Vars {
+			secret := ""
+			if v.Secret {
+				secret = " (secret)"
+			}
+			fmt.Fprintf(w, "  %s %s%s\n", v.Change, v.Name, secret)
+		}
+	}
+	if !changed && len(diff.Vars) == 0 {
+		fmt.Fprintln(w, "Nothing else differs.")
+	}
+}
+
+// newRedeployCmd builds the current release's source again.
+func newRedeployCmd() *cobra.Command {
+	var conn connection
+	var app, env string
+	var detach bool
+	cmd := &cobra.Command{
+		Use:   "redeploy",
+		Short: "Build the current release's source again, and roll it out",
+		Long: `Build what the current release was built from again, and roll it out: the
+same commit, the same upload or the same image name. Use it when a toolchain
+has moved, an image's tag points elsewhere, or a build variable has changed.
+
+A release that was uploaded ready to run has nothing to build.`,
+		Example: "  moor redeploy --app docs",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			appName, _, err := resolveApp(app)
+			if err != nil {
+				return err
+			}
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			d, err := c.Redeploy(cmd.Context(), appName, env)
+			if err != nil {
+				return err
+			}
+			if detach {
+				fmt.Fprintf(cmd.OutOrStdout(), "Deployment %s is queued; follow it with: moor deployments follow %s\n", d.ID, d.ID)
+				return nil
+			}
+			return followDeployment(cmd, c, d.ID)
+		},
+	}
+	conn.addFlags(cmd)
 	cmd.Flags().StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
 	cmd.Flags().StringVar(&env, "env", names.Production, "environment")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	cmd.Flags().BoolVar(&detach, "detach", false, "queue the deployment and return")
 	return cmd
 }
 

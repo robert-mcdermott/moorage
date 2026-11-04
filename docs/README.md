@@ -48,11 +48,13 @@ how it works inside and where it is going.
 | `moor apps` | Lists the apps |
 | `moor events` | Shows what happened on the server; `-f` follows it |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
-| `moor releases` | Lists an app's releases |
+| `moor releases` | Lists an app's releases; `show` one, and `diff` two |
 | `moor rollback [vN]` | Serves an earlier release again, in a moment |
+| `moor redeploy` | Builds the current release's source again, and rolls it out |
 | `moor ps` | Lists the app's instances: status, health, port, PID |
 | `moor logs [-f]` | Shows the app's output |
 | `moor restart` | Replaces the instances without downtime |
+| `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |
 | `moor env` | Lists and changes variables and secrets |
 | `moor manifest explain` | Shows how Moorage will build and run the app |
 | `moor server status` | Shows the server and its service |

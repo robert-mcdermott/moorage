@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
@@ -24,12 +25,8 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
-// MaxUpload bounds the size of an upload's request body.
-const MaxUpload = 1 << 30
-
 // Runtime runs process apps.
 type Runtime interface {
-	Restart(ctx context.Context, app, env string) error
 	Instances(app, env string) []reconcile.InstanceInfo
 }
 
@@ -104,7 +101,7 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Send the deploy as multipart/form-data with a plan part and an archive part.")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, MaxUpload)
+	r.Body = http.MaxBytesReader(w, r.Body, deploy.MaxUpload)
 	mr, err := r.MultipartReader()
 	if err != nil {
 		problem(w, http.StatusBadRequest, "bad_request", err.Error())
@@ -275,38 +272,16 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	buildID, version, err := s.db.RollbackBuild(r.Context(), app, env, req.Version)
+	rel, dep, err := s.deployer.Rollback(r.Context(), app, env, who(r).Name, req.Version, req.WithConfig)
+	var cannot *deploy.CannotRollBackError
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return
-	case err != nil:
+	case errors.As(err, &cannot):
 		problem(w, http.StatusConflict, "cannot_roll_back", err.Error())
 		return
 	}
-	build, err := s.db.Build(r.Context(), buildID)
-	if err != nil {
-		s.internal(w, err)
-		return
-	}
-	var plan manifest.Plan
-	if err := json.Unmarshal(build.Plan, &plan); err != nil {
-		s.internal(w, err)
-		return
-	}
-	var cfg []store.ConfigVar
-	if req.WithConfig {
-		if cfg, err = s.db.ReleaseConfig(r.Context(), app, env, version); err != nil {
-			s.internal(w, err)
-			return
-		}
-		if cfg == nil {
-			cfg = []store.ConfigVar{} // that release ran without server variables
-		}
-	}
-	rel, dep, err := s.deployer.Publish(r.Context(), deploy.PublishRequest{
-		App: app, Env: env, By: who(r).Name, Source: "rollback", Reason: "rollback", Build: build, Plan: plan, Config: cfg,
-	})
 	if s.publishFailed(w, err) {
 		return
 	}
@@ -316,12 +291,36 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
+// redeploy builds what the current release was built from again.
+func (s *Server) redeploy(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	dep, err := s.deployer.Redeploy(r.Context(), app, env, who(r).Name)
+	var cannot *deploy.CannotRedeployError
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		problem(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	case errors.As(err, &cannot):
+		problem(w, http.StatusConflict, "cannot_redeploy", err.Error())
+		return
+	case err != nil:
+		s.internal(w, err)
+		return
+	}
+	s.log.Info("deployment queued", "app", app, "env", env, "deployment", dep.ID, "reason", "redeploy")
+	w.Header().Set("Location", "/api/v1/deployments/"+dep.ID)
+	writeJSON(w, http.StatusAccepted, s.deploymentDoc(dep))
+}
+
 func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	app, env, ok := s.target(w, r)
 	if !ok {
 		return
 	}
-	err := s.runtime.Restart(r.Context(), app, env)
+	err := s.deployer.Restart(r.Context(), app, env, who(r).Name)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", err.Error())
@@ -337,6 +336,152 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("restarted", "app", app, "env", env)
 	writeJSON(w, http.StatusOK, s.instanceList(app, env))
+}
+
+// environment says how an environment stands.
+func (s *Server) environment(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	doc, err := s.environmentDoc(r.Context(), app, env)
+	if errors.Is(err, store.ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
+}
+
+func (s *Server) environmentDoc(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	doc := apitypes.Environment{App: app, Name: env, URL: s.appURL(app), Instances: s.instanceList(app, env)}
+	formation, err := s.db.Formation(ctx, app, env)
+	if err != nil {
+		return doc, err
+	}
+	rel, b, err := s.db.CurrentRelease(ctx, app, env)
+	if errors.Is(err, store.ErrNotFound) {
+		return doc, nil // nothing deployed yet
+	}
+	if err != nil {
+		return doc, err
+	}
+	doc.Release = s.releaseDoc(rel)
+	var plan manifest.Plan
+	if err := json.Unmarshal(b.Plan, &plan); err != nil {
+		return doc, err
+	}
+	plan.Defaults()
+	if plan.Kind == manifest.KindProcess {
+		doc.Formation = map[string]int{}
+		for name, proc := range plan.WithFormation(formation).Processes {
+			doc.Formation[name] = *proc.Instances
+		}
+	}
+	return doc, nil
+}
+
+// changeEnvironment scales an environment.
+func (s *Server) changeEnvironment(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	var change apitypes.EnvironmentChange
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&change); err != nil {
+		problem(w, http.StatusBadRequest, "bad_request", "The body is not valid JSON: "+err.Error())
+		return
+	}
+	if len(change.Formation) == 0 {
+		problem(w, http.StatusUnprocessableEntity, "invalid_formation", "Say how many instances of which process: {\"formation\": {\"web\": 2}}.")
+		return
+	}
+	_, err := s.deployer.Scale(r.Context(), app, env, who(r).Name, change.Formation)
+	var invalid *reconcile.ScaleError
+	var rollout *reconcile.RolloutError
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		problem(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	case errors.As(err, &invalid):
+		problem(w, http.StatusUnprocessableEntity, "invalid_formation", err.Error())
+		return
+	case errors.As(err, &rollout):
+		writeProblem(w, apitypes.Problem{
+			Title: "Scaling failed", Status: http.StatusUnprocessableEntity, Code: "scale_failed",
+			Detail: rollout.Message + "; it runs as many instances as before", Output: rollout.Output,
+		})
+		return
+	case err != nil:
+		s.internal(w, err)
+		return
+	}
+	s.log.Info("scaled", "app", app, "env", env, "formation", deploy.FormationText(change.Formation))
+	s.environment(w, r)
+}
+
+// releaseVersion reads a {version} path value, such as "3" or "v3".
+func releaseVersion(w http.ResponseWriter, r *http.Request, name string) (int, bool) {
+	v, err := strconv.Atoi(strings.TrimPrefix(r.PathValue(name), "v"))
+	if err != nil || v < 1 {
+		problem(w, http.StatusNotFound, "not_found", "That is not a release version such as v3.")
+		return 0, false
+	}
+	return v, true
+}
+
+func (s *Server) release(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	version, ok := releaseVersion(w, r, "version")
+	if !ok {
+		return
+	}
+	rel, b, err := s.db.ReleaseVersion(r.Context(), app, env, version)
+	if errors.Is(err, store.ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	text, err := deploy.ResolvedManifest(b)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apitypes.ReleaseDetail{Release: release(rel), Manifest: text, Plan: b.Plan})
+}
+
+func (s *Server) releaseDiff(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	from, ok := releaseVersion(w, r, "version")
+	if !ok {
+		return
+	}
+	to, ok := releaseVersion(w, r, "other")
+	if !ok {
+		return
+	}
+	diff, err := deploy.DiffReleases(r.Context(), s.db, app, env, from, to)
+	if errors.Is(err, store.ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, diff)
 }
 
 func (s *Server) instances(w http.ResponseWriter, r *http.Request) {

@@ -129,7 +129,7 @@ share a port.
 | Data | Location | Notes |
 |---|---|---|
 | Git repositories | `repos/<app>.git` | Bare; periodic repack |
-| Builds | `builds/<app>/<build-id>/` | Read-only after packaging; deleted by GC |
+| Builds | `builds/<app>/<build-id>/` | Read-only after packaging; deleted by GC. An upload's `source.tar.gz` is kept beside it, for a redeploy |
 | App data | `data/<app>/<env>/` | Owned by the app's UID under `user` isolation |
 | App logs | `logs/apps/<app>/<env>/<process>.<index>.<instance>.log[.N]` | Written and rotated by the shim |
 | Build and run logs | `logs/builds/<deployment>.log`, `logs/runs/<run>.log` | |

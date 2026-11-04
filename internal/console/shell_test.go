@@ -54,7 +54,8 @@ func TestPagesNeedSigningIn(t *testing.T) {
 func TestPagesAreStrict(t *testing.T) {
 	f := newFixture(t)
 	f.signedInAdmin()
-	for _, path := range []string{"/", "/activity", "/welcome"} {
+	f.db.EnsureApp(f.ctx, "shop")
+	for _, path := range []string{"/", "/activity", "/welcome", "/new", "/apps/shop", "/apps/shop/deployments", "/apps/shop/deploy", "/apps/brand-new/deploy"} {
 		res, body := f.get(path)
 		if res.StatusCode != http.StatusOK {
 			t.Errorf("%s: %d", path, res.StatusCode)
@@ -155,7 +156,7 @@ func TestPaletteOffersTheAppsAndActions(t *testing.T) {
 		if item.Label == "Open shop" && (item.Href != "http://shop.apps.test" || !item.External) {
 			t.Errorf("%+v", item)
 		}
-		if item.Label == "shop" && item.Href != "/activity?app=shop" {
+		if item.Label == "shop" && item.Href != "/apps/shop" {
 			t.Errorf("%+v", item)
 		}
 		if item.Label == "Sign out" && item.Action != "signout" {
@@ -323,5 +324,83 @@ func TestDevelopersReadTheSourceTree(t *testing.T) {
 	}
 	if body := get("/assets/console.css"); body != "/* changed */" {
 		t.Errorf("%q", body)
+	}
+}
+
+func TestAppPagesAreGuarded(t *testing.T) {
+	f := newFixture(t)
+	f.db.EnsureApp(f.ctx, "shop")
+	f.addUser("a@example.com", store.RoleMember)
+
+	// Signed out: to the sign-in, and back.
+	for _, path := range []string{"/new", "/apps/shop", "/apps/shop/deployments", "/apps/shop/deploy", "/deployments/dep_01M6JAE1CDN5QDNB0X4803DRW3"} {
+		res, _ := f.get(path)
+		if res.StatusCode != http.StatusSeeOther || !strings.HasPrefix(res.Header.Get("Location"), "/login?next=") {
+			t.Errorf("%s: %d %s", path, res.StatusCode, res.Header.Get("Location"))
+		}
+	}
+	for _, path := range []string{"/apps/shop/restart", "/apps/shop/redeploy", "/apps/shop/rollback", "/apps/shop/scale", "/apps/shop/deploy/image"} {
+		res, _ := f.post(path, url.Values{})
+		if res.StatusCode != http.StatusSeeOther || !strings.HasPrefix(res.Header.Get("Location"), "/login") {
+			t.Errorf("%s: %d %s", path, res.StatusCode, res.Header.Get("Location"))
+		}
+	}
+
+	f.signIn("a@example.com")
+	_, page := f.get("/apps/shop/deploy")
+	token := csrfOf(t, page)
+
+	// Signed in, but without the session's token, or from another site: refused.
+	for _, path := range []string{"/apps/shop/restart", "/apps/shop/redeploy", "/apps/shop/rollback", "/apps/shop/scale", "/apps/shop/deploy/image"} {
+		res, body := f.post(path, url.Values{"csrf": {"wrong"}, "image": {"nginx:1"}})
+		if res.StatusCode != http.StatusForbidden || !strings.Contains(body, "refused") {
+			t.Errorf("%s with a wrong token: %d", path, res.StatusCode)
+		}
+	}
+	f.extra = http.Header{"Sec-Fetch-Site": {"cross-site"}}
+	for _, path := range []string{"/apps/shop/restart", "/apps/shop/deploy/image", "/apps/shop/deploy/archive"} {
+		res, _ := f.post(path, url.Values{"csrf": {token}, "image": {"nginx:1"}})
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s from another site: %d", path, res.StatusCode)
+		}
+	}
+	f.extra = nil
+
+	// An app that does not exist has no actions to take; a name that could not be
+	// one has no page.
+	for _, path := range []string{"/apps/none/restart", "/apps/Not_A_Name/restart"} {
+		if res, _ := f.post(path, url.Values{"csrf": {token}}); res.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: %d", path, res.StatusCode)
+		}
+	}
+	for _, path := range []string{"/apps/none", "/apps/none/deployments", "/apps/Not_A_Name/deploy", "/deployments/nothing", "/deployments/dep_01M6JAE1CDN5QDNB0X4803DRW3"} {
+		if res, _ := f.get(path); res.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: %d", path, res.StatusCode)
+		}
+	}
+}
+
+func TestNewApp(t *testing.T) {
+	f := newFixture(t)
+	f.signedInAdmin()
+	if res, body := f.get("/new"); res.StatusCode != http.StatusOK || !strings.Contains(body, `name="name"`) {
+		t.Errorf("%d %s", res.StatusCode, body)
+	}
+	res, body := f.get("/new?name=Not_A_Name")
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, `role="alert"`) || !strings.Contains(body, `value="Not_A_Name"`) {
+		t.Errorf("%d %s", res.StatusCode, body)
+	}
+	res, _ = f.get("/new?name=brand-new")
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/apps/brand-new/deploy" {
+		t.Errorf("%d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	_, body = f.get("/apps/brand-new/deploy")
+	for _, want := range []string{"moor deploy --app brand-new", "moor git remote --app brand-new", "git push moorage main", `data-wait-deployment="brand-new"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no %q in: %s", want, body)
+		}
+	}
+	if res, _ := f.get("/apps/brand-new"); res.StatusCode != http.StatusNotFound {
+		t.Errorf("no deployment has created it yet: %d", res.StatusCode)
 	}
 }

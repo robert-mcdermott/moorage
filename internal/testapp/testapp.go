@@ -5,6 +5,7 @@
 //
 //	TESTAPP_BODY         body of GET / (default: "hello from $MOORAGE_RELEASE")
 //	TESTAPP_FAIL         exit with status 1 at once
+//	TESTAPP_FAIL_BEYOND  do so if this instance's number is beyond this one
 //	TESTAPP_START_DELAY  wait this long (a Go duration) before listening
 //	TESTAPP_IGNORE_TERM  ignore the stop signal (to test forced stops)
 //	TESTAPP_PRINT        print the value of this variable at start
@@ -39,6 +40,13 @@ func Main() int {
 	if os.Getenv("TESTAPP_FAIL") != "" {
 		fmt.Fprintln(os.Stderr, "testapp: failing as asked")
 		return 1
+	}
+	if limit := os.Getenv("TESTAPP_FAIL_BEYOND"); limit != "" {
+		n, _ := strconv.Atoi(limit)
+		if i, _ := strconv.Atoi(os.Getenv("MOORAGE_INSTANCE")); i > n {
+			fmt.Fprintln(os.Stderr, "testapp: failing as asked, beyond instance", n)
+			return 1
+		}
 	}
 	if d, err := time.ParseDuration(os.Getenv("TESTAPP_START_DELAY")); err == nil {
 		time.Sleep(d)

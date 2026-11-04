@@ -1,6 +1,6 @@
 // What scripts add to the console's pages, all of which work without them: the
-// theme, copying commands, times that stay true, the command palette, and live
-// updates over one stream of events.
+// theme, copying commands, times that stay true, the command palette, a deployment's
+// log as it is written, and live updates over one stream of events.
 (function () {
   'use strict';
 
@@ -42,21 +42,24 @@
 
   // Copying commands
 
-  $$('.command').forEach(function (block) {
-    var pre = $('pre', block);
-    if (!pre || !navigator.clipboard) { return; }
-    var button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = 'Copy';
-    button.setAttribute('aria-label', 'Copy this command');
-    button.addEventListener('click', function () {
-      navigator.clipboard.writeText(pre.textContent).then(function () {
-        button.textContent = 'Copied';
-        setTimeout(function () { button.textContent = 'Copy'; }, 1500);
+  function addCopyButtons() {
+    $$('.command').forEach(function (block) {
+      var pre = $('pre', block);
+      if (!pre || !navigator.clipboard || $('button', block)) { return; }
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Copy';
+      button.setAttribute('aria-label', 'Copy this command');
+      button.addEventListener('click', function () {
+        navigator.clipboard.writeText(pre.textContent).then(function () {
+          button.textContent = 'Copied';
+          setTimeout(function () { button.textContent = 'Copy'; }, 1500);
+        });
       });
+      block.appendChild(button);
     });
-    block.appendChild(button);
-  });
+  }
+  addCopyButtons();
 
   // Times
 
@@ -89,6 +92,209 @@
     var submit = $('button', filter.form);
     if (submit) { submit.hidden = true; }
   }
+
+  // Filtering the apps, as they are typed. The command palette finds one too; this
+  // keeps the list in view.
+
+  var appFilter = $('[data-filter-apps]');
+
+  function filterApps() {
+    if (!appFilter) { return; }
+    var query = appFilter.value.trim().toLowerCase();
+    $$('[data-app-row]').forEach(function (row) {
+      row.hidden = query !== '' && row.getAttribute('data-app-row').indexOf(query) < 0;
+    });
+  }
+
+  if (appFilter) {
+    appFilter.hidden = false;
+    appFilter.addEventListener('input', filterApps);
+  }
+
+  // Forms that take a while say so, and those that matter ask first. They are found
+  // from the document: the parts of a page that are drawn again bring new ones.
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    var question = form.getAttribute('data-confirm');
+    if (question && !window.confirm(question)) {
+      e.preventDefault();
+      return;
+    }
+    var busy = form.getAttribute('data-busy');
+    var button = $('button[type="submit"]', form);
+    if (busy && button) {
+      button.textContent = busy;
+      button.disabled = true;
+      form.setAttribute('data-submitted', '');
+    }
+  });
+
+  // A page the browser kept, on the way back, is as it was left: buttons that say
+  // they are busy, and a stream it let go of.
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) { location.reload(); }
+  });
+
+  // What was done is said once, not again on reloading.
+  if (location.search.indexOf('done=') >= 0 && window.history.replaceState) {
+    history.replaceState(null, '', location.pathname);
+  }
+
+  // The parts of a page that change: the server draws them again, so that there is one
+  // place that knows how they look.
+
+  var refreshTimer = null;
+  var pollTimer = null;
+  var refreshing = false;
+  var refreshAgain = false;
+
+  // A part someone is working in stays as it is.
+  function inUse(part) {
+    if ($('[data-submitted]', part)) { return true; }
+    var active = document.activeElement;
+    if (active && part.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) { return true; }
+    return $$('input', part).some(function (input) {
+      if (input.type === 'hidden') { return false; }
+      return input.type === 'checkbox' ? input.checked !== input.defaultChecked : input.value !== input.defaultValue;
+    });
+  }
+
+  function refresh() {
+    if (refreshing) {
+      refreshAgain = true;
+      return;
+    }
+    refreshing = true;
+    fetch(location.href, { credentials: 'same-origin' }).then(function (res) {
+      return res.ok ? res.text() : '';
+    }).then(function (html) {
+      var drawn = new DOMParser().parseFromString(html, 'text/html');
+      $$('[data-refresh]').forEach(function (part) {
+        var fresh = drawn.querySelector('[data-refresh="' + part.getAttribute('data-refresh') + '"]');
+        if (fresh && !inUse(part)) { part.replaceWith(document.adoptNode(fresh)); }
+      });
+      addCopyButtons();
+      showTimes();
+      filterApps();
+    }).catch(function () {
+      // The stream or the next poll will bring it.
+    }).then(function () {
+      refreshing = false;
+      if (refreshAgain) {
+        refreshAgain = false;
+        refreshSoon();
+      }
+      pollIfNeeded();
+    });
+  }
+
+  function refreshSoon() {
+    if (!window.fetch || !window.DOMParser || !$('[data-refresh]')) { return; }
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refresh, 250);
+  }
+
+  // A deployment under way changes more often than it has events to tell.
+  function pollIfNeeded() {
+    clearTimeout(pollTimer);
+    if ($('[data-poll]') && !document.hidden) { pollTimer = setTimeout(refreshSoon, 2500); }
+  }
+  pollIfNeeded();
+
+  function refreshFor(event) {
+    var main = $('[data-refresh-on]');
+    if (!main || !event.app) { return; }
+    var on = main.getAttribute('data-refresh-on');
+    if (on === '*' || on === event.app) { refreshSoon(); }
+  }
+
+  // The log of a deployment under way, as it is written.
+
+  function followLog() {
+    var box = $('[data-log-follow]');
+    if (!box || !window.fetch || !window.TextDecoder || !window.AbortController) { return; }
+    var id = box.getAttribute('data-log-id');
+    var seen = Number(box.getAttribute('data-log-count')) || 0;
+    var status = $('[data-log-status]');
+    var controller = null;
+    var ended = false;
+    var keepAtEnd = true;
+
+    box.addEventListener('scroll', function () {
+      keepAtEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+    });
+    box.scrollTop = box.scrollHeight;
+
+    function show(text, kind) {
+      if (!status) { return; }
+      status.hidden = !text;
+      status.textContent = text;
+      status.className = 'badge live-status ' + kind;
+    }
+
+    function add(line) {
+      seen++;
+      var span = document.createElement('span');
+      span.className = 'line s-' + line.stream;
+      span.title = line.time;
+      span.textContent = line.text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '') + '\n';
+      box.appendChild(span);
+      if (keepAtEnd) { box.scrollTop = box.scrollHeight; }
+      // A note of Moorage's own may begin a stage.
+      if (line.stream === 'M' && /^[▸✔✘]/.test(line.text)) { refreshSoon(); }
+    }
+
+    function open() {
+      if (controller || ended) { return; }
+      var mine = new AbortController();
+      controller = mine;
+      fetch('/api/v1/deployments/' + encodeURIComponent(id) + '/log?follow=true&skip=' + seen, {
+        credentials: 'same-origin', signal: mine.signal
+      }).then(function (res) {
+        if (!res.ok || !res.body) { throw new Error('the log could not be read'); }
+        show('Live', 'ok');
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var rest = '';
+        function pump() {
+          return reader.read().then(function (part) {
+            if (part.done) { return null; }
+            rest += decoder.decode(part.value, { stream: true });
+            var lines = rest.split('\n');
+            rest = lines.pop();
+            lines.forEach(function (text) {
+              if (text) { add(JSON.parse(text)); }
+            });
+            return pump();
+          });
+        }
+        return pump();
+      }).then(function () {
+        ended = true;
+        controller = null;
+        show('', '');
+        refreshSoon();
+      }).catch(function () {
+        controller = null;
+        if (!mine.signal.aborted) {
+          show('Reconnecting', 'warn');
+          setTimeout(open, 2000);
+        }
+      });
+    }
+
+    function close() {
+      if (controller) { controller.abort(); }
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { close(); } else { open(); }
+    });
+    window.addEventListener('pagehide', close);
+    if (!document.hidden) { open(); }
+  }
+  followLog();
 
   // The command palette
 
@@ -223,9 +429,7 @@
 
   // Live updates: one stream of events for the whole page.
 
-  if (document.body.hasAttribute('data-live') && window.EventSource) {
-    follow();
-  }
+  // At the end of this script, once what it hears of has been set up.
 
   function follow() {
     var stream = document.body.getAttribute('data-stream') || '/api/v1/events/stream';
@@ -251,8 +455,9 @@
         try { event = JSON.parse(message.data); } catch (e) { return; }
         last = event.id || last;
         addToTimeline(event);
-        updateAppRow(event);
+        refreshFor(event);
         updateWaiting(event);
+        followNextDeployment(event);
       });
     };
 
@@ -267,7 +472,13 @@
     // following it holds one: a page out of sight lets its go, and catches up on
     // what it missed when it returns.
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { close(); } else { open(); }
+      if (document.hidden) {
+        close();
+      } else {
+        open();
+        refreshSoon();
+        pollIfNeeded();
+      }
     });
     window.addEventListener('pagehide', close);
     if (!document.hidden) { open(); }
@@ -289,10 +500,10 @@
     li.appendChild(dot);
     var what = document.createElement('span');
     what.className = 'what';
-    if (event.app) {
+    if (event.app && !only) {
       var where = document.createElement('a');
       where.className = 'where';
-      where.href = '/activity?app=' + encodeURIComponent(event.app);
+      where.href = '/apps/' + encodeURIComponent(event.app);
       where.textContent = event.app;
       what.appendChild(where);
       what.appendChild(document.createTextNode(' '));
@@ -309,37 +520,6 @@
     var empty = $('[data-timeline-empty]');
     if (empty) { empty.hidden = true; }
     timeline.hidden = false;
-  }
-
-  function updateAppRow(event) {
-    if (!event.app) { return; }
-    var apps = $('[data-apps]');
-    if (!apps) { return; }
-    var row = $('[data-app-row="' + event.app.replace(/[^a-z0-9-]/g, '') + '"]', apps);
-    if (!row) {
-      // A new app: the server knows how to show it.
-      if (event.type === 'deployment.live' || event.type === 'release.created') { location.reload(); }
-      return;
-    }
-    var badge = $('[data-app-status]', row);
-    var version = event.data && event.data.version;
-    var show = function (text, kind) {
-      badge.textContent = text;
-      badge.className = 'badge ' + kind;
-    };
-    switch (event.type) {
-      case 'deployment.queued':
-      case 'deployment.started':
-        show('Deploying', 'info pulse');
-        break;
-      case 'deployment.live':
-      case 'release.created':
-        show('v' + version, 'ok');
-        break;
-      case 'deployment.failed':
-        show('Deploy failed', 'fail');
-        break;
-    }
   }
 
   function updateWaiting(event) {
@@ -371,5 +551,20 @@
         }
         break;
     }
+  }
+
+  // The page that says how to deploy an app goes to the deployment when one starts.
+
+  var waitingFor = $('[data-wait-deployment]');
+  if (waitingFor && window.EventSource) { waitingFor.hidden = false; }
+
+  function followNextDeployment(event) {
+    if (!waitingFor || event.type !== 'deployment.queued' || event.app !== waitingFor.getAttribute('data-wait-deployment')) { return; }
+    var id = event.data && event.data.deployment;
+    if (id) { location.href = '/deployments/' + encodeURIComponent(id); }
+  }
+
+  if (document.body.hasAttribute('data-live') && window.EventSource) {
+    follow();
   }
 })();

@@ -2,7 +2,10 @@
 // by the server and the CLI.
 package apitypes
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // App is an app and its production environment.
 type App struct {
@@ -394,4 +397,68 @@ type Event struct {
 	Transient bool `json:"transient,omitempty"`
 	// Data holds the details of its type.
 	Data map[string]any `json:"data,omitempty"`
+}
+
+// Environment is how an environment stands: what it serves and what runs it.
+type Environment struct {
+	App     string   `json:"app"`
+	Name    string   `json:"name"`
+	URL     string   `json:"url"`
+	Release *Release `json:"release,omitempty"`
+	// Formation is how many instances of each process it runs: what the manifest
+	// says, unless scaling said otherwise.
+	Formation map[string]int `json:"formation,omitempty"`
+	Instances []Instance     `json:"instances"`
+}
+
+// EnvironmentChange changes an environment.
+type EnvironmentChange struct {
+	// Formation sets how many instances of the named processes run, over the
+	// manifest's number, for this release and those to come.
+	Formation map[string]int `json:"formation"`
+}
+
+// ReleaseDetail is a release, with what it runs.
+type ReleaseDetail struct {
+	Release
+	// Manifest says in plain words what the release does; Plan is the same as data.
+	Manifest string          `json:"manifest"`
+	Plan     json.RawMessage `json:"plan"`
+}
+
+// ReleaseDiff says what changed from one release to another. Of the variables it says
+// which ones, never their values.
+type ReleaseDiff struct {
+	From         int        `json:"from"`
+	To           int        `json:"to"`
+	BuildChanged bool       `json:"build_changed"`
+	Manifest     []DiffLine `json:"manifest"`
+	Vars         []VarDiff  `json:"vars"`
+}
+
+// How a line differs.
+const (
+	DiffSame    = " "
+	DiffAdded   = "+"
+	DiffRemoved = "-"
+)
+
+// DiffLine is a line of the resolved manifest: the same, added or removed.
+type DiffLine struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
+
+// How a variable differs.
+const (
+	DiffAddedVar   = "added"
+	DiffChangedVar = "changed"
+	DiffRemovedVar = "removed"
+)
+
+// VarDiff is a variable that differs.
+type VarDiff struct {
+	Name   string `json:"name"`
+	Change string `json:"change"`
+	Secret bool   `json:"secret,omitempty"`
 }

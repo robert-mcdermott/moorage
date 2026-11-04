@@ -224,7 +224,8 @@ elevated Administrator on Windows), per-user otherwise (laptop mode):
   moorage.db                      SQLite database (+ -wal, -shm)
   keys/                           master key, SSH host keys, internal CA (0700)
   repos/<app>.git/                bare git repositories
-  builds/<app>/<build-id>/        immutable build outputs (built in place)
+  builds/<app>/<build-id>/        immutable build outputs (built in place), and
+                                  source.tar.gz: an upload, for a redeploy
   data/<app>/<env>/               persistent data directories
   logs/
     apps/<app>/<env>/<process>.<index>.<instance>.log[.N]

@@ -1,0 +1,370 @@
+{{define "status"}}<span class="badge {{.Kind}}">{{.Label}}</span>{{end}}
+
+{{define "app-tabs"}}
+<nav class="tabs" aria-label="This app">
+  <a href="/apps/{{.App.Name}}"{{if eq .Tab "overview"}} aria-current="page"{{end}}>Overview</a>
+  <a href="/apps/{{.App.Name}}/deployments"{{if eq .Tab "deployments"}} aria-current="page"{{end}}>Deployments</a>
+  <a href="/apps/{{.App.Name}}/deploy"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>
+</nav>
+{{end}}
+
+{{define "failure"}}
+{{with .Failure}}
+<div class="notice fail" role="alert">
+  <p>{{.Message}}</p>
+  {{with .Output}}<pre class="output">{{range .}}{{.}}
+{{end}}</pre>{{end}}
+</div>
+{{end}}
+{{with .Notice}}<p class="notice ok" role="status">{{.}}</p>{{end}}
+{{end}}
+
+{{define "apps"}}
+<div class="page-actions">
+  <input class="filter" type="search" aria-label="Filter the apps" placeholder="Filter the apps" data-filter-apps hidden>
+  <a class="button" href="/new">New app</a>
+</div>
+<div data-refresh="apps">
+{{if .Apps}}
+<div class="panel table-scroll" data-apps{{if .Poll}} data-poll{{end}}>
+  <table class="apps">
+    <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
+    <tbody>
+    {{range .Apps}}
+      <tr data-app-row="{{.Name}}">
+        <td><a class="app-name" href="/apps/{{.Name}}">{{.Name}}</a></td>
+        <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{with .Instances}}<span class="muted small nowrap"> {{.}}</span>{{end}}</td>
+        <td><a href="{{.URL}}">{{.URL}}</a></td>
+        <td>{{if .Version}}v{{.Version}}{{else}}—{{end}}</td>
+        <td class="muted">
+          {{if not .ChangedAt.IsZero}}<time datetime="{{iso .ChangedAt}}">{{ago .ChangedAt}}</time>{{with .ChangedBy}} by {{.}}{{end}}{{else}}—{{end}}
+          {{with .Last}}<div class="small clip">{{.}}</div>{{end}}
+          {{if .LastFailed}}<div class="small"><span class="badge fail">Last deployment failed</span></div>{{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<div class="panel empty" data-apps>
+  <h2>No apps yet</h2>
+  <p>Deploy one from its directory, and it will be at its own address in a moment. <a href="/welcome">Getting started</a> has the rest.</p>
+  {{template "command" "moor deploy"}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+{{define "app"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .App}}
+<div data-refresh="status"{{if .Deploying}} data-poll{{end}}>
+  <section class="panel panel-pad app-head">
+    <div class="app-summary">
+      <p>{{template "status" .Status}}{{if .LastFailed}} <a class="badge fail" href="/deployments/{{.LastFailed}}">Last deployment failed</a>{{end}}</p>
+      <p><a href="{{.URL}}">{{.URL}}</a></p>
+      {{with .Release}}
+      <p class="muted">
+        {{if .Deployment}}<a href="/deployments/{{.Deployment}}">v{{.Version}}</a>{{else}}v{{.Version}}{{end}}{{with .Source}}: {{.}}{{end}},
+        <time datetime="{{iso .At}}">{{ago .At}}</time>{{with .By}} by {{.}}{{end}}
+      </p>
+      {{else}}
+      <p class="muted">Nothing is deployed yet.</p>
+      {{end}}
+    </div>
+    <div class="actions app-actions">
+      <a class="button" href="/apps/{{.Name}}/deploy">Deploy</a>
+      {{if .Release}}
+      <form method="post" action="/apps/{{.Name}}/redeploy" data-busy="Starting…">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="quiet" type="submit">Redeploy</button>
+      </form>
+      {{if not .Static}}
+      <form method="post" action="/apps/{{.Name}}/restart" data-busy="Restarting…">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="quiet" type="submit">Restart</button>
+      </form>
+      {{end}}
+      {{with .Previous}}
+      <form method="post" action="/apps/{{$.App.Name}}/rollback" data-busy="Rolling back…" data-confirm="Serve v{{.}} of {{$.App.Name}} again?">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <input type="hidden" name="version" value="{{.}}">
+        <button class="quiet" type="submit">Roll back to v{{.}}</button>
+      </form>
+      {{end}}
+      {{end}}
+    </div>
+  </section>
+</div>
+
+{{if .Release}}
+{{if .Static}}
+<section class="block">
+  <div class="section-heading"><h2>Instances</h2></div>
+  <p class="panel panel-pad muted">It is a static site: the server serves its files, and it runs no instances.</p>
+</section>
+{{else}}
+<section class="block" data-refresh="instances">
+  <div class="section-heading"><h2>Instances</h2></div>
+  <div class="panel table-scroll">
+    <table class="apps instances">
+      <thead><tr><th scope="col">Instance</th><th scope="col">Health</th><th scope="col">Release</th><th scope="col">Port</th><th scope="col">PID</th><th scope="col">Restarts</th><th scope="col">Up since</th><th scope="col">Last exit</th></tr></thead>
+      <tbody>
+      {{range .Processes}}
+        {{range .Instances}}
+        <tr>
+          <td class="app-name">{{.Name}}</td>
+          <td>{{template "status" .Status}}</td>
+          <td data-label="Release">v{{.Version}}{{if .Replaced}} <span class="muted small">being replaced</span>{{end}}</td>
+          <td data-label="Port">{{if .Port}}{{.Port}}{{else}}—{{end}}</td>
+          <td data-label="PID">{{if .PID}}{{.PID}}{{else}}—{{end}}</td>
+          <td data-label="Restarts">{{.Restarts}}</td>
+          <td class="muted" data-label="Up since">{{if not .Started.IsZero}}<time datetime="{{iso .Started}}">{{ago .Started}}</time>{{else}}—{{end}}</td>
+          <td class="muted" data-label="Last exit">{{with .LastExit}}{{.}}{{else}}—{{end}}</td>
+        </tr>
+        {{end}}
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+<section class="block" data-refresh="scale">
+  <div class="section-heading"><h2>Scale</h2></div>
+  <form class="panel panel-pad scale" method="post" action="/apps/{{.Name}}/scale" data-busy="Scaling…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    {{range .Processes}}
+    <div class="scale-process">
+      <label for="scale-{{.Name}}">{{.Name}}{{if .Overridden}} <span class="hint small">(the manifest says {{.Manifest}})</span>{{end}}</label>
+      <input id="scale-{{.Name}}" type="number" name="process.{{.Name}}" min="0" max="20" value="{{.Want}}" inputmode="numeric">
+    </div>
+    {{end}}
+    <button class="quiet" type="submit">Scale</button>
+    <p class="hint small scale-note">The number stays for the releases to come.</p>
+  </form>
+</section>
+{{end}}
+{{else}}
+<section class="block panel empty">
+  <h2>Nothing is deployed yet</h2>
+  <p>Deploy it from its directory, with <code>git push</code>, or from an image.</p>
+  <div class="actions"><a class="button" href="/apps/{{.Name}}/deploy">How to deploy it</a></div>
+</section>
+{{end}}
+
+<section class="block" data-refresh="recent">
+  <div class="section-heading"><h2>Deployments</h2>{{with .Older}}<a href="{{.}}">All of them</a>{{end}}</div>
+  {{if .Recent}}{{template "deployment-rows" .Recent}}{{else}}<p class="panel panel-pad muted">None yet.</p>{{end}}
+</section>
+
+<section class="block">
+  <div class="section-heading"><h2>Activity</h2><a href="/activity?app={{.Name}}">All of it</a></div>
+  <div class="panel">
+    <ol class="timeline" data-timeline data-app="{{.Name}}">
+      {{range .Events}}
+      <li data-id="{{.ID}}">
+        <span class="dot {{.Level}}" aria-hidden="true"></span>
+        <span class="what">{{.Summary}}</span>
+        <time datetime="{{iso .At}}">{{ago .At}}</time>
+      </li>
+      {{end}}
+    </ol>
+  </div>
+</section>
+{{end}}
+{{end}}
+
+{{define "deployment-rows"}}
+<div class="panel table-scroll">
+  <table class="apps deployments">
+    <thead><tr><th scope="col">Status</th><th scope="col">Release</th><th scope="col">What</th><th scope="col">When</th><th scope="col">Took</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><a class="plain" href="/deployments/{{.ID}}"><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span></a></td>
+        <td class="nowrap">{{if .Version}}<a href="/deployments/{{.ID}}">v{{.Version}}</a>{{if .Current}} <span class="muted small">serving</span>{{end}}{{else}}<a href="/deployments/{{.ID}}">Details</a>{{end}}</td>
+        <td class="clip-cell">{{.What}}</td>
+        <td class="muted"><time datetime="{{iso .At}}">{{ago .At}}</time>{{with .By}} by {{.}}{{end}}</td>
+        <td class="muted nowrap" data-label="Took">{{with .Took}}{{.}}{{else}}—{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "deployments"}}
+{{template "app-tabs" .}}
+<div data-refresh="history"{{if .Poll}} data-poll{{end}}>
+{{if .Deployments}}
+{{template "deployment-rows" .Deployments}}
+{{else}}
+<section class="panel empty">
+  <h2>No deployments yet</h2>
+  <p>Each one will be here, with its log and what it changed.</p>
+  <div class="actions"><a class="button" href="/apps/{{.App.Name}}/deploy">How to deploy it</a></div>
+</section>
+{{end}}
+</div>
+{{with .Older}}<p class="pager"><a class="button quiet" href="{{.}}">Older</a></p>{{end}}
+{{end}}
+
+{{define "deployment"}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{with .Deployment}}
+<div data-refresh="head"{{if .Running}} data-poll{{end}}>
+  <section class="panel panel-pad app-head">
+    <div class="app-summary">
+      <p><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Version}} <strong>v{{.Version}}</strong>{{if .Current}} <span class="muted small">serving</span>{{end}}{{end}}</p>
+      <p>{{.What}}</p>
+      <p class="muted"><time datetime="{{iso .At}}">{{ago .At}}</time>{{with .By}} by {{.}}{{end}}{{with .Took}}, took {{.}}{{end}} <span class="small">· {{.ID}}</span></p>
+    </div>
+    <div class="actions app-actions">
+      {{if .CanRollBack}}
+      <form class="rollback" method="post" action="/apps/{{$app}}/rollback" data-busy="Rolling back…" data-confirm="Serve v{{.Version}} of {{$app}} again?">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <input type="hidden" name="version" value="{{.Version}}">
+        <button class="quiet" type="submit">Roll back to v{{.Version}}</button>
+        <label class="check"><input type="checkbox" name="with_config" value="1"> With the variables it ran with</label>
+      </form>
+      {{end}}
+      {{if .Redeployable}}
+      <form method="post" action="/apps/{{$app}}/redeploy" data-busy="Starting…">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="quiet" type="submit">Redeploy</button>
+      </form>
+      {{end}}
+      {{if eq .Status.Label "Live"}}<a class="button quiet" href="{{.URL}}">Open</a>{{end}}
+    </div>
+  </section>
+</div>
+
+<div data-refresh="stages">
+<ol class="stages" aria-label="Stages">
+  {{range .Stages}}
+  <li class="stage {{.Status}}">
+    <span class="stage-mark" aria-hidden="true"></span>
+    <span class="stage-name">{{.Name}}</span>
+    <span class="stage-took muted small">{{if eq .Status "skipped"}}not needed{{else if eq .Status "pending"}}waiting{{else}}{{.Took}}{{end}}</span>
+    <span class="visually-hidden"> ({{.Status}})</span>
+  </li>
+  {{end}}
+</ol>
+</div>
+
+<div data-refresh="error">
+{{if .Error}}
+<div class="notice fail" role="alert">
+  <p>{{.Error}}</p>
+</div>
+{{end}}
+</div>
+
+<section class="block">
+  <div class="section-heading"><h2>Log</h2><span class="badge live-status" data-log-status hidden></span></div>
+  {{if or .Log .Running}}
+  {{if .Omitted}}<p class="muted small">Showing the last lines: {{.Omitted}} earlier ones are left out. <code>moor deployments follow {{.ID}}</code> prints them all.</p>{{end}}
+  <pre class="log" tabindex="0" aria-label="The deployment's log" data-log data-log-id="{{.ID}}" data-log-count="{{.LogCount}}"{{if .Running}} data-log-follow{{end}}>{{range .Log}}<span class="line s-{{.Stream}}" title="{{iso .At}}">{{.Text}}
+</span>{{end}}</pre>
+  {{else}}
+  <p class="panel panel-pad muted">This deployment wrote no log.</p>
+  {{end}}
+</section>
+
+<div data-refresh="result">
+{{with .Diff}}
+<section class="block">
+  <div class="section-heading"><h2>What changed since v{{.From}}</h2></div>
+  <div class="panel panel-pad diff-panel">
+    <p>{{if .BuildChanged}}A different build.{{else}}The same build as v{{.From}}.{{end}}</p>
+    {{if $.Deployment.DiffChanged}}
+    <h3>Resolved manifest</h3>
+    <pre class="diff">{{range .Manifest}}<span class="diff-{{if eq .Op "+"}}add{{else if eq .Op "-"}}del{{else}}same{{end}}">{{.Op}} {{.Text}}
+</span>{{end}}</pre>
+    {{end}}
+    {{if .Vars}}
+    <h3>Variables</h3>
+    <ul class="diff-vars">
+      {{range .Vars}}<li><code>{{.Name}}</code> {{.Change}}{{if .Secret}} <span class="muted small">secret</span>{{end}}</li>{{end}}
+    </ul>
+    {{end}}
+    {{if and (not $.Deployment.DiffChanged) (not .Vars)}}<p class="muted">Its manifest and variables are the same.</p>{{end}}
+  </div>
+</section>
+{{end}}
+{{with .Manifest}}
+<section class="block">
+  <details class="panel panel-pad">
+    <summary>Resolved manifest</summary>
+    <pre class="manifest">{{.}}</pre>
+  </details>
+</section>
+{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "new-app"}}
+<section class="panel panel-pad narrow">
+  <h2>What is it called?</h2>
+  <p class="muted">It will be at its own address, under this name. Deploying it is what creates it.</p>
+  {{with .Error}}<p class="alert" role="alert">{{.}}</p>{{end}}
+  <form method="get" action="/new">
+    <label for="name">Name</label>
+    <input id="name" name="name" value="{{.Name}}" required autofocus autocomplete="off" spellcheck="false" pattern="[a-z0-9][a-z0-9-]*">
+    <p class="hint small">Lowercase letters, digits and hyphens.</p>
+    <div class="actions"><button type="submit">Next</button></div>
+  </form>
+</section>
+{{end}}
+
+{{define "deploy"}}
+{{if .Crumbs}}{{if gt (len .Crumbs) 1}}{{template "app-tabs" .}}{{end}}{{end}}
+{{with .Error}}<p class="notice fail" role="alert">{{.}}</p>{{end}}
+{{$csrf := .CSRF}}
+<div class="deploy-ways">
+  <section class="panel panel-pad">
+    <h2>From its directory</h2>
+    <p class="muted">Moorage works out how to build it: Go, Python, Node.js and static sites, and an app with a <code>Containerfile</code> runs in a container.</p>
+    {{template "command" .LoginCommand}}
+    {{range .Commands}}{{template "command" .}}{{end}}
+  </section>
+  <section class="panel panel-pad">
+    <h2>With <code>git push</code></h2>
+    <p class="muted">Each push to its main branch deploys.</p>
+    {{range .GitCommands}}{{template "command" .}}{{end}}
+  </section>
+  <section class="panel panel-pad">
+    <h2>Upload its source</h2>
+    <p class="muted">A <code>.tar.gz</code> of the directory, up to {{.MaxUpload}}, and it builds here.</p>
+    {{template "command" "tar czf app.tar.gz -C DIRECTORY ."}}
+    <form method="post" action="/apps/{{.App.Name}}/deploy/archive" enctype="multipart/form-data" data-busy="Uploading…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label for="archive">Archive</label>
+      <input id="archive" type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required>
+      <div class="actions"><button class="quiet" type="submit">Upload and deploy</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>From an image</h2>
+    {{if .App.Engine}}
+    <p class="muted">An image from a registry, run in a container.</p>
+    <form method="post" action="/apps/{{.App.Name}}/deploy/image" data-busy="Starting…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label for="image">Image</label>
+      <input id="image" name="image" value="{{.Image}}" placeholder="ghcr.io/acme/shop:1.2" required autocomplete="off" spellcheck="false">
+      <div class="actions"><button class="quiet" type="submit">Deploy the image</button></div>
+    </form>
+    {{else}}
+    <p class="muted">This server has no container engine. <a href="/welcome">Getting started</a> says more, and <code>moor server doctor</code> says what it found.</p>
+    {{end}}
+  </section>
+</div>
+<div class="waiting block" data-wait-deployment="{{.App.Name}}" role="status" hidden>
+  <span class="badge pulse">Waiting</span>
+  <span>The next deployment of {{.App.Name}} will show as soon as it starts.</span>
+</div>
+{{end}}

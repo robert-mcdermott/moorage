@@ -158,8 +158,8 @@ func validateProcesses(procs map[string]Process, requireWebCommand bool) error {
 		if strings.TrimSpace(proc.Command) == "" && (requireWebCommand || name != Web) {
 			add("%s.command is required", at)
 		}
-		if proc.Instances != nil && (*proc.Instances < 0 || *proc.Instances > 20) {
-			add("%s.instances must be between 0 and 20", at)
+		if proc.Instances != nil && (*proc.Instances < 0 || *proc.Instances > MaxInstances) {
+			add("%s.instances must be between 0 and %d", at, MaxInstances)
 		}
 		switch proc.Restart {
 		case "", "always", "on-failure", "never":

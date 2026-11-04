@@ -209,6 +209,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return err
 	}
 	go runtime.Run(ctx)
+	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
 		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
@@ -220,6 +221,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		GCMinAge: opts.GCMinAge,
 		Secrets:  keyring,
 		Events:   bus,
+		Repos:    repos,
 	}, log)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.
@@ -239,13 +241,13 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 
 	// The git server: Smart HTTP on the console's hostname, SSH on its own
 	// port.
-	git := &gitserver.Server{Repos: gitserver.NewRepos(layout.Repos), Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
+	git := &gitserver.Server{Repos: repos, Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
 	console := http.NewServeMux()
 	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, log))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Dir: opts.ConsoleDir})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Dir: opts.ConsoleDir})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

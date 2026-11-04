@@ -254,6 +254,70 @@
         ],
         "type": "object"
       },
+      "DiffLine": {
+        "properties": {
+          "op": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "text"
+        ],
+        "type": "object"
+      },
+      "Environment": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "formation": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "instances": {
+            "items": {
+              "$ref": "#/components/schemas/Instance"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "release": {
+            "$ref": "#/components/schemas/Release"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "name",
+          "url",
+          "instances"
+        ],
+        "type": "object"
+      },
+      "EnvironmentChange": {
+        "properties": {
+          "formation": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "formation"
+        ],
+        "type": "object"
+      },
       "Event": {
         "properties": {
           "actor": {
@@ -691,6 +755,84 @@
         ],
         "type": "object"
       },
+      "ReleaseDetail": {
+        "properties": {
+          "build": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "manifest": {
+            "type": "string"
+          },
+          "plan": {},
+          "reason": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "build",
+          "reason",
+          "files",
+          "size",
+          "created_at",
+          "current",
+          "manifest",
+          "plan"
+        ],
+        "type": "object"
+      },
+      "ReleaseDiff": {
+        "properties": {
+          "build_changed": {
+            "type": "boolean"
+          },
+          "from": {
+            "type": "integer"
+          },
+          "manifest": {
+            "items": {
+              "$ref": "#/components/schemas/DiffLine"
+            },
+            "type": "array"
+          },
+          "to": {
+            "type": "integer"
+          },
+          "vars": {
+            "items": {
+              "$ref": "#/components/schemas/VarDiff"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "build_changed",
+          "manifest",
+          "vars"
+        ],
+        "type": "object"
+      },
       "ReleasePage": {
         "properties": {
           "items": {
@@ -932,6 +1074,24 @@
         ],
         "type": "object"
       },
+      "VarDiff": {
+        "properties": {
+          "change": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "change"
+        ],
+        "type": "object"
+      },
       "VarSet": {
         "properties": {
           "build": {
@@ -1080,6 +1240,128 @@
           "apps"
         ],
         "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/envs/{env}": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnv",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "How an environment stands: its release, formation and instances",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "patch": {
+        "operationId": "patchAppsAppEnvsEnv",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Scale an environment: how many instances of which process run",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
       }
     },
     "/apps/{app}/envs/{env}/deployments": {
@@ -1375,6 +1657,63 @@
         "x-moorage-permission": "read"
       }
     },
+    "/apps/{app}/envs/{env}/redeploy": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvRedeploy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deployment"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Build what the current release was built from again, and roll it out",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}/releases": {
       "get": {
         "operationId": "getAppsAppEnvsEnvReleases",
@@ -1442,6 +1781,144 @@
           }
         ],
         "summary": "List an environment's releases, newest first",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/envs/{env}/releases/{version}": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvReleasesVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDetail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "A release, with what it runs",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/envs/{env}/releases/{version}/diff/{other}": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvReleasesVersionDiffOther",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "other",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDiff"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "What changed from one release to another; of variables, their names only",
         "tags": [
           "apps"
         ],
@@ -1905,6 +2382,14 @@
             "description": "true keeps the stream open until the deployment ends.",
             "in": "query",
             "name": "follow",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Leave out this many of the first lines.",
+            "in": "query",
+            "name": "skip",
             "schema": {
               "type": "string"
             }

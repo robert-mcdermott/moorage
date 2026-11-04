@@ -743,6 +743,41 @@ directory, supervises it, and serves it on its own hostname.
    environments and instances; deployments with the live stage timeline and
    log, the resolved manifest and the release diff; deploy, rollback,
    redeploy, restart and scale actions.
+   - Done in slice 3:
+     - The apps list says how each app stands: healthy, how many of how many, down,
+       deploying, scaled to zero, and a failed deployment behind a release that keeps
+       serving. An app's page has its instances, deployments and activity. A deployment's
+       page has its stages, read from the log's own markers, the log as it is written, the
+       resolved manifest and what changed since the release before.
+     - The parts of a page that change are drawn again by the server, when an event or a
+       poll says so, so that one place knows how they look; a part someone is typing in
+       stays as it is. Without scripts, every form works and a deployment under way
+       reloads itself.
+     - Deploy (a `.tar.gz` of source or an image's name, from the page), rollback, restart,
+       redeploy and scale, each a form with the session's token, doing what the API does:
+       the work moved from the API's handlers to the deployer, so that there is one of it.
+     - `moor scale` and `PATCH /apps/{app}/envs/{env}`; `moor redeploy` and its route;
+       `moor releases show` and `diff`, and their routes. The new-app flow is a name, then
+       the ways to deploy, waiting for the deployment that creates it.
+     - Verified with real instances from the console's pages (scaling up and down, a scale
+       that fails and goes back, rollback, redeploy, upload), a real push, Podman for an
+       image; and in a real browser against a real server, live and at phone width.
+   - Found by slice 3:
+     - Scaling was planned for wave 5, and nothing had it: the console's Scale button
+       needed it, so it is here. Workers already ran; a number that cannot be met goes back,
+       or the reconciler would retry it for ever.
+     - A build changes its source in place, so nothing could be rebuilt from one. An upload
+       is now kept beside its build, as is an image's manifest, whose build otherwise keeps
+       nothing. Builds from before this version say that they cannot be redeployed.
+     - Rollbacks and changes of variables wrote no log, which left their pages empty. They
+       do now.
+     - Without labels, the instances table was a column of bare numbers at phone width.
+     - Not yet: canceling a deployment and retrying a failed one (the deployer cannot stop
+       a build that has started, and has no way to rebuild but from what serves); restarting
+       one process; handing a process back to the manifest's number, other than by setting
+       it. Environment switching and `promote` wait for wave 4, and the dashboard's host
+       strip and sparklines for wave 5's metrics.
+     - Safari and Firefox are still untested, and a screen reader untried.
 4. **Logs, variables and settings.** The live log viewer (instances, sources,
    search, time range, download); variables with secret, source and override
    badges and bulk edit; account pages (SSH keys, tokens, sessions); server
@@ -771,7 +806,7 @@ directory, supervises it, and serves it on its own hostname.
 
 ### Wave 5
 
-1. **Processes.** Workers, scaling, cron jobs, one-off runs (`moor run`),
+1. **Processes.** Cron jobs, one-off runs (`moor run`), restarting one process,
    declared and generated variables, `watch` paths.
 2. **Metrics.** Collection (cgroups, process sampling, engine statistics,
    the ingress), tiered storage, console charts with deploy markers,

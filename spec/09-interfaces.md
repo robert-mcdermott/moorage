@@ -142,7 +142,7 @@ POST   /apps/{app}/envs/{env}/deployments      (multipart archive | git ref | im
 GET    /deployments/{id}    POST …/cancel · …/retry
 GET    /deployments/{id}/log                   (SSE when Accept: text/event-stream)
 GET    /apps/{app}/envs/{env}/releases         · /releases/{v} · /releases/{v}/diff/{w}
-POST   /apps/{app}/envs/{env}/rollback | /promote | /restart | /stop | /start | /sleep | /wake
+POST   /apps/{app}/envs/{env}/rollback | /redeploy | /promote | /restart | /stop | /start | /sleep | /wake
 
 GET    /apps/{app}/envs/{env}/instances
 GET    /apps/{app}/envs/{env}/vars             PUT (bulk) · PATCH · DELETE /vars/{name}

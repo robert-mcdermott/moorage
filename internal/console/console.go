@@ -21,6 +21,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/brand"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -36,7 +37,7 @@ var cards = map[string]bool{
 }
 
 func pageNames() []string {
-	names := []string{"apps", "activity", "welcome"}
+	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -72,6 +73,10 @@ type Options struct {
 	// Dir, if set, is the source of the console's templates and assets
 	// (internal/console), read again for every request, for working on them.
 	Dir string
+	// Deployer does what the pages' forms ask of a deployment, and Runtime says what
+	// is running.
+	Deployer *deploy.Deployer
+	Runtime  Runtime
 }
 
 // Console serves the pages.
@@ -84,11 +89,14 @@ type Console struct {
 	dev    bool
 	assets map[string]asset
 	pages  map[string]*template.Template
+
+	deployer *deploy.Deployer
+	runtime  Runtime
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded}
+	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -104,6 +112,17 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /assets/{file}", c.serveAsset)
 	mux.HandleFunc("GET /activity", c.activity)
 	mux.HandleFunc("GET /welcome", c.welcome)
+	mux.HandleFunc("GET /new", c.newApp)
+	mux.HandleFunc("GET /apps/{app}", c.appPage)
+	mux.HandleFunc("GET /apps/{app}/deployments", c.deploymentsList)
+	mux.HandleFunc("GET /apps/{app}/deploy", c.deployPage)
+	mux.HandleFunc("POST /apps/{app}/deploy/image", c.deployImage)
+	mux.HandleFunc("POST /apps/{app}/deploy/archive", c.deployArchive)
+	mux.HandleFunc("POST /apps/{app}/restart", c.action(c.restart))
+	mux.HandleFunc("POST /apps/{app}/redeploy", c.action(c.redeploy))
+	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
+	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
+	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
 	mux.HandleFunc("GET /setup", c.setupPage)
 	mux.HandleFunc("POST /setup", c.post(c.setup))
 	mux.HandleFunc("GET /login", c.loginPage)
@@ -144,9 +163,32 @@ type data struct {
 	Palette []paletteItem
 	// Stream is where this page follows events from, if not the default.
 	Stream string
+	// Crumbs lead back from this page, and Tab is which of an app's pages it is.
+	Crumbs []crumb
+	Tab    string
+	// RefreshOn is the app whose events make this page draw its live parts again;
+	// "*" is any app. Poll also does so every few seconds, for what has no events:
+	// the stages of a deployment. Noscript has a page without scripts reload.
+	RefreshOn string
+	Poll      bool
+	Noscript  bool
+	// Notice says that what was asked is done.
+	Notice string
+	// Failure says why what was asked was not done.
+	Failure *failure
 
 	// The apps list.
 	Apps []appRow
+
+	// An app, its deployments, and one deployment.
+	App         appView
+	Deployments []deploymentRow
+	Deployment  deploymentView
+
+	// Deploying an app.
+	Image                 string
+	Commands, GitCommands []string
+	MaxUpload             string
 
 	// The timeline.
 	Events    []eventRow

@@ -106,7 +106,8 @@ func (s *Server) deployment(w http.ResponseWriter, r *http.Request) {
 }
 
 // deploymentLog streams a deployment's log as NDJSON lines. With
-// follow=true, the stream stays open until the deployment has finished.
+// follow=true, the stream stays open until the deployment has finished. skip
+// leaves out that many of the first lines, for a page that has them already.
 func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.lookupDeployment(w, r)
 	if !ok {
@@ -119,7 +120,12 @@ func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
 	enc := json.NewEncoder(w)
+	skip, _ := strconv.Atoi(r.URL.Query().Get("skip"))
 	write := func(l logs.Line) error {
+		if skip > 0 {
+			skip--
+			return nil
+		}
 		return enc.Encode(apitypes.LogLine{Time: l.Time, Stream: l.Stream, Text: l.Text})
 	}
 	if !follow {
