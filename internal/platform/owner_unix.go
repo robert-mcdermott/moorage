@@ -31,3 +31,12 @@ func Links(info fs.FileInfo) uint64 {
 	}
 	return 1
 }
+
+// FileOwner says whose a file is.
+func FileOwner(info fs.FileInfo) (uid int, ok bool) {
+	st, is := info.Sys().(*syscall.Stat_t)
+	if !is {
+		return 0, false
+	}
+	return int(st.Uid), true
+}

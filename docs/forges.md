@@ -135,12 +135,14 @@ are already there. After that, a changed branch does what a push of it here woul
 its manifest allows one, and a branch that goes away takes its preview with it. It sees no pull requests, so none of them get
 previews or wait for approval.
 
-What fails is not tried again until something changes. `moor forge sync`, or Look now in the console, tries again.
+What fails is not tried again until something changes. `moor forge sync`, or Look now in the console, tries again, and takes the
+default branch to where the repository has it, whatever may have been pushed to this server since.
 
 ## When the server has been away
 
-A forge does not tell a server of a push twice. So a server starting looks at each repository that it has dealt with before, and
-deploys what changed while it was gone. That goes for branches. A pull request that changed then is seen to at its next event, which
+A forge does not tell a server of a push twice. So a server starting looks at each repository that it has heard from before, and
+deploys what changed while it was gone. What failed before it stopped is not tried again, and what someone has pushed to this server
+itself stays. That goes for branches. A pull request that changed then is seen to at its next event, which
 a push or closing it and opening it again will bring about. A check left saying that something was under way when the server stopped
 says that it failed.
 

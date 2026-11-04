@@ -186,8 +186,8 @@ func (d *Deployer) DataFiles(ctx context.Context, app, env, p string) (files []D
 }
 
 // OpenDataFile opens a file within an environment's data directory, for reading. It is only ever a file: an app can leave
-// a pipe there, which would wait for ever, a device, or a link to something that it may not read itself. Nor is it one with
-// another name, which it can be if the app linked something here that it could not read, on a system that allows that.
+// a pipe there, which would wait for ever, a device, or a link to something that it may not read itself. Nor is it someone
+// else's with another name, which it can be if the app linked something here that it could not read, on a system that allows it.
 func (d *Deployer) OpenDataFile(ctx context.Context, app, env, p string) (*os.File, fs.FileInfo, error) {
 	rel, err := dataPath(p)
 	if err != nil {
@@ -219,9 +219,17 @@ func (d *Deployer) OpenDataFile(ctx context.Context, app, env, p string) (*os.Fi
 		f.Close()
 		return nil, nil, &FileProblem{Msg: rel + " is not a file."}
 	}
+	// Having another name is nothing out of the way for what an app made for itself, such as a snapshot. It only matters where
+	// this server can read what the app could not, and of a file that belongs to someone else.
 	if platform.Links(info) > 1 {
-		f.Close()
-		return nil, nil, &FileProblem{Msg: rel + " has another name somewhere, so it is not sent: it may not be the app's own."}
+		if top, err := root.Stat("."); err == nil {
+			if uid, _, privileged := platform.OwnedLike(top); privileged {
+				if owner, known := platform.FileOwner(info); known && owner != uid {
+					f.Close()
+					return nil, nil, &FileProblem{Msg: rel + " has another name somewhere, and is not the app's own, so it is not sent."}
+				}
+			}
+		}
 	}
 	return f, info, nil
 }

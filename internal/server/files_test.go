@@ -233,8 +233,14 @@ func TestDataFiles(t *testing.T) {
 		if err := os.Link(elsewhere, filepath.Join(data, "hard-linked")); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := c.GetDataFile(ctx, "shop", "production", "hard-linked"); status(err) != http.StatusUnprocessableEntity {
-			t.Errorf("a file with another name: %v", err)
+		// Which is only a question for a server that can read what the app cannot: the isolation drill tries that.
+		if os.Geteuid() != 0 {
+			from, err := c.GetDataFile(ctx, "shop", "production", "hard-linked")
+			if err != nil {
+				t.Errorf("a file with another name, where apps can read all the server can: %v", err)
+			} else {
+				from.Close()
+			}
 		}
 	}
 

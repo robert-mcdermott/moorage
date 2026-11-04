@@ -134,8 +134,10 @@ func (s *Service) catchUp() {
 		return
 	}
 	for _, c := range conns {
-		if !c.LookedAt.IsZero() {
-			s.startLook(c, true)
+		// Not one that has been connected and has heard nothing yet, as connecting deploys nothing. Nor is this a second try
+		// at what failed, or a reason to replace what someone has since pushed to this server: only what changed there.
+		if !c.LookedAt.IsZero() || !c.LastEventAt.IsZero() {
+			s.startLook(c, false)
 		}
 	}
 }
@@ -170,12 +172,16 @@ func (s *Service) interrupted() {
 		return
 	}
 	for _, c := range conns {
-		if c.Deploying == "" {
+		commits, err := s.DB.ForgeDeploying(s.Life, c.AppID)
+		if err != nil {
+			s.Log.Warn("read the deployments under way", "app", c.App, "err", err)
 			continue
 		}
-		s.report(s.Life, s.remoteOf(c), c.Deploying, StateFailure, s.AppURL(c.App), "The server stopped during this deployment")
-		if err := s.DB.SetForgeDeploying(s.Life, c.AppID, ""); err != nil {
-			s.Log.Warn("note a deployment that was interrupted", "app", c.App, "err", err)
+		for _, commit := range commits {
+			s.report(s.Life, s.remoteOf(c), commit, StateFailure, s.AppURL(c.App), "The server stopped during this deployment")
+			if err := s.DB.ForgeDeployed(s.Life, c.AppID, commit); err != nil {
+				s.Log.Warn("note a deployment that was interrupted", "app", c.App, "err", err)
+			}
 		}
 	}
 	pulls, err := s.DB.ForgePullsBuilding(s.Life)
@@ -369,8 +375,8 @@ func (s *Service) handle(ctx context.Context, c store.ForgeConnection, event Eve
 	}
 	// A hook that goes on being sent from elsewhere after a change of repository, or one for a whole organization, is
 	// about something else. What is in a pull request of that number here is not what was vouched for there.
-	if event.Repository != "" && c.Repo != "" && !strings.EqualFold(event.Repository, c.Repo) {
-		s.Log.Warn("a forge told of another repository", "app", c.App, "repository", event.Repository, "connected", c.Repo)
+	if event.Repository != "" && c.Repo != "" && !sameRepository(c.Repo, event.Repository) {
+		s.note(ctx, c, "an event", fmt.Errorf("the forge told of %s, and this is connected to %s", event.Repository, c.Repo))
 		return
 	}
 	if !c.BranchPinned && event.DefaultBranch != "" && event.DefaultBranch != c.DefaultBranch {
@@ -403,6 +409,12 @@ func (s *Service) note(ctx context.Context, c store.ForgeConnection, what string
 	if err := s.DB.NoteForgeEvent(context.WithoutCancel(ctx), c.AppID, problem, time.Now()); err != nil {
 		s.Log.Warn("note what a forge told of", "app", c.App, "err", err)
 	}
+}
+
+// sameRepository says whether what a forge calls a repository is the one at this path, as a forge can be under a path of
+// its own, which it would leave out.
+func sameRepository(path, name string) bool {
+	return strings.HasSuffix("/"+strings.ToLower(path), "/"+strings.ToLower(name))
 }
 
 // forgeUser is who a forge says did something, as told apart from an account here.
@@ -501,14 +513,14 @@ func (s *Service) deployBranch(ctx context.Context, c store.ForgeConnection, bra
 	underWay := false
 	dep, _, err := s.deliver(ctx, c, gitserver.Update{Ref: "refs/heads/" + branch, Old: old, New: commit}, by, branchRule(c), func() {
 		underWay = true
-		if err := s.DB.SetForgeDeploying(lasting, c.AppID, commit); err != nil {
+		if err := s.DB.NoteForgeDeploying(lasting, c.AppID, commit); err != nil {
 			s.Log.Warn("note a deployment", "app", c.App, "err", err)
 		}
 		s.report(ctx, remote, commit, StatePending, s.AppURL(c.App), "Deploying")
 	})
 	if underWay {
 		defer func() {
-			if err := s.DB.SetForgeDeploying(lasting, c.AppID, ""); err != nil {
+			if err := s.DB.ForgeDeployed(lasting, c.AppID, commit); err != nil {
 				s.Log.Warn("note a deployment", "app", c.App, "err", err)
 			}
 		}()
@@ -689,7 +701,8 @@ func short(commit string) string {
 func (s *Service) pullClosed(ctx context.Context, c store.ForgeConnection, event Event) error {
 	pull, err := s.DB.ForgePull(ctx, c.AppID, event.Number)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil
+		// Heard of out of order, perhaps. It goes on record, so that hearing of its being opened does not build it.
+		return s.DB.SetForgePull(ctx, store.ForgePull{AppID: c.AppID, Number: event.Number, Title: event.Title, Author: event.Author, FromFork: event.FromFork, HeadSHA: event.Head, State: store.PullClosed, UpdatedAt: time.Now().UTC()})
 	}
 	if err != nil {
 		return err
@@ -865,8 +878,12 @@ func (s *Service) lookAt(ctx context.Context, c store.ForgeConnection, again boo
 		case before[branch] == after[branch] && !retry:
 			continue
 		}
+		// A hook may have got there first, while this one waited, and with something newer than this one found.
 		unlock := s.lockOf(c.AppID, "branch "+branch)
-		err := s.deployBranch(ctx, c, branch, after[branch], by)
+		commit, err := s.Repos.Ref(c.App, headsRef+branch)
+		if err == nil {
+			err = s.deployBranch(ctx, c, branch, commit, by)
+		}
 		unlock()
 		if err != nil {
 			problems = append(problems, fmt.Errorf("%s: %w", branch, err))
@@ -875,7 +892,10 @@ func (s *Service) lookAt(ctx context.Context, c store.ForgeConnection, again boo
 	for branch := range before {
 		if _, there := after[branch]; !there {
 			unlock := s.lockOf(c.AppID, "branch "+branch)
-			err := s.branchGone(ctx, c, branch, by)
+			var err error
+			if _, stillGone := s.Repos.Ref(c.App, headsRef+branch); stillGone != nil {
+				err = s.branchGone(ctx, c, branch, by)
+			}
 			unlock()
 			if err != nil {
 				problems = append(problems, fmt.Errorf("%s: %w", branch, err))

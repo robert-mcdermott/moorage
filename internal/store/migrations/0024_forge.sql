@@ -15,12 +15,17 @@ CREATE TABLE forge_connections (
     poll           INTEGER NOT NULL DEFAULT 0,
     -- When it last looked at all the branches. Until it has, what it finds there is not news.
     looked_at      INTEGER NOT NULL DEFAULT 0,
-    -- What is being deployed from a branch now, whose check would say so for ever if the server stopped here.
-    deploying      TEXT NOT NULL DEFAULT '',
     last_event_at  INTEGER NOT NULL DEFAULT 0,
     last_error     TEXT NOT NULL DEFAULT '',
     created_by     TEXT NOT NULL,
     created_at     INTEGER NOT NULL
+) STRICT;
+
+-- What is being deployed from a branch now, whose check would say so for ever if the server stopped here.
+CREATE TABLE forge_deploying (
+    app_id TEXT NOT NULL REFERENCES apps (id) ON DELETE CASCADE,
+    commit_sha TEXT NOT NULL,
+    PRIMARY KEY (app_id, commit_sha)
 ) STRICT;
 
 -- The pull requests it has heard of. Code from someone who could not push there is only built once someone approves

@@ -6,10 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
-
-	"github.com/robert-mcdermott/moorage/internal/platform"
 )
 
 // The lines between which the hosts file is this server's to change, and nothing outside them.
@@ -95,6 +94,11 @@ func withoutBlock(body []byte) []byte {
 // writeOver changes the file in one step, as a program reading it at that moment should see all of one or the other,
 // keeping who may do what with it.
 func writeOver(path string, body []byte) error {
+	// On Windows who may do what with it goes with the file, and a file renamed over it would have what its folder says. So it
+	// is written where it is, and a program reading it at that moment has to take its chances.
+	if runtime.GOOS == "windows" {
+		return os.WriteFile(path, body, 0o644)
+	}
 	info, err := os.Stat(path)
 	mode := os.FileMode(0o644)
 	if err == nil {
@@ -114,11 +118,6 @@ func writeOver(path string, body []byte) error {
 	}
 	if err := os.Chmod(tmp.Name(), mode); err != nil {
 		return err
-	}
-	if _, err := os.Stat(path); err == nil {
-		if err := platform.CopyAccess(path, tmp.Name()); err != nil {
-			return err
-		}
 	}
 	return os.Rename(tmp.Name(), path)
 }

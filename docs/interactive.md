@@ -108,8 +108,8 @@ moor files rm -r imports
   user could be anyone, anyone may change it. It stops at something already there, unless told otherwise. Up to 1 GB, or
   `moor run -i` for more.
 - Everything in there was written by an app, and is treated with that in mind. A link that leads out of the data directory is not
-  followed, a pipe or a device is not opened, and a file with another name elsewhere is not sent. A file is only ever sent as a
-  download, and a preview is only ever text.
+  followed, a pipe or a device is not opened, and someone else's file with another name elsewhere is not sent. A file is only ever
+  sent as a download, and a preview is only ever text.
 - Each of these is for an environment that is there: nothing can be put where an app of that name may find it later.
 - Reading a file is in the audit log, as is anything that changes.
 - There is no way back from removing something other than a [backup](backups.md).

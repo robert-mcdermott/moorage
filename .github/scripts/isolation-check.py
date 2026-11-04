@@ -351,6 +351,16 @@ dir = "x/keys"
     os.symlink("/etc/shadow", pathlib.Path(alice["data"], "a-way-out"))
     out = run_moor("files", "get", "a-way-out", "-", "--app", "alice", check_it=False)
     check("a link out of it is not followed", out.returncode != 0 and "root:" not in out.stdout, out.stdout)
+    # As root, as a system with no fs.protected_hardlinks would let the app do it.
+    secret = work / "not-the-apps"
+    secret.write_text("not the app's\n")
+    os.link(secret, pathlib.Path(alice["data"], "another-name"))
+    out = run_moor("files", "get", "another-name", "-", "--app", "alice", check_it=False)
+    check("someone else's file with another name is not sent", out.returncode != 0 and "not the app's" not in out.stdout, out.stdout)
+    own = pathlib.Path(alice["data"], "put-here.txt")
+    os.link(own, pathlib.Path(alice["data"], "own-other-name"))
+    out = run_moor("files", "get", "own-other-name", "-", "--app", "alice", check_it=False)
+    check("the app's own with another name is", out.returncode == 0, out.stderr)
     wait_for("a cron job runs as the app", lambda: ask("alice", "/read", path=alice["data"] + "/cron-by").get("value", "").strip() == str(alice["uid"]))
 
 

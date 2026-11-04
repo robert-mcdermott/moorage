@@ -25,6 +25,7 @@ import (
 type fakeCollector struct {
 	srv    *httptest.Server
 	status atomic.Int32
+	hits   atomic.Int32
 	mu     sync.Mutex
 	paths  []string
 	auth   []string
@@ -35,6 +36,7 @@ func newFakeCollector(t *testing.T) *fakeCollector {
 	f := &fakeCollector{}
 	f.status.Store(http.StatusOK)
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.hits.Add(1)
 		body, _ := io.ReadAll(r.Body)
 		status := int(f.status.Load())
 		if status == http.StatusOK {
@@ -156,6 +158,28 @@ func TestTelemetrySinks(t *testing.T) {
 		return false
 	})
 	if err := c.RemoveTelemetrySink(ctx, "fussy"); err != nil {
+		t.Fatal(err)
+	}
+
+	// One that refuses everything is not sent everything, or there would be none of it left for when that has been put right.
+	refusing := newFakeCollector(t)
+	refusing.status.Store(http.StatusBadRequest)
+	if _, err := c.SetTelemetrySink(ctx, apitypes.NewTelemetrySink{Name: "refusing", Kind: "http", Address: refusing.srv.URL, Logs: true}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if runtime.GOOS != "windows" {
+		run, err = c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sh -c 'i=0; while [ $i -lt 40 ]; do echo refused-$i; i=$((i+1)); done'"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		followedRun(t, c, "shop", run.ID)
+		time.Sleep(time.Second)
+		if n := refusing.hits.Load(); n > 20 {
+			t.Errorf("it was sent %d requests in about a second", n)
+		}
+	}
+	if err := c.RemoveTelemetrySink(ctx, "refusing"); err != nil {
 		t.Fatal(err)
 	}
 

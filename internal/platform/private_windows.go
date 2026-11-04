@@ -39,20 +39,6 @@ func MakePrivate(path string) error {
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil)
 }
 
-// CopyAccess gives a file who may do what with another, as a file that takes the place of another by being renamed over it
-// gets what its directory says otherwise.
-func CopyAccess(from, to string) error {
-	sd, err := windows.GetNamedSecurityInfo(from, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
-	if err != nil {
-		return err
-	}
-	acl, _, err := sd.DACL()
-	if err != nil {
-		return err
-	}
-	return windows.SetNamedSecurityInfo(to, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil)
-}
-
 // OpenForReading opens a file to read, in a way that does not stop it being renamed or removed meanwhile. os.Open would,
 // and something rotating a log that someone is following would then fail.
 func OpenForReading(path string) (*os.File, error) {

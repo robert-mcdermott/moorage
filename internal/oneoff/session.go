@@ -83,30 +83,40 @@ func (p *piped) Wait() (int, error) {
 
 func (p *piped) Kill() { p.tree.Kill() }
 
+// Close lets go of it, by which time Kill has been told to do what it does, and the process it knew of has been waited for: to
+// do that now could reach something else that has been given the same number since.
 func (p *piped) Close() {
-	p.tree.Close()
+	p.tree.Release()
 	p.shown.Close()
 }
 
-// watchedWriter knows whether output is on its way, and when it last was.
+// watchedWriter knows whether output is on its way, when it last was, and how long has gone on someone reading it.
 type watchedWriter struct {
 	out     io.Writer
 	writing atomic.Bool
 	last    atomic.Int64
+	blocked atomic.Int64
 }
 
 func (w *watchedWriter) Write(b []byte) (int, error) {
+	started := time.Now()
 	w.writing.Store(true)
-	defer w.writing.Store(false)
-	defer w.last.Store(time.Now().UnixNano())
+	defer func() {
+		w.blocked.Add(int64(time.Since(started)))
+		w.last.Store(time.Now().UnixNano())
+		w.writing.Store(false)
+	}()
 	return w.out.Write(b)
 }
 
 // finish waits for the last of what a command showed. Once it has gone quiet for a moment, that is all, as what it left
-// behind may hold its output open for ever. While someone is still being sent it, it is not: they are to have all of it,
-// unless the session has ended, in which case there is no one there.
+// behind may hold its output open for ever. Nor does it go on for long if what it left behind goes on saying things: all that
+// the command said fits in what was between them, and it does not take long to read. Time spent on someone reading slowly does
+// not count, as they are to have all of it, unless the session has ended, in which case there is no one there.
 func (w *watchedWriter) finish(drained <-chan struct{}, ctx context.Context) {
-	w.last.Store(time.Now().UnixNano())
+	started := time.Now()
+	w.last.Store(started.UnixNano())
+	blockedBefore := w.blocked.Load()
 	t := time.NewTicker(20 * time.Millisecond)
 	defer t.Stop()
 	gaveUp := time.Time{}
@@ -125,7 +135,11 @@ func (w *watchedWriter) finish(drained <-chan struct{}, ctx context.Context) {
 			}
 			continue
 		}
-		if !w.writing.Load() && time.Since(time.Unix(0, w.last.Load())) > lastOutput {
+		if w.writing.Load() {
+			continue
+		}
+		reading := time.Duration(w.blocked.Load() - blockedBefore)
+		if time.Since(time.Unix(0, w.last.Load())) > lastOutput || time.Since(started)-reading > 5*lastOutput {
 			return
 		}
 	}
@@ -142,6 +156,7 @@ func Attach(ctx context.Context, cmd *exec.Cmd, name string, s *Session, timeout
 	}
 	defer isolate.Remove(spec)
 	var run attached
+	stopResizing := func() {}
 	if s.TTY {
 		term, err := platform.StartInTerminal(cmd, s.Size, limits, func(tty string) error { return isolate.GiveTerminal(tty, spec) })
 		release()
@@ -149,10 +164,13 @@ func Attach(ctx context.Context, cmd *exec.Cmd, name string, s *Session, timeout
 			return err
 		}
 		go io.Copy(term, s.In)
+		// It is done with before the terminal is closed, as a change of size needs it to be there.
+		stop, stopped := make(chan struct{}), make(chan struct{})
 		go func() {
+			defer close(stopped)
 			for {
 				select {
-				case <-ctx.Done():
+				case <-stop:
 					return
 				case size, ok := <-s.Resize:
 					if !ok {
@@ -162,6 +180,10 @@ func Attach(ctx context.Context, cmd *exec.Cmd, name string, s *Session, timeout
 				}
 			}
 		}()
+		stopResizing = func() {
+			close(stop)
+			<-stopped
+		}
 		run = term
 	} else {
 		pipes, err := startPiped(cmd, s, limits)
@@ -172,6 +194,7 @@ func Attach(ctx context.Context, cmd *exec.Cmd, name string, s *Session, timeout
 		run = pipes
 	}
 	defer run.Close()
+	defer stopResizing()
 	out := &watchedWriter{out: s.Out}
 	drained := make(chan struct{})
 	go func() {

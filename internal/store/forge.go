@@ -26,9 +26,8 @@ type ForgeConnection struct {
 	DefaultBranch string
 	// BranchPinned says that whoever connected it said which branch that is, so that what the forge says does not change it.
 	BranchPinned bool
-	// LookedAt is when it last looked at all the branches, and Deploying what is being deployed from one now.
-	LookedAt  time.Time
-	Deploying string
+	// LookedAt is when it last looked at all the branches.
+	LookedAt time.Time
 	// HookID is the address a forge sends events to.
 	HookID                    string
 	SealedSecret, SealedToken []byte
@@ -51,13 +50,13 @@ type ForgePull struct {
 	UpdatedAt               time.Time
 }
 
-const forgeColumns = `f.app_id, a.name, f.kind, f.url, f.api_url, f.repo, f.default_branch, f.branch_pinned, f.looked_at, f.deploying, f.hook_id, f.sealed_secret, f.sealed_token,
+const forgeColumns = `f.app_id, a.name, f.kind, f.url, f.api_url, f.repo, f.default_branch, f.branch_pinned, f.looked_at, f.hook_id, f.sealed_secret, f.sealed_token,
 	f.previews, f.poll, f.last_event_at, f.last_error, f.created_by, f.created_at`
 
 func scanForge(row interface{ Scan(...any) error }) (ForgeConnection, error) {
 	var c ForgeConnection
 	var last, created, looked int64
-	err := row.Scan(&c.AppID, &c.App, &c.Kind, &c.URL, &c.APIURL, &c.Repo, &c.DefaultBranch, &c.BranchPinned, &looked, &c.Deploying, &c.HookID, &c.SealedSecret, &c.SealedToken,
+	err := row.Scan(&c.AppID, &c.App, &c.Kind, &c.URL, &c.APIURL, &c.Repo, &c.DefaultBranch, &c.BranchPinned, &looked, &c.HookID, &c.SealedSecret, &c.SealedToken,
 		&c.Previews, &c.Poll, &last, &c.LastError, &c.CreatedBy, &created)
 	if err != nil {
 		return c, err
@@ -175,12 +174,38 @@ func (db *DB) NoteForgeLooked(ctx context.Context, appID string, at time.Time) e
 	})
 }
 
-// SetForgeDeploying notes the commit that a branch is deploying, or that it is no longer.
-func (db *DB) SetForgeDeploying(ctx context.Context, appID, commit string) error {
+// NoteForgeDeploying notes that a branch of an app is deploying a commit.
+func (db *DB) NoteForgeDeploying(ctx context.Context, appID, commit string) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `UPDATE forge_connections SET deploying = ? WHERE app_id = ?`, commit, appID)
+		_, err := tx.ExecContext(ctx, `INSERT INTO forge_deploying (app_id, commit_sha) VALUES (?, ?) ON CONFLICT DO NOTHING`, appID, commit)
 		return err
 	})
+}
+
+// ForgeDeployed notes that a commit is no longer deploying, however that went.
+func (db *DB) ForgeDeployed(ctx context.Context, appID, commit string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `DELETE FROM forge_deploying WHERE app_id = ? AND commit_sha = ?`, appID, commit)
+		return err
+	})
+}
+
+// ForgeDeploying lists the commits of an app that are on record as deploying.
+func (db *DB) ForgeDeploying(ctx context.Context, appID string) ([]string, error) {
+	rows, err := db.Reader.QueryContext(ctx, `SELECT commit_sha FROM forge_deploying WHERE app_id = ?`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var commit string
+		if err := rows.Scan(&commit); err != nil {
+			return nil, err
+		}
+		out = append(out, commit)
+	}
+	return out, rows.Err()
 }
 
 // NoteForgeEvent records how the last thing a forge told of went.

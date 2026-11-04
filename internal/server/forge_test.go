@@ -1178,3 +1178,82 @@ func TestForgeCatchesUpAfterARestart(t *testing.T) {
 	e.waitForServed("production", "while it was away")
 	waitUntil(t, "the check to pass", func() bool { return f.lastStatus(second).State == "success" })
 }
+
+func TestForgeCatchesUpWithOnlyAHook(t *testing.T) {
+	f := newFakeForge(t)
+	f.token = "a-token-of-the-forge"
+	first := f.commit("first")
+	f.publish(first, "refs/heads/main")
+	cfg := testConfig(t)
+	cfg.Notifications.Allow = []string{"127.0.0.1/32"}
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	if _, err := c.CreateApp(ctx, "shop", ""); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := c.ConnectForge(ctx, "shop", apitypes.ForgeConnect{URL: f.repoURL(), Kind: "github", APIURL: f.srv.URL, Token: f.token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &forgeEnd{t: t, cfg: cfg, addrs: addrs, c: c, conn: conn, secret: conn.Secret}
+	e.send("push", pushEvent("main", first))
+	e.waitForServed("production", "first")
+
+	// What it was told of, that failed, is not tried again when it next starts.
+	broken := f.commit("broken", "moorage.toml", "this is not toml")
+	f.publish(broken, "refs/heads/main")
+	e.send("push", pushEvent("main", broken))
+	waitUntil(t, "it to fail", func() bool { return f.lastStatus(broken).State == "failure" })
+	failures := len(f.statusesOf(broken))
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	addrs, stop = start(t, cfg)
+	e.addrs, e.c = addrs, apiClient(t, cfg, addrs)
+	time.Sleep(500 * time.Millisecond)
+	if n := len(f.statusesOf(broken)); n != failures {
+		t.Errorf("what failed was tried again: %d checks, from %d", n, failures)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	// What it was not told of, as it was not there, is what it looks for.
+	f.work.must("rm", "-q", "-f", "moorage.toml")
+	second := f.commit("while it was away")
+	f.publish(second, "refs/heads/main")
+	addrs, _ = start(t, cfg)
+	e.addrs, e.c = addrs, apiClient(t, cfg, addrs)
+	e.waitForServed("production", "while it was away")
+}
+
+func TestForgeUnderAPathOfItsOwn(t *testing.T) {
+	f := newFakeForge(t)
+	first := f.commit("first")
+	f.publish(first, "refs/heads/main")
+	e := connectedToForge(t, f, nil, apitypes.ForgeConnect{})
+	// The repository's address is /git/shop.git, and a forge under /git would call it shop.
+	push := pushEvent("main", first)
+	push["repository"] = map[string]any{"full_name": "shop"}
+	e.send("push", push)
+	e.waitForServed("production", "first")
+	// And another is said to be, where someone can see.
+	push = pushEvent("main", first)
+	push["repository"] = map[string]any{"full_name": "acme/shops"}
+	e.send("push", push)
+	waitUntil(t, "it to say so", func() bool {
+		conn, err := e.c.Forge(context.Background(), "shop")
+		return err == nil && strings.Contains(conn.LastError, "acme/shops")
+	})
+
+	// A pull request closed before it is heard of as opened is not built.
+	f.publish(first, "refs/pull/8/head")
+	e.send("pull_request", pullEvent("closed", 8, first, false, "MEMBER"))
+	time.Sleep(100 * time.Millisecond)
+	e.send("pull_request", pullEvent("opened", 8, first, false, "MEMBER"))
+	time.Sleep(300 * time.Millisecond)
+	if e.envs()["pr-8"] {
+		t.Error("it built what was closed")
+	}
+}

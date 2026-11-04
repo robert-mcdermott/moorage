@@ -142,3 +142,6 @@ func (t *Tree) Close() {
 		t.job = 0
 	}
 }
+
+// Release lets go of the tree, which ends what is left in its job, as that is how a job works here.
+func (t *Tree) Release() { t.Close() }

@@ -34,6 +34,8 @@ const (
 	maxBackoff = time.Minute
 	// sendTimeout is as long as one batch may take.
 	sendTimeout = 20 * time.Second
+	// rejectedAgain is how long it waits to send less to a sink that said no.
+	rejectedAgain = 100 * time.Millisecond
 )
 
 // InvalidError says what is wrong with a sink.
@@ -608,11 +610,20 @@ func (s *Service) serve(ctx context.Context, k *sink) {
 					k.sent(len(batch))
 					sentSince = now
 				case errors.As(err, &rejected) && len(batch) > 1:
-					// It may be too much at once, so it gets less. Otherwise this comes down to the line that it will not
-					// have, which is not to stop what comes after it.
+					// It may be too much at once, so it gets less, and soon: that was an answer, and not a sink that is down.
 					k.limit = max(1, len(batch)/2)
-					failure = err.Error()
+					note(err.Error())
+					backoff = 0
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(rejectedAgain):
+					}
+					continue
 				case errors.As(err, &rejected):
+					// Down to the line that it will not have, which is not to stop what comes after it. It goes on to the
+					// next line in its own time, as a sink that refuses everything would otherwise be sent everything, and
+					// none of it would be left for when someone has put that right.
 					k.giveUp(1)
 					failure = err.Error()
 				default:
@@ -620,14 +631,6 @@ func (s *Service) serve(ctx context.Context, k *sink) {
 				}
 				if err == nil && k.limit < batchSize {
 					k.limit = min(batchSize, k.limit*2)
-				}
-				if err != nil && errors.As(err, &rejected) {
-					// That was an answer, and it can try the next thing straight away.
-					note(failure)
-					if ctx.Err() != nil {
-						return
-					}
-					continue
 				}
 			}
 		}

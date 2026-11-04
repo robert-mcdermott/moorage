@@ -38,3 +38,6 @@ func (t *Tree) Kill() {
 // Close kills what is left of the tree once the command has exited, and
 // releases it.
 func (t *Tree) Close() { t.Kill() }
+
+// Release lets go of the tree, killing nothing: there is nothing to let go of here.
+func (t *Tree) Release() {}

@@ -88,6 +88,9 @@ func elevated(err error) error {
 
 // Install creates the service, gives its account what it needs, and starts it if asked.
 func (w *Windows) Install(spec Spec, start bool) error {
+	if why := notOfItsOwn(spec.DataDir); why != "" {
+		return fmt.Errorf("the service cannot have %s as its data directory, as that closes it to everyone else: %s. Set data_dir to a folder of its own", spec.DataDir, why)
+	}
 	if err := spec.Validate(); err != nil {
 		return err
 	}
@@ -143,8 +146,8 @@ func (w *Windows) Install(spec Spec, start bool) error {
 	if err := keepPrivileges(s); err != nil {
 		return err
 	}
-	if why := notOfItsOwn(spec.DataDir); why != "" {
-		return fmt.Errorf("the service cannot have %s as its data directory, as that closes it to everyone else: %s. Set data_dir to a folder of its own", spec.DataDir, why)
+	if err := os.MkdirAll(spec.DataDir, 0o755); err != nil {
+		return err
 	}
 	if err := grantToService(spec.DataDir); err != nil {
 		return fmt.Errorf("give the service %s: %w", spec.DataDir, err)
