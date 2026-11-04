@@ -652,8 +652,8 @@
   </form>
   {{end}}
 </section>
-<section class="panel panel-pad block">
-  <h2>Who can reach it</h2>
+<div class="section-heading"><h2>Who can reach it</h2></div>
+<section class="panel panel-pad block gate-panel">
   {{if .AskedInVain}}<p class="notice warn" role="status">Its <code>moorage.toml</code> asks for no gate, which only a maintainer can allow: choose Anyone below to allow it.</p>{{end}}
   <p><span class="badge{{if eq .Mode "public"}} ok{{else}} info{{end}}">{{.Label}}</span> <span class="muted small">{{.Source}}</span></p>
   {{if $.Access.Manage}}

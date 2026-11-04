@@ -119,8 +119,9 @@ is the same as `$MOORAGE_PROXY_TOKEN`, which differs by environment.
 hmac.compare_digest(request.headers["X-Moorage-Proxy-Token"], os.environ["MOORAGE_PROXY_TOKEN"])
 ```
 
-Apps running as one user can read each other's environment, so that this needs [containers](containers.md), or
-an isolation level that gives each app a user of its own.
+Apps that are not in [containers](containers.md) all run as one user today, and can read each other's
+environment, so that the token only keeps out what runs apart from them. Giving each app a user of its own comes in a
+later release.
 
 ## Share links
 

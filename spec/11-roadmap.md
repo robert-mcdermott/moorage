@@ -827,7 +827,7 @@ directory, supervises it, and serves it on its own hostname.
      - From here, a release goes through without stopping to ask: pull request, merge once
        CI is green, tag, and publish the draft once its binaries are there.
 
-## 0.4.0: previews and sharing (planned)
+## 0.4.0: previews and sharing (released 2026-11-03)
 
 ### Wave 4
 

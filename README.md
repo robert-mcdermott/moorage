@@ -202,16 +202,17 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.3.0 is a server on Linux or macOS for a team: it builds and deploys
-apps from their source or a `git push`, in containers or not, with accounts, API
-tokens and a [web console](docs/console.md). On Windows, `moor` works as a command
-line and `moor server run` works; the Windows service comes later.
+Moorage 0.4.0 is a server on Linux or macOS for a team: it builds and deploys
+apps from their source or a `git push`, in containers or not, with accounts, projects
+and roles, an audit log and a [web console](docs/console.md). Every branch can have
+[its own preview and address](docs/previews.md), which sleeps when idle, and [who can
+reach it](docs/access.md) is up to you: a password, a sign-in, a share link. Apps can have
+[domains of their own](docs/domains.md). On Windows, `moor` works as a command line and
+`moor server run` works; the Windows service comes later.
 
 Next, in the [roadmap](spec/11-roadmap.md):
 
-- **0.4.0, previews and sharing:** an environment and a URL for every pushed
-  branch, sleeping when idle, shared behind a password, a sign-in or an
-  expiring link.
+- **0.5.0, real apps, observed:** cron jobs and one-off runs, metrics, and notifications.
 
 ## Building Moorage
 

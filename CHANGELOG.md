@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-11-03)
+
+Moorage 0.4.0 gives every branch a place of its own, and says who can reach it. Push a branch and it gets its own build, address and data, which sleeps when nobody is using it and goes when its branch does. Staging, promoting what it runs to production, and locks come with it. Each environment can be open, behind a password, for those signed in, or only for people with a share link. Apps can have domains of their own, and belong to projects, in which people have roles, with an audit log of who did what.
+
+Upgrading from 0.3.0 needs no steps of its own: replace `moor` and restart the server, and running apps are taken over without a restart. Three things behave differently:
+
+- **Pushing a branch other than the default now deploys it,** as a preview. `enabled = false` in `[previews]` keeps branches as they were.
+- **Previews are for those signed in with a role in the app's project.** To share them with people who have no account, make a [share link](docs/access.md#share-links), or set `preview = "public"` under `[access]` in `server.toml`.
+- **New servers set up as you keep everything in `~/.moorage`** on macOS and Linux. A server that already exists is found where it is.
 
 ### Added
 

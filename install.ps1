@@ -91,7 +91,7 @@ function Resolve-MoorVersion {
     if ($Value -eq 'latest') { return $Value }
     if ($Value -match '^[0-9]') { $Value = "v$Value" }
     if ($Value -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$') {
-        throw "Invalid release version: $Value (expected a tag such as v0.3.0)"
+        throw "Invalid release version: $Value (expected a tag such as v0.4.0)"
     }
     return $Value
 }
