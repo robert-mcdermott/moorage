@@ -25,7 +25,7 @@ func newServerCmd() *cobra.Command {
 		Use:   "server",
 		Short: "Set up and run a Moorage server",
 	}
-	cmd.AddCommand(newServerUsersCmd(), newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
+	cmd.AddCommand(newServerUsersCmd(), newTelemetryCmd(), newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
 		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd(), newServerDoctorCmd(),
 		newServerProxyConfigCmd(), newServerResolverCmd(), newServerBackupCmd(), newServerRestoreCmd(), newServerSSOCmd(), newServerUpgradeCmd(), newServerConfigCmd())
 	return cmd

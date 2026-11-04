@@ -50,6 +50,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/secrets"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/telemetry"
 	"github.com/robert-mcdermott/moorage/internal/toolchain"
 	"github.com/robert-mcdermott/moorage/internal/truststore"
 )
@@ -202,6 +203,9 @@ type Options struct {
 	BackupTick time.Duration
 	// ForgeTick, if set, overrides how often forges that have to be looked at are (tests).
 	ForgeTick time.Duration
+	// TelemetryTick, TelemetryMetricsEvery and ThresholdTick, if set, override how often log files are read, metrics are
+	// sent and thresholds are looked at (tests).
+	TelemetryTick, TelemetryMetricsEvery, ThresholdTick, ThresholdMinute time.Duration
 	// NotifyRetry, if set, overrides how long a notification waits before trying again (tests).
 	NotifyRetry time.Duration
 	// CronTick, if set, overrides how often cron jobs are looked at (tests).
@@ -453,7 +457,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	if err != nil {
 		return err
 	}
-	notifier := &notify.Service{DB: db, Bus: bus, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), Allow: allowed, DataDir: cfg.DataDir, RetryAfter: opts.NotifyRetry}
+	notifier := &notify.Service{DB: db, Bus: bus, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), Allow: allowed, DataDir: cfg.DataDir, RetryAfter: opts.NotifyRetry,
+		DiskPercent: cfg.Notifications.DiskPercent, Metrics: metricsStore, Instances: runtime.MetricsInstances, ThresholdTick: opts.ThresholdTick, ThresholdMinute: opts.ThresholdMinute}
 	notifyCtx, stopNotifying := context.WithCancel(ctx)
 	go notifier.Run(notifyCtx)
 	defer func() {
@@ -506,14 +511,45 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		stopForges()
 		forges.Wait()
 	}()
+	telemetryCtx, stopTelemetry := context.WithCancel(ctx)
+	serverName, _ := os.Hostname()
+	sinks := &telemetry.Service{DB: db, Keys: keyring, Log: log, Life: telemetryCtx, Tick: opts.TelemetryTick, MetricsEvery: opts.TelemetryMetricsEvery,
+		Client: notify.GuardedClient(allowed, 15*time.Second), Dial: notify.GuardedDial(allowed), Server: serverName, Version: buildinfo.Version,
+		Sources: func(ctx context.Context) []telemetry.Source {
+			var out []telemetry.Source
+			for _, l := range runtime.LogSources(ctx) {
+				out = append(out, telemetry.Source(l))
+			}
+			for _, l := range deployer.RunLogSources() {
+				out = append(out, telemetry.Source(l))
+			}
+			return out
+		},
+		Metrics: func(ctx context.Context) metrics.Export {
+			all, err := db.AllEnvironments(ctx)
+			if err != nil {
+				return metrics.Export{}
+			}
+			envs := make([]metrics.PromEnv, 0, len(all))
+			for _, e := range all {
+				envs = append(envs, metrics.PromEnv{App: e.App, Env: e.Name, EnvID: e.ID})
+			}
+			return metricsStore.ExportAll(envs, true)
+		},
+	}
+	go sinks.Run()
+	defer func() {
+		stopTelemetry()
+		sinks.Wait()
+	}()
 	signIn := &sso.Service{DB: db, Auth: authn, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), StateKey: masterKey.Derive("sso state v1")}
 	authn.PasswordsOff = signIn.PasswordsOff
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, forges, opts.GateRecheck, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, forges, sinks, opts.GateRecheck, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, Forges: forges, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, Forges: forges, Telemetry: sinks, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

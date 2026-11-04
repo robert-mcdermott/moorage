@@ -7,9 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -67,31 +65,6 @@ func Where(kind, repoURL, apiURL string) (Remote, error) {
 		}
 	}
 	return Remote{Kind: kind, APIURL: strings.TrimSuffix(apiURL, "/"), Repo: repo}, nil
-}
-
-// sentSafely says whether a token may be sent to this address: over https, or to something on the same network, as a
-// forge of one's own may have no certificate.
-func sentSafely(repoURL string) bool {
-	u, err := url.Parse(repoURL)
-	if err != nil {
-		return false
-	}
-	if u.Scheme == "https" {
-		return true
-	}
-	host := strings.ToLower(u.Hostname())
-	if addr, err := netip.ParseAddr(host); err == nil {
-		return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
-	}
-	if host == "localhost" || !strings.Contains(host, ".") || net.ParseIP(host) != nil {
-		return true
-	}
-	for _, private := range []string{".localhost", ".local", ".lan", ".internal", ".home.arpa", ".test"} {
-		if strings.HasSuffix(host, private) {
-			return true
-		}
-	}
-	return false
 }
 
 // Reports says whether anything can be told to this forge.

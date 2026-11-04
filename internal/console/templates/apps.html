@@ -1108,4 +1108,41 @@
 </div>
 {{end}}
 {{end}}
+{{with .Thresholds}}
+{{$csrf := $.CSRF}}
+{{$app := $.App.Name}}
+<section class="block" id="thresholds">
+  <div class="section-heading"><h2>When to tell someone</h2></div>
+  {{with $.ThresholdFailure}}<p class="notice fail" role="alert">{{.}}</p>{{end}}
+  {{if .Rows}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">What</th><th scope="col">Above</th><th scope="col">For</th><th scope="col">Now</th>{{if $.Access.Manage}}<th scope="col"><span class="visually-hidden">Actions</span></th>{{end}}</tr></thead>
+      <tbody>
+      {{range .Rows}}
+      <tr>
+        <td class="app-name">{{.Label}}</td>
+        <td data-label="Above" class="nowrap">{{.Above}} {{.Unit}}</td>
+        <td data-label="For" class="nowrap">{{.Minutes}} min</td>
+        <td data-label="Now">{{if .Firing}}<span class="badge warn">Crossed</span> {{end}}<span class="muted">{{.Now}}</span></td>
+        {{if $.Access.Manage}}<td class="row-end"><form method="post" action="/apps/{{$app}}/metrics/thresholds/remove{{envq $.Env}}" data-confirm="Remove this threshold?"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="id" value="{{.ID}}"><button class="quiet small danger" type="submit">Remove</button></form></td>{{end}}
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="panel panel-pad muted">No thresholds. Past one for as long as it says, a notification goes to whoever a rule sends <q>A threshold is crossed</q> to, and another when it comes right.</p>
+  {{end}}
+  {{if $.Access.Manage}}
+  <form class="panel panel-pad threshold-form" method="post" action="/apps/{{$app}}/metrics/thresholds{{envq $.Env}}" data-busy="Adding…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="threshold-metric">What</label><select id="threshold-metric" name="metric">{{range .Kinds}}<option value="{{.Metric}}">{{.Label}}, in {{.Unit}}</option>{{end}}</select></div>
+    <div class="field"><label for="threshold-above">Above</label><input id="threshold-above" name="above" type="number" min="0" step="any" required></div>
+    <div class="field"><label for="threshold-minutes">For, in minutes</label><input id="threshold-minutes" name="minutes" type="number" min="1" max="1440" value="5" required></div>
+    <div class="actions"><button class="quiet" type="submit">Add a threshold</button></div>
+  </form>
+  {{end}}
+</section>
+{{end}}
 {{end}}

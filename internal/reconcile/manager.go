@@ -124,6 +124,8 @@ type instance struct {
 
 	// softLimit is the memory it may use, to watch where the kernel will not enforce it.
 	softLimit int64
+	// memoryLimit is the memory that it may use, however that is held to.
+	memoryLimit int64
 	// sharesUser says that it runs as the server does on a server that keeps apps apart: it was started before
 	// it did, and goes on so until it restarts.
 	sharesUser bool
@@ -271,6 +273,7 @@ func (m *Manager) Adopt(ctx context.Context) error {
 		}
 		if kind, err := m.db.EnvKind(ctx, li.App, li.Env); err == nil {
 			in.softLimit = m.softLimitOf(plan.ForEnv(li.Env, kind))
+			in.memoryLimit = memoryLimitOf(plan.ForEnv(li.Env, kind))
 		}
 		var st shim.State
 		if li.Driver == driverContainer {
@@ -595,6 +598,13 @@ func (m *Manager) softLimitOf(plan manifest.Plan) int64 {
 	return plan.Resources.Memory
 }
 
+func memoryLimitOf(plan manifest.Plan) int64 {
+	if plan.Resources == nil {
+		return 0
+	}
+	return plan.Resources.Memory
+}
+
 // OverMemory restarts an instance that has gone over its limit where nothing else would stop it.
 func (m *Manager) OverMemory(id string, used, limit int64) {
 	m.mu.Lock()
@@ -687,11 +697,37 @@ func (m *Manager) MetricsInstances(ctx context.Context) []metrics.Instance {
 			if err != nil || st.Status != shim.Running {
 				continue
 			}
-			out = append(out, metrics.Instance{SoftLimit: in.softLimit, EnvID: r.EnvID, ID: in.id, Part: fmt.Sprintf("%s.%d", in.process, in.index), PID: st.AppPID})
+			out = append(out, metrics.Instance{SoftLimit: in.softLimit, MemoryLimit: in.memoryLimit, EnvID: r.EnvID, ID: in.id, Part: fmt.Sprintf("%s.%d", in.process, in.index), PID: st.AppPID})
 		}
 	}
 	return out
 }
+
+// LogSources lists the log files of what is running now.
+func (m *Manager) LogSources(ctx context.Context) []LogSource {
+	routes, err := m.db.Routes(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []LogSource
+	for _, r := range routes {
+		m.mu.Lock()
+		es := m.envs[r.App+"/"+r.Env]
+		m.mu.Unlock()
+		if es == nil {
+			continue
+		}
+		for _, in := range es.list() {
+			if in.logFile != "" {
+				out = append(out, LogSource{App: r.App, Env: r.Env, Process: in.process, Instance: in.id, Path: in.logFile})
+			}
+		}
+	}
+	return out
+}
+
+// LogSource is a log file of something that is running.
+type LogSource struct{ App, Env, Process, Instance, Path string }
 
 // MetricsContainers says what the container engine knows of the instances it runs.
 func (m *Manager) MetricsContainers(ctx context.Context) map[string]metrics.Usage {

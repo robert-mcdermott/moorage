@@ -1,0 +1,589 @@
+// Package telemetry sends what apps say and do to somewhere else as well: syslog, an OpenTelemetry collector or any HTTP
+// endpoint. What is kept here stays, and is what counts: a sink that is down or slow costs it its own place in the queue,
+// and nothing else.
+package telemetry
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/robert-mcdermott/moorage/internal/ids"
+	"github.com/robert-mcdermott/moorage/internal/notify"
+	"github.com/robert-mcdermott/moorage/internal/observe/logs"
+	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
+	"github.com/robert-mcdermott/moorage/internal/store"
+)
+
+const (
+	// queueSize is the most lines that one sink can be behind by, past which the oldest go.
+	queueSize = 20000
+	// batchSize is the most lines sent at once.
+	batchSize = 500
+	// maxBackoff is the longest it waits before trying a sink that is down again.
+	maxBackoff = time.Minute
+	// sendTimeout is as long as one batch may take.
+	sendTimeout = 20 * time.Second
+)
+
+// InvalidError says what is wrong with a sink.
+type InvalidError struct{ Msg string }
+
+func (e *InvalidError) Error() string { return e.Msg }
+
+// Source is a log file that something is writing to.
+type Source struct {
+	App, Env, Process, Instance string
+	Path                        string
+}
+
+// Keys keeps what a sink has to keep secret.
+type Keys interface {
+	SealChannel(id string, value []byte) []byte
+	OpenChannel(id string, sealed []byte) ([]byte, error)
+}
+
+// Service sends what is going on to the sinks.
+type Service struct {
+	DB   *store.DB
+	Keys Keys
+	Log  *slog.Logger
+	// Client and Dial reach what this server may reach on someone's say.
+	Client *http.Client
+	Dial   func(ctx context.Context, network, address string) (net.Conn, error)
+	// Sources lists what is writing logs now.
+	Sources func(ctx context.Context) []Source
+	// Metrics says what the server is doing now.
+	Metrics func(ctx context.Context) metrics.Export
+	// Server is what this machine calls itself, and Version what is running.
+	Server, Version string
+	// Tick is how often log files are looked at, and MetricsEvery how often metrics are sent.
+	Tick, MetricsEvery time.Duration
+	// Life ends it all.
+	Life context.Context
+
+	started   time.Time
+	mu        sync.Mutex
+	sinks     map[string]*sink
+	followers map[string]*follower
+	cursor    time.Time
+	saved     time.Time
+	// fresh says that nothing has been read yet, so that what is in the files from before can be skipped.
+	fresh bool
+	// loaded says that the sinks have been read before, so that this is not the server starting.
+	loaded bool
+	going  sync.WaitGroup
+	reload chan struct{}
+	onLogs bool
+}
+
+type follower struct {
+	source Source
+	f      *logs.Follower
+	skip   time.Time
+	// gone says that it is no longer being written to, so that it can go once it has been read.
+	gone bool
+}
+
+// sink is one sink, as it goes along.
+type sink struct {
+	row    store.TelemetrySink
+	sender sender
+	stop   context.CancelFunc
+	done   chan struct{}
+
+	mu      sync.Mutex
+	queue   []Line
+	dropped int64
+}
+
+func (k *sink) add(lines []Line) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.queue = append(k.queue, lines...)
+	if over := len(k.queue) - queueSize; over > 0 {
+		k.dropped += int64(over)
+		k.queue = append(k.queue[:0:0], k.queue[over:]...)
+	}
+}
+
+func (k *sink) take() []Line {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	n := min(batchSize, len(k.queue))
+	return k.queue[:n:n]
+}
+
+func (k *sink) sent(n int) (dropped int64) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.queue = k.queue[n:]
+	dropped, k.dropped = k.dropped, 0
+	return dropped
+}
+
+var (
+	sinkName   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
+	headerName = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
+)
+
+// Form is what someone asks for.
+type Form struct {
+	Name, Kind, Address string
+	Headers             map[string]string
+	Logs, Metrics       bool
+	AppID               string
+}
+
+// Check says what is wrong with a sink, if anything.
+func (f Form) Check() error {
+	if !sinkName.MatchString(f.Name) {
+		return &InvalidError{"A sink's name is letters and numbers, with dots, dashes or underscores."}
+	}
+	if !f.Logs && !f.Metrics {
+		return &InvalidError{"A sink is for logs, for metrics, or for both."}
+	}
+	switch f.Kind {
+	case KindOTLP, KindHTTP:
+		u, err := url.Parse(f.Address)
+		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+			return &InvalidError{"An address for this kind of sink starts with https://."}
+		}
+		if u.User != nil {
+			return &InvalidError{"Leave what signs in out of the address: a header is where it can be kept sealed."}
+		}
+		if len(f.Headers) > 0 && !notify.SafeForSecrets(f.Address) {
+			return &InvalidError{"Headers are not sent in the clear across the internet: use its https address."}
+		}
+		if f.Kind == KindHTTP && f.Metrics {
+			return &InvalidError{"Metrics go to an OTLP collector, or a scrape of /metrics: an HTTP sink is for logs."}
+		}
+	case KindSyslog:
+		if _, _, _, err := syslogAddress(f.Address); err != nil {
+			return err
+		}
+		if f.Metrics {
+			return &InvalidError{"Syslog is for logs. Metrics go to an OTLP collector, or a scrape of /metrics."}
+		}
+		if len(f.Headers) > 0 {
+			return &InvalidError{"Syslog has no headers."}
+		}
+	default:
+		return &InvalidError{fmt.Sprintf("%q is not a kind of sink: syslog, otlp or http.", f.Kind)}
+	}
+	for name, value := range f.Headers {
+		if !headerName.MatchString(name) || strings.ContainsAny(value, "\r\n") {
+			return &InvalidError{"A header is a name of letters, numbers and dashes, and a value on one line."}
+		}
+	}
+	return nil
+}
+
+// syslogAddress reads udp://host:514, tcp://host:601 or tls://host:6514.
+func syslogAddress(address string) (network, hostport string, useTLS bool, err error) {
+	scheme, rest, found := strings.Cut(address, "://")
+	if !found || rest == "" || strings.Contains(rest, "/") {
+		return "", "", false, &InvalidError{"A syslog address is udp://host:514, tcp://host:601 or tls://host:6514."}
+	}
+	if _, _, err := net.SplitHostPort(rest); err != nil {
+		return "", "", false, &InvalidError{"A syslog address says its port, as in tls://host:6514."}
+	}
+	switch scheme {
+	case "udp", "tcp":
+		return scheme, rest, false, nil
+	case "tls":
+		return "tcp", rest, true, nil
+	}
+	return "", "", false, &InvalidError{"A syslog address is udp://host:514, tcp://host:601 or tls://host:6514."}
+}
+
+// Set keeps a sink, by its name. Saving it again without headers keeps those it had, so long as it is going to the same
+// address: they are not for sending anywhere else.
+func (s *Service) Set(ctx context.Context, f Form, by string) (store.TelemetrySink, error) {
+	if err := f.Check(); err != nil {
+		return store.TelemetrySink{}, err
+	}
+	row := store.TelemetrySink{ID: ids.New(ids.Sink), Name: f.Name, Kind: f.Kind, Address: strings.TrimRight(f.Address, "/"), Logs: f.Logs, Metrics: f.Metrics, AppID: f.AppID, CreatedBy: by, CreatedAt: time.Now().UTC()}
+	old, err := s.DB.TelemetrySink(ctx, f.Name)
+	switch {
+	case err == nil:
+		row.ID = old.ID
+		if f.Headers == nil && old.Address == row.Address {
+			row.SealedHeaders = old.SealedHeaders
+		}
+	case !errors.Is(err, store.ErrNotFound):
+		return row, err
+	}
+	if f.Headers != nil {
+		encoded, err := json.Marshal(f.Headers)
+		if err != nil {
+			return row, err
+		}
+		row.SealedHeaders = s.Keys.SealChannel(row.ID, encoded)
+	}
+	if err := s.DB.SetTelemetrySink(ctx, row); err != nil {
+		return row, err
+	}
+	s.Changed()
+	return s.DB.TelemetrySink(ctx, f.Name)
+}
+
+// Remove lets go of a sink.
+func (s *Service) Remove(ctx context.Context, name string) error {
+	if err := s.DB.DeleteTelemetrySink(ctx, name); err != nil {
+		return err
+	}
+	s.Changed()
+	return nil
+}
+
+// Changed says that the sinks are not what they were.
+func (s *Service) Changed() {
+	s.mu.Lock()
+	reload := s.reload
+	s.mu.Unlock()
+	if reload != nil {
+		select {
+		case reload <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// Headers opens what a sink sends with what it sends.
+func (s *Service) Headers(row store.TelemetrySink) (map[string]string, error) {
+	headers := map[string]string{}
+	if len(row.SealedHeaders) > 0 {
+		plain, err := s.Keys.OpenChannel(row.ID, row.SealedHeaders)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(plain, &headers); err != nil {
+			return nil, err
+		}
+	}
+	return headers, nil
+}
+
+func (s *Service) senderOf(row store.TelemetrySink) (sender, error) {
+	headers, err := s.Headers(row)
+	if err != nil {
+		return nil, err
+	}
+	switch row.Kind {
+	case KindHTTP:
+		return &httpSender{address: row.Address, headers: headers, client: s.Client, server: s.Server}, nil
+	case KindOTLP:
+		return &otlpSender{base: row.Address, headers: headers, client: s.Client, server: s.Server, version: s.Version}, nil
+	case KindSyslog:
+		network, address, useTLS, err := syslogAddress(row.Address)
+		if err != nil {
+			return nil, err
+		}
+		return &syslogSender{network: network, address: address, useTLS: useTLS, dial: s.Dial, server: s.Server}, nil
+	}
+	return nil, fmt.Errorf("a sink of the kind %q", row.Kind)
+}
+
+// Test sends a line to a sink now, and says what happened.
+func (s *Service) Test(ctx context.Context, name, by string) error {
+	row, err := s.DB.TelemetrySink(ctx, name)
+	if err != nil {
+		return err
+	}
+	send, err := s.senderOf(row)
+	if err != nil {
+		return err
+	}
+	defer send.close()
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+	now := time.Now().UTC()
+	if row.Logs {
+		err = send.sendLogs(ctx, []Line{{Time: now, App: "moorage", Env: "test", Process: "test", Instance: "test", Stream: "O", Text: "A test from Moorage, sent by " + by}})
+	} else {
+		err = send.sendMetrics(ctx, metrics.Export{Gauges: []metrics.ExportValue{{Name: "moorage.test", Unit: "1", Description: "A test from Moorage.", Labels: map[string]string{}, Value: 1}}}, now, now)
+	}
+	problem := ""
+	if err != nil {
+		problem = err.Error()
+	}
+	if saved := s.DB.NoteTelemetrySink(context.WithoutCancel(ctx), row.ID, now, problem, 0); saved != nil {
+		s.Log.Warn("note how a sink went", "sink", name, "err", saved)
+	}
+	return err
+}
+
+// Run goes on sending until Life ends.
+func (s *Service) Run() {
+	s.mu.Lock()
+	s.reload = make(chan struct{}, 1)
+	s.sinks, s.followers = map[string]*sink{}, map[string]*follower{}
+	s.started = time.Now().UTC()
+	s.mu.Unlock()
+	if at, err := s.DB.TelemetryCursor(s.Life); err == nil {
+		s.cursor = at
+	}
+	tick := s.Tick
+	if tick == 0 {
+		tick = time.Second
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	refresh := time.NewTicker(30 * time.Second)
+	defer refresh.Stop()
+	s.load()
+	for {
+		select {
+		case <-s.Life.Done():
+			s.finish()
+			return
+		case <-s.reload:
+			s.load()
+		case <-refresh.C:
+			s.load()
+		case <-t.C:
+			s.readLogs()
+		}
+	}
+}
+
+// Wait waits for the sinks to finish what they were at.
+func (s *Service) Wait() {
+	done := make(chan struct{})
+	go func() {
+		s.going.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
+}
+
+func (s *Service) finish() {
+	s.mu.Lock()
+	for _, k := range s.sinks {
+		k.stop()
+	}
+	s.mu.Unlock()
+	if !s.cursor.IsZero() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := s.DB.SetTelemetryCursor(ctx, s.cursor); err != nil {
+			s.Log.Warn("note how far logs have been read", "err", err)
+		}
+	}
+}
+
+// load brings the sinks into line with what is on record.
+func (s *Service) load() {
+	rows, err := s.DB.TelemetrySinks(s.Life)
+	if err != nil {
+		if s.Life.Err() == nil {
+			s.Log.Warn("read the telemetry sinks", "err", err)
+		}
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wanted := map[string]bool{}
+	logging := false
+	for _, row := range rows {
+		wanted[row.ID] = true
+		logging = logging || row.Logs
+		have := s.sinks[row.ID]
+		if have != nil && have.row.Address == row.Address && have.row.Kind == row.Kind && have.row.Logs == row.Logs && have.row.Metrics == row.Metrics && have.row.AppID == row.AppID && string(have.row.SealedHeaders) == string(row.SealedHeaders) {
+			have.row = row
+			continue
+		}
+		if have != nil {
+			have.stop()
+		}
+		send, err := s.senderOf(row)
+		if err != nil {
+			s.Log.Warn("set up a telemetry sink", "sink", row.Name, "err", err)
+			delete(s.sinks, row.ID)
+			continue
+		}
+		ctx, stop := context.WithCancel(s.Life)
+		k := &sink{row: row, sender: send, stop: stop, done: make(chan struct{})}
+		s.sinks[row.ID] = k
+		s.going.Add(1)
+		go func() {
+			defer s.going.Done()
+			s.serve(ctx, k)
+		}()
+	}
+	for id, k := range s.sinks {
+		if !wanted[id] {
+			k.stop()
+			delete(s.sinks, id)
+		}
+	}
+	if logging && !s.onLogs {
+		s.fresh = true
+		if s.loaded {
+			// Nothing was looking while there was nowhere to send it, and that is not to be sent now. As the server
+			// starts it is another matter: what its apps said while it was away is what it can catch up on.
+			s.followers = map[string]*follower{}
+			s.cursor = time.Now().UTC()
+		}
+	}
+	s.onLogs, s.loaded = logging, true
+}
+
+// readLogs passes on what has been written since the last time.
+func (s *Service) readLogs() {
+	s.mu.Lock()
+	logging := s.onLogs
+	s.mu.Unlock()
+	if !logging {
+		return
+	}
+	sources := s.Sources(s.Life)
+	present := make(map[string]bool, len(sources))
+	for _, source := range sources {
+		present[source.Path] = true
+		if s.followers[source.Path] != nil {
+			continue
+		}
+		f := &follower{source: source, f: logs.FollowFromStart(source.Path)}
+		if s.fresh {
+			f.skip = s.cursor
+			if f.skip.IsZero() {
+				f.skip = time.Now().UTC()
+			}
+		}
+		s.followers[source.Path] = f
+	}
+	s.fresh = false
+	newest := s.cursor
+	for path, f := range s.followers {
+		f.gone = !present[path]
+		lines, err := f.f.Read()
+		if err != nil {
+			s.Log.Warn("read a log to send", "path", path, "err", err)
+			continue
+		}
+		out := make([]Line, 0, len(lines))
+		for _, l := range lines {
+			if !f.skip.IsZero() && !l.Time.After(f.skip) {
+				continue
+			}
+			out = append(out, Line{Time: l.Time, App: f.source.App, Env: f.source.Env, Process: f.source.Process, Instance: f.source.Instance, Stream: l.Stream, Text: l.Text})
+			if l.Time.After(newest) {
+				newest = l.Time
+			}
+		}
+		if len(out) > 0 {
+			s.mu.Lock()
+			for _, k := range s.sinks {
+				if k.row.Logs && (k.row.App == "" || k.row.App == f.source.App) {
+					k.add(out)
+				}
+			}
+			s.mu.Unlock()
+		}
+		if f.gone && len(lines) == 0 {
+			delete(s.followers, path)
+		}
+	}
+	s.cursor = newest
+	if time.Since(s.saved) > 10*time.Second && !s.cursor.IsZero() {
+		s.saved = time.Now()
+		if err := s.DB.SetTelemetryCursor(s.Life, s.cursor); err != nil && s.Life.Err() == nil {
+			s.Log.Warn("note how far logs have been read", "err", err)
+		}
+	}
+}
+
+// serve sends what comes for one sink until it is told to stop, waiting longer each time that it fails.
+func (s *Service) serve(ctx context.Context, k *sink) {
+	defer k.sender.close()
+	every := s.MetricsEvery
+	if every == 0 {
+		every = time.Minute
+	}
+	nextMetrics := time.Now().Add(min(every, 5*time.Second))
+	backoff := time.Duration(0)
+	var problem string
+	sentAny := false
+	note := func(now time.Time, failure string, dropped int64) {
+		if failure == problem && !sentAny && dropped == 0 {
+			return
+		}
+		problem, sentAny = failure, false
+		saving, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := s.DB.NoteTelemetrySink(saving, k.row.ID, now, failure, dropped); err != nil {
+			s.Log.Warn("note how a sink went", "sink", k.row.Name, "err", err)
+		}
+	}
+	lastNote := time.Time{}
+	for {
+		wait := 500 * time.Millisecond
+		if backoff > 0 {
+			wait = backoff
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		var err error
+		attempted := false
+		now := time.Now().UTC()
+		if k.row.Logs {
+			if batch := k.take(); len(batch) > 0 {
+				attempted = true
+				sending, cancel := context.WithTimeout(ctx, sendTimeout)
+				err = k.sender.sendLogs(sending, slices.Clone(batch))
+				cancel()
+				if err == nil {
+					dropped := k.sent(len(batch))
+					sentAny = true
+					if dropped > 0 || now.Sub(lastNote) > 10*time.Second || problem != "" {
+						lastNote = now
+						note(now, "", dropped)
+					}
+				}
+			}
+		}
+		if err == nil && k.row.Metrics && now.After(nextMetrics) {
+			attempted = true
+			nextMetrics = now.Add(every)
+			sending, cancel := context.WithTimeout(ctx, sendTimeout)
+			err = k.sender.sendMetrics(sending, s.Metrics(ctx), s.started, now)
+			cancel()
+			if err == nil {
+				sentAny = true
+				lastNote = now
+				note(now, "", 0)
+			}
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if backoff == 0 {
+				backoff = time.Second
+			} else if backoff *= 2; backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			note(now, err.Error(), 0)
+		} else if attempted {
+			backoff = 0
+		}
+	}
+}

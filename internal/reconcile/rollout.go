@@ -358,6 +358,7 @@ func (m *Manager) spec(ctx context.Context, es *envState, rel store.Release, bui
 		vars["PORT"] = strconv.Itoa(in.port)
 	}
 	in.softLimit = m.softLimitOf(plan)
+	in.memoryLimit = memoryLimitOf(plan)
 	iso, err := m.isolation(ctx, es.app, in.id, build, vars["MOORAGE_DATA_DIR"], in.tmpDir, plan, in.port)
 	if err != nil {
 		return shim.Spec{}, nil, err

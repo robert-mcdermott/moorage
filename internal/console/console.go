@@ -32,6 +32,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/telemetry"
 )
 
 //go:embed templates assets
@@ -46,7 +47,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"login-code", "apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics", "app-console", "app-files"}
+		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics", "app-console", "app-files", "settings-telemetry"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -119,6 +120,8 @@ type Options struct {
 	Backups *backup.Service
 	// Forges connects apps to repositories.
 	Forges *forge.Service
+	// Telemetry sends what apps say and do elsewhere.
+	Telemetry *telemetry.Service
 	// SSO signs people in through a provider.
 	SSO *sso.Service
 }
@@ -134,11 +137,12 @@ type Console struct {
 	assets map[string]asset
 	pages  map[string]*template.Template
 
-	deployer *deploy.Deployer
-	forges   *forge.Service
-	runtime  Runtime
-	keyring  Keyring
-	started  time.Time
+	deployer  *deploy.Deployer
+	forges    *forge.Service
+	telemetry *telemetry.Service
+	runtime   Runtime
+	keyring   Keyring
+	started   time.Time
 	// gateRoute says what a hostname and a path serve, for the sign-in gates.
 	gateRoute func(host, path string) (ingress.RouteInfo, bool)
 	metrics   *metrics.Store
@@ -149,7 +153,7 @@ type Console struct {
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{forges: o.Forges, notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
+	c := &Console{forges: o.Forges, telemetry: o.Telemetry, notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -250,6 +254,12 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /settings/users", c.usersPage)
 	mux.HandleFunc("GET /settings/registries", c.registriesPage)
 	mux.HandleFunc("GET /settings/notifications", c.notificationSettings)
+	mux.HandleFunc("GET /settings/telemetry", c.telemetrySettings)
+	mux.HandleFunc("POST /settings/telemetry", c.adminAction(c.addSink))
+	mux.HandleFunc("POST /settings/telemetry/test", c.adminAction(c.testSink))
+	mux.HandleFunc("POST /settings/telemetry/remove", c.adminAction(c.removeSink))
+	mux.HandleFunc("POST /apps/{app}/metrics/thresholds", c.actionWith(auth.ScopeAdmin, maxForm, c.addThreshold))
+	mux.HandleFunc("POST /apps/{app}/metrics/thresholds/remove", c.actionWith(auth.ScopeAdmin, maxForm, c.removeThreshold))
 	mux.HandleFunc("POST /settings/notifications/channels", c.adminAction(c.addChannel))
 	mux.HandleFunc("POST /settings/notifications/channels/test", c.adminAction(c.testChannel))
 	mux.HandleFunc("POST /settings/notifications/channels/remove", c.adminAction(c.removeChannel))
@@ -387,6 +397,11 @@ type data struct {
 	// Files is what is in its data directory, and LineConsole where commands are run.
 	Files       *filesView
 	LineConsole *lineConsoleView
+	// Telemetry is where things are sent, and Thresholds when someone is told.
+	Telemetry  *telemetryView
+	Thresholds *thresholdsView
+	// ThresholdFailure says what was wrong with one just asked for.
+	ThresholdFailure string
 
 	// Deploying an app.
 	Image                 string

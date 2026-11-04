@@ -20,6 +20,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ids"
+	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -177,7 +178,7 @@ func (s *Service) Connect(ctx context.Context, appID, app string, c Connection, 
 	if err != nil {
 		return store.ForgeConnection{}, "", err
 	}
-	if c.Token != "" && !sentSafely(c.URL) {
+	if c.Token != "" && !notify.SafeForSecrets(c.URL) {
 		return store.ForgeConnection{}, "", &InvalidError{"A token is not sent in the clear to a forge across the internet: use its https address."}
 	}
 	old, err := s.DB.ForgeOf(ctx, app)

@@ -46,8 +46,18 @@ func (e *NotRunnableError) Error() string { return e.Msg }
 type runBook struct {
 	mu      sync.Mutex
 	running map[string]*activeRun
-	next    map[string]cronState
+	// ended is what finished a moment ago, so that what follows the logs of what is going on gets what a short one said.
+	ended map[string]endedRun
+	next  map[string]cronState
 }
+
+type endedRun struct {
+	source RunLogSource
+	at     time.Time
+}
+
+// endedRunStays is how long a run that has ended goes on being listed.
+const endedRunStays = time.Minute
 
 type activeRun struct {
 	app, env, job string
@@ -70,10 +80,24 @@ func (b *runBook) add(id string, a *activeRun) {
 	b.running[id] = a
 }
 
-func (b *runBook) remove(id string) {
+func (b *runBook) remove(id, path string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if a := b.running[id]; a != nil {
+		if b.ended == nil {
+			b.ended = map[string]endedRun{}
+		}
+		b.ended[id] = endedRun{a.source(id, path), time.Now()}
+	}
 	delete(b.running, id)
+}
+
+func (a *activeRun) source(id, path string) RunLogSource {
+	process := "run"
+	if a.job != "" {
+		process = "cron-" + a.job
+	}
+	return RunLogSource{App: a.app, Env: a.env, Process: process, Instance: id, Path: path}
 }
 
 // ofJob returns the runs of a job going on now.
@@ -85,6 +109,28 @@ func (b *runBook) ofJob(app, env, job string) []*activeRun {
 		if a.app == app && a.env == env && a.job == job {
 			out = append(out, a)
 		}
+	}
+	return out
+}
+
+// RunLogSource is the log file of a command going on now.
+type RunLogSource struct{ App, Env, Process, Instance, Path string }
+
+// RunLogSources lists the log files of the commands going on now, other than those with someone at the other end of them,
+// which keep nothing.
+func (d *Deployer) RunLogSources() []RunLogSource {
+	d.runs.mu.Lock()
+	defer d.runs.mu.Unlock()
+	out := make([]RunLogSource, 0, len(d.runs.running)+len(d.runs.ended))
+	for id, a := range d.runs.running {
+		out = append(out, a.source(id, LogPath(d.opts.DataDir, a.app, id)))
+	}
+	for id, e := range d.runs.ended {
+		if time.Since(e.at) > endedRunStays {
+			delete(d.runs.ended, id)
+			continue
+		}
+		out = append(out, e.source)
 	}
 	return out
 }
@@ -174,7 +220,7 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 		defer d.wg.Done()
 		defer cancel()
 		defer close(active.done)
-		defer d.runs.remove(run.ID)
+		defer d.runs.remove(run.ID, LogPath(d.opts.DataDir, req.App, run.ID))
 		process := "run"
 		if req.Job != "" {
 			process = "cron-" + req.Job

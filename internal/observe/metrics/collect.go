@@ -17,6 +17,8 @@ type Instance struct {
 	PID  int
 	// SoftLimit is the memory it may use, to watch where the kernel will not enforce it.
 	SoftLimit int64
+	// MemoryLimit is the memory that it may use, in whatever way that is held to.
+	MemoryLimit int64
 }
 
 // Usage is what an instance is using.

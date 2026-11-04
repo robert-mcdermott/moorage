@@ -23,6 +23,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/telemetry"
 )
 
 // Format is the version of what is written.
@@ -47,6 +48,7 @@ type Service struct {
 	Auth     *auth.Service
 	Keyring  Keys
 	Notifier *notify.Service
+	Sinks    *telemetry.Service
 	Backups  *backup.Service
 	SSO      *sso.Service
 }
@@ -98,6 +100,12 @@ func Expand(f *apitypes.ServerConfig, getenv func(string) string) {
 	}
 	for i := range f.Registries {
 		fill(&f.Registries[i].Password)
+	}
+	for i := range f.Sinks {
+		for name, value := range f.Sinks[i].Headers {
+			fill(&value)
+			f.Sinks[i].Headers[name] = value
+		}
 	}
 	for i := range f.Channels {
 		fill(&f.Channels[i].URL)
@@ -218,6 +226,26 @@ func (s *Service) Export(ctx context.Context) (apitypes.ServerConfig, error) {
 		}
 		f.Channels = append(f.Channels, out)
 	}
+	sinks, err := s.DB.TelemetrySinks(ctx)
+	if err != nil {
+		return f, err
+	}
+	for _, k := range sinks {
+		out := apitypes.ConfigSink{Name: k.Name, Kind: k.Kind, Address: k.Address, Logs: k.Logs, Metrics: k.Metrics, App: k.App}
+		if s.Sinks != nil {
+			headers, err := s.Sinks.Headers(k)
+			if err != nil {
+				return f, fmt.Errorf("sink %s: %w", k.Name, err)
+			}
+			for name := range headers {
+				if out.Headers == nil {
+					out.Headers = map[string]string{}
+				}
+				out.Headers[name] = variable("sink", k.Name, name)
+			}
+		}
+		f.Sinks = append(f.Sinks, out)
+	}
 	rules, err := s.DB.NotificationRules(ctx)
 	if err != nil {
 		return f, err
@@ -279,7 +307,7 @@ func (s *Service) Import(ctx context.Context, f apitypes.ServerConfig, dry bool,
 	}
 	r := &run{ctx: ctx, dry: dry, by: by, users: map[string]string{}, projects: map[string]bool{}, channels: map[string]bool{}}
 	r.report.DryRun = dry
-	for _, step := range []func(*run, apitypes.ServerConfig) error{s.importUsers, s.importProjects, s.importRegistries, s.importChannels, s.importRules, s.importBackups, s.importSignIn} {
+	for _, step := range []func(*run, apitypes.ServerConfig) error{s.importUsers, s.importProjects, s.importRegistries, s.importChannels, s.importRules, s.importSinks, s.importBackups, s.importSignIn} {
 		if err := step(r, f); err != nil {
 			return r.report, err
 		}
@@ -636,6 +664,71 @@ func (s *Service) importChannels(r *run, f apitypes.ServerConfig) error {
 			}
 		}
 		r.add("channel", want.Name, apitypes.ConfigChange, "")
+	}
+	return nil
+}
+
+// importSinks brings in where things are sent. What a file leaves out stays, as anywhere else.
+func (s *Service) importSinks(r *run, f apitypes.ServerConfig) error {
+	if s.Sinks == nil {
+		return nil
+	}
+	existing, err := s.DB.TelemetrySinks(r.ctx)
+	if err != nil {
+		return err
+	}
+	for _, want := range f.Sinks {
+		var have *store.TelemetrySink
+		for i := range existing {
+			if existing[i].Name == want.Name {
+				have = &existing[i]
+			}
+		}
+		var headers map[string]string
+		waiting := ""
+		for name, value := range want.Headers {
+			if plain, ok := actual(value); ok {
+				if headers == nil {
+					headers = map[string]string{}
+				}
+				headers[name] = plain
+			} else {
+				waiting = missing(value)
+			}
+		}
+		if waiting != "" && (have == nil || have.Address != strings.TrimRight(want.Address, "/")) {
+			r.add("sink", want.Name, apitypes.ConfigSkip, waiting)
+			continue
+		}
+		appID := ""
+		if want.App != "" {
+			if appID, err = s.DB.AppID(r.ctx, want.App); err != nil {
+				if !errors.Is(err, store.ErrNotFound) {
+					return err
+				}
+				r.add("sink", want.Name, apitypes.ConfigSkip, "there is no app "+want.App+" here yet")
+				continue
+			}
+		}
+		form := telemetry.Form{Name: want.Name, Kind: want.Kind, Address: want.Address, Headers: headers, Logs: want.Logs, Metrics: want.Metrics, AppID: appID}
+		if err := form.Check(); err != nil {
+			r.failed("sink", want.Name, err)
+			continue
+		}
+		action := apitypes.ConfigCreate
+		if have != nil {
+			action = apitypes.ConfigChange
+			if have.Kind == want.Kind && have.Address == strings.TrimRight(want.Address, "/") && have.Logs == want.Logs && have.Metrics == want.Metrics && have.App == want.App && headers == nil {
+				action = apitypes.ConfigSame
+			}
+		}
+		if action != apitypes.ConfigSame && !r.dry {
+			if _, err := s.Sinks.Set(r.ctx, form, r.by); err != nil {
+				r.failed("sink", want.Name, err)
+				continue
+			}
+		}
+		r.add("sink", want.Name, action, "")
 	}
 	return nil
 }

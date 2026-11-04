@@ -922,6 +922,7 @@ type ServerConfig struct {
 	Registries []ConfigRegistry `json:"registries,omitempty" toml:"registry,omitempty"`
 	Channels   []ConfigChannel  `json:"channels,omitempty" toml:"channel,omitempty"`
 	Rules      []ConfigRule     `json:"rules,omitempty" toml:"rule,omitempty"`
+	Sinks      []ConfigSink     `json:"sinks,omitempty" toml:"sink,omitempty"`
 	Backups    *ConfigBackups   `json:"backups,omitempty" toml:"backups,omitempty"`
 	SignIn     *ConfigSignIn    `json:"sign_in,omitempty" toml:"sign_in,omitempty"`
 }
@@ -949,6 +950,18 @@ type ConfigRegistry struct {
 	Host     string `json:"host" toml:"host"`
 	Username string `json:"username" toml:"username"`
 	Password string `json:"password,omitempty" toml:"password,omitempty"`
+}
+
+// ConfigSink is somewhere that what apps say and do is sent.
+type ConfigSink struct {
+	Name    string `json:"name" toml:"name"`
+	Kind    string `json:"kind" toml:"kind"`
+	Address string `json:"address" toml:"address"`
+	// Headers are sent with what it sends, and name variables of the environment here.
+	Headers map[string]string `json:"headers,omitempty" toml:"headers,omitempty"`
+	Logs    bool              `json:"logs,omitempty" toml:"logs,omitempty"`
+	Metrics bool              `json:"metrics,omitempty" toml:"metrics,omitempty"`
+	App     string            `json:"app,omitempty" toml:"app,omitempty"`
 }
 
 // ConfigChannel is somewhere notifications go.
@@ -1110,4 +1123,62 @@ type DataListing struct {
 	Files []DataFile `json:"files"`
 	// More says that there is more than this.
 	More bool `json:"more,omitempty"`
+}
+
+// NewTelemetrySink says where to send what apps say and do. Saving one of the same name changes it.
+type NewTelemetrySink struct {
+	Name string `json:"name"`
+	// Kind is syslog, otlp or http.
+	Kind string `json:"kind"`
+	// Address is udp://host:514, tcp://host:601 or tls://host:6514 for syslog, and an http or https address otherwise: for
+	// OTLP, what comes before /v1/logs.
+	Address string `json:"address"`
+	// Headers are sent with each request, sealed here and not shown again. Leaving them out keeps those it has.
+	Headers map[string]string `json:"headers,omitempty"`
+	Logs    bool              `json:"logs"`
+	Metrics bool              `json:"metrics"`
+	// App is the one app it is for. Leaving it out sends all of them.
+	App string `json:"app,omitempty"`
+}
+
+// TelemetrySink is somewhere that what apps say and do is sent.
+type TelemetrySink struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Address    string `json:"address"`
+	HasHeaders bool   `json:"has_headers"`
+	Logs       bool   `json:"logs"`
+	Metrics    bool   `json:"metrics"`
+	App        string `json:"app,omitempty"`
+	// LastSentAt is when something last got there, and LastError why the last try did not.
+	LastSentAt time.Time `json:"last_sent_at,omitzero"`
+	LastError  string    `json:"last_error,omitempty"`
+	// Dropped is how many lines it fell so far behind that they were let go.
+	Dropped   int64     `json:"dropped"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// NewThreshold says when to tell someone about how an environment is doing.
+type NewThreshold struct {
+	// Metric is error-rate, latency-p95, memory or cpu.
+	Metric string `json:"metric"`
+	// Above is a percentage of answers, milliseconds, a percentage of its limit, or a percentage of one core.
+	Above float64 `json:"above"`
+	// Minutes is how long it has to go on for. Nothing means 5.
+	Minutes int `json:"minutes,omitempty"`
+}
+
+// Threshold says when someone is told about how an environment is doing.
+type Threshold struct {
+	ID      string  `json:"id"`
+	Metric  string  `json:"metric"`
+	Label   string  `json:"label"`
+	Above   float64 `json:"above"`
+	Minutes int     `json:"minutes"`
+	// Firing says that it has been crossed, and Value is what it was last compared with, if there was anything to compare.
+	Firing    bool      `json:"firing"`
+	Value     *float64  `json:"value,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
 }

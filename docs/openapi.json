@@ -577,6 +577,40 @@
         ],
         "type": "object"
       },
+      "ConfigSink": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "logs": {
+            "type": "boolean"
+          },
+          "metrics": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "address"
+        ],
+        "type": "object"
+      },
       "ConfigUser": {
         "properties": {
           "disabled": {
@@ -1834,6 +1868,60 @@
         },
         "type": "object"
       },
+      "NewTelemetrySink": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "logs": {
+            "type": "boolean"
+          },
+          "metrics": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "address",
+          "logs",
+          "metrics"
+        ],
+        "type": "object"
+      },
+      "NewThreshold": {
+        "properties": {
+          "above": {
+            "type": "number"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "minutes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "metric",
+          "above"
+        ],
+        "type": "object"
+      },
       "NewToken": {
         "properties": {
           "app": {
@@ -2471,6 +2559,12 @@
           "sign_in": {
             "$ref": "#/components/schemas/ConfigSignIn"
           },
+          "sinks": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigSink"
+            },
+            "type": "array"
+          },
           "users": {
             "items": {
               "$ref": "#/components/schemas/ConfigUser"
@@ -2573,6 +2667,103 @@
           "created_at",
           "expires_at",
           "uses"
+        ],
+        "type": "object"
+      },
+      "TelemetrySink": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "dropped": {
+            "type": "integer"
+          },
+          "has_headers": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "last_sent_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "logs": {
+            "type": "boolean"
+          },
+          "metrics": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "address",
+          "has_headers",
+          "logs",
+          "metrics",
+          "dropped",
+          "created_by",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "Threshold": {
+        "properties": {
+          "above": {
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "firing": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "minutes": {
+            "type": "integer"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "metric",
+          "label",
+          "above",
+          "minutes",
+          "firing",
+          "created_by",
+          "created_at"
         ],
         "type": "object"
       },
@@ -5592,6 +5783,189 @@
           "apps"
         ],
         "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/thresholds": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvThresholds",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Threshold"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List when someone is told about how an environment is doing",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "post": {
+        "operationId": "postAppsAppEnvsEnvThresholds",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewThreshold"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Threshold"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Say when to tell someone about how an environment is doing",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/thresholds/{id}": {
+      "delete": {
+        "operationId": "deleteAppsAppEnvsEnvThresholdsId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Remove a threshold",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
       }
     },
     "/apps/{app}/envs/{env}/unlock": {
@@ -8743,6 +9117,179 @@
           }
         ],
         "summary": "Set up signing in through a provider, once it has been found at its address",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/telemetry": {
+      "get": {
+        "operationId": "getServerTelemetry",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TelemetrySink"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List where what apps say and do is sent",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      },
+      "post": {
+        "operationId": "postServerTelemetry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTelemetrySink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetrySink"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Add somewhere to send what apps say and do, or change the one of that name",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/telemetry/{name}": {
+      "delete": {
+        "operationId": "deleteServerTelemetryName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Stop sending to a sink",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/telemetry/{name}/test": {
+      "post": {
+        "operationId": "postServerTelemetryNameTest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Send something to a sink now, and say how that went",
         "tags": [
           "server"
         ],

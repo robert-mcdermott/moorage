@@ -1290,3 +1290,46 @@ func (c *Client) RemoveData(ctx context.Context, app, env, at string, recursive 
 	}
 	return c.do(ctx, http.MethodDelete, dataPath(app, env, "", at, extra), nil, "", nil)
 }
+
+// TelemetrySinks lists where what apps say and do is sent.
+func (c *Client) TelemetrySinks(ctx context.Context) ([]apitypes.TelemetrySink, error) {
+	var out []apitypes.TelemetrySink
+	err := c.do(ctx, http.MethodGet, "/api/v1/server/telemetry", nil, "", &out)
+	return out, err
+}
+
+// SetTelemetrySink keeps a sink, by its name.
+func (c *Client) SetTelemetrySink(ctx context.Context, in apitypes.NewTelemetrySink) (apitypes.TelemetrySink, error) {
+	var out apitypes.TelemetrySink
+	err := c.post(ctx, http.MethodPost, "/api/v1/server/telemetry", in, &out)
+	return out, err
+}
+
+// RemoveTelemetrySink lets go of a sink.
+func (c *Client) RemoveTelemetrySink(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/server/telemetry/"+url.PathEscape(name), nil, "", nil)
+}
+
+// TestTelemetrySink sends a line to a sink now.
+func (c *Client) TestTelemetrySink(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/server/telemetry/"+url.PathEscape(name)+"/test", nil, "", nil)
+}
+
+// Thresholds lists when someone is told about how an environment is doing.
+func (c *Client) Thresholds(ctx context.Context, app, env string) ([]apitypes.Threshold, error) {
+	var out []apitypes.Threshold
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "thresholds"), nil, "", &out)
+	return out, err
+}
+
+// AddThreshold says when to tell someone about how an environment is doing.
+func (c *Client) AddThreshold(ctx context.Context, app, env string, in apitypes.NewThreshold) (apitypes.Threshold, error) {
+	var out apitypes.Threshold
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "thresholds"), in, &out)
+	return out, err
+}
+
+// RemoveThreshold lets go of a threshold.
+func (c *Client) RemoveThreshold(ctx context.Context, app, env, id string) error {
+	return c.do(ctx, http.MethodDelete, envPath(app, env, "thresholds/"+url.PathEscape(id)), nil, "", nil)
+}

@@ -190,7 +190,7 @@ func (c *Console) downloadConfiguration(w http.ResponseWriter, r *http.Request) 
 		c.message(w, http.StatusForbidden, data{Title: "Not allowed", Heading: "Not allowed", Message: "Only an administrator can read the server's configuration."})
 		return
 	}
-	settings := &serverconfig.Service{DB: c.db, Auth: c.auth, Notifier: c.notifier, Backups: c.backups, SSO: c.sso}
+	settings := &serverconfig.Service{DB: c.db, Auth: c.auth, Notifier: c.notifier, Sinks: c.telemetry, Backups: c.backups, SSO: c.sso}
 	f, err := settings.Export(r.Context())
 	if err != nil {
 		c.internal(w, err)

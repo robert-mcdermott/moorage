@@ -1116,6 +1116,11 @@ directory, supervises it, and serves it on its own hostname.
      for a server that may be able to read anything, so its data directory is opened with `os.Root`, and only a plain file
      is ever sent. Go has no way of giving a process a pseudo-console through `os/exec`, so there it goes through CreateProcess.
 4. **Telemetry export.** Log forwarding, OTLP, threshold alerts.
+   - Done in slice 4: sinks for syslog, OTLP over HTTP and JSON over HTTP, each with a queue of its own; OTLP metrics; thresholds on an
+     environment's error rate, latency, memory and CPU, through notification rules; `[notifications] disk_percent`.
+   - Found by slice 4: a command that ends within a second had gone before anything looked for its log, so a run stays on the list for a
+     minute. A sink added long after the last one was removed must not start from where that one stopped. The fake collector and listeners
+     are all this has been tried against: no real collector or syslog server has yet been sent anything.
 5. **Release 0.7.0.**
 
 ## 0.8.0: beyond the firewall (planned)

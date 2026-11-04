@@ -487,10 +487,75 @@
   <a href="/settings/registries"{{if eq .Tab "registries"}} aria-current="page"{{end}}>Registries</a>
   <a href="/settings/sign-in"{{if eq .Tab "sign-in"}} aria-current="page"{{end}}>Sign-in</a>
   <a href="/settings/notifications"{{if eq .Tab "notifications"}} aria-current="page"{{end}}>Notifications</a>
+  <a href="/settings/telemetry"{{if eq .Tab "telemetry"}} aria-current="page"{{end}}>Telemetry</a>
   <a href="/settings/backups"{{if eq .Tab "backups"}} aria-current="page"{{end}}>Backups</a>
   <a href="/settings/audit"{{if eq .Tab "audit"}} aria-current="page"{{end}}>Audit log</a>
   <a href="/settings/system"{{if eq .Tab "system"}} aria-current="page"{{end}}>System</a>
 </nav>
+{{end}}
+
+{{define "settings-telemetry"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Telemetry}}
+{{with .Tested}}<p class="notice ok" role="status">{{.}} got what was sent.</p>{{end}}
+<p class="muted lead">Send what apps say to syslog, an OpenTelemetry collector or any HTTP endpoint, and what they do to an OpenTelemetry collector. What is kept here stays. A sink that is down costs nothing but its own place in the queue, of 20,000 lines.</p>
+<section class="block">
+  <div class="section-heading"><h2>Sinks</h2></div>
+  {{if .Sinks}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Name</th><th scope="col">Goes to</th><th scope="col">Sends</th><th scope="col">Last sent</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Sinks}}
+      <tr>
+        <td class="app-name">{{.Name}}</td>
+        <td data-label="Goes to" class="wrap-anywhere">{{.Kind}}: {{.Address}}{{if .SealedHeaders}} <span class="muted small">with headers</span>{{end}}</td>
+        <td data-label="Sends">{{if .Logs}}Logs{{end}}{{if and .Logs .Metrics}} and metrics{{else if .Metrics}}Metrics{{end}}<div class="muted small">{{with .App}}of {{.}}{{else}}of all apps{{end}}</div></td>
+        <td data-label="Last sent">{{if .LastError}}<span class="badge fail">Failing</span><div class="muted small wrap-anywhere">{{.LastError}}</div>{{else if .LastSentAt.IsZero}}<span class="muted">Not yet</span>{{else}}<time datetime="{{iso .LastSentAt}}">{{ago .LastSentAt}}</time>{{end}}{{if .Dropped}}<div class="muted small">{{.Dropped}} lines let go</div>{{end}}</td>
+        <td class="row-end">
+          <div class="row-actions">
+            <form method="post" action="/settings/telemetry/test" data-busy="Sending…"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="name" value="{{.Name}}"><button class="quiet small" type="submit">Send a test</button></form>
+            <form method="post" action="/settings/telemetry/remove" data-confirm="Stop sending to {{.Name}}?"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="name" value="{{.Name}}"><button class="quiet small danger" type="submit">Remove</button></form>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="panel panel-pad muted">Nothing is being sent anywhere else.</p>
+  {{end}}
+</section>
+<section class="block panel panel-pad">
+  <h2>Add a sink</h2>
+  <form method="post" action="/settings/telemetry" data-busy="Adding…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="sink-name">Name</label><input id="sink-name" name="name" required value="{{.Form.Name}}" autocomplete="off" spellcheck="false"></div>
+    <div class="field"><label for="sink-kind">Kind</label>
+      <select id="sink-kind" name="kind">
+        <option value="otlp"{{if eq .Form.Kind "otlp"}} selected{{end}}>OpenTelemetry (OTLP over HTTP)</option>
+        <option value="syslog"{{if eq .Form.Kind "syslog"}} selected{{end}}>Syslog (RFC 5424)</option>
+        <option value="http"{{if eq .Form.Kind "http"}} selected{{end}}>HTTP (JSON batches)</option>
+      </select>
+    </div>
+    <div class="field"><label for="sink-address">Address</label><input id="sink-address" name="address" required value="{{.Form.Address}}" placeholder="https://otel.example.com:4318" autocomplete="off" spellcheck="false">
+      <p class="hint">For OTLP, what comes before <code>/v1/logs</code>. For syslog, <code>udp://host:514</code>, <code>tcp://host:601</code> or <code>tls://host:6514</code>.</p>
+    </div>
+    <div class="field"><label for="sink-headers">Headers <span class="muted">(optional)</span></label><textarea id="sink-headers" name="headers" rows="2" spellcheck="false" placeholder="Authorization: Bearer …"></textarea>
+      <p class="hint">Sent with each request. They are kept sealed, and not shown again.</p>
+    </div>
+    <div class="field"><label for="sink-app">Of</label>
+      <select id="sink-app" name="app"><option value="">All apps</option>{{$chosen := .Form.App}}{{range .Apps}}<option value="{{.}}"{{if eq . $chosen}} selected{{end}}>{{.}}</option>{{end}}</select>
+    </div>
+    <label class="check"><input type="checkbox" name="logs" value="1"{{if .Form.Logs}} checked{{end}}> What apps say</label>
+    <label class="check"><input type="checkbox" name="metrics" value="1"{{if .Form.Metrics}} checked{{end}}> What they do, once a minute (OTLP only)</label>
+    <div class="actions"><button type="submit">Add it</button></div>
+  </form>
+</section>
+{{end}}
 {{end}}
 
 {{define "settings"}}

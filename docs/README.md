@@ -40,6 +40,7 @@ how it works inside and where it is going.
 - [Cron jobs and one-off commands](cron.md)
 - [Getting into an app](interactive.md): a terminal, a console in the browser, and the data directory
 - [Metrics](metrics.md): charts in the console, and for Prometheus
+- [Sending telemetry elsewhere](telemetry.md): logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds
 - [Notifications](notifications.md): told when something goes wrong, in the console,
   by webhook, in chat and by email
 - [How apps are kept apart](isolation.md): a user of its own for each app, limits and a

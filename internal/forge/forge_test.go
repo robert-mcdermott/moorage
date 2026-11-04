@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/robert-mcdermott/moorage/internal/notify"
 )
 
 func header(pairs ...string) http.Header {
@@ -191,7 +193,7 @@ func TestSentSafely(t *testing.T) {
 		"http://gitea.home.arpa/a/b.git":     true,
 		"http://gitea.internal.evil.com/a/b": false,
 	} {
-		if got := sentSafely(address); got != want {
+		if got := notify.SafeForSecrets(address); got != want {
 			t.Errorf("%s: %v", address, got)
 		}
 	}

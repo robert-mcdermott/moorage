@@ -45,6 +45,8 @@ const (
 	CronFailed           = "cron.failed"
 	BackupDone           = "backup.done"
 	BackupFailed         = "backup.failed"
+	ThresholdCrossed     = "threshold.crossed"
+	ThresholdOK          = "threshold.ok"
 	DiskLow              = "server.disk_low"
 	DiskOK               = "server.disk_ok"
 	DomainAdded          = "domain.added"
@@ -180,8 +182,10 @@ func Level(kind string) string {
 		return "ok"
 	case DeploymentFailed, CronFailed:
 		return "fail"
-	case DiskLow:
+	case DiskLow, ThresholdCrossed:
 		return "warn"
+	case ThresholdOK:
+		return "ok"
 	case BackupFailed:
 		return "fail"
 	case BackupDone:
@@ -225,6 +229,20 @@ func names(e store.Event, key string) []string {
 		return out
 	}
 	return nil
+}
+
+func thresholdWords(metric string) (name, unit string) {
+	switch metric {
+	case "error-rate":
+		return "The error rate", "%"
+	case "latency-p95":
+		return "The 95th percentile of latency", " ms"
+	case "memory":
+		return "Memory", "% of its limit"
+	case "cpu":
+		return "CPU", "% of one core"
+	}
+	return metric, ""
 }
 
 // Summary says in a few words what happened, without saying where: a timeline
@@ -300,6 +318,12 @@ func Summary(e store.Event) string {
 		return "A backup is at " + text(e, "destination")
 	case BackupFailed:
 		return "A backup failed: " + text(e, "error")
+	case ThresholdCrossed:
+		name, unit := thresholdWords(text(e, "metric"))
+		return fmt.Sprintf("%s has been above %v%s for %v minutes, and is %v%s", name, e.Data["above"], unit, e.Data["minutes"], e.Data["value"], unit)
+	case ThresholdOK:
+		name, unit := thresholdWords(text(e, "metric"))
+		return fmt.Sprintf("%s is back under %v%s, at %v%s", name, e.Data["above"], unit, e.Data["value"], unit)
 	case DiskLow:
 		return fmt.Sprintf("The server's data volume is %v%% full", e.Data["percent"])
 	case DiskOK:
