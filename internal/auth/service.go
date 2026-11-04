@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -17,9 +18,12 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -556,6 +560,123 @@ func (s *Service) NewUser(ctx context.Context, email, name, role, password strin
 		}
 	}
 	return u, nil
+}
+
+// ChangePassword changes a user's password, given the current one, and ends their other
+// sessions: whoever held one on the strength of the old password holds it no longer.
+func (s *Service) ChangePassword(ctx context.Context, userID, current, next, keepSession, ip string) error {
+	keys := []string{"password-user:" + userID}
+	if err := s.limit(keys...); err != nil {
+		return err
+	}
+	u, err := s.DB.UserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	ok, err := VerifyPassword(ctx, u.PasswordHash, current)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		s.failed(keys...)
+		s.Security("a change of password gave the wrong current password", "user", u.Email, "ip", ip)
+		return &FieldError{"current", "That is not your current password."}
+	}
+	if err := CheckPassword(next); err != nil {
+		return &FieldError{"new", err.Error()}
+	}
+	hash, err := HashPassword(ctx, next)
+	if err != nil {
+		return err
+	}
+	if err := s.DB.SetPassword(ctx, userID, hash, keepSession); err != nil {
+		return err
+	}
+	s.Security("a password was changed", "user", u.Email, "ip", ip)
+	return nil
+}
+
+// CreateToken makes an API token, and returns it with its secret, which is shown once.
+func (s *Service) CreateToken(ctx context.Context, userID, name string, scopes []string, app string, expires time.Time) (store.APIToken, string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 100 || strings.ContainsAny(name, "/\\\n\r\t") {
+		return store.APIToken{}, "", &FieldError{"name", "A token's name is up to 100 characters, without slashes."}
+	}
+	if len(scopes) == 0 || slices.ContainsFunc(scopes, func(c string) bool { return !ValidScope(c) }) {
+		return store.APIToken{}, "", &FieldError{"scopes", "A token's scopes are read, deploy, admin and gate."}
+	}
+	if !expires.IsZero() && !expires.After(s.now()) {
+		return store.APIToken{}, "", &FieldError{"expires_at", "That time has passed."}
+	}
+	secret := NewToken()
+	t := store.APIToken{
+		ID: ids.New(ids.Token), UserID: userID, Name: name, TokenHash: Hex(secret), Scopes: scopes,
+		App: app, ExpiresAt: expires, CreatedAt: s.now().UTC(),
+	}
+	if err := s.DB.CreateToken(ctx, t); err != nil {
+		return store.APIToken{}, "", err
+	}
+	return t, secret, nil
+}
+
+// InvalidKeyError says why an SSH key cannot be used.
+type InvalidKeyError struct{ Code, Detail string }
+
+func (e *InvalidKeyError) Error() string { return e.Detail }
+
+var keyName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$`)
+
+// AddSSHKey registers a public key, in authorized_keys format. Without a name, it takes
+// the key's comment, or makes one from its fingerprint.
+func (s *Service) AddSSHKey(ctx context.Context, userID, wanted, publicKey string) (store.SSHKey, error) {
+	key, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKey))
+	if err != nil {
+		return store.SSHKey{}, &InvalidKeyError{"invalid_key", "That is not a public key in authorized_keys format (the contents of a .pub file)."}
+	}
+	if msg := weakKey(key); msg != "" {
+		return store.SSHKey{}, &InvalidKeyError{"invalid_key", msg}
+	}
+	name := strings.TrimSpace(wanted)
+	if name == "" {
+		name = strings.TrimSpace(comment)
+	}
+	fingerprint := ssh.FingerprintSHA256(key)
+	if name == "" || !keyName.MatchString(name) {
+		if wanted != "" {
+			return store.SSHKey{}, &InvalidKeyError{"invalid_name", "A key's name is up to 64 letters, digits and . _ @ -, starting with a letter or digit."}
+		}
+		name = "key-" + strings.Map(func(r rune) rune {
+			if strings.ContainsRune("+/=", r) {
+				return -1
+			}
+			return r
+		}, strings.TrimPrefix(fingerprint, "SHA256:"))[:8]
+	}
+	k := store.SSHKey{
+		ID: ids.New(ids.SSHKey), UserID: userID, Name: name, Fingerprint: fingerprint,
+		PublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))) + " " + name, CreatedAt: s.now().UTC(),
+	}
+	if err := s.DB.AddSSHKey(ctx, k); err != nil {
+		return store.SSHKey{}, err
+	}
+	return k, nil
+}
+
+// weakKey says why a key may not be used, or "" (spec/08-security.md: Ed25519, ECDSA, or
+// RSA of 3072 bits or more).
+func weakKey(key ssh.PublicKey) string {
+	switch key.Type() {
+	case ssh.KeyAlgoED25519, ssh.KeyAlgoSKED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521, ssh.KeyAlgoSKECDSA256:
+		return ""
+	case ssh.KeyAlgoRSA:
+		if c, ok := key.(ssh.CryptoPublicKey); ok {
+			if pub, ok := c.CryptoPublicKey().(*rsa.PublicKey); ok && pub.N.BitLen() >= 3072 {
+				return ""
+			}
+		}
+		return "RSA keys must have 3072 bits or more: make an Ed25519 key with ssh-keygen -t ed25519."
+	}
+	return "Moorage accepts Ed25519, ECDSA and RSA (3072 bits or more) keys, not " + key.Type() + "."
 }
 
 // FieldError says what is wrong with one field of a request.

@@ -4,6 +4,8 @@
 <nav class="tabs" aria-label="This app">
   <a href="/apps/{{.App.Name}}"{{if eq .Tab "overview"}} aria-current="page"{{end}}>Overview</a>
   <a href="/apps/{{.App.Name}}/deployments"{{if eq .Tab "deployments"}} aria-current="page"{{end}}>Deployments</a>
+  <a href="/apps/{{.App.Name}}/logs"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>
+  <a href="/apps/{{.App.Name}}/variables"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
   <a href="/apps/{{.App.Name}}/deploy"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>
 </nav>
 {{end}}

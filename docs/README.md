@@ -52,7 +52,7 @@ how it works inside and where it is going.
 | `moor rollback [vN]` | Serves an earlier release again, in a moment |
 | `moor redeploy` | Builds the current release's source again, and rolls it out |
 | `moor ps` | Lists the app's instances: status, health, port, PID |
-| `moor logs [-f]` | Shows the app's output |
+| `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |
 | `moor restart` | Replaces the instances without downtime |
 | `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |
 | `moor env` | Lists and changes variables and secrets |
@@ -60,6 +60,7 @@ how it works inside and where it is going.
 | `moor server status` | Shows the server and its service |
 | `moor login [URL]` | Signs in to a server, approving it in a browser |
 | `moor whoami` | Shows who you are signed in as |
+| `moor password` | Changes your password |
 | `moor tokens` | Lists your API tokens; `create` and `revoke` them |
 | `moor server users` | Lists the users; `create`, `invite`, `role`, `disable` and `enable` them |
 

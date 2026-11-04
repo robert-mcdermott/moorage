@@ -47,8 +47,10 @@ notifications can react to them.
 
 ### Reading
 
-- `moor logs [-f] [--process web] [--instance 2] [--source app,router]
-  [--since 1h] [--grep text] [--json]`
+- `moor logs [-f] [--process web] [--instance 2] [--source stderr,build,access]
+  [--since 1h] [--until …] [--grep text] [--problems] [--json]`. The sources are
+  `stdout`, `stderr` and `moorage` (an app's own: the default), `build`, `access` and
+  `events`; `job` and `server` come with what they are the logs of.
 - Console: live tail with pause/resume, instance and process chips, source
   toggles, level filter, text search, time-range picker, line wrapping,
   download.

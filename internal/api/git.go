@@ -1,24 +1,17 @@
 package api
 
 import (
-	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
-	"regexp"
-	"strings"
-	"time"
-
-	"golang.org/x/crypto/ssh"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
-	"github.com/robert-mcdermott/moorage/internal/ids"
+	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
-
-var keyName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$`)
 
 // serverInfo describes the server: its version and the apps' git remotes.
 func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +20,15 @@ func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request) {
 		Git:     apitypes.GitInfo{HTTP: s.cfg.PublicURL(s.cfg.ConsoleHost) + "/git", SSH: sshPrefix(s.cfg.Listen.SSH, s.cfg.ConsoleHost)},
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// serverDoctor makes the checks of moor server doctor, from the server itself.
+func (s *Server) serverDoctor(w http.ResponseWriter, r *http.Request) {
+	docs := []apitypes.Check{}
+	for _, c := range doctor.Run(r.Context(), doctor.Options{Config: s.cfg}) {
+		docs = append(docs, apitypes.Check{Name: c.Name, Status: c.Status, Detail: c.Detail, Fix: c.Fix})
+	}
+	writeJSON(w, http.StatusOK, docs)
 }
 
 // sshPrefix is the start of the apps' SSH remotes: the console's hostname
@@ -72,46 +74,19 @@ func (s *Server) addSSHKey(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "invalid_request", "The request is not a key: "+err.Error())
 		return
 	}
-	key, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(req.PublicKey))
-	if err != nil {
-		problem(w, http.StatusBadRequest, "invalid_key", "That is not a public key in authorized_keys format (the contents of a .pub file).")
-		return
-	}
-	if msg := weakKey(key); msg != "" {
-		problem(w, http.StatusBadRequest, "invalid_key", msg)
-		return
-	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		name = strings.TrimSpace(comment)
-	}
-	fingerprint := ssh.FingerprintSHA256(key)
-	if name == "" || !keyName.MatchString(name) {
-		if req.Name != "" {
-			problem(w, http.StatusBadRequest, "invalid_name", "A key's name is up to 64 letters, digits and . _ @ -, starting with a letter or digit.")
-			return
-		}
-		name = "key-" + strings.Map(func(r rune) rune {
-			if strings.ContainsRune("+/=", r) {
-				return -1
-			}
-			return r
-		}, strings.TrimPrefix(fingerprint, "SHA256:"))[:8]
-	}
-	k := store.SSHKey{
-		ID: ids.New(ids.SSHKey), UserID: who(r).UserID, Name: name, Fingerprint: fingerprint,
-		PublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))) + " " + name, CreatedAt: time.Now().UTC(),
-	}
-	if err := s.db.AddSSHKey(r.Context(), k); err != nil {
-		var exists *store.KeyExistsError
-		if errors.As(err, &exists) {
-			problem(w, http.StatusConflict, "key_exists", exists.Error()+".")
-			return
-		}
+	k, err := s.auth.AddSSHKey(r.Context(), who(r).UserID, req.Name, req.PublicKey)
+	var invalid *auth.InvalidKeyError
+	var exists *store.KeyExistsError
+	switch {
+	case errors.As(err, &invalid):
+		problem(w, http.StatusBadRequest, invalid.Code, invalid.Error())
+	case errors.As(err, &exists):
+		problem(w, http.StatusConflict, "key_exists", exists.Error()+".")
+	case err != nil:
 		s.internal(w, err)
-		return
+	default:
+		writeJSON(w, http.StatusCreated, sshKeyDoc(k))
 	}
-	writeJSON(w, http.StatusCreated, sshKeyDoc(k))
 }
 
 func (s *Server) removeSSHKey(w http.ResponseWriter, r *http.Request) {
@@ -125,21 +100,4 @@ func (s *Server) removeSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sshKeyDoc(k))
-}
-
-// weakKey says why a key may not be used, or "" (spec/08-security.md:
-// Ed25519, ECDSA, or RSA of 3072 bits or more).
-func weakKey(key ssh.PublicKey) string {
-	switch key.Type() {
-	case ssh.KeyAlgoED25519, ssh.KeyAlgoSKED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521, ssh.KeyAlgoSKECDSA256:
-		return ""
-	case ssh.KeyAlgoRSA:
-		if c, ok := key.(ssh.CryptoPublicKey); ok {
-			if pub, ok := c.CryptoPublicKey().(*rsa.PublicKey); ok && pub.N.BitLen() >= 3072 {
-				return ""
-			}
-		}
-		return "RSA keys must have 3072 bits or more: make an Ed25519 key with ssh-keygen -t ed25519."
-	}
-	return "Moorage accepts Ed25519, ECDSA and RSA (3072 bits or more) keys, not " + key.Type() + "."
 }

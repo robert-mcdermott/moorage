@@ -53,6 +53,28 @@
         ],
         "type": "object"
       },
+      "Check": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "fix": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "detail"
+        ],
+        "type": "object"
+      },
       "CreatedToken": {
         "properties": {
           "app": {
@@ -502,7 +524,16 @@
           "instance": {
             "type": "string"
           },
+          "level": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
           "process": {
+            "type": "string"
+          },
+          "source": {
             "type": "string"
           },
           "stream": {
@@ -642,6 +673,21 @@
         },
         "required": [
           "email"
+        ],
+        "type": "object"
+      },
+      "PasswordChange": {
+        "properties": {
+          "current": {
+            "type": "string"
+          },
+          "new": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "current",
+          "new"
         ],
         "type": "object"
       },
@@ -1597,9 +1643,57 @@
             }
           },
           {
+            "description": "Only lines after this moment, for a follower that reconnects.",
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "1 sends it as a file to keep, of up to 200,000 lines.",
+            "in": "query",
+            "name": "download",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "true keeps the stream open.",
             "in": "query",
             "name": "follow",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "text sends plain text in place of NDJSON.",
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lines with this text, whatever its case.",
+            "in": "query",
+            "name": "grep",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this instance's lines: its number or its ID.",
+            "in": "query",
+            "name": "instance",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "true keeps the lines that report a problem: errors, warnings, standard error, and requests that failed.",
+            "in": "query",
+            "name": "problems",
             "schema": {
               "type": "string"
             }
@@ -1613,9 +1707,33 @@
             }
           },
           {
+            "description": "Only lines since then: how long ago (15m, 2h, 7d) or a moment.",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which sources, separated by commas: stdout, stderr, moorage, build, access and events. The first three unless asked.",
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "How many of the latest lines to start with.",
             "in": "query",
             "name": "tail",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only lines until then.",
+            "in": "query",
+            "name": "until",
             "schema": {
               "type": "string"
             }
@@ -2608,7 +2726,79 @@
         "x-moorage-permission": "signed-in"
       }
     },
+    "/me/password": {
+      "post": {
+        "operationId": "postMePassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Change your password, which ends your other sessions",
+        "tags": [
+          "me"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
     "/me/sessions": {
+      "delete": {
+        "operationId": "deleteMeSessions",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "End your sessions but the one in use",
+        "tags": [
+          "me"
+        ],
+        "x-moorage-permission": "admin"
+      },
       "get": {
         "operationId": "getMeSessions",
         "responses": {
@@ -3165,6 +3355,48 @@
           "server"
         ],
         "x-moorage-permission": "signed-in"
+      }
+    },
+    "/server/doctor": {
+      "get": {
+        "operationId": "getServerDoctor",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Check"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Check the server and what it depends on, as moor server doctor does",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
       }
     },
     "/users": {

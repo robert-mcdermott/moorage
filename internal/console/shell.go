@@ -98,7 +98,10 @@ func (c *Console) shellData(r *http.Request, p auth.Principal, page, title strin
 	d := data{
 		Title: title, Heading: title, Page: page,
 		User: p.Name, Admin: p.Admin, CSRF: auth.CSRFToken(p.CookieValue),
-		Palette: c.palette(apps),
+		Palette: c.palette(apps, p.Admin),
+	}
+	for _, a := range apps {
+		d.AppNames = append(d.AppNames, a.Name)
 	}
 	return d, apps, nil
 }
@@ -108,17 +111,31 @@ func (c *Console) appURL(name string) string {
 }
 
 // palette is what the command palette offers.
-func (c *Console) palette(apps []store.AppSummary) []paletteItem {
+func (c *Console) palette(apps []store.AppSummary, admin bool) []paletteItem {
 	items := []paletteItem{
 		{Label: "Apps", Hint: "Page", Href: "/"},
 		{Label: "Activity", Hint: "Page", Href: "/activity"},
 		{Label: "Getting started", Hint: "Page", Href: "/welcome"},
 		{Label: "New app", Hint: "Page", Href: "/new"},
+		{Label: "Your account", Hint: "Account", Href: "/account"},
+		{Label: "SSH keys", Hint: "Account", Href: "/account/keys"},
+		{Label: "API tokens", Hint: "Account", Href: "/account/tokens"},
+		{Label: "Sessions", Hint: "Account", Href: "/account/sessions"},
+	}
+	if admin {
+		items = append(items,
+			paletteItem{Label: "Settings", Hint: "Server", Href: "/settings"},
+			paletteItem{Label: "Users", Hint: "Server", Href: "/settings/users"},
+			paletteItem{Label: "Container registries", Hint: "Server", Href: "/settings/registries"},
+			paletteItem{Label: "System", Hint: "Server", Href: "/settings/system"},
+		)
 	}
 	for _, a := range apps {
 		items = append(items,
 			paletteItem{Label: a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name)},
 			paletteItem{Label: "Deployments of " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/deployments"},
+			paletteItem{Label: "Logs of " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/logs"},
+			paletteItem{Label: "Variables of " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/variables"},
 			paletteItem{Label: "Deploy " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/deploy"},
 			paletteItem{Label: "Open " + a.Name, Hint: "Its address", Href: c.appURL(a.Name), External: true},
 		)
@@ -136,7 +153,7 @@ func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d, apps, err := c.shellData(r, p, "activity", "Activity")
+	d, _, err := c.shellData(r, p, "activity", "Activity")
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -144,9 +161,6 @@ func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	d.FilterApp = q.Get("app")
 	before := q.Get("before")
-	for _, a := range apps {
-		d.AppNames = append(d.AppNames, a.Name)
-	}
 	list, err := c.db.Events(r.Context(), store.EventFilter{App: d.FilterApp, Before: before, Limit: activityPage + 1})
 	if err != nil {
 		c.internal(w, err)

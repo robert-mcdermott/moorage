@@ -4,9 +4,7 @@ The console is at the server's console hostname: `https://moorage.apps.example.c
 or `http://moorage.localhost:8080` on your own computer. Sign in with your account;
 `moor server status` shows the link that creates the first one.
 
-Everything in it is also available from `moor` and [the API](api.md). It is growing:
-this version has the apps, their deployments, the activity timeline and getting
-started. Logs and variables come next, on the way to 0.3.0.
+Everything in it is also available from `moor` or [the API](api.md).
 
 ## Getting started
 
@@ -80,6 +78,72 @@ moor releases show v3
 ```bash
 moor releases diff v3 v4
 ```
+
+## Logs
+
+An app's **Logs** page shows what it says, as it says it: the output of every instance,
+merged by time.
+
+- **Instance:** all of them, one process or one instance.
+- **When:** the last 15 minutes up to the last 7 days, or between two moments.
+- **Search:** the lines with this text, whatever its case, marked where it is.
+- **Output, Errors, Moorage:** standard output, standard error, and Moorage's notes of
+  starts, exits and restarts. **Builds** adds the logs of its deployments, **Requests** its
+  access log, and **Events** what happened to it.
+- **Only problems:** errors, warnings, standard error, and requests that failed.
+
+A line that is a JSON object reads as its message and fields, coloured by its `level`; hold
+the pointer over it for the line itself. A line of plain text that names a level, as
+`ERROR:` or `level=warn`, is coloured too.
+
+**Pause** stops the lines moving, and **Resume** brings what came meanwhile. Scrolling up
+holds the view where it is, and **Newest lines** comes back. **Older lines** goes further
+back, and **Download** gives you all of what is shown, up to 200,000 lines, as a file.
+
+```bash
+moor logs -f --app shop --source stderr,build --since 1h --grep timeout
+```
+
+The logs of an instance that has stopped are kept for 14 days. Those of one running are
+kept until they rotate, at 10 MiB, five files back.
+
+## Variables
+
+An app's **Variables** page lists what it runs with, and where each comes from: this
+environment, every environment, or the `[env]` of its `moorage.toml`, which a variable set
+here overrides. A secret is sealed when it is set, and is never shown again.
+
+**Add a variable** or **Change** one, and the change is released at once, as a new release
+that runs without downtime; or **Save without releasing**, and the page says what is waiting
+and offers to release it. A change to a variable available to builds reaches the app with
+its next build: **Redeploy** builds it now.
+
+**Edit as text** has them all as `NAME=value` lines, for pasting a `.env` or changing many at
+once. Take a line out and the variable goes; a secret shows as `••••••••`, which keeps its
+value if left. **See what changes** says what it would do before it does it.
+
+## Your account
+
+Your name at the foot of the sidebar goes to your account: changing your password, which
+ends your other sessions; your **SSH keys**; your **API tokens**, each shown once, with what
+it can do, for which apps and until when; and your **Sessions**, to end one you no longer
+recognise.
+
+```bash
+moor password
+```
+
+## Settings
+
+For administrators.
+
+- **Server:** what `server.toml` says. The server needs these before it can open its
+  database, so they change in that file, and with a restart.
+- **Users:** add someone, and send them the link it makes: the server sends no email. Change
+  a role, disable an account, or make a new link for someone who has lost their password.
+- **Registries:** the credentials of private container registries, sealed.
+- **System:** what the server runs, and what [`moor server doctor`](troubleshooting.md) finds,
+  with how to fix it.
 
 ## Activity
 

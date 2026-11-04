@@ -782,6 +782,33 @@ directory, supervises it, and serves it on its own hostname.
    search, time range, download); variables with secret, source and override
    badges and bulk edit; account pages (SSH keys, tokens, sessions); server
    settings; the System page with the `doctor` results.
+   - Done in slice 4:
+     - The logs page, on a reader (`internal/applogs`) shared with the API and `moor logs`:
+       instances, builds, the access log and events, merged by time and followed, narrowed
+       by process, instance, source, text, time and problems. JSON lines read as their
+       message and fields, and lines that name a level are coloured. Pause, wrap, older
+       lines, and a download of up to 200,000 lines.
+     - The variables page, with where each comes from and what overrides what, saving
+       without releasing, and a banner while something is unreleased. Editing as text shows
+       what would change, and only then does it; a secret stays masked, and keeps its value.
+     - The account pages: password (`moor password`, ending other sessions), SSH keys, API
+       tokens and sessions. Settings for administrators: what `server.toml` says, users,
+       registries, and the System page with what `moor server doctor` finds, also in the
+       API. Keys, tokens and passwords moved to one place in `internal/auth`, for the API
+       and the pages alike.
+     - A dialog of the console's own asks before what cannot be undone.
+     - Verified from the pages against a real server, with real instances running: every
+       form, every refusal, a member kept out of the settings, secrets never on a page. In
+       a real browser with an app logging structured and plain lines.
+   - Found by slice 4:
+     - Every release left a log file per instance, for ever, and the log reader reads them
+       all. The logs of stopped instances are now removed after 14 days, as designed, which
+       had not been built.
+     - Server settings live in `server.toml`, read before the database opens, and nothing at
+       run time needs setting yet: the page shows them, and says how to change them.
+     - Not yet: revealing a secret (with the audit log, wave 4); a level filter beyond
+       "only problems"; the logs of one-off runs and cron (with them, wave 5); and deleting
+       or renaming an app, which the design has and no slice did: added to wave 4.
 5. **Release 0.3.0.**
 
 ## 0.4.0: previews and sharing (planned)
@@ -790,17 +817,20 @@ directory, supervises it, and serves it on its own hostname.
 
 1. **Projects and roles.** Projects; viewer, deployer and maintainer roles
    enforced in the API; the audit log in the API, CLI and console.
-2. **Previews and environments.** Branch previews (naming, inheritance, TTL,
+2. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
+   zone and with `moor apps rename` and `delete`: its instances, builds, logs and
+   repository go, and what it keeps in its data directory is said first.
+3. **Previews and environments.** Branch previews (naming, inheritance, TTL,
    pinning, limits, destroyed with their branch), named environments,
    `promote`, deploy locks, the Previews page.
-3. **Sleep and wake.** Idle sleep with the waking-up page; per-process
+4. **Sleep and wake.** Idle sleep with the waking-up page; per-process
    opt-out.
-4. **Access gates.** Password, sign-in (with identity headers), share links,
+5. **Access gates.** Password, sign-in (with identity headers), share links,
    IP allow-lists, default gates per environment kind, `noindex` outside
    production; an independent review of the gate, cookie and CSRF design.
-5. **Paths and domains.** Path prefixes and path mode; custom domains with
+6. **Paths and domains.** Path prefixes and path mode; custom domains with
    DNS verification.
-6. **Release 0.4.0.**
+7. **Release 0.4.0.**
 
 ## 0.5.0: real apps, observed (planned)
 

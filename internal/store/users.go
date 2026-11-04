@@ -290,6 +290,29 @@ func (db *DB) DeleteSession(ctx context.Context, userID, id string) error {
 	})
 }
 
+// DeleteOtherSessions ends a user's sessions but one.
+func (db *DB) DeleteOtherSessions(ctx context.Context, userID, keep string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userID, keep)
+		return err
+	})
+}
+
+// SetPassword changes a user's password, and ends their sessions but one.
+func (db *DB) SetPassword(ctx context.Context, userID, passwordHash, keepSession string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userID, keepSession)
+		return err
+	})
+}
+
 // DeleteSessionByHash ends a session, if it exists.
 func (db *DB) DeleteSessionByHash(ctx context.Context, hash string) error {
 	return db.write(ctx, func(tx *sql.Tx) error {

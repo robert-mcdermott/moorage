@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -14,6 +11,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/dotenv"
 	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
@@ -240,7 +238,7 @@ Use - to read standard input.`,
 				defer file.Close()
 				r = file
 			}
-			vars, err := parseDotenv(r)
+			vars, err := dotenv.Parse(r)
 			if err != nil {
 				return fmt.Errorf("%s: %w", args[0], err)
 			}
@@ -249,7 +247,7 @@ Use - to read standard input.`,
 			}
 			change := apitypes.VarsChange{AllEnvs: f.allEnvs, NoRestart: f.noRestart}
 			for _, kv := range vars {
-				change.Set = append(change.Set, apitypes.VarSet{Name: kv[0], Value: kv[1], Secret: f.secret, Build: f.build})
+				change.Set = append(change.Set, apitypes.VarSet{Name: kv.Name, Value: kv.Value, Secret: f.secret, Build: f.build})
 			}
 			return changeVars(cmd, &f.envFlags, change)
 		},
@@ -287,7 +285,7 @@ Secrets are listed as comments, without their values.`,
 				case v.Secret:
 					fmt.Fprintf(out, "# %s is a secret: its value is not shown\n", v.Name)
 				default:
-					fmt.Fprintf(out, "%s=%s\n", v.Name, dotenvQuote(v.Value))
+					fmt.Fprintf(out, "%s=%s\n", v.Name, dotenv.Quote(v.Value))
 				}
 			}
 			return nil
@@ -351,83 +349,4 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
-}
-
-// parseDotenv reads NAME=value lines. Single-quoted values are taken as
-// they are; double-quoted ones understand \n, \t, \" and \\; unquoted ones
-// end at a " #" comment.
-func parseDotenv(r io.Reader) ([][2]string, error) {
-	var out [][2]string
-	seen := map[string]int{}
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for n := 1; sc.Scan(); n++ {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		line = strings.TrimPrefix(line, "export ")
-		name, value, ok := strings.Cut(line, "=")
-		name = strings.TrimSpace(name)
-		if !ok || name == "" {
-			return nil, fmt.Errorf("line %d is not NAME=value", n)
-		}
-		value, err := dotenvValue(strings.TrimSpace(value))
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %v", n, err)
-		}
-		if i, dup := seen[name]; dup {
-			out[i][1] = value // the last one wins, as in a shell
-			continue
-		}
-		seen[name] = len(out)
-		out = append(out, [2]string{name, value})
-	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i][0] < out[j][0] })
-	return out, nil
-}
-
-// dotenvValue reads the value part of a line: quoted (and followed by
-// nothing but a comment), or bare up to a " #" comment.
-func dotenvValue(v string) (string, error) {
-	if v == "" || (v[0] != '\'' && v[0] != '"') {
-		if i := strings.Index(v, " #"); i >= 0 {
-			v = strings.TrimSpace(v[:i])
-		}
-		return v, nil
-	}
-	end := -1
-	if v[0] == '\'' {
-		end = strings.IndexByte(v[1:], '\'') + 1
-	} else {
-		for i := 1; i < len(v); i++ {
-			if v[i] == '\\' {
-				i++
-			} else if v[i] == '"' {
-				end = i
-				break
-			}
-		}
-	}
-	if end <= 0 {
-		return "", fmt.Errorf("the quote is not closed")
-	}
-	if rest := strings.TrimSpace(v[end+1:]); rest != "" && !strings.HasPrefix(rest, "#") {
-		return "", fmt.Errorf("unexpected %q after the closing quote", rest)
-	}
-	if v[0] == '\'' {
-		return v[1:end], nil
-	}
-	return strconv.Unquote(v[:end+1])
-}
-
-// dotenvQuote writes a value so that parseDotenv reads it back.
-func dotenvQuote(v string) string {
-	if v != "" && !strings.ContainsAny(v, " \t\r\n\"'#\\$`") {
-		return v
-	}
-	return strconv.Quote(v)
 }

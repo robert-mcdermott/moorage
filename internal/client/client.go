@@ -462,15 +462,30 @@ func (c *Client) Restart(ctx context.Context, app, env string) ([]apitypes.Insta
 	return out, err
 }
 
-// Logs calls fn with the last tail lines of an environment's log and, with
-// follow, with new lines until ctx ends. process, if set, keeps one process.
-func (c *Client) Logs(ctx context.Context, app, env, process string, tail int, follow bool, fn func(apitypes.LogLine) error) error {
-	q := url.Values{"tail": {strconv.Itoa(tail)}}
-	if follow {
+// LogQuery says which lines of an environment's logs to read.
+type LogQuery struct {
+	Process, Instance, Source, Grep, Since, Until string
+	Problems                                      bool
+	Tail                                          int
+	Follow                                        bool
+}
+
+// Logs calls fn with the newest lines of an environment's logs and, with Follow, with
+// new lines until ctx ends.
+func (c *Client) Logs(ctx context.Context, app, env string, lq LogQuery, fn func(apitypes.LogLine) error) error {
+	q := url.Values{"tail": {strconv.Itoa(lq.Tail)}}
+	if lq.Follow {
 		q.Set("follow", "1")
 	}
-	if process != "" {
-		q.Set("process", process)
+	if lq.Problems {
+		q.Set("problems", "1")
+	}
+	for name, value := range map[string]string{
+		"process": lq.Process, "instance": lq.Instance, "source": lq.Source, "grep": lq.Grep, "since": lq.Since, "until": lq.Until,
+	} {
+		if value != "" {
+			q.Set(name, value)
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+envPath(app, env, "logs")+"?"+q.Encode(), nil)
 	if err != nil {
@@ -602,4 +617,9 @@ func (c *Client) ReleaseDiff(ctx context.Context, app, env string, from, to int)
 
 func envDoc(app, env string) string {
 	return strings.TrimSuffix(envPath(app, env, ""), "/")
+}
+
+// ChangePassword changes the caller's password.
+func (c *Client) ChangePassword(ctx context.Context, current, next string) error {
+	return c.post(ctx, http.MethodPost, "/api/v1/me/password", apitypes.PasswordChange{Current: current, New: next}, nil)
 }

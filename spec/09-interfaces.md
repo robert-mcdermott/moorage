@@ -129,7 +129,7 @@ Server administration
 
 ```text
 POST   /auth/login | /auth/logout | /auth/device (CLI device approval)
-GET    /me                                     · sessions · tokens · ssh-keys
+GET    /me                                     · sessions · tokens · ssh-keys · POST /me/password
 GET    /users               POST /users        PATCH /users/{user} · POST /users/{user}/invitation
 
 GET    /projects            POST /projects     · members

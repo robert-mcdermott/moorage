@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/applogs"
+	"github.com/robert-mcdermott/moorage/internal/client"
 	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
@@ -175,19 +177,27 @@ Without arguments, it shows how many run.`,
 
 func newLogsCmd() *cobra.Command {
 	var conn connection
-	var app, env, process string
-	var tail int
-	var follow, asJSON bool
+	var app, env string
+	var q client.LogQuery
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Show an app's logs",
 		Long: `Show the output of an app's instances, merged by time. Lines marked with *
 are notes from Moorage (starts, exits, restarts); lines marked with ! came
-from standard error.`,
+from standard error.
+
+--source chooses what to show, from stdout, stderr, moorage, build, access
+and events; the first three unless asked.`,
 		Example: `  moor logs --app api
-  moor logs -f --app api --process worker`,
+  moor logs -f --app api --process worker
+  moor logs --app api --source stderr,build --since 1h --grep timeout
+  moor logs --app api --problems --since 24h`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if _, err := applogs.SplitSources(q.Source); err != nil {
+				return usageError{err}
+			}
 			appName, _, err := resolveApp(app)
 			if err != nil {
 				return err
@@ -197,13 +207,13 @@ from standard error.`,
 				return err
 			}
 			ctx := cmd.Context()
-			if follow {
+			if q.Follow {
 				var stop context.CancelFunc
 				ctx, stop = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 				defer stop()
 			}
 			out := cmd.OutOrStdout()
-			return c.Logs(ctx, appName, env, process, tail, follow, func(l apitypes.LogLine) error {
+			return c.Logs(ctx, appName, env, q, func(l apitypes.LogLine) error {
 				if asJSON {
 					return printJSON(out, l)
 				}
@@ -214,7 +224,15 @@ from standard error.`,
 				case "E":
 					mark = "!"
 				}
-				_, err := fmt.Fprintf(out, "%s %s.%d %s %s\n", l.Time.Local().Format("15:04:05.000"), l.Process, l.Index, mark, l.Text)
+				who := l.Source
+				if l.Source == "" || l.Source == applogs.Stdout || l.Source == applogs.Stderr || l.Source == applogs.Moorage {
+					who = fmt.Sprintf("%s.%d", l.Process, l.Index)
+				}
+				text := l.Text
+				if l.Message != "" {
+					text = l.Message
+				}
+				_, err := fmt.Fprintf(out, "%s %s %s %s\n", l.Time.Local().Format("15:04:05.000"), who, mark, text)
 				return err
 			})
 		},
@@ -223,9 +241,15 @@ from standard error.`,
 	f := cmd.Flags()
 	f.StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
 	f.StringVar(&env, "env", names.Production, "environment")
-	f.StringVar(&process, "process", "", "show one process only, such as web")
-	f.IntVarP(&tail, "tail", "n", 100, "lines to show from the end")
-	f.BoolVarP(&follow, "follow", "f", false, "keep showing new lines")
+	f.StringVar(&q.Process, "process", "", "show one process only, such as web")
+	f.StringVar(&q.Instance, "instance", "", "show one instance only: its number or its ID")
+	f.StringVar(&q.Source, "source", "", "sources to show, separated by commas: stdout, stderr, moorage, build, access, events")
+	f.StringVar(&q.Grep, "grep", "", "show the lines with this text, whatever its case")
+	f.BoolVar(&q.Problems, "problems", false, "show the lines that report a problem: errors, warnings, standard error, failed requests")
+	f.StringVar(&q.Since, "since", "", "show lines since then: how long ago (15m, 2h, 7d) or a moment")
+	f.StringVar(&q.Until, "until", "", "show lines until then")
+	f.IntVarP(&q.Tail, "tail", "n", 100, "lines to show from the end")
+	f.BoolVarP(&q.Follow, "follow", "f", false, "keep showing new lines")
 	f.BoolVar(&asJSON, "json", false, "print each line as JSON")
 	return cmd
 }

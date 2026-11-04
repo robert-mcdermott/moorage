@@ -334,6 +334,12 @@ type LogLine struct {
 	Index    int       `json:"index"`
 	Stream   string    `json:"stream"`
 	Text     string    `json:"text"`
+	// Source says where it came from: stdout, stderr, moorage, build, access or events.
+	Source string `json:"source,omitempty"`
+	// Level is what the line reports, if it says: error, warn, info or debug.
+	Level string `json:"level,omitempty"`
+	// Message is the line as a person reads it, for one that is structured.
+	Message string `json:"message,omitempty"`
 }
 
 // Content types and form fields.
@@ -461,4 +467,18 @@ type VarDiff struct {
 	Name   string `json:"name"`
 	Change string `json:"change"`
 	Secret bool   `json:"secret,omitempty"`
+}
+
+// PasswordChange changes the caller's password.
+type PasswordChange struct {
+	Current string `json:"current"`
+	New     string `json:"new"`
+}
+
+// Check is what one of the server's checks found: ok, warn, fail or info.
+type Check struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+	Fix    string `json:"fix,omitempty"`
 }

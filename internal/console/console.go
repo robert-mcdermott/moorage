@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/brand"
@@ -37,7 +38,8 @@ var cards = map[string]bool{
 }
 
 func pageNames() []string {
-	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app"}
+	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -46,7 +48,18 @@ func pageNames() []string {
 
 // parseTemplates makes each page: the templates with "body" being that page's.
 func parseTemplates(source fs.FS, asset func(string) string) (map[string]*template.Template, error) {
-	base, err := template.New("pages").Funcs(template.FuncMap{"asset": asset, "ago": ago, "iso": iso}).ParseFS(source, "templates/*.html")
+	base, err := template.New("pages").Funcs(template.FuncMap{
+		"asset": asset, "ago": ago, "iso": iso, "clock": clock, "date": func(t time.Time) string { return t.Format("2 Jan 2006") },
+		"mask": func() string { return secretMask }, "countText": countText,
+		"orDash": orNone,
+		"dict": func(pairs ...any) map[string]any {
+			out := map[string]any{}
+			for i := 0; i+1 < len(pairs); i += 2 {
+				out[pairs[i].(string)] = pairs[i+1]
+			}
+			return out
+		},
+	}).ParseFS(source, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +90,8 @@ type Options struct {
 	// is running.
 	Deployer *deploy.Deployer
 	Runtime  Runtime
+	// Keyring seals what the settings pages are given to keep.
+	Keyring Keyring
 }
 
 // Console serves the pages.
@@ -92,11 +107,13 @@ type Console struct {
 
 	deployer *deploy.Deployer
 	runtime  Runtime
+	keyring  Keyring
+	started  time.Time
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime}
+	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now()}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -123,6 +140,34 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("GET /apps/{app}/logs", c.logsPage)
+	mux.HandleFunc("GET /apps/{app}/variables", c.variablesPage)
+	mux.HandleFunc("GET /apps/{app}/variables/edit", c.editVariablesPage)
+	mux.HandleFunc("POST /apps/{app}/variables/set", c.actionWith(auth.ScopeAdmin, maxVarsForm, c.setVariable))
+	mux.HandleFunc("POST /apps/{app}/variables/unset", c.actionWith(auth.ScopeAdmin, maxVarsForm, c.unsetVariable))
+	mux.HandleFunc("POST /apps/{app}/variables/preview", c.actionWith(auth.ScopeAdmin, maxVarsForm, c.previewVariables))
+	mux.HandleFunc("POST /apps/{app}/variables/apply", c.actionWith(auth.ScopeAdmin, maxVarsForm, c.applyVariables))
+	mux.HandleFunc("POST /apps/{app}/variables/release", c.actionWith(auth.ScopeAdmin, maxVarsForm, c.releaseVariables))
+	mux.HandleFunc("GET /account", c.accountPage("profile", "Your account", "account", c.loadProfile))
+	mux.HandleFunc("GET /account/keys", c.accountPage("keys", "SSH keys", "account-keys", c.loadKeys))
+	mux.HandleFunc("GET /account/tokens", c.accountPage("tokens", "API tokens", "account-tokens", c.loadTokens))
+	mux.HandleFunc("GET /account/sessions", c.accountPage("sessions", "Sessions", "account-sessions", c.loadSessions))
+	mux.HandleFunc("POST /account/password", c.accountAction(c.changePassword))
+	mux.HandleFunc("POST /account/keys/add", c.accountAction(c.addKey))
+	mux.HandleFunc("POST /account/keys/remove", c.accountAction(c.removeKey))
+	mux.HandleFunc("POST /account/tokens/create", c.accountAction(c.createToken))
+	mux.HandleFunc("POST /account/tokens/revoke", c.accountAction(c.revokeToken))
+	mux.HandleFunc("POST /account/sessions/end", c.accountAction(c.endSession))
+	mux.HandleFunc("POST /account/sessions/end-others", c.accountAction(c.endOtherSessions))
+	mux.HandleFunc("GET /settings", c.settingsPage)
+	mux.HandleFunc("GET /settings/users", c.usersPage)
+	mux.HandleFunc("GET /settings/registries", c.registriesPage)
+	mux.HandleFunc("GET /settings/system", c.systemPage)
+	mux.HandleFunc("POST /settings/users/create", c.adminAction(c.createUser))
+	mux.HandleFunc("POST /settings/users/invite", c.adminAction(c.inviteUser))
+	mux.HandleFunc("POST /settings/users/change", c.adminAction(c.changeUser))
+	mux.HandleFunc("POST /settings/registries/set", c.adminAction(c.setRegistry))
+	mux.HandleFunc("POST /settings/registries/remove", c.adminAction(c.removeRegistry))
 	mux.HandleFunc("GET /setup", c.setupPage)
 	mux.HandleFunc("POST /setup", c.post(c.setup))
 	mux.HandleFunc("GET /login", c.loginPage)
@@ -184,6 +229,15 @@ type data struct {
 	App         appView
 	Deployments []deploymentRow
 	Deployment  deploymentView
+
+	// An app's logs and variables.
+	Logs       logsView
+	TimeRanges []struct{ Value, Label string }
+	Variables  varsView
+
+	// One's own account, and the administrator's pages.
+	Account  accountView
+	Settings settingsView
 
 	// Deploying an app.
 	Image                 string
@@ -250,13 +304,24 @@ func (c *Console) internal(w http.ResponseWriter, err error) {
 // post guards a form's handler: the request must come from the console's own
 // pages, and its form is read with a limit.
 func (c *Console) post(next http.HandlerFunc) http.HandlerFunc {
+	return c.postUpTo(maxForm, next)
+}
+
+// A form is read up to this much; one of variables may hold many, and long ones.
+const (
+	maxForm     = 64 << 10
+	maxVarsForm = 8 << 20
+)
+
+// postUpTo is post, with a limit of its own.
+func (c *Console) postUpTo(limit int64, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !auth.SameOrigin(r) {
 			c.auth.Security("a form was posted from another site", "ip", c.auth.ClientIP(r), "path", r.URL.Path)
 			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "That request was refused", Message: "It did not come from this site's own pages.", Link: "/", LinkText: "Back to the start"})
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		if err := r.ParseForm(); err != nil {
 			c.message(w, http.StatusBadRequest, data{Title: "Refused", Heading: "That request was refused", Message: "The form could not be read."})
 			return

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
+	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -55,6 +57,83 @@ type InvalidConfigError struct{ Err error }
 
 func (e *InvalidConfigError) Error() string { return e.Err.Error() }
 func (e *InvalidConfigError) Unwrap() error { return e.Err }
+
+// ListVars lists an environment's variables: those set on the server and the manifest's
+// [env] of the current release, each marked overridden when a later source sets the same
+// name. The values of secrets are never in it.
+func ListVars(ctx context.Context, db *store.DB, app, env string) ([]apitypes.Var, error) {
+	set, err := db.Vars(ctx, app, env)
+	if err != nil {
+		return nil, err
+	}
+	out := []apitypes.Var{}
+	envNames := map[string]bool{}
+	serverNames := map[string]bool{}
+	for _, v := range set {
+		if !v.AllEnvs {
+			envNames[v.Name] = true
+		}
+		serverNames[v.Name] = true
+	}
+	for _, v := range set {
+		doc := apitypes.Var{Name: v.Name, Secret: v.Secret, Build: v.Build, Source: "env", UpdatedBy: v.UpdatedBy, UpdatedAt: v.UpdatedAt}
+		if !v.Secret {
+			doc.Value = v.Value
+		}
+		if v.AllEnvs {
+			doc.Source = "app"
+			doc.Overridden = envNames[v.Name]
+		}
+		out = append(out, doc)
+	}
+	if _, build, err := db.CurrentRelease(ctx, app, env); err == nil {
+		var plan manifest.Plan
+		if json.Unmarshal(build.Plan, &plan) == nil {
+			for name, value := range plan.Env {
+				out = append(out, apitypes.Var{Name: name, Value: value, Source: "manifest", Overridden: serverNames[name]})
+			}
+		}
+	}
+	order := map[string]int{"env": 0, "app": 1, "manifest": 2}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return order[out[i].Source] < order[out[j].Source]
+	})
+	return out, nil
+}
+
+// UnreleasedVars says how an environment's variables differ from those its current
+// release runs with. Nothing differs for an environment with no release.
+func UnreleasedVars(ctx context.Context, db *store.DB, app, env string) ([]apitypes.VarDiff, error) {
+	rel, _, err := db.CurrentRelease(ctx, app, env)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	now, err := db.Config(ctx, app, env)
+	if err != nil {
+		return nil, err
+	}
+	return diffVars(rel.Config, now), nil
+}
+
+// ReleaseVars makes a release of the current build with the variables as they are now, for
+// changes saved without being released.
+func (d *Deployer) ReleaseVars(ctx context.Context, app, env, by string) (store.Release, store.Deployment, error) {
+	_, current, err := d.db.CurrentRelease(ctx, app, env)
+	if err != nil {
+		return store.Release{}, store.Deployment{}, err
+	}
+	var plan manifest.Plan
+	if err := json.Unmarshal(current.Plan, &plan); err != nil {
+		return store.Release{}, store.Deployment{}, err
+	}
+	return d.Publish(ctx, PublishRequest{App: app, Env: env, By: by, Source: "config", Reason: "config", Build: current, Plan: plan})
+}
 
 // ConfigResult says what a configuration change did.
 type ConfigResult struct {

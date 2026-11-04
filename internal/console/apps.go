@@ -405,7 +405,12 @@ func (c *Console) processViews(app string, version int, plan manifest.Plan, form
 // with the session's token, from someone who may deploy this app. Until roles arrive
 // (wave 4) that is everyone signed in; the API's routes ask the same of a principal.
 func (c *Console) action(next func(http.ResponseWriter, *http.Request, auth.Principal, string)) http.HandlerFunc {
-	return c.post(func(w http.ResponseWriter, r *http.Request) {
+	return c.actionWith(auth.ScopeDeploy, maxForm, next)
+}
+
+// actionWith is action, for a form that needs another scope or may be longer.
+func (c *Console) actionWith(scope string, limit int64, next func(http.ResponseWriter, *http.Request, auth.Principal, string)) http.HandlerFunc {
+	return c.postUpTo(limit, func(w http.ResponseWriter, r *http.Request) {
 		p, ok := c.formUser(w, r)
 		if !ok {
 			return
@@ -414,8 +419,8 @@ func (c *Console) action(next func(http.ResponseWriter, *http.Request, auth.Prin
 			c.refused(w)
 			return
 		}
-		if !p.Can(auth.ScopeDeploy) {
-			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your account cannot deploy.", Link: "/", LinkText: "Back to the start"})
+		if !p.Can(scope) {
+			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your account cannot do that.", Link: "/", LinkText: "Back to the start"})
 			return
 		}
 		app, ok := c.lookupApp(w, r, p)

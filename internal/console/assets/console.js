@@ -74,24 +74,58 @@
   }
 
   function showTimes() {
-    $$('time[datetime]').forEach(function (el) {
+    $$('time[datetime]:not([data-clock])').forEach(function (el) {
       var date = new Date(el.getAttribute('datetime'));
       if (isNaN(date.getTime())) { return; }
       el.textContent = ago(date);
       el.title = date.toLocaleString();
     });
   }
+
+  // A line of a log says when in this browser's own time.
+  var clockFormat = window.Intl ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : null;
+  var dayFormat = window.Intl ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }) : null;
+
+  function clockText(date) {
+    if (!clockFormat) { return date.toISOString(); }
+    var today = new Date();
+    var sameDay = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
+    return (sameDay ? '' : dayFormat.format(date) + ' ') + clockFormat.format(date);
+  }
+
+  function showClock(el) {
+    var date = new Date(el.getAttribute('datetime'));
+    if (isNaN(date.getTime())) { return; }
+    el.textContent = clockText(date);
+    el.title = date.toLocaleString();
+  }
   showTimes();
   setInterval(showTimes, 30000);
 
-  // The select that filters the timeline needs no button to press.
+  // What filters a page needs no button to press.
 
-  var filter = $('[data-autosubmit]');
-  if (filter) {
-    filter.addEventListener('change', function () { filter.form.submit(); });
-    var submit = $('button', filter.form);
-    if (submit) { submit.hidden = true; }
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (!el.hasAttribute || !el.hasAttribute('data-autosubmit') || !el.form) { return; }
+    if (el.hasAttribute('data-range') && el.value === 'custom') {
+      var custom = $('[data-range-custom]', el.form);
+      if (custom) { custom.hidden = false; }
+      return; // it needs its moments first
+    }
+    if (el.form.requestSubmit) { el.form.requestSubmit(); } else { el.form.submit(); }
+  });
+
+  function hideAutosubmitButtons() {
+    $$('[data-autosubmit]').forEach(function (el) {
+      if (!el.form) { return; }
+      var button = $('button[data-autosubmit-button]', el.form) || $('[data-log-submit]', el.form) || (el.form.classList.contains('filters') ? $('button', el.form) : null);
+      if (button) { button.hidden = true; }
+    });
   }
+  hideAutosubmitButtons();
+
+  // A moment typed into a form means this browser's time.
+  $$('[data-tz]').forEach(function (el) { el.value = String(new Date().getTimezoneOffset()); });
 
   // Filtering the apps, as they are typed. The command palette finds one too; this
   // keeps the list in view.
@@ -114,11 +148,36 @@
   // Forms that take a while say so, and those that matter ask first. They are found
   // from the document: the parts of a page that are drawn again bring new ones.
 
+  var confirmDialog = $('#confirm');
+
+  function ask(question, yes) {
+    if (!confirmDialog || !confirmDialog.showModal) {
+      if (window.confirm(question)) { yes(); }
+      return;
+    }
+    $('#confirm-text', confirmDialog).textContent = question;
+    var button = $('[data-confirm-yes]', confirmDialog);
+    var no = $('[data-confirm-no]', confirmDialog);
+    var close = function () { confirmDialog.close(); };
+    var go = function () {
+      close();
+      yes();
+    };
+    button.onclick = go;
+    no.onclick = close;
+    confirmDialog.showModal();
+    no.focus(); // what is safe first
+  }
+
   document.addEventListener('submit', function (e) {
     var form = e.target;
     var question = form.getAttribute('data-confirm');
-    if (question && !window.confirm(question)) {
+    if (question && !form.hasAttribute('data-confirmed')) {
       e.preventDefault();
+      ask(question, function () {
+        form.setAttribute('data-confirmed', '');
+        if (form.requestSubmit) { form.requestSubmit(); } else { form.submit(); }
+      });
       return;
     }
     var busy = form.getAttribute('data-busy');
@@ -295,6 +354,211 @@
     if (!document.hidden) { open(); }
   }
   followLog();
+
+  // The logs page: the lines that were drawn, then those written since.
+
+  function setUpLogs() {
+    var box = $('[data-logs]');
+    if (!box) { return; }
+    var MAX_LINES = 5000;
+    var grep = (box.getAttribute('data-log-grep') || '').toLowerCase();
+    var count = $('[data-log-lines]');
+    var status = $('[data-log-status]');
+    var pauseButton = $('[data-log-pause]');
+    var wrapButton = $('[data-log-wrap]');
+    var jump = $('[data-log-jump]');
+    var stream = box.getAttribute('data-logs-stream');
+    var after = box.getAttribute('data-logs-after');
+    var keepAtEnd = true;
+    var paused = false;
+    var held = [];
+    var controller = null;
+
+    function mark(text) {
+      var el = text.parentNode ? text : null;
+      if (!grep || !el) { return; }
+      var value = el.textContent;
+      var lower = value.toLowerCase();
+      var at = lower.indexOf(grep);
+      if (at < 0) { return; }
+      el.textContent = '';
+      var from = 0;
+      while (at >= 0) {
+        el.appendChild(document.createTextNode(value.slice(from, at)));
+        var hit = document.createElement('mark');
+        hit.textContent = value.slice(at, at + grep.length);
+        el.appendChild(hit);
+        from = at + grep.length;
+        at = lower.indexOf(grep, from);
+      }
+      el.appendChild(document.createTextNode(value.slice(from)));
+    }
+
+    $$('.log-line', box).forEach(function (line) {
+      var time = $('time', line);
+      if (time) { showClock(time); }
+      mark($('.log-text', line));
+    });
+    box.scrollTop = box.scrollHeight;
+
+    function atEnd() { return box.scrollHeight - box.scrollTop - box.clientHeight < 32; }
+
+    box.addEventListener('scroll', function () {
+      keepAtEnd = atEnd();
+      if (jump) { jump.hidden = keepAtEnd; }
+    });
+    if (jump) {
+      jump.addEventListener('click', function () {
+        keepAtEnd = true;
+        box.scrollTop = box.scrollHeight;
+        jump.hidden = true;
+      });
+    }
+
+    if (wrapButton) {
+      var WRAP_KEY = 'moorage-log-wrap';
+      var setWrap = function (on) {
+        box.classList.toggle('no-wrap', !on);
+        wrapButton.setAttribute('aria-pressed', String(on));
+      };
+      var saved = null;
+      try { saved = localStorage.getItem(WRAP_KEY); } catch (e) { saved = null; }
+      setWrap(saved !== 'off');
+      wrapButton.hidden = false;
+      wrapButton.addEventListener('click', function () {
+        var on = wrapButton.getAttribute('aria-pressed') !== 'true';
+        setWrap(on);
+        try { localStorage.setItem(WRAP_KEY, on ? 'on' : 'off'); } catch (e) { /* It lasts for this page, then. */ }
+      });
+    }
+
+    function lineOf(entry) {
+      var line = document.createElement('div');
+      var source = entry.source || 'stdout';
+      line.className = 'log-line s-' + source + (entry.level ? ' level-' + entry.level : '') + ' new';
+      if (entry.message) { line.title = entry.text; }
+      var time = document.createElement('time');
+      time.setAttribute('data-clock', '');
+      time.setAttribute('datetime', entry.time);
+      showClock(time);
+      line.appendChild(time);
+      var who = document.createElement('span');
+      who.className = 'log-who';
+      who.textContent = source === 'build' || source === 'access' || source === 'events' ? source : entry.process + '.' + entry.index;
+      line.appendChild(who);
+      var text = document.createElement('span');
+      text.className = 'log-text';
+      text.textContent = (entry.message || entry.text || '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+      line.appendChild(text);
+      line.appendChild(document.createTextNode('\n'));
+      mark(text);
+      return line;
+    }
+
+    function add(lines) {
+      if (!lines.length) { return; }
+      var empty = $('[data-logs-empty]', box);
+      if (empty) { empty.remove(); }
+      var fragment = document.createDocumentFragment();
+      lines.forEach(function (entry) { fragment.appendChild(lineOf(entry)); });
+      box.appendChild(fragment);
+      while (box.childElementCount > MAX_LINES) { box.removeChild(box.firstElementChild); }
+      if (count) { count.textContent = String(box.childElementCount); }
+      if (keepAtEnd) { box.scrollTop = box.scrollHeight; }
+    }
+
+    function receive(entry) {
+      after = entry.time;
+      if (paused) {
+        held.push(entry);
+        if (held.length > MAX_LINES) { held.shift(); }
+        pauseButton.textContent = 'Resume (' + held.length + ' new)';
+      } else {
+        pending.push(entry);
+        if (!flushing) {
+          flushing = true;
+          requestAnimationFrame(flush);
+        }
+      }
+    }
+
+    var pending = [];
+    var flushing = false;
+    function flush() {
+      flushing = false;
+      add(pending);
+      pending = [];
+    }
+
+    if (!stream || !window.fetch || !window.TextDecoder || !window.AbortController) { return; }
+
+    if (pauseButton) {
+      pauseButton.hidden = false;
+      pauseButton.addEventListener('click', function () {
+        paused = !paused;
+        pauseButton.setAttribute('aria-pressed', String(paused));
+        pauseButton.textContent = paused ? 'Resume' : 'Pause';
+        show(paused ? 'Paused' : 'Live', paused ? '' : 'ok');
+        if (!paused) {
+          add(held);
+          held = [];
+        }
+      });
+    }
+
+    function show(text, kind) {
+      if (!status) { return; }
+      status.hidden = !text;
+      status.textContent = text;
+      status.className = 'badge live-status ' + kind;
+    }
+
+    function open() {
+      if (controller) { return; }
+      var mine = new AbortController();
+      controller = mine;
+      var address = stream + (after ? '&after=' + encodeURIComponent(after) : '');
+      fetch(address, { credentials: 'same-origin', signal: mine.signal }).then(function (res) {
+        if (!res.ok || !res.body) { throw new Error('the logs could not be read'); }
+        if (!paused) { show('Live', 'ok'); }
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var rest = '';
+        function pump() {
+          return reader.read().then(function (part) {
+            if (part.done) { return null; }
+            rest += decoder.decode(part.value, { stream: true });
+            var lines = rest.split('\n');
+            rest = lines.pop();
+            lines.forEach(function (text) {
+              if (text) { receive(JSON.parse(text)); }
+            });
+            return pump();
+          });
+        }
+        return pump();
+      }).catch(function () {
+        // A stream may end for any reason: the next one starts from where this one got to.
+      }).then(function () {
+        controller = null;
+        if (!mine.signal.aborted) {
+          show('Reconnecting', 'warn');
+          setTimeout(open, 2000);
+        }
+      });
+    }
+
+    function close() {
+      if (controller) { controller.abort(); }
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { close(); } else { open(); }
+    });
+    window.addEventListener('pagehide', close);
+    if (!document.hidden) { open(); }
+  }
+  setUpLogs();
 
   // The command palette
 

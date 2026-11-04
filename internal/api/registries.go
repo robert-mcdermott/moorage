@@ -3,11 +3,11 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -15,9 +15,6 @@ import (
 type RegistrySealer interface {
 	SealRegistry(host, password string) []byte
 }
-
-// registryHost is what the engines look credentials up by.
-var registryHost = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$`)
 
 func registryDoc(r store.Registry) apitypes.Registry {
 	return apitypes.Registry{Host: r.Host, Username: r.Username, CreatedAt: r.CreatedAt}
@@ -38,7 +35,7 @@ func (s *Server) registries(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setRegistry(w http.ResponseWriter, r *http.Request) {
 	host := strings.ToLower(r.PathValue("host"))
-	if !registryHost.MatchString(host) {
+	if !names.ValidRegistryHost(host) {
 		problem(w, http.StatusUnprocessableEntity, "invalid_host", "A registry is named by its host, such as ghcr.io or registry.example.com:5000.")
 		return
 	}

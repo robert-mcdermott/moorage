@@ -523,3 +523,506 @@ func TestConsoleUpload(t *testing.T) {
 		t.Errorf("nothing was created: %d", res.StatusCode)
 	}
 }
+
+// TestConsoleLogs reads an app's logs from its page and from the API behind it.
+func TestConsoleLogs(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	b := signIn(t, cfg, addrs)
+	ctx := context.Background()
+
+	if _, err := deployApp(t, c, "shop", appPlan(map[string]string{"TESTAPP_PRINT": "MOORAGE_APP"})); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the app's first line", func() bool {
+		var got []apitypes.LogLine
+		c.Logs(ctx, "shop", "production", client.LogQuery{Tail: 10}, func(l apitypes.LogLine) error {
+			got = append(got, l)
+			return nil
+		})
+		return len(got) > 0
+	})
+	if res, _ := get(t, addrs.HTTP, "shop.localhost", "/health"); res.StatusCode != http.StatusOK {
+		t.Errorf("%d", res.StatusCode)
+	}
+
+	res, page := b.get("/apps/shop/logs")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", res.StatusCode, page)
+	}
+	contains(t, "the logs page", page, "web.1", "data-logs-stream=", "follow=1", "Download", `value="stderr"`, `value="build"`, `value="access"`, `value="events"`)
+
+	// The form is a plain one: what it asks for is in the address.
+	_, page = b.get("/apps/shop/logs?source=build")
+	contains(t, "the builds", page, "s-build", "rollout", "source=build")
+	if strings.Contains(page, "s-stdout") {
+		t.Errorf("not asked for:\n%s", page)
+	}
+	waitUntil(t, "the access log", func() bool {
+		_, page = b.get("/apps/shop/logs?source=access")
+		return strings.Contains(page, "GET /health 200")
+	})
+	_, page = b.get("/apps/shop/logs?source=events")
+	contains(t, "the events", page, "s-events", "Deployed v1")
+	_, page = b.get("/apps/shop/logs?q=no+such+line")
+	contains(t, "a search with no result", page, "No lines match that.")
+	_, page = b.get("/apps/shop/logs?of=web.1&range=1h&problems=1")
+	contains(t, "the form as it was asked", page, `value="web.1" selected`, `value="1h" selected`, `name="problems" value="1" checked`, "problems=1", "since=")
+	res, page = b.get("/apps/shop/logs?range=custom&from=soon")
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(page, `role="alert"`) {
+		t.Errorf("a time that is none: %d\n%s", res.StatusCode, page)
+	}
+	res, page = b.get("/apps/shop/logs?range=custom&from=2026-11-03T10:00&to=2026-11-03T09:00&tz=480")
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(page, "before its start") {
+		t.Errorf("a range the wrong way round: %d\n%s", res.StatusCode, page)
+	}
+	_, page = b.get("/apps/shop/logs?range=custom&from=2020-01-01T10:00&to=2020-01-02T10:00")
+	if strings.Contains(page, "data-logs-stream") {
+		t.Errorf("a range that has ended has nothing to follow:\n%s", page)
+	}
+	if res, _ := b.get("/apps/none/logs"); res.StatusCode != http.StatusNotFound {
+		t.Errorf("%d", res.StatusCode)
+	}
+
+	// Download, with a session as a browser has one.
+	res, body := b.get("/api/v1/apps/shop/envs/production/logs?download=1&format=text&source=build")
+	if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Content-Disposition"), `attachment; filename="shop-`) ||
+		!strings.HasPrefix(res.Header.Get("Content-Type"), "text/plain") || !strings.Contains(body, " build build ") {
+		t.Errorf("%d %v\n%s", res.StatusCode, res.Header, body)
+	}
+	// The API refuses what is not a source or a time, and says so.
+	for _, path := range []string{"source=nothing", "since=soon"} {
+		res, body := b.get("/api/v1/apps/shop/envs/production/logs?" + path)
+		if res.StatusCode != http.StatusUnprocessableEntity {
+			t.Errorf("%s: %d %s", path, res.StatusCode, body)
+		}
+	}
+}
+
+// TestConsoleVariables changes an app's variables from its page.
+func TestConsoleVariables(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	b := signIn(t, cfg, addrs)
+	ctx := context.Background()
+
+	if _, err := deployApp(t, c, "shop", appPlan(map[string]string{"FROM_MANIFEST": "m"})); err != nil {
+		t.Fatal(err)
+	}
+	served := func(name string) string {
+		t.Helper()
+		_, body := get(t, addrs.HTTP, "shop.localhost", "/env?name="+name)
+		return body
+	}
+	token := b.token()
+	_, page := b.get("/apps/shop/variables")
+	contains(t, "the variables", page, "FROM_MANIFEST", "moorage.toml", "Add a variable", "Edit as text")
+
+	// Set: released, and running.
+	res, body := b.post("/apps/shop/variables/set", url.Values{"csrf": {token}, "name": {"PLAIN"}, "value": {"one"}})
+	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "done=released") {
+		t.Fatalf("%d %s %s", res.StatusCode, res.Header.Get("Location"), body)
+	}
+	if got := served("PLAIN"); got != "one" {
+		t.Errorf("the app has %q", got)
+	}
+	_, page = b.get(res.Header.Get("Location"))
+	contains(t, "the page after", page, "The change is released", "/deployments/dep_", "PLAIN", "one", "This environment")
+
+	// A secret: running, and never on a page.
+	secretValue := "a-long-secret-value-" + strconv.Itoa(os.Getpid())
+	res, _ = b.post("/apps/shop/variables/set", url.Values{"csrf": {token}, "name": {"HIDDEN"}, "value": {secretValue}, "secret": {"1"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d", res.StatusCode)
+	}
+	if got := served("HIDDEN"); got != secretValue {
+		t.Errorf("the app has %q", got)
+	}
+	_, page = b.get("/apps/shop/variables")
+	contains(t, "the variables", page, "HIDDEN", "Secret", "••••••••")
+	if strings.Contains(page, secretValue) {
+		t.Errorf("a secret on the page:\n%s", page)
+	}
+	res, body = b.post("/apps/shop/variables/set", url.Values{"csrf": {token}, "name": {"HIDDEN"}, "value": {""}, "secret": {"1"}, "was_secret": {"1"}})
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "a new value") {
+		t.Errorf("a secret left empty: %d", res.StatusCode)
+	}
+
+	// What cannot be is refused, and says why.
+	for name, want := range map[string]string{"PORT": "set by Moorage", "1NO": "not a valid variable name"} {
+		res, body := b.post("/apps/shop/variables/set", url.Values{"csrf": {token}, "name": {name}, "value": {"x"}})
+		if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, want) {
+			t.Errorf("%s: %d", name, res.StatusCode)
+		}
+	}
+
+	// Saved without releasing: the page says so, and offers to.
+	res, _ = b.post("/apps/shop/variables/set", url.Values{"csrf": {token}, "name": {"LATER"}, "value": {"soon"}, "hold": {"1"}})
+	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "done=saved") {
+		t.Fatalf("%d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	if got := served("LATER"); got != "" {
+		t.Errorf("released already: %q", got)
+	}
+	_, page = b.get("/apps/shop/variables")
+	contains(t, "the variables", page, "Not released yet", "<code>LATER</code> added", "Release them")
+	res, _ = b.post("/apps/shop/variables/release", url.Values{"csrf": {token}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d", res.StatusCode)
+	}
+	if got := served("LATER"); got != "soon" {
+		t.Errorf("not released: %q", got)
+	}
+	_, page = b.get("/apps/shop/variables")
+	if strings.Contains(page, "Not released yet") {
+		t.Errorf("still unreleased:\n%s", page)
+	}
+
+	// The text editor holds the environment's own, secrets masked.
+	_, page = b.get("/apps/shop/variables/edit")
+	contains(t, "the editor", page, "PLAIN=one", "HIDDEN=••••••••", "LATER=soon", "See what changes")
+	if strings.Contains(page, secretValue) || strings.Contains(page, "FROM_MANIFEST=") {
+		t.Errorf("the editor:\n%s", page)
+	}
+
+	// A mistake says where; nothing changes.
+	res, body = b.post("/apps/shop/variables/preview", url.Values{"csrf": {token}, "text": {"PLAIN=one\nno equals sign\n"}})
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "Line 2") {
+		t.Errorf("%d\n%s", res.StatusCode, body)
+	}
+	res, body = b.post("/apps/shop/variables/preview", url.Values{"csrf": {token}, "text": {"NEW=••••••••\n"}})
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "NEW has no value to keep") {
+		t.Errorf("%d\n%s", res.StatusCode, body)
+	}
+
+	// The preview says what would change, and changes nothing.
+	text := "PLAIN=two\nHIDDEN=••••••••\nADDED=" + secretValue + "x\n"
+	_, page = b.post("/apps/shop/variables/preview", url.Values{"csrf": {token}, "text": {text}, "secret_new": {"1"}})
+	contains(t, "the preview", page, "What this would change", "PLAIN", "changed", "one", "two", "ADDED", "added", "its new value is sealed", "LATER", "removed", "soon", "1 left as they are", "Apply and release")
+	if got := served("PLAIN"); got != "one" {
+		t.Errorf("a preview changed it: %q", got)
+	}
+	_, page = b.post("/apps/shop/variables/preview", url.Values{"csrf": {token}, "text": {"PLAIN=one\nHIDDEN=••••••••\nLATER=soon\n"}})
+	contains(t, "a preview of nothing", page, "Nothing would change")
+
+	// Applying it: one release of it all, the secret kept, the new one sealed.
+	res, body = b.post("/apps/shop/variables/apply", url.Values{"csrf": {token}, "text": {text}, "secret_new": {"1"}})
+	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "done=released") {
+		t.Fatalf("%d %s %s", res.StatusCode, res.Header.Get("Location"), body)
+	}
+	if served("PLAIN") != "two" || served("HIDDEN") != secretValue || served("ADDED") != secretValue+"x" || served("LATER") != "" {
+		t.Errorf("%q %q %q %q", served("PLAIN"), served("HIDDEN"), served("ADDED"), served("LATER"))
+	}
+	vars, err := c.Vars(ctx, "shop", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v.Name == "ADDED" && (!v.Secret || v.Value != "") {
+			t.Errorf("%+v", v)
+		}
+	}
+	// A secret's value typed again is a new one; left masked, it is kept.
+	same := "PLAIN=two\nHIDDEN=••••••••\nADDED=••••••••\n"
+	if res, _ := b.post("/apps/shop/variables/apply", url.Values{"csrf": {token}, "text": {same}}); !strings.Contains(res.Header.Get("Location"), "done=none") {
+		t.Errorf("nothing to do: %s", res.Header.Get("Location"))
+	}
+
+	// Removing one.
+	res, _ = b.post("/apps/shop/variables/unset", url.Values{"csrf": {token}, "name": {"PLAIN"}})
+	if res.StatusCode != http.StatusSeeOther || served("PLAIN") != "" {
+		t.Errorf("%d %q", res.StatusCode, served("PLAIN"))
+	}
+
+	// A manifest's variable that the server overrides says so.
+	b.post("/apps/shop/variables/set", url.Values{"csrf": {token}, "name": {"FROM_MANIFEST"}, "value": {"server"}})
+	_, page = b.get("/apps/shop/variables")
+	contains(t, "the variables", page, "Overridden")
+	if got := served("FROM_MANIFEST"); got != "server" {
+		t.Errorf("%q", got)
+	}
+
+	// A form of many long variables fits.
+	long := strings.Repeat("x", 60<<10)
+	res, body = b.post("/apps/shop/variables/set", url.Values{"csrf": {token}, "name": {"LONG"}, "value": {long}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d %s", res.StatusCode, body[:min(len(body), 400)])
+	}
+}
+
+// TestConsoleAccount manages one's own account from its pages.
+func TestConsoleAccount(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	b := signIn(t, cfg, addrs)
+	token := b.token()
+
+	_, page := b.get("/account")
+	contains(t, "the account", page, "owner@example.com", "Administrator", "Change your password")
+	_, page = b.get("/")
+	contains(t, "every page", page, `href="/account"`, `href="/settings"`)
+
+	// A second session, to see it end.
+	other := &consoleUser{t: t, addr: addrs.HTTP, host: cfg.ConsoleHost}
+	if res, body := other.post("/login", url.Values{"email": {"owner@example.com"}, "password": {"a long and unusual passphrase"}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	_, page = b.get("/account/sessions")
+	contains(t, "the sessions", page, "This one", "End the others")
+	if n := strings.Count(page, `name="session"`); n != 2 {
+		t.Errorf("%d sessions", n)
+	}
+
+	// The password: the current one, then twice the same, then strong enough.
+	for _, tc := range []struct {
+		form url.Values
+		want string
+	}{
+		{url.Values{"current": {"wrong"}, "new": {"another long passphrase"}, "confirm": {"another long passphrase"}}, "not your current password"},
+		{url.Values{"current": {"a long and unusual passphrase"}, "new": {"another long passphrase"}, "confirm": {"different"}}, "differ"},
+		{url.Values{"current": {"a long and unusual passphrase"}, "new": {"short"}, "confirm": {"short"}}, "at least"},
+	} {
+		tc.form.Set("csrf", token)
+		res, body := b.post("/account/password", tc.form)
+		if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, tc.want) {
+			t.Errorf("%v: %d\n%s", tc.form, res.StatusCode, body)
+		}
+	}
+	res, body := b.post("/account/password", url.Values{"csrf": {token}, "current": {"a long and unusual passphrase"}, "new": {"another long passphrase"}, "confirm": {"another long passphrase"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	_, page = b.get("/account?done=password")
+	contains(t, "the account", page, "Your password is changed")
+	if res, _ := other.get("/account"); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("the other session goes on: %d", res.StatusCode)
+	}
+	if res, _ := other.post("/login", url.Values{"email": {"owner@example.com"}, "password": {"a long and unusual passphrase"}}); res.StatusCode == http.StatusSeeOther {
+		t.Errorf("the old password still works")
+	}
+	if res, _ := other.post("/login", url.Values{"email": {"owner@example.com"}, "password": {"another long passphrase"}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("the new password does not work: %d", res.StatusCode)
+	}
+
+	// Ending the others, then this one.
+	if res, _ := b.post("/account/sessions/end-others", url.Values{"csrf": {token}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	if res, _ := other.get("/account"); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("the other session goes on: %d", res.StatusCode)
+	}
+
+	// SSH keys.
+	_, page = b.get("/account/keys")
+	contains(t, "no keys", page, "No SSH keys yet", "moor keys add")
+	key := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJh1Ckl6QZyXNzTc0aJ9Y0xXDq7Fv0m9o4vM1qkY1b2P laptop"
+	res, body = b.post("/account/keys/add", url.Values{"csrf": {token}, "key": {"not a key"}})
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "not a public key") || !strings.Contains(body, "not a key") {
+		t.Errorf("%d\n%s", res.StatusCode, body)
+	}
+	if res, body = b.post("/account/keys/add", url.Values{"csrf": {token}, "key": {key}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	_, page = b.get("/account/keys")
+	contains(t, "the keys", page, "laptop", "SHA256:", "Never")
+	if res, _ = b.post("/account/keys/add", url.Values{"csrf": {token}, "key": {key}}); res.StatusCode != http.StatusConflict {
+		t.Errorf("the same key: %d", res.StatusCode)
+	}
+	if res, _ = b.post("/account/keys/remove", url.Values{"csrf": {token}, "key": {"laptop"}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	_, page = b.get("/account/keys")
+	contains(t, "the keys", page, "No SSH keys yet")
+
+	// Tokens: shown once, and they work.
+	res, body = b.post("/account/tokens/create", url.Values{"csrf": {token}, "name": {"ci"}, "scope": {"deploy"}, "expires": {"30d"}})
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	secret := regexp.MustCompile(`moor_[A-Za-z0-9_-]+`).FindString(body)
+	if secret == "" || !strings.Contains(body, "only time") {
+		t.Fatalf("no token in:\n%s", body)
+	}
+	tokenClient, err := client.New("http://"+addrs.HTTP.String(), secret, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if me, err := tokenClient.Me(context.Background()); err != nil || me.Email != "owner@example.com" {
+		t.Errorf("%+v %v", me, err)
+	}
+	_, page = b.get("/account/tokens")
+	contains(t, "the tokens", page, "ci", "deploy", "Every app")
+	if strings.Contains(page, secret) {
+		t.Errorf("the secret again:\n%s", page)
+	}
+	if res, body = b.post("/account/tokens/create", url.Values{"csrf": {token}, "name": {"ci"}, "scope": {"read"}}); res.StatusCode != http.StatusConflict {
+		t.Errorf("the same name: %d", res.StatusCode)
+	}
+	if res, body = b.post("/account/tokens/create", url.Values{"csrf": {token}, "name": {"none"}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("no scope: %d", res.StatusCode)
+	}
+	id := regexp.MustCompile(`name="token" value="([^"]+)"`).FindStringSubmatch(page)
+	if id == nil {
+		t.Fatalf("no form:\n%s", page)
+	}
+	if res, _ = b.post("/account/tokens/revoke", url.Values{"csrf": {token}, "token": {id[1]}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	if _, err := tokenClient.Me(context.Background()); err == nil {
+		t.Errorf("a revoked token still works")
+	}
+
+	// Ending this session signs out.
+	_, page = b.get("/account/sessions")
+	session := regexp.MustCompile(`name="session" value="([^"]+)"`).FindStringSubmatch(page)
+	if session == nil {
+		t.Fatalf("no form:\n%s", page)
+	}
+	res, _ = b.post("/account/sessions/end", url.Values{"csrf": {token}, "session": {session[1]}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	b.cookies = res.Cookies()
+	if res, _ := b.get("/account"); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("still signed in: %d", res.StatusCode)
+	}
+}
+
+// TestConsoleSettings is the administrator's pages, and who may see them.
+func TestConsoleSettings(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	b := signIn(t, cfg, addrs)
+	token := b.token()
+
+	_, page := b.get("/settings")
+	contains(t, "the settings", page, "moorage.localhost", "Routing", "Off: plain HTTP", "moor server restart")
+	_, page = b.get("/settings/system")
+	contains(t, "the system", page, "checks passed", "listen.http", "Version", "Healthy instances", "moor server doctor")
+
+	// Users.
+	_, page = b.get("/settings/users")
+	contains(t, "the users", page, "owner@example.com", "You", "Add someone")
+	res, body := b.post("/settings/users/create", url.Values{"csrf": {token}, "email": {"not an address"}, "role": {"member"}})
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("%d %s", res.StatusCode, body)
+	}
+	res, body = b.post("/settings/users/create", url.Values{"csrf": {token}, "email": {"member@example.com"}, "role": {"member"}})
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	contains(t, "the new user", body, "A link for member@example.com", "/invite?code=", "Invited")
+	link := regexp.MustCompile(`/invite\?code=[^<"\s]+`).FindString(body)
+	if res, _ = b.post("/settings/users/create", url.Values{"csrf": {token}, "email": {"member@example.com"}, "role": {"member"}}); res.StatusCode != http.StatusConflict {
+		t.Errorf("the same address: %d", res.StatusCode)
+	}
+
+	// They choose a password with the link, and are no admin.
+	member := &consoleUser{t: t, addr: addrs.HTTP, host: cfg.ConsoleHost}
+	if res, _ := member.get(strings.ReplaceAll(link, "&amp;", "&")); res.StatusCode != http.StatusOK {
+		t.Fatalf("the link: %d", res.StatusCode)
+	}
+	code := strings.TrimPrefix(link, "/invite?code=")
+	if res, body := member.post("/invite", url.Values{"code": {code}, "password": {"a passphrase of their own"}, "confirm": {"a passphrase of their own"}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	_, page = member.get("/")
+	if strings.Contains(page, `href="/settings"`) {
+		t.Errorf("a member is offered the settings:\n%s", page)
+	}
+	memberToken := member.token()
+	for _, path := range []string{"/settings", "/settings/users", "/settings/registries", "/settings/system"} {
+		if res, _ := member.get(path); res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s for a member: %d", path, res.StatusCode)
+		}
+	}
+	for _, path := range []string{"/settings/users/create", "/settings/users/change", "/settings/users/invite", "/settings/registries/set", "/settings/registries/remove"} {
+		if res, _ := member.post(path, url.Values{"csrf": {memberToken}, "email": {"x@example.com"}, "role": {"admin"}}); res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s for a member: %d", path, res.StatusCode)
+		}
+	}
+
+	// Their role, and whether they may sign in.
+	_, page = b.get("/settings/users")
+	ids := regexp.MustCompile(`name="user" value="([^"]+)"`).FindAllStringSubmatch(page, -1)
+	if len(ids) == 0 {
+		t.Fatalf("no users:\n%s", page)
+	}
+	var memberID, ownerID string
+	for _, m := range ids {
+		row := page[strings.Index(page, m[1])-400 : strings.Index(page, m[1])]
+		if strings.Contains(row, "member@example.com") {
+			memberID = m[1]
+		} else if strings.Contains(row, "owner@example.com") {
+			ownerID = m[1]
+		}
+	}
+	if memberID == "" || ownerID == "" {
+		t.Fatalf("%q %q\n%s", memberID, ownerID, page)
+	}
+	res, body = b.post("/settings/users/change", url.Values{"csrf": {token}, "user": {ownerID}, "change": {"role"}, "role": {"member"}})
+	if res.StatusCode != http.StatusConflict || !strings.Contains(body, "no administrator") {
+		t.Errorf("the last admin: %d\n%s", res.StatusCode, body)
+	}
+	res, _ = b.post("/settings/users/change", url.Values{"csrf": {token}, "user": {memberID}, "change": {"role"}, "role": {"admin"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	if res, _ := member.get("/settings"); res.StatusCode != http.StatusOK {
+		t.Errorf("an admin now: %d", res.StatusCode)
+	}
+	res, _ = b.post("/settings/users/change", url.Values{"csrf": {token}, "user": {memberID}, "change": {"disable"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	if res, _ := member.get("/settings"); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("a disabled account goes on: %d", res.StatusCode)
+	}
+	_, page = b.get("/settings/users")
+	contains(t, "the users", page, "Disabled", "Enable")
+	res, _ = b.post("/settings/users/change", url.Values{"csrf": {token}, "user": {memberID}, "change": {"enable"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	res, body = b.post("/settings/users/invite", url.Values{"csrf": {token}, "user": {memberID}})
+	if res.StatusCode != http.StatusCreated || !strings.Contains(body, "/invite?code=") {
+		t.Errorf("%d %s", res.StatusCode, body)
+	}
+	if res, _ := b.post("/settings/users/invite", url.Values{"csrf": {token}, "user": {"usr_none"}}); res.StatusCode != http.StatusNotFound {
+		t.Errorf("no such user: %d", res.StatusCode)
+	}
+
+	// Registries.
+	_, page = b.get("/settings/registries")
+	contains(t, "no registries", page, "No registries yet")
+	res, body = b.post("/settings/registries/set", url.Values{"csrf": {token}, "host": {"Not A Host"}, "username": {"u"}, "password": {"p"}})
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "ghcr.io") {
+		t.Errorf("%d %s", res.StatusCode, body)
+	}
+	res, body = b.post("/settings/registries/set", url.Values{"csrf": {token}, "host": {"ghcr.io"}, "username": {"u"}})
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("no password: %d", res.StatusCode)
+	}
+	res, body = b.post("/settings/registries/set", url.Values{"csrf": {token}, "host": {"GHCR.io"}, "username": {"someone"}, "password": {"a-registry-secret"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	_, page = b.get("/settings/registries")
+	contains(t, "the registries", page, "ghcr.io", "someone")
+	if strings.Contains(page, "a-registry-secret") {
+		t.Errorf("the password on the page:\n%s", page)
+	}
+	if res, _ := b.post("/settings/registries/remove", url.Values{"csrf": {token}, "host": {"ghcr.io"}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	_, page = b.get("/settings/registries")
+	contains(t, "no registries", page, "No registries yet")
+
+	// The same checks through the API.
+	res, body = b.get("/api/v1/server/doctor")
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, `"listen.http"`) {
+		t.Errorf("%d %s", res.StatusCode, body)
+	}
+}

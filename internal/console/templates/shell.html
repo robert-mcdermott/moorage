@@ -26,6 +26,9 @@
       <a href="/welcome"{{if eq .Page "welcome"}} aria-current="page"{{end}}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18V3m0 1h10l-2.5 3.5L15 11H5"/></svg>
         Getting started</a>
+      {{if .Admin}}<a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h9m4 0h1M3 14h1m4 0h9"/><circle cx="14" cy="6" r="2"/><circle cx="6" cy="14" r="2"/></svg>
+        Settings</a>{{end}}
     </nav>
     <div class="sidebar-foot">
       <div class="theme-choice" role="group" aria-label="Theme" hidden>
@@ -33,7 +36,7 @@
         <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
         <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
       </div>
-      <p class="who">Signed in as <strong>{{.User}}</strong></p>
+      <p class="who">Signed in as <a href="/account"{{if eq .Page "account"}} aria-current="page"{{end}}><strong>{{.User}}</strong></a></p>
       <form method="post" action="/logout" id="signout">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
         <button class="quiet" type="submit">Sign out</button>
@@ -58,6 +61,13 @@
   <input type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" aria-label="Search and jump" placeholder="Search for an app, a page or an action…" autocomplete="off" spellcheck="false">
   <ul id="palette-list" role="listbox" aria-label="Results"></ul>
   <p class="palette-none" hidden>Nothing matches that.</p>
+</dialog>
+<dialog id="confirm" class="confirm" aria-labelledby="confirm-text">
+  <p id="confirm-text"></p>
+  <div class="actions">
+    <button type="button" data-confirm-yes>Yes, go ahead</button>
+    <button class="quiet" type="button" data-confirm-no>Not now</button>
+  </div>
 </dialog>
 <script type="application/json" id="palette-data">{{.Palette}}</script>
 </body>

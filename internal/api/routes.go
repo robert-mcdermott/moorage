@@ -93,6 +93,9 @@ func (s *Server) routes() []route {
 
 		// The caller.
 		{method: "GET", path: "/me", perm: signedIn, handler: s.me, summary: "Who the caller is", response: apitypes.Me{}},
+		{method: "POST", path: "/me/password", perm: canManage, handler: s.changePassword, status: http.StatusNoContent,
+			summary: "Change your password, which ends your other sessions", request: apitypes.PasswordChange{}},
+		{method: "DELETE", path: "/me/sessions", perm: canManage, handler: s.endOtherSessions, status: http.StatusNoContent, summary: "End your sessions but the one in use"},
 		{method: "GET", path: "/me/sessions", perm: canManage, handler: s.sessions, summary: "List your sessions", response: []apitypes.Session{}},
 		{method: "DELETE", path: "/me/sessions/{session}", perm: canManage, handler: s.endSession, status: http.StatusNoContent, summary: "End one of your sessions"},
 		{method: "GET", path: "/me/tokens", perm: canManage, handler: s.tokens, summary: "List your API tokens", response: []apitypes.Token{}},
@@ -132,6 +135,7 @@ func (s *Server) routes() []route {
 			}},
 
 		// The server and its apps.
+		{method: "GET", path: "/server/doctor", perm: serverAdmin, handler: s.serverDoctor, summary: "Check the server and what it depends on, as moor server doctor does", response: []apitypes.Check{}},
 		{method: "GET", path: "/server", perm: signedIn, handler: s.serverInfo, summary: "The server's version and the prefixes of the apps' git remotes", response: apitypes.ServerInfo{}},
 		{method: "GET", path: "/apps", perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},
 		{method: "POST", path: "/apps/{app}/envs/{env}/deployments", perm: canDeploy, handler: s.deploy, status: http.StatusCreated, multipart: true,
@@ -160,9 +164,18 @@ func (s *Server) routes() []route {
 			request: apitypes.VarsChange{}, response: apitypes.VarsResult{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/logs", perm: canRead, handler: s.logs, summary: "Stream an environment's logs", stream: apitypes.LogLine{},
 			query: map[string]string{
-				"follow":  "true keeps the stream open.",
-				"tail":    "How many of the latest lines to start with.",
-				"process": "Only this process's lines.",
+				"follow":   "true keeps the stream open.",
+				"tail":     "How many of the latest lines to start with.",
+				"process":  "Only this process's lines.",
+				"instance": "Only this instance's lines: its number or its ID.",
+				"source":   "Which sources, separated by commas: stdout, stderr, moorage, build, access and events. The first three unless asked.",
+				"grep":     "Only the lines with this text, whatever its case.",
+				"problems": "true keeps the lines that report a problem: errors, warnings, standard error, and requests that failed.",
+				"since":    "Only lines since then: how long ago (15m, 2h, 7d) or a moment.",
+				"until":    "Only lines until then.",
+				"after":    "Only lines after this moment, for a follower that reconnects.",
+				"format":   "text sends plain text in place of NDJSON.",
+				"download": "1 sends it as a file to keep, of up to 200,000 lines.",
 			}},
 	}
 }

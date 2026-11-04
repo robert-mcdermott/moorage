@@ -54,6 +54,15 @@ the queued deployment, as a deploy does. `GET …/releases/{version}` has a rele
 resolved manifest, and `GET …/releases/{version}/diff/{other}` what changed between two:
 of variables, their names only.
 
+## Logs
+
+`GET /api/v1/apps/{app}/envs/{env}/logs` streams an environment's logs as NDJSON, newest last:
+`tail` lines, then with `follow=1` new ones as they come. `source` chooses from `stdout`,
+`stderr`, `moorage`, `build`, `access` and `events`; `process`, `instance`, `grep`,
+`problems`, `since` and `until` narrow them down. Each line has its `source`, and a `level`
+and `message` if it says. `format=text` sends plain text, and `download=1` a file of up to
+200,000 lines. A follower that reconnects says where it got to with `after`.
+
 ## What happened
 
 `GET /api/v1/events` lists what happened on the server, newest first, in pages, for an

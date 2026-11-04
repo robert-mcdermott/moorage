@@ -247,7 +247,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Dir: opts.ConsoleDir})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

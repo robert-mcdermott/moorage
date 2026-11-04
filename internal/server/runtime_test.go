@@ -124,7 +124,7 @@ func TestArtifactDeploy(t *testing.T) {
 
 	// Logs, through the API, and the access log.
 	var lines []apitypes.LogLine
-	err = c.Logs(context.Background(), "shop", "production", "", 50, false, func(l apitypes.LogLine) error {
+	err = c.Logs(context.Background(), "shop", "production", client.LogQuery{Tail: 50}, func(l apitypes.LogLine) error {
 		lines = append(lines, l)
 		return nil
 	})

@@ -1,16 +1,79 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 )
+
+func newPasswordCmd() *cobra.Command {
+	var conn connection
+	cmd := &cobra.Command{
+		Use:   "password",
+		Short: "Change your password",
+		Long: `Change your password. It asks for the current one and a new one, without
+showing them, or reads both from standard input, one on each line. Your
+other sessions end; API tokens and SSH keys go on working.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			current, next, err := readPasswords(cmd)
+			if err != nil {
+				return err
+			}
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			if err := c.ChangePassword(cmd.Context(), current, next); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Your password is changed, and your other sessions have ended.")
+			return nil
+		},
+	}
+	conn.addFlags(cmd)
+	return cmd
+}
+
+// readPasswords asks for the current password and a new one, twice on a terminal.
+func readPasswords(cmd *cobra.Command) (current, next string, err error) {
+	file, ok := cmd.InOrStdin().(*os.File)
+	if !ok || !term.IsTerminal(int(file.Fd())) {
+		data, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 1<<16))
+		if err != nil {
+			return "", "", err
+		}
+		lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+		if len(lines) < 2 || lines[0] == "" || lines[1] == "" {
+			return "", "", usageError{errors.New("give the current password and the new one, on a line each")}
+		}
+		return lines[0], lines[1], nil
+	}
+	if current, err = readHidden(cmd, "Current password", "the current password"); err != nil {
+		return "", "", err
+	}
+	if next, err = readHidden(cmd, "New password", "the new password"); err != nil {
+		return "", "", err
+	}
+	again, err := readHidden(cmd, "New password again", "the new password")
+	if err != nil {
+		return "", "", err
+	}
+	if next != again {
+		return "", "", errors.New("the two new passwords differ")
+	}
+	return current, next, nil
+}
 
 func newTokensCmd() *cobra.Command {
 	var (

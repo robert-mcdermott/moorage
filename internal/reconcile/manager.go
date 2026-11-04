@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -321,8 +322,11 @@ func (m *Manager) Adopt(ctx context.Context) error {
 // starts missing instances and replaces those whose shim died.
 func (m *Manager) Run(ctx context.Context) {
 	m.ensure(ctx)
+	m.cleanLogs()
 	t := time.NewTicker(m.opts.Tick)
 	defer t.Stop()
+	clean := time.NewTicker(time.Hour)
+	defer clean.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -331,6 +335,49 @@ func (m *Manager) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			m.ensure(ctx)
+		case <-clean.C:
+			m.cleanLogs()
+		}
+	}
+}
+
+// LogRetention is how long the logs of an instance that has stopped are kept.
+const LogRetention = 14 * 24 * time.Hour
+
+// cleanLogs removes the logs of instances that stopped long ago.
+func (m *Manager) cleanLogs() {
+	running := map[string]bool{}
+	for _, es := range m.allEnvs() {
+		for _, in := range es.list() {
+			running[in.id] = true
+		}
+	}
+	removeOldLogs(m.opts.DataDir, running, LogRetention, m.log)
+}
+
+// removeOldLogs removes the log files of instances that are not running and have not been
+// written to for a while: every release leaves a file per instance, and they would
+// otherwise add up for ever.
+func removeOldLogs(dataDir string, running map[string]bool, age time.Duration, log *slog.Logger) {
+	dirs, _ := filepath.Glob(filepath.Join(dataDir, "logs", "apps", "*", "*"))
+	for _, dir := range dirs {
+		files, _ := filepath.Glob(filepath.Join(dir, "*.log*"))
+		for _, file := range files {
+			name := filepath.Base(file)
+			if i := strings.Index(name, ".log"); i >= 0 {
+				name = name[:i]
+			}
+			parts := strings.SplitN(name, ".", 3)
+			if len(parts) != 3 || running[parts[2]] {
+				continue
+			}
+			info, err := os.Stat(file)
+			if err != nil || time.Since(info.ModTime()) < age {
+				continue
+			}
+			if err := os.Remove(file); err != nil {
+				log.Warn("remove an old log", "file", file, "err", err)
+			}
 		}
 	}
 }

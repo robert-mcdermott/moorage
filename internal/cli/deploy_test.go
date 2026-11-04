@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -447,27 +446,5 @@ TESTAPP_BODY = "from the manifest"
 	}
 	if code, _, errOut = run(t, "env", "set", "NOVALUE", "--app", "cfg"); code != 2 {
 		t.Errorf("env set NOVALUE: %d %s", code, errOut)
-	}
-}
-
-func TestParseDotenv(t *testing.T) {
-	vars, err := parseDotenv(strings.NewReader("B=2\nA = 1 # one\nexport C='x y'\nD=\"q\\\"t\"\nB=3\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := [][2]string{{"A", "1"}, {"B", "3"}, {"C", "x y"}, {"D", `q"t`}}
-	if fmt.Sprint(vars) != fmt.Sprint(want) {
-		t.Errorf("parsed %v, want %v", vars, want)
-	}
-	for _, bad := range []string{"NOEQUALS\n", "A=\"open\n", "=1\n", "A='x' y\n"} {
-		if _, err := parseDotenv(strings.NewReader(bad)); err == nil {
-			t.Errorf("parsed %q", bad)
-		}
-	}
-	for _, v := range []string{"plain", "with space", `quo"te`, "$dollar", "multi\nline", ""} {
-		got, err := parseDotenv(strings.NewReader("X=" + dotenvQuote(v) + "\n"))
-		if err != nil || len(got) != 1 || got[0][1] != v {
-			t.Errorf("round trip of %q: %v %v", v, got, err)
-		}
 	}
 }
