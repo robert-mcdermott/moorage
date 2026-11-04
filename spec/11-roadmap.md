@@ -374,7 +374,7 @@ directory, supervises it, and serves it on its own hostname.
        server): around the 5 MB target, with 6.2 MB on macOS. One shim per
        environment remains the fallback if the cost matters.
 
-## 0.2.0: push to deploy (planned)
+## 0.2.0: push to deploy (released 2026-11-03)
 
 ### Wave 2
 
@@ -649,7 +649,25 @@ directory, supervises it, and serves it on its own hostname.
      - Checks on Firefox on macOS and Windows would need a person: `moor trust` says
        it may keep its own list, and `--print` writes the certificate to import. Real
        browsers are not part of CI: the Go client uses the same system verifier.
-6. **Release 0.2.0.**
+6. **Release 0.2.0.** The version, its CHANGELOG section and this roadmap; pull
+   request `wave2` → `main`; tag `v0.2.0`; release.
+   - Done in slice 6:
+     - Version 0.2.0 and its CHANGELOG section, led by what it means to someone
+       upgrading; the README and the documentation describe it.
+     - `.github/scripts/upgrade-check.sh` and a CI job: a server of the last
+       published release, with apps and variables, taken over by this code.
+     - A test that every `moor` command the documentation shows exists, with the
+       flags it shows.
+   - Found by slice 6:
+     - That new test found `moor deploy --image` did not exist: slice 4 wrote all of
+       it but the flag, its tests went through the client, and trying it by hand
+       looked only at the last line of the error. It works now, with a test through
+       the command itself.
+     - `moor manifest validate`, and the manifest's reference, still said that
+       `app.watch` and `app.root` arrive in 0.2.0. Git push did not need them, and
+       they come later: `watch` with wave 5.
+     - The reference for `moorage.toml` did not mention the `dockerfile` and `image`
+       runtimes, or list them under detection.
 
 ## 0.3.0: the console (planned)
 

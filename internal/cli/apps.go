@@ -249,6 +249,7 @@ previous release keeps serving.`,
 	}
 	conn.addFlags(cmd)
 	f := cmd.Flags()
+	f.StringVar(&image, "image", "", "run this image in a container, pinned to its digest, instead of building DIR")
 	f.BoolVar(&static, "static", false, "upload a directory of files and serve them as they are")
 	f.BoolVar(&artifact, "artifact", false, "upload an app that is ready to run and run its [processes]")
 	f.BoolVar(&detach, "detach", false, "return once the deployment is queued, without following it")

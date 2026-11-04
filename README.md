@@ -34,6 +34,9 @@ binary with its state in SQLite, and everything else is built in.
 - **Releases without downtime.** A new release takes traffic only once it
   answers its health checks, and the old one finishes its requests first.
   `moor rollback` brings the previous release back in a second.
+- **Runs containers when you want them.** An app with a `Containerfile`, or an
+  image from a registry, runs under Podman or Docker, released and rolled back
+  like any other. Nothing else needs an engine.
 - **Keeps apps running.** Each instance runs under a small supervisor that
   restarts it when it fails and keeps it running while the server itself
   restarts or is upgraded.
@@ -160,7 +163,8 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 - [Documentation](docs/README.md): installing Moorage, deploying each kind
   of app, variables and secrets, accounts, the [`moorage.toml`
-  reference](docs/manifest.md) and [the API](docs/api.md).
+  reference](docs/manifest.md), [containers](docs/containers.md), [the
+  API](docs/api.md) and [what to do when something is wrong](docs/troubleshooting.md).
 - [Design](spec/README.md): how Moorage works inside, the
   [roadmap](spec/11-roadmap.md) and the [decisions](spec/12-decisions.md)
   behind it.
@@ -168,14 +172,14 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.1.0 is the first release: a server on Linux or macOS that builds
-and deploys apps from their source. On Windows, `moor` works as a command
-line and `moor server run` works; the Windows service comes later.
+Moorage 0.2.0 is a server on Linux or macOS for a team: it builds and deploys
+apps from their source or a `git push`, in containers or not, with accounts and
+API tokens. On Windows, `moor` works as a command line and `moor server run` works;
+the Windows service comes later. There is no web console yet: everything is done
+with `moor`.
 
 Next, in the [roadmap](spec/11-roadmap.md):
 
-- **0.2.0, push to deploy:** deploys by `git push` over SSH and HTTPS,
-  accounts and API tokens, and containers (Podman and Docker).
 - **0.3.0, the console:** a web console for apps, deployments, logs and
   variables.
 - **0.4.0, previews and sharing:** an environment and a URL for every pushed

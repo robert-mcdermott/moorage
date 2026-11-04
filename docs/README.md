@@ -1,7 +1,7 @@
 # Moorage documentation
 
 How to install Moorage, run it, and deploy apps to it. This documentation
-describes Moorage 0.1.0; the [design documents](../spec/README.md) describe
+describes Moorage 0.2.0; the [design documents](../spec/README.md) describe
 how it works inside and where it is going.
 
 ## Start here
@@ -41,6 +41,7 @@ how it works inside and where it is going.
 | `moor deploy --image REF` | Runs an image, pinned to its digest |
 | `moor git remote` | Adds the app's git remote: `git push moorage main` deploys |
 | `moor keys add` | Registers your SSH key, so that you can push over SSH |
+| `moor registry login HOST` | Keeps a private container registry's credentials on the server |
 | `moor trust` | Trusts the server's CA on this machine |
 | `moor server doctor` | Checks the server and what it depends on, and says how to fix what it finds |
 | `moor apps` | Lists the apps |

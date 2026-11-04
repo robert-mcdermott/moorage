@@ -45,10 +45,10 @@ func Lint(m *Manifest) []string {
 		notYet("[bun] and [deno]", "a later release")
 	}
 	if len(m.App.Watch) > 0 {
-		notYet("app.watch", "deploys on git push arrive in 0.2.0")
+		notYet("app.watch", "a later release")
 	}
 	if m.App.Root != "" && m.App.Root != "." {
-		notYet("app.root", "deploys on git push arrive in 0.2.0; deploy the app's directory instead")
+		notYet("app.root", "a later release; deploy the app's directory instead")
 	}
 	if m.App.Shell == "system" {
 		notYet(`app.shell = "system"`, "commands run in the embedded shell")

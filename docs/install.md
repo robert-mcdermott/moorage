@@ -1,7 +1,7 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. Version 0.1.0 runs on Linux and macOS (amd64 and arm64); on Windows,
+to it. Version 0.2.0 runs on Linux and macOS (amd64 and arm64); on Windows,
 `moor` runs as a command line and `moor server run` works, but installing the
 server as a service arrives in a later release.
 
@@ -12,11 +12,11 @@ Download the binary for your system from the
 it against `SHA256SUMS`, and put it on your `PATH`:
 
 ```bash
-curl -fLO https://github.com/robert-mcdermott/moorage/releases/download/v0.1.0/moor-linux-amd64
+curl -fLO https://github.com/robert-mcdermott/moorage/releases/latest/download/moor-linux-amd64
 ```
 
 ```bash
-curl -fLO https://github.com/robert-mcdermott/moorage/releases/download/v0.1.0/SHA256SUMS
+curl -fLO https://github.com/robert-mcdermott/moorage/releases/latest/download/SHA256SUMS
 ```
 
 ```bash
@@ -174,3 +174,23 @@ encrypts the apps' secrets, and a copy of the database is of no use for
 them without it. Take a copy of the database while the server runs with
 `sqlite3 moorage.db ".backup backup.db"`, or stop the server first (the
 apps keep running).
+
+## Upgrading
+
+Replace `moor` and restart the server:
+
+```bash
+sudo install -m 0755 moor-linux-amd64 /usr/local/bin/moor
+```
+
+```bash
+sudo moor server restart
+```
+
+Running apps keep running, and the new server takes them over. It migrates the
+database as it starts, after keeping a snapshot in `backups` in the data directory.
+Upgrade `moor` on the other machines that use the server too: a newer server may
+change what the API answers. `moor server doctor` then checks the result.
+
+From 0.1.0, the server has no accounts yet: `moor server status` shows the link to
+create the first, and until then the admin token works from anywhere, as it did.

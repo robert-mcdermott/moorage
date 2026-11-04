@@ -1,17 +1,102 @@
 package cli
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/service"
 )
+
+// TestDeployImage goes through the command, to what the server receives: the
+// image's name, and of the directory's files, the manifest alone.
+func TestDeployImage(t *testing.T) {
+	var image string
+	var files []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/apps/shop/envs/production/deployments") {
+			http.NotFound(w, r)
+			return
+		}
+		mr, err := r.MultipartReader()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for {
+			part, err := mr.NextPart()
+			if err != nil {
+				break
+			}
+			switch part.FormName() {
+			case apitypes.ImagePart:
+				data, _ := io.ReadAll(part)
+				image = string(data)
+			case apitypes.SourcePart:
+				if image == "" {
+					t.Error("the source came before the image: the server would build it")
+				}
+				gz, err := gzip.NewReader(part)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				tr := tar.NewReader(gz)
+				for {
+					h, err := tr.Next()
+					if err != nil {
+						break
+					}
+					files = append(files, h.Name)
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(apitypes.Deployment{ID: "dep_1", App: "shop", Status: "queued"})
+	}))
+	defer srv.Close()
+	t.Setenv("MOOR_CONFIG", filepath.Join(t.TempDir(), "client.toml"))
+
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "moorage.toml"), []byte("[app]\nname = \"shop\"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "not-sent.txt"), []byte("no"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("no"), 0o644)
+
+	code, out, errOut := run(t, "deploy", dir, "--image", "ghcr.io/acme/api:1.4", "--detach", "--server", srv.URL, "--token", "x")
+	if code != 0 {
+		t.Fatalf("%d %s %s", code, out, errOut)
+	}
+	if image != "ghcr.io/acme/api:1.4" || len(files) != 1 || files[0] != "moorage.toml" {
+		t.Errorf("image %q, files %v", image, files)
+	}
+	if !strings.Contains(out, "ghcr.io/acme/api:1.4") || !strings.Contains(out, "moor deployments follow dep_1") {
+		t.Errorf("%s", out)
+	}
+
+	for _, args := range [][]string{
+		{"--image", "-bad", "--app", "shop"},
+		{"--image", "has space", "--app", "shop"},
+		{"--image", "a:1", "--static", "--app", "shop"},
+		{"--image", "a:1", "--artifact", "--app", "shop"},
+	} {
+		if code, _, _ := run(t, append([]string{"deploy", dir, "--server", srv.URL, "--token", "x"}, args...)...); code == 0 {
+			t.Errorf("%v was accepted", args)
+		}
+	}
+}
 
 func localConfig(t *testing.T, args ...string) string {
 	t.Helper()

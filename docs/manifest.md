@@ -3,7 +3,7 @@
 `moorage.toml`, at the top of an app's directory, says how Moorage builds
 and runs the app. It is optional: without it, Moorage detects the kind of
 app (see [Detection](#detection)), and `moor manifest explain` shows what it
-detected. This page describes the manifest as Moorage 0.1.0 implements it;
+detected. This page describes the manifest as Moorage 0.2.0 implements it;
 the [design](../spec/03-manifest.md) describes what later releases add.
 
 ```bash
@@ -62,7 +62,7 @@ LOG_LEVEL = "info"
 | Key | Default | Description |
 |---|---|---|
 | `name` | — | The app's name, used when `moor deploy` is not given `--app`: 3 to 40 lowercase letters, digits and hyphens, starting with a letter. It is also the first part of the app's hostname. |
-| `runtime` | `"auto"` | `auto` (detect), `go`, `python`, `node`, `static`, `command` (your own build) or `binary` (run the files as they are). |
+| `runtime` | `"auto"` | `auto` (detect), `go`, `python`, `node`, `static`, `command` (your own build), `binary` (run the files as they are), or [`dockerfile` or `image`](containers.md) (run in a container). |
 | `toolchains` | `[]` | More toolchains on the `PATH` while building and running, as `name@version`: `go`, `node`, `python` and `uv` are installed by Moorage, and `name@system` uses the server's own (`"java@system"`). Versions may be partial (`"24"`, `"3.13"`); the exact version is recorded in the build. |
 
 ## `[go]`
@@ -274,7 +274,8 @@ With `runtime = "auto"`, or without a manifest, the first match wins:
 | 1 | `go.mod` | `go` |
 | 2 | `pyproject.toml`, `uv.lock` or `requirements.txt` | `python` |
 | 3 | `package.json` | `node` |
-| 4 | `index.html` at the top or in a common output directory | `static` |
+| 4 | `Containerfile` or `Dockerfile` | `dockerfile` |
+| 5 | `index.html` at the top or in a common output directory | `static` |
 
 The `web` process of a Python app is the project's single
 `[project.scripts]` entry, or else a FastAPI or Starlette app run with
@@ -290,7 +291,7 @@ and `moor manifest validate` warns that they have no effect yet:
 
 | Setting | Arrives |
 |---|---|
-| `app.watch`, `app.root` | 0.2.0 (deploys by `git push`) |
+| `app.watch`, `app.root` | a later release |
 | `[vars]` | a later release (declared variables) |
 | `[resources]` and `[storage]` outside a container | a later release |
 | `[[cron]]`, `[[routes]]`, `[previews]`, `[environments]`, `[services]`, `processes.*.sleep` | later releases |

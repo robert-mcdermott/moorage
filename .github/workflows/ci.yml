@@ -135,6 +135,23 @@ jobs:
       - name: Deploy and push through nginx
         run: .github/scripts/proxy-check.sh
 
+  upgrade:
+    # Takes over the data directory and running apps of a server of the last
+    # published release, with this code.
+    name: Upgrade (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Upgrade from the last release
+        run: .github/scripts/upgrade-check.sh
+
   service:
     # Installs the server as a system service (systemd, launchd), restarts it
     # with an app under load, and checks the app kept running (spike S2).
