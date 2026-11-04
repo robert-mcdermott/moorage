@@ -41,6 +41,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/secrets"
+	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
 	"github.com/robert-mcdermott/moorage/internal/toolchain"
 	"github.com/robert-mcdermott/moorage/internal/truststore"
@@ -340,8 +341,17 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		stopNotifying()
 		notifier.Wait()
 	}()
+	if cfg.Auth.TrustedHeader != "" {
+		for _, p := range router.Trusted() {
+			if p.Addr().IsLoopback() {
+				log.Warn("auth.trusted_header is believed from this machine's own address, and apps deployed here can use that address too: they could say that they are anyone. Run the proxy on another machine", "trusted", p.String())
+				break
+			}
+		}
+	}
 	authn := &auth.Service{
 		Sealer: keyring, SecondFactorKey: masterKey.Derive("second factor v1"),
+		TrustedHeader: cfg.Auth.TrustedHeader, TrustedNameHeader: cfg.Auth.TrustedNameHeader, TrustedProvision: cfg.Auth.TrustedProvision,
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
 	}
@@ -366,12 +376,14 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		stopBackups()
 		backups.Wait()
 	}()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, opts.GateRecheck, log))
+	signIn := &sso.Service{DB: db, Auth: authn, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), StateKey: masterKey.Derive("sso state v1")}
+	authn.PasswordsOff = signIn.PasswordsOff
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, opts.GateRecheck, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

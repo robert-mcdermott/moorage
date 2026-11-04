@@ -1,0 +1,158 @@
+package console
+
+import (
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/sso"
+)
+
+// signInView is the page of how people sign in.
+type signInView struct {
+	On                                            bool
+	Redirect                                      string
+	Issuer, ClientID, Label, Scopes, EmailDomains string
+	GroupClaim, GroupRules                        string
+	HasSecret, Provision, PasswordsOff            bool
+}
+
+func (c *Console) ssoCookie(value string, maxAge int) *http.Cookie {
+	// Lax, since a provider sends a browser back from elsewhere with a link, and that has to bring it.
+	return &http.Cookie{Name: sso.CookieName, Value: value, Path: "/login", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: c.auth.Secure}
+}
+
+func (c *Console) ssoFailed(w http.ResponseWriter, err error) {
+	var refused *sso.RefusedError
+	if errors.As(err, &refused) {
+		c.message(w, http.StatusForbidden, data{Title: "Not signed in", Heading: "You are not signed in", Message: refused.Msg, Link: "/login", LinkText: "Back to signing in"})
+		return
+	}
+	c.log.Warn("sign in through a provider", "err", err)
+	c.message(w, http.StatusBadGateway, data{Title: "Not signed in", Heading: "You are not signed in", Message: "Your provider could not be reached. Try again in a moment.", Link: "/login", LinkText: "Back to signing in"})
+}
+
+func (c *Console) ssoBegin(w http.ResponseWriter, r *http.Request) {
+	address, held, err := c.sso.Begin(r.Context(), safeNext(r.URL.Query().Get("next")))
+	if err != nil {
+		c.ssoFailed(w, err)
+		return
+	}
+	http.SetCookie(w, c.ssoCookie(held, 600))
+	http.Redirect(w, r, address, http.StatusSeeOther)
+}
+
+func (c *Console) ssoCallback(w http.ResponseWriter, r *http.Request) {
+	held := ""
+	if cookie, err := r.Cookie(sso.CookieName); err == nil {
+		held = cookie.Value
+	}
+	// It is good for one try, whichever way that goes.
+	http.SetCookie(w, c.ssoCookie("", -1))
+	u, next, err := c.sso.Finish(r.Context(), r.URL.Query(), held, c.auth.ClientIP(r))
+	if err != nil {
+		c.ssoFailed(w, err)
+		return
+	}
+	if c.startSession(w, r, u) {
+		http.Redirect(w, r, safeNext(next), http.StatusSeeOther)
+	}
+}
+
+func (c *Console) showSignIn(w http.ResponseWriter, r *http.Request, code int, form *sso.Form, failed *failure) {
+	_, d, ok := c.adminData(w, r, "sign-in", "Sign-in")
+	if !ok {
+		return
+	}
+	cfg, err := c.db.SSOConfig(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	view := signInView{On: cfg.Configured(), Redirect: c.sso.RedirectURL(), Issuer: cfg.Issuer, ClientID: cfg.ClientID, Label: cfg.Label, Scopes: cfg.Scopes, EmailDomains: cfg.EmailDomains,
+		GroupClaim: cfg.GroupClaim, GroupRules: cfg.GroupRules, HasSecret: len(cfg.SealedSecret) > 0, Provision: cfg.Provision, PasswordsOff: cfg.PasswordsOff}
+	if form != nil {
+		view.Issuer, view.ClientID, view.Label, view.Scopes, view.EmailDomains = form.Issuer, form.ClientID, form.Label, form.Scopes, form.EmailDomains
+		view.GroupClaim, view.GroupRules, view.Provision, view.PasswordsOff = form.GroupClaim, form.GroupRules, form.Provision, form.PasswordsOff
+	}
+	d.SignIn, d.Failure = view, failed
+	c.render(w, code, "settings-sign-in", d)
+}
+
+func (c *Console) signInSettings(w http.ResponseWriter, r *http.Request) {
+	c.showSignIn(w, r, http.StatusOK, nil, nil)
+}
+
+func (c *Console) configureSignIn(w http.ResponseWriter, r *http.Request, p auth.Principal) {
+	form := sso.Form{Issuer: r.PostFormValue("issuer"), ClientID: r.PostFormValue("client_id"), ClientSecret: r.PostFormValue("client_secret"), Label: r.PostFormValue("label"), Scopes: r.PostFormValue("scopes"),
+		EmailDomains: r.PostFormValue("email_domains"), Provision: r.PostFormValue("provision") != "", GroupClaim: r.PostFormValue("group_claim"),
+		GroupRules: strings.ReplaceAll(r.PostFormValue("group_rules"), "\r\n", "\n"), PasswordsOff: r.PostFormValue("passwords_off") != ""}
+	err := c.sso.Configure(r.Context(), form, p.Name)
+	var invalid *sso.InvalidError
+	switch {
+	case errors.As(err, &invalid):
+		c.showSignIn(w, r, http.StatusUnprocessableEntity, &form, &failure{Message: invalid.Msg})
+	case err != nil:
+		c.internal(w, err)
+	default:
+		http.Redirect(w, r, "/settings/sign-in?done=sign-in-set", http.StatusSeeOther)
+	}
+}
+
+func (c *Console) turnOffSignIn(w http.ResponseWriter, r *http.Request, p auth.Principal) {
+	if err := c.sso.TurnOff(r.Context()); err != nil {
+		c.internal(w, err)
+		return
+	}
+	c.log.Info("turned off single sign-on", "by", p.Name)
+	http.Redirect(w, r, "/settings/sign-in?done=sign-in-off", http.StatusSeeOther)
+}
+
+// trustedSignIn signs in whoever a proxy that signs people in says a request is from, before anything
+// asks. It holds them to a session of their own like anyone else, for what depends on one.
+func (c *Console) trustedSignIn(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		email := c.auth.TrustedIdentity(r)
+		if email == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if p, ok := c.signedIn(r); ok && strings.EqualFold(p.Name, email) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ip := c.auth.ClientIP(r)
+		name := ""
+		if c.auth.TrustedNameHeader != "" {
+			name = r.Header.Get(c.auth.TrustedNameHeader)
+		}
+		u, err := c.auth.TrustedUser(r.Context(), email, name, ip)
+		if errors.Is(err, auth.ErrNoAccount) {
+			c.auth.Security("a proxy vouched for someone with no account", "ip", ip, "email", email)
+			c.message(w, http.StatusForbidden, data{Title: "Not signed in", Heading: "You are not signed in", Message: sentence(err.Error())})
+			return
+		}
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		value, err := c.auth.StartSession(r.Context(), u, ip, r.UserAgent())
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		cookie := c.auth.SessionCookie(value)
+		http.SetCookie(w, cookie)
+		// What follows sees the new session, and none it had before, of whoever that was.
+		kept := r.Cookies()
+		r.Header.Del("Cookie")
+		for _, old := range kept {
+			if old.Name != cookie.Name {
+				r.AddCookie(old)
+			}
+		}
+		r.AddCookie(&http.Cookie{Name: cookie.Name, Value: value})
+		next.ServeHTTP(w, r)
+	})
+}

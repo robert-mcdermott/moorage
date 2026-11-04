@@ -1047,6 +1047,14 @@ directory, supervises it, and serves it on its own hostname.
      that stopped halfway cannot be mistaken for a smaller backup.
 3. **Identity.** OIDC single sign-on, TOTP, trusted-header authentication
    behind an authenticating proxy.
+   - Done in slice 3: all of those, with **Settings → Sign-in**, **Your account → Two-factor** and
+     `[auth]` in `server.toml`.
+   - Found by slice 3: a provider's subject identifies someone, and an address can only join them up
+     once, or whoever can change an address at the provider becomes someone else. Turning off
+     passwords needs a way back that does not depend on the provider. An invitation that signs
+     someone in would be a way around a second factor. Trusting a header from this machine's own address trusts
+     every app on it, so the server warns. The S3 server image that the restore drill used is no longer
+     published, so it runs against another.
 4. **Lifecycle.** Self-upgrade with rollback; server configuration export and
    import; provenance checks for toolchain downloads where published.
 5. **Release 0.6.0.**

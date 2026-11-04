@@ -387,6 +387,28 @@ type RegistryLogin struct {
 	Password string `json:"password"`
 }
 
+// SSOConfig says how people sign in through an OpenID Connect provider. An empty client secret keeps
+// the one there is.
+type SSOConfig struct {
+	Issuer       string `json:"issuer"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret,omitempty"`
+	HasSecret    bool   `json:"has_secret"`
+	// RedirectURL is where the provider sends people back to, and which it has to be told.
+	RedirectURL string `json:"redirect_url,omitempty"`
+	Label       string `json:"label,omitempty"`
+	Scopes      string `json:"scopes,omitempty"`
+	// EmailDomains says whose addresses a first sign-in may be from, separated by spaces.
+	EmailDomains string `json:"email_domains,omitempty"`
+	// Provision makes an account for someone new, the first time they sign in.
+	Provision  bool   `json:"provision"`
+	GroupClaim string `json:"group_claim,omitempty"`
+	// GroupRules says what groups mean, one to a line: "ops = admin" or "web-team = project web maintainer".
+	GroupRules string `json:"group_rules,omitempty"`
+	// PasswordsOff leaves signing in to the provider.
+	PasswordsOff bool `json:"passwords_off"`
+}
+
 // Backup is a backup of the server, or an attempt at one.
 type Backup struct {
 	ID          string     `json:"id"`

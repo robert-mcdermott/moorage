@@ -30,6 +30,10 @@ func (s *Server) failed(w http.ResponseWriter, err error) {
 		unauthorized(w, "bad_second_factor", sentenceOf(err))
 		return
 	}
+	if errors.Is(err, auth.ErrPasswordsOff) {
+		problem(w, http.StatusForbidden, "passwords_off", sentenceOf(err))
+		return
+	}
 	var limited *auth.RateLimitedError
 	var field *auth.FieldError
 	switch {

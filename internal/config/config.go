@@ -36,6 +36,8 @@ type Config struct {
 	Notifications Notifications `toml:"notifications"`
 	// Isolation says how apps are kept from one another.
 	Isolation Isolation `toml:"isolation"`
+	// Auth says how people sign in, beyond what the console can set.
+	Auth Auth `toml:"auth"`
 
 	// Path is the file the configuration was read from.
 	Path string `toml:"-"`
@@ -47,6 +49,17 @@ type Access struct {
 	Production string `toml:"production"`
 	Named      string `toml:"named"`
 	Preview    string `toml:"preview"`
+}
+
+// Auth is how people sign in, in what has to be settled before anyone can.
+type Auth struct {
+	// TrustedHeader names the header in which a proxy that signs people in says who they are. It
+	// counts only from the addresses in [proxy] trusted, which have to replace any that a client sends.
+	TrustedHeader string `toml:"trusted_header"`
+	// TrustedNameHeader names the header with their name, if there is one.
+	TrustedNameHeader string `toml:"trusted_name_header"`
+	// TrustedProvision makes an account for someone new, the first time the proxy says who they are.
+	TrustedProvision bool `toml:"trusted_provision"`
 }
 
 // Isolation is how apps are kept from one another (docs/isolation.md).
@@ -319,6 +332,9 @@ func (c Config) Validate() error {
 	}
 	if c.Routing == "path" && c.ConsoleHost == c.Domain {
 		add("with routing = \"path\", console_host must be another hostname than domain: pages of apps must not share an origin with the console, or a script in any of them could act as whoever is signed in")
+	}
+	if c.Auth.TrustedHeader != "" && len(c.Proxy.Trusted) == 0 {
+		add("auth.trusted_header needs proxy.trusted: otherwise anyone could say who they are")
 	}
 	if !oneOf(c.Isolation.Level, []string{"", "auto", "none", "user", "sandbox"}) {
 		add("isolation.level %q must be auto, none, user or sandbox", c.Isolation.Level)

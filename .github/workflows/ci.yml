@@ -270,11 +270,13 @@ jobs:
         run: go build -o moor-check ./cmd/moor
       - name: Start a service like S3
         run: |
-          docker run -d --name s3 -p 9000:9000 -e MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" minio/minio:RELEASE.2024-12-18T13-15-44Z server /data
+          docker run -d --name s3 -p 9000:9000 -e RUSTFS_ACCESS_KEY="$AWS_ACCESS_KEY_ID" -e RUSTFS_SECRET_KEY="$AWS_SECRET_ACCESS_KEY" rustfs/rustfs:1.0.4-glibc
           for _ in $(seq 1 60); do
-            curl -fsS -o /dev/null http://127.0.0.1:9000/minio/health/live && break
+            # Any answer will do: it refuses a request with no signature, which is an answer.
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/)" != 000 ] && break
             sleep 1
           done
+          docker logs s3 | tail -n 5
       - name: Try it
         run: python3 .github/scripts/backup-check.py "$PWD/moor-check" http://127.0.0.1:9000
 

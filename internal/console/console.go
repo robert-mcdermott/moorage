@@ -28,6 +28,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
+	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -43,7 +44,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"login-code", "apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
+		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -110,6 +111,8 @@ type Options struct {
 	Notifier *notify.Service
 	// Backups makes backups.
 	Backups *backup.Service
+	// SSO signs people in through a provider.
+	SSO *sso.Service
 }
 
 // Console serves the pages.
@@ -132,11 +135,12 @@ type Console struct {
 	metrics   *metrics.Store
 	notifier  *notify.Service
 	backups   *backup.Service
+	sso       *sso.Service
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{notifier: o.Notifier, backups: o.Backups, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
+	c := &Console{notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -253,6 +257,11 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /setup", c.post(c.setup))
 	mux.HandleFunc("GET /login", c.loginPage)
 	mux.HandleFunc("POST /login", c.post(c.login))
+	mux.HandleFunc("GET /login/sso", c.ssoBegin)
+	mux.HandleFunc("GET "+sso.CallbackPath, c.ssoCallback)
+	mux.HandleFunc("GET /settings/sign-in", c.signInSettings)
+	mux.HandleFunc("POST /settings/sign-in", c.adminAction(c.configureSignIn))
+	mux.HandleFunc("POST /settings/sign-in/off", c.adminAction(c.turnOffSignIn))
 	mux.HandleFunc("GET /login/code", c.codePage)
 	mux.HandleFunc("POST /login/code", c.post(c.code))
 	mux.HandleFunc("POST /logout", c.post(c.logout))
@@ -263,7 +272,7 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		c.message(w, http.StatusNotFound, data{Title: "Not found", Heading: "Not found", Message: "There is nothing at this address.", Link: "/", LinkText: "Back to the start"})
 	})
-	return mux, nil
+	return c.trustedSignIn(mux), nil
 }
 
 // data is what a page shows.
@@ -327,6 +336,10 @@ type data struct {
 	Notifications notificationsView
 	// Backups is the page of backups.
 	Backups backupsView
+	// SignIn is the page of how people sign in, and SSOLabel and Passwords what the sign-in page offers.
+	SignIn    signInView
+	SSOLabel  string
+	Passwords bool
 	// Unread is how many notifications they have not read.
 	Unread int
 
@@ -476,6 +489,9 @@ func (c *Console) failed(w http.ResponseWriter, page string, d data, err error) 
 	case errors.Is(err, auth.ErrBadCredentials):
 		d.Error = "The email address or password is wrong."
 		c.render(w, http.StatusUnauthorized, page, d)
+	case errors.Is(err, auth.ErrPasswordsOff):
+		d.Error = "This server signs people in through its provider, and not with passwords."
+		c.render(w, http.StatusForbidden, page, d)
 	case errors.Is(err, auth.ErrSecondFactor):
 		d.Error = "That code is not right. Each one works once."
 		c.render(w, http.StatusUnauthorized, page, d)
@@ -599,14 +615,22 @@ func (c *Console) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	c.render(w, http.StatusOK, "login", data{Title: "Sign in", Next: next})
+	d := data{Title: "Sign in", Next: next, Passwords: true}
+	if c.sso != nil {
+		d.SSOLabel, d.Passwords = c.sso.Button(r.Context())
+	}
+	c.render(w, http.StatusOK, "login", d)
 }
 
 func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 	email, next := r.PostFormValue("email"), safeNext(r.PostFormValue("next"))
 	u, err := c.auth.SignIn(r.Context(), email, r.PostFormValue("password"), c.auth.ClientIP(r))
 	if err != nil {
-		c.failed(w, "login", data{Title: "Sign in", Email: email, Next: next}, err)
+		d := data{Title: "Sign in", Email: email, Next: next, Passwords: true}
+		if c.sso != nil {
+			d.SSOLabel, d.Passwords = c.sso.Button(r.Context())
+		}
+		c.failed(w, "login", d, err)
 		return
 	}
 	needed, err := c.auth.NeedsSecondFactor(r.Context(), u.ID)

@@ -69,7 +69,7 @@ function moor(...args) {
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
     '/apps/shop/variables/edit', '/apps/shop/deploy', '/apps/shop/settings', '/account', '/account/keys', '/account/tokens', '/account/sessions',
-    '/settings', '/settings/users', '/settings/registries', '/settings/notifications', '/settings/backups', '/notifications', '/settings/system', '/settings/audit', '/projects', '/projects/default', '/previews', '/apps/shop/environments', '/apps/shop?env=staging', '/apps/shop/logs?env=staging', '/apps/shop/variables?env=staging', '/apps/shop/access', '/apps/shop/access?env=staging', '/apps/shop/cron', '/apps/shop/metrics', '/apps/shop/metrics?range=live', '/apps/shop/metrics?range=7d'];
+    '/settings', '/settings/users', '/settings/registries', '/settings/notifications', '/settings/sign-in', '/settings/backups', '/notifications', '/settings/system', '/settings/audit', '/projects', '/projects/default', '/previews', '/apps/shop/environments', '/apps/shop?env=staging', '/apps/shop/logs?env=staging', '/apps/shop/variables?env=staging', '/apps/shop/access', '/apps/shop/access?env=staging', '/apps/shop/cron', '/apps/shop/metrics', '/apps/shop/metrics?range=live', '/apps/shop/metrics?range=7d'];
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
     for (const path of pages) {
@@ -97,12 +97,18 @@ function moor(...args) {
       break;
     } catch (e) {
       // Whether the page's script ran, and whether the page has the keyboard, say what went wrong.
-      const state = await page.evaluate(() => ({
-        ready: document.readyState,
-        scriptRan: !document.querySelector('[data-palette-open]').hidden,
-        focused: document.hasFocus(),
-        active: document.activeElement && document.activeElement.tagName,
-      })).catch(err => String(err));
+      const state = await page.evaluate(() => {
+        const button = document.querySelector('[data-palette-open]');
+        return {
+          url: location.href,
+          title: document.title,
+          ready: document.readyState,
+          button: button ? (button.hidden ? 'hidden' : 'shown') : 'none',
+          focused: document.hasFocus(),
+          active: document.activeElement && document.activeElement.tagName,
+          body: document.body ? document.body.innerText.slice(0, 160) : '',
+        };
+      }).catch(err => String(err));
       console.log(`note  ${browserName}: the palette did not open: ${JSON.stringify(state)}; let go of: ${letGoOf.slice(-3).join(' | ') || 'nothing'}`);
       if (tries <= 1) { throw e; }
       await visit(page, page.url());

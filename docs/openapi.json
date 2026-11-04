@@ -1967,6 +1967,54 @@
         ],
         "type": "object"
       },
+      "SSOConfig": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "email_domains": {
+            "type": "string"
+          },
+          "group_claim": {
+            "type": "string"
+          },
+          "group_rules": {
+            "type": "string"
+          },
+          "has_secret": {
+            "type": "boolean"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "passwords_off": {
+            "type": "boolean"
+          },
+          "provision": {
+            "type": "boolean"
+          },
+          "redirect_url": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id",
+          "has_secret",
+          "provision",
+          "passwords_off"
+        ],
+        "type": "object"
+      },
       "ServerInfo": {
         "properties": {
           "git": {
@@ -7275,6 +7323,122 @@
           }
         ],
         "summary": "Check the server and what it depends on, as moor server doctor does",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/sso": {
+      "delete": {
+        "operationId": "deleteServerSso",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Turn off signing in through a provider, which gives passwords back",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      },
+      "get": {
+        "operationId": "getServerSso",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "How people sign in through a provider",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      },
+      "put": {
+        "operationId": "putServerSso",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SSOConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Set up signing in through a provider, once it has been found at its address",
         "tags": [
           "server"
         ],

@@ -162,6 +162,15 @@ production = {{q .Access.Production}}
 named      = {{q .Access.Named}}
 preview    = {{q .Access.Preview}}
 
+{{- if .Auth.TrustedHeader}}
+[auth]
+trusted_header = {{q .Auth.TrustedHeader}}
+{{- if .Auth.TrustedNameHeader}}
+trusted_name_header = {{q .Auth.TrustedNameHeader}}
+{{- end}}
+trusted_provision = {{.Auth.TrustedProvision}}
+
+{{- end}}
 [isolation]
 # How apps are kept from one another: "auto" is "user" where the server runs as root on
 # Linux and "none" elsewhere. "user" gives each app an operating system user of its own, and

@@ -135,6 +135,12 @@ type Service struct {
 	// ClaimFile holds the first-run claim code until the server is claimed.
 	ClaimFile string
 	Limits    *Limiter
+	// TrustedHeader names the header in which a proxy says who someone is, and TrustedNameHeader
+	// their name. TrustedProvision makes an account for someone new.
+	TrustedHeader, TrustedNameHeader string
+	TrustedProvision                 bool
+	// PasswordsOff, if set, says that signing in is left to a provider.
+	PasswordsOff func(context.Context) bool
 	// Sealer seals second factors, and SecondFactorKey signs what is held between a password and a code.
 	Sealer          Sealer
 	SecondFactorKey []byte
@@ -180,6 +186,61 @@ func randomCode() string {
 // peer is a trusted proxy, the nearest forwarded address that is not.
 func (s *Service) ClientIP(r *http.Request) string {
 	return ClientIP(r, s.Trusted)
+}
+
+// ErrNoAccount says that someone a proxy vouches for has no account here.
+var ErrNoAccount = errors.New("you have no account on this server: ask an administrator for one")
+
+// TrustedIdentity says who a proxy that signs people in says a request is from. Nothing a client sends
+// counts unless it came through one of the proxies the server trusts.
+func (s *Service) TrustedIdentity(r *http.Request) string {
+	if s.TrustedHeader == "" {
+		return ""
+	}
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		peer = r.RemoteAddr
+	}
+	addr, err := netip.ParseAddr(peer)
+	if err != nil {
+		return ""
+	}
+	addr = addr.Unmap()
+	for _, p := range s.Trusted {
+		if p.Contains(addr) {
+			return strings.TrimSpace(r.Header.Get(s.TrustedHeader))
+		}
+	}
+	return ""
+}
+
+// TrustedUser finds the account of someone a proxy vouches for, making one if the server says so.
+func (s *Service) TrustedUser(ctx context.Context, email, name, ip string) (store.User, error) {
+	normal, err := NormalizeEmail(email)
+	if err != nil {
+		return store.User{}, ErrNoAccount
+	}
+	u, err := s.DB.UserByEmail(ctx, normal)
+	switch {
+	case err == nil:
+		if u.Disabled() {
+			return u, ErrNoAccount
+		}
+	case !errors.Is(err, store.ErrNotFound):
+		return u, err
+	case !s.TrustedProvision:
+		return u, ErrNoAccount
+	default:
+		if u, err = s.NewUser(ctx, normal, name, store.RoleMember, ""); err != nil {
+			return u, err
+		}
+		if err := s.DB.CreateUser(ctx, u); err != nil {
+			return u, err
+		}
+		s.Audit(ctx, store.AuditEntry{Actor: normal, IP: ip, Action: "user.provision", Target: u.ID, Result: "ok"})
+	}
+	s.Audit(ctx, store.AuditEntry{Actor: normal, IP: ip, Action: "signin.proxy", Result: "ok"})
+	return u, nil
 }
 
 // ClientIP is the address a request came from, believing trusted proxies only.
@@ -442,6 +503,9 @@ func (s *Service) failed(keys ...string) {
 // per account, and returns the user. Unknown addresses take as long as known
 // ones, and answer the same.
 func (s *Service) SignIn(ctx context.Context, email, password, ip string) (store.User, error) {
+	if s.PasswordsOff != nil && s.PasswordsOff(ctx) {
+		return store.User{}, ErrPasswordsOff
+	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	keys := []string{"signin-ip:" + ip, "signin-account:" + email}
 	if err := s.limit(keys...); err != nil {

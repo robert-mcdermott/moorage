@@ -199,6 +199,20 @@ func (k *Keyring) OpenTOTP(userID string, sealed []byte) ([]byte, error) {
 	return plain, nil
 }
 
+// SealSSO encrypts the secret of the client of a sign-in provider, with the master key.
+func (k *Keyring) SealSSO(value string) []byte {
+	return seal(k.master, []byte(value), []byte("moorage sign-in provider"))
+}
+
+// OpenSSO decrypts it.
+func (k *Keyring) OpenSSO(sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, []byte("moorage sign-in provider"))
+	if err != nil {
+		return "", errors.New("the secret of the sign-in provider cannot be decrypted")
+	}
+	return string(plain), nil
+}
+
 // SealBackup encrypts the secret key of where backups go, with the master key.
 func (k *Keyring) SealBackup(value string) []byte {
 	return seal(k.master, []byte(value), []byte("moorage backup destination"))

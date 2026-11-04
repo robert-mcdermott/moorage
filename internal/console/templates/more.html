@@ -479,6 +479,7 @@
   <a href="/settings"{{if eq .Tab "server"}} aria-current="page"{{end}}>Server</a>
   <a href="/settings/users"{{if eq .Tab "users"}} aria-current="page"{{end}}>Users</a>
   <a href="/settings/registries"{{if eq .Tab "registries"}} aria-current="page"{{end}}>Registries</a>
+  <a href="/settings/sign-in"{{if eq .Tab "sign-in"}} aria-current="page"{{end}}>Sign-in</a>
   <a href="/settings/notifications"{{if eq .Tab "notifications"}} aria-current="page"{{end}}>Notifications</a>
   <a href="/settings/backups"{{if eq .Tab "backups"}} aria-current="page"{{end}}>Backups</a>
   <a href="/settings/audit"{{if eq .Tab "audit"}} aria-current="page"{{end}}>Audit log</a>
@@ -540,7 +541,7 @@
           <input type="hidden" name="user" value="{{.ID}}">
           <button class="quiet small" type="submit">Turn off</button>
         </form>{{else}}<span class="muted">Off</span>{{end}}</td>
-      <td data-label="Status">{{if .Disabled}}<span class="badge fail">Disabled</span>{{else if not .PasswordHash}}<span class="badge info">Invited</span>{{else}}<span class="badge ok">Active</span>{{end}}</td>
+      <td data-label="Status">{{if .Disabled}}<span class="badge fail">Disabled</span>{{else if .SSO}}<span class="badge ok">Single sign-on</span>{{else if not .PasswordHash}}<span class="badge info">Invited</span>{{else}}<span class="badge ok">Active</span>{{end}}</td>
       <td class="row-end">
         <form class="inline-form" method="post" action="/settings/users/invite">
           <input type="hidden" name="csrf" value="{{$csrf}}">
@@ -627,6 +628,50 @@
     <div class="actions"><button type="submit">Keep the credentials</button></div>
   </form>
 </section>
+{{end}}
+{{end}}
+
+{{define "settings-sign-in"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .SignIn}}
+<section class="panel panel-pad">
+  <h2>{{if .On}}<span class="badge ok">On</span> Single sign-on{{else}}<span class="badge">Off</span> Single sign-on{{end}}</h2>
+  <p class="muted">People sign in through your identity provider, with OpenID Connect. Tell it this address to send them back to:</p>
+  {{template "command" .Redirect}}
+  {{if .On}}
+  <form method="post" action="/settings/sign-in/off" data-confirm="Turn off single sign-on? Everyone goes back to signing in with a password.">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="actions"><button class="quiet danger" type="submit">Turn it off</button></div>
+  </form>
+  {{end}}
+</section>
+<form class="panel panel-pad block rule-form" method="post" action="/settings/sign-in" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <h3>Your provider</h3>
+  <div class="field"><label for="sso-issuer">Its address</label><input id="sso-issuer" name="issuer" value="{{.Issuer}}" type="url" required spellcheck="false" autocomplete="off" placeholder="https://login.example.com/realms/acme"></div>
+  <div class="field"><label for="sso-client">Client ID</label><input id="sso-client" name="client_id" value="{{.ClientID}}" required spellcheck="false" autocomplete="off"></div>
+  <div class="field"><label for="sso-secret">Client secret</label><input id="sso-secret" name="client_secret" type="password" autocomplete="new-password"{{if .HasSecret}} placeholder="Kept, sealed: leave this to keep it"{{end}}></div>
+  <div class="field"><label for="sso-label">What the button says</label><input id="sso-label" name="label" value="{{.Label}}" autocomplete="off" placeholder="Acme login"></div>
+  <div class="field"><label for="sso-scopes">More scopes to ask for</label><input id="sso-scopes" name="scopes" value="{{.Scopes}}" spellcheck="false" autocomplete="off" placeholder="groups">
+    <p class="hint small">Beyond <code>openid</code>, <code>email</code> and <code>profile</code>. Separated by spaces.</p>
+  </div>
+  <h3>Who gets in</h3>
+  <div class="field"><label for="sso-domains">Addresses at</label><input id="sso-domains" name="email_domains" value="{{.EmailDomains}}" spellcheck="false" autocomplete="off" placeholder="example.com example.org">
+    <p class="hint small">Those a first sign-in may be from. Empty is anyone your provider signs in.</p>
+  </div>
+  <label class="check"><input type="checkbox" name="provision" value="1"{{if .Provision}} checked{{end}}> Make an account for someone new, the first time they sign in</label>
+  <h3>What they may do</h3>
+  <div class="field"><label for="sso-claim">The claim with their groups</label><input id="sso-claim" name="group_claim" value="{{.GroupClaim}}" spellcheck="false" autocomplete="off" placeholder="groups"></div>
+  <div class="field"><label for="sso-rules">What those groups mean</label><textarea id="sso-rules" name="group_rules" rows="4" spellcheck="false" placeholder="ops = admin&#10;web-team = project web maintainer">{{.GroupRules}}</textarea>
+    <p class="hint small">One to a line: <code>GROUP = admin</code>, or <code>GROUP = project NAME</code> and a role of <code>viewer</code>, <code>deployer</code> or <code>maintainer</code>. They are applied each time someone signs in. What they do not mention stays as you set it.</p>
+  </div>
+  <h3>Passwords</h3>
+  <label class="check"><input type="checkbox" name="passwords_off" value="1"{{if .PasswordsOff}} checked{{end}}> Only sign in through the provider, and not with passwords</label>
+  <p class="hint small">If your provider then goes away, <code>moor server sso off</code> on this server gives passwords back. Two-factor sign-in is then up to your provider too.</p>
+  <div class="actions"><button type="submit">Save</button></div>
+</form>
 {{end}}
 {{end}}
 

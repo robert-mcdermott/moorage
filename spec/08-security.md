@@ -72,9 +72,17 @@ hosting needs VM-level isolation and is out of scope.
 - **Brute-force protection:** per-IP and per-account rate limits with backoff
   on sign-in, gate passwords, share-link redemption and SSH authentication;
   failures are logged as security events.
-- **Later phases:** TOTP two-factor and passkeys; OIDC single sign-on with
-  group-to-role mapping, just-in-time provisioning and an option to disable
-  local passwords.
+- **Two-factor:** TOTP, with single-use codes (the step of time is recorded) and
+  recovery codes stored hashed. The secret is sealed with the master key. Between
+  a password and a code, a browser holds only a signed, short-lived statement bound
+  to the password's hash. An invitation does not get around it.
+- **Single sign-on:** OIDC with PKCE, state and nonce in a signed cookie bound to the
+  browser, group-to-role mapping, just-in-time provisioning and an option to disable
+  local passwords, with `moor server sso off` as the way back. A subject identifies
+  someone; an email joins an account once, unless the provider says it is unverified.
+- **Trusted headers:** believed only from `[proxy] trusted`, which the server refuses to
+  start without.
+- **Later phases:** passkeys.
 
 ## Authorisation
 

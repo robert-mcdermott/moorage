@@ -10,6 +10,8 @@ how it works inside and where it is going.
   as a service, back it up.
 - [Accounts and access](accounts.md): claiming a server, signing in, users,
   API tokens and SSH keys.
+- [How people sign in](sign-in.md): single sign-on with your identity provider, and
+  signing in through a proxy.
 - [TLS and trusting the server](tls.md): the certificates, and `moor trust`.
 - [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
 - [Backups](backups.md): on demand and on a schedule, to a directory or a bucket, and

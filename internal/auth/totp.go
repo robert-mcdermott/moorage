@@ -31,6 +31,9 @@ const (
 	recoveryCodes        = 10
 )
 
+// ErrPasswordsOff says that this server leaves signing in to a provider.
+var ErrPasswordsOff = errors.New("this server signs people in through its provider, and not with passwords")
+
 // ErrSecondFactor says that a second factor is needed, or the one given is wrong.
 var ErrSecondFactor = errors.New("that code is not right")
 
