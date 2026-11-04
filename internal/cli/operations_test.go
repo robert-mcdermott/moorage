@@ -253,8 +253,8 @@ func TestResolverElsewhere(t *testing.T) {
 	if code, out, _ := run(t, "server", "resolver", "install"); code != 0 || !strings.Contains(out, "Nothing to install on Linux") {
 		t.Errorf("%d %s", code, out)
 	}
-	setResolver(t, "windows")
-	if code, _, errOut := run(t, "server", "resolver", "install"); code == 0 || !strings.Contains(errOut, "not available on windows") {
+	setResolver(t, "plan9")
+	if code, _, errOut := run(t, "server", "resolver", "install"); code == 0 || !strings.Contains(errOut, "not available on plan9") {
 		t.Errorf("%d %s", code, errOut)
 	}
 }
