@@ -145,3 +145,18 @@ func TestLaunchd(t *testing.T) {
 		t.Errorf("not escaped:\n%s", data)
 	}
 }
+
+// TestLaunchdStopOfOneWaitingToStart: launchd has nothing to signal when it has a job that keeps failing waiting to
+// start again, and that is no reason to say that it could not be stopped.
+func TestLaunchdStopOfOneWaitingToStart(t *testing.T) {
+	l := &Launchd{Run: func(name string, args ...string) ([]byte, error) {
+		return nil, errors.New("launchctl kill SIGTERM system/io.moorage.server: No process to signal.")
+	}}
+	if err := l.Stop(); err != nil {
+		t.Errorf("%v", err)
+	}
+	l = &Launchd{Run: func(name string, args ...string) ([]byte, error) { return nil, errors.New("something else") }}
+	if err := l.Stop(); err == nil {
+		t.Error("it said that it stopped")
+	}
+}

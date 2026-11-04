@@ -80,7 +80,15 @@ type fakeService struct {
 
 func (f *fakeService) Running() bool { return f.up }
 func (f *fakeService) Start() error  { f.up, f.calls = true, append(f.calls, "start"); return nil }
-func (f *fakeService) Stop() error   { f.up, f.calls = false, append(f.calls, "stop"); return nil }
+func (f *fakeService) Stop() error {
+	f.calls = append(f.calls, "stop")
+	// As launchd does, with one that has failed and is waiting to start again.
+	if !f.up {
+		return errors.New("no process to signal")
+	}
+	f.up = false
+	return nil
+}
 func (f *fakeService) Restart() error {
 	f.restarts++
 	f.calls = append(f.calls, "restart")

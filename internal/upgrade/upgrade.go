@@ -370,17 +370,15 @@ func goBack(ctx context.Context, o Options, st state, force, start bool) (Result
 	}
 
 	if o.Service != nil {
-		running := o.Service.Running()
-		switch {
-		case running:
+		// One that has just failed may be starting again and again, which should not go on while its files change,
+		// and there may be nothing there to stop at that moment.
+		failing := start
+		if running := o.Service.Running(); running || failing {
 			o.Say("stopping the server")
-			if err := o.Service.Stop(); err != nil {
+			if err := o.Service.Stop(); err != nil && !failing {
 				return res, err
 			}
 			start = true
-		case start:
-			// It may be starting again and again, which should not go on while its files change.
-			_ = o.Service.Stop()
 		}
 	} else if o.ServerUp != nil && o.ServerUp() {
 		return res, &RefusedError{"the server is running: stop it, and do this again"}

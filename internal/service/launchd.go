@@ -178,6 +178,10 @@ func (l *Launchd) Start() error {
 // restarted until Start.
 func (l *Launchd) Stop() error {
 	_, err := l.Run("launchctl", "kill", "SIGTERM", l.target())
+	// launchd has it waiting to start again, as it does with one that keeps failing: it is stopped already.
+	if err != nil && strings.Contains(err.Error(), "No process to signal") {
+		return nil
+	}
 	return err
 }
 
