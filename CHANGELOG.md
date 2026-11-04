@@ -4,6 +4,9 @@
 
 ### Added
 
+- **Access gates (wave 4, slice 6).** Each environment can be open to anyone, behind a shared password, for those signed in to Moorage, whom the app hears named in `X-Moorage-User` and its fellows, or only for people with a share link, with a list of addresses on top of any of them. `moor access`, `moor share`, an **Access** tab in the console, `access` in the manifest and `[access]` in `server.toml`. Previews are for those signed in with a role, unless you say otherwise: if you share previews with people who have no account, set `preview = "public"` under `[access]` in `server.toml`, or make a share link.
+- **Your own domains, and paths (wave 4, slice 7).** `moor domains add portal.example.com`, which serves once its DNS points here, or `tools.example.com/reports`, so that several apps share a hostname. And `routing = "path"`, for servers with no wildcard DNS: apps at `/<app>/`, with a console on its own hostname.
+- **`X-Moorage-Proxy-Token`,** which an app that does not trust what else runs on its machine can check against `$MOORAGE_PROXY_TOKEN`, to know that a request came through Moorage.
 - **Sleep and wake (wave 4, slice 5).** An environment left idle stops its instances, and the next request starts them and waits: a browser gets a page that says it is waking up, and reloads itself. Previews do it after 30 minutes unless told otherwise, and others with `sleep_after` in `[environments.NAME]`. `sleep = false` keeps a process running, `moor sleep` and `moor wake` do it by hand, and it stays asleep across a restart of the server.
 - **Previews (wave 4, slice 4).** Push a branch, and it gets its own build at its own address, `shop--my-branch.apps.example.com`, with production's variables (except those set `--production-only`), its own empty data directory and `noindex`. Deleting the branch destroys it, and so does going unused for seven days, unless it is pinned. **Previews** in the console and `moor previews` have them all. If you push other branches to a Moorage remote today, note that they will now deploy: `enabled = false` in `[previews]` keeps them as they were.
 - **Named environments.** `[environments.staging]` with a branch, `moor environments create`, or `moor deploy --env staging`: a place that stays, with its own address, variables and data. Every page of an app in the console and every command with `--env` works on them.
@@ -13,6 +16,12 @@
 - **Projects and roles (wave 4, slice 2).** Apps belong to projects, and people have roles in them: viewers see an app and its logs, deployers also deploy, restart, roll back and scale, and maintainers also change its variables and the project's members. Those with no role cannot tell its apps exist. An upgrade changes nothing: every app goes in a `default` project where everyone is a maintainer, until you say otherwise. `moor projects`, `moor apps create --project`, `moor apps move`, and a Projects page; the console shows what your role allows. See [Projects and roles](docs/accounts.md#projects-and-roles).
 - **The audit log.** Every change through the API or the console, every sign-in, push and secret revealed, kept for a year, with who, from where, what to, and how it went. `moor audit`, `GET /api/v1/audit`, and Settings for administrators.
 - **Revealing a secret.** `moor env reveal NAME`, and a button for maintainers. It shows the value once, and is recorded.
+
+### Fixed
+
+- **A tab in the address after signing in could send you to another site.** The `next` of the sign-in page now refuses anything a browser would take away before looking.
+- **`X-Real-IP` said what a client claimed** behind a proxy, rather than what the proxy saw. It now goes by the nearest address that is not a trusted proxy.
+- **Headers such as `X_Moorage_User` reached apps** that read an underscore as a dash. They are now removed.
 
 ### Changed
 

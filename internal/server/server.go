@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -79,6 +80,10 @@ type Options struct {
 	// GCMinAge, if set, overrides how old a build must be before garbage
 	// collection may remove it (tests shorten it).
 	GCMinAge time.Duration
+	// GateRecheck, if set, overrides how often gates look again at whom they let in (tests).
+	GateRecheck time.Duration
+	// Resolver, if set, looks up what domains point to, instead of the system's (tests).
+	Resolver deploy.DomainResolver
 	// EnvironmentSweep, if set, overrides how often environments are looked at, to see which
 	// have expired or are idle (tests shorten it).
 	EnvironmentSweep time.Duration
@@ -146,9 +151,6 @@ func (a auditedPushes) Receive(ctx context.Context, p *gitserver.Push) error {
 // Run serves until ctx is cancelled, then shuts down gracefully. The
 // configuration must already be validated.
 func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options) error {
-	if cfg.Routing == "path" {
-		return errors.New(`routing = "path" is not available yet (it arrives with path routing in wave 4); use routing = "host"`)
-	}
 	layout := NewLayout(cfg.DataDir)
 	if err := layout.Prepare(); err != nil {
 		return fmt.Errorf("prepare the data directory %s: %w", cfg.DataDir, err)
@@ -228,7 +230,15 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	bus := events.New(db, log)
 	defer bus.Close()
 	go bus.Prune(ctx, 24*time.Hour)
+	proxyKey := masterKey.Derive("proxy tokens v1")
+	proxyToken := func(envID string) string {
+		mac := hmac.New(sha256.New, proxyKey)
+		mac.Write([]byte(envID))
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+	router.SetProxyToken(proxyToken)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
+		ProxyToken:    proxyToken,
 		DataDir:       cfg.DataDir,
 		ShimCmd:       []string{exe, "shim"},
 		ShimEnv:       opts.ShimEnv,
@@ -270,6 +280,9 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		ForgetApp:  router.ForgetApp,
 		LastActive: router.LastActive,
 		Busy:       router.Busy,
+
+		Config:   cfg,
+		Resolver: opts.Resolver,
 	}, log)
 	router.SetSleeper(deployer)
 	// Running builds are stopped (and recorded as failed) before the
@@ -284,6 +297,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
 	}
+	router.SetGatekeeper(&ingress.Gatekeeper{Auth: authn, DB: db, Key: masterKey.Derive("gate cookies v1"), Secure: authn.Secure, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), Recheck: opts.GateRecheck})
 	claimCode, err := authn.PrepareClaim(ctx)
 	if err != nil {
 		return fmt.Errorf("prepare the first-run claim: %w", err)
@@ -301,7 +315,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

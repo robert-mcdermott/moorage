@@ -54,6 +54,8 @@ type Plan struct {
 	Environments map[string]EnvPlan `json:"environments,omitempty"`
 	// Previews is the manifest's [previews].
 	Previews *PreviewPlan `json:"previews,omitempty"`
+	// StripPrefix takes away the path it is served at from what it hears, with path routing.
+	StripPrefix bool `json:"strip_prefix,omitempty"`
 }
 
 // EnvPlan is what an environment changes of a plan.
@@ -63,6 +65,8 @@ type EnvPlan struct {
 	SleepAfter string            `json:"sleep_after,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
 	Instances  map[string]int    `json:"instances,omitempty"`
+	// Access is the gate it asks for.
+	Access string `json:"access,omitempty"`
 }
 
 // PreviewPlan says what previews an app wants.
@@ -72,6 +76,24 @@ type PreviewPlan struct {
 	TTL      Duration `json:"ttl,omitempty"`
 	// SleepAfter is how long one may sit idle: a duration, or off.
 	SleepAfter string `json:"sleep_after,omitempty"`
+	// Access is the gate they ask for.
+	Access string `json:"access,omitempty"`
+}
+
+// AccessFor says what the manifest asks of who may reach an environment, if anything:
+// [environments.NAME], or for a preview [environments.preview] or [previews].
+func (p Plan) AccessFor(name, kind string) string {
+	key := name
+	if kind == "preview" {
+		key = "preview"
+	}
+	if said := p.Environments[key].Access; said != "" {
+		return said
+	}
+	if kind == "preview" && p.Previews != nil {
+		return p.Previews.Access
+	}
+	return ""
 }
 
 // DefaultPreviewSleep is how long a preview may sit idle, unless its manifest says otherwise.

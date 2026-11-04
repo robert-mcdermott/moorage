@@ -65,6 +65,9 @@ LOG_LEVEL = "info"
 | `runtime` | `"auto"` | `auto` (detect), `go`, `python`, `node`, `static`, `command` (your own build), `binary` (run the files as they are), or [`dockerfile` or `image`](containers.md) (run in a container). |
 | `toolchains` | `[]` | More toolchains on the `PATH` while building and running, as `name@version`: `go`, `node`, `python` and `uv` are installed by Moorage, and `name@system` uses the server's own (`"java@system"`). Versions may be partial (`"24"`, `"3.13"`); the exact version is recorded in the build. |
 
+`strip_prefix`, with [path routing](domains.md#with-no-wildcard-dns-path-routing), takes the path the app is served at away
+from what it hears.
+
 ## `[go]`
 
 | Key | Default | Description |
@@ -251,6 +254,7 @@ them. See [Static sites](static.md).
 | `branches` | every branch | Globs of the branches that get one; `!` leaves some out: `["*", "!dependabot/*"]`. |
 | `ttl` | `"7d"` | Destroyed after this long without a deployment or a request. |
 | `sleep_after` | `"30m"` | [Sleeps](previews.md#sleeping) after this long without a request; `"off"` never. |
+| `access` | the server's | [Who can reach them](access.md): `password`, `login` or `share`; `public` only if the server's default is. |
 
 ## `[environments.NAME]`
 
@@ -264,6 +268,7 @@ applies to every preview.
 | `env` | Variables, over those of `[env]`. |
 | `processes.web.instances` | How many instances of that process run. |
 | `sleep_after` | [Sleeps](previews.md#sleeping) after this long without a request. By default a preview does after 30 minutes, and others never do; `"off"` says never. |
+| `access` | [Who can reach it](access.md): `password`, `login` or `share`; `public` only if the server's default is. |
 
 ## `[env]`
 
@@ -320,6 +325,6 @@ and `moor manifest validate` warns that they have no effect yet:
 | `[vars]` | a later release (declared variables) |
 | `[resources]` and `[storage]` outside a container | a later release |
 | `[[cron]]`, `[[routes]]`, `[services]` | later releases |
-| `previews.access`, `previews.data`; `access` and `resources` in `[environments.*]` | later releases |
+| `previews.data`, `resources` in `[environments.*]` | later releases |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

@@ -351,6 +351,14 @@ button.danger-solid { color: #fff; background: var(--fail); border-color: var(--
 .env-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s4); }
 .env-banner p { margin: 0; flex: 1 1 20rem; }
 .env-banner .env-actions form:first-child { margin-left: 0; }
+.gate-form fieldset { border: 0; margin: 0 0 var(--s4); padding: 0; }
+.gate-form legend { font-weight: 600; margin-bottom: var(--s2); padding: 0; }
+.gate-form .check { display: block; margin-bottom: var(--s2); font-weight: 400; }
+.gate-form .field { margin-top: var(--s4); }
+.share-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s4); margin-top: var(--s3); }
+.share-form .field { margin: 0; }
+.share-form select, .share-form input { width: auto; max-width: 12rem; }
+.new-link p { margin: 0 0 var(--s2); }
 .lock-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); }
 .lock-offer p { margin: 0; flex: 1 1 20rem; }
 

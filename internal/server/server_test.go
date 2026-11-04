@@ -28,6 +28,7 @@ func testConfig(t *testing.T) config.Config {
 	}
 	cfg.Listen.HTTP = "127.0.0.1:0" // let the OS choose a free port
 	cfg.Listen.SSH = ""             // the git tests turn it on
+	cfg.Access.Preview = "public"   // the tests of gates turn it on
 	return cfg
 }
 
@@ -69,6 +70,7 @@ func testOptions(ready func(Addrs)) Options {
 		Tick:             200 * time.Millisecond,
 		GCMinAge:         time.Millisecond,
 		EnvironmentSweep: 100 * time.Millisecond,
+		GateRecheck:      200 * time.Millisecond,
 	}
 }
 
@@ -240,14 +242,6 @@ func TestRunReportsBusyPort(t *testing.T) {
 	err = Run(context.Background(), cfg, quiet, Options{})
 	if err == nil || !strings.Contains(err.Error(), "listen on "+cfg.Listen.HTTP) {
 		t.Errorf("Run on a busy port: %v", err)
-	}
-}
-
-func TestRunRefusesPathRouting(t *testing.T) {
-	cfg := testConfig(t)
-	cfg.Routing = "path"
-	if err := Run(context.Background(), cfg, quiet, Options{}); err == nil || !strings.Contains(err.Error(), "path") {
-		t.Errorf("path routing: %v", err)
 	}
 }
 

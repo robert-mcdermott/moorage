@@ -50,8 +50,11 @@ Any route may include a path prefix, so several apps can share one hostname:
 `https://tools.example.com/reports/`, `https://tools.example.com/admin/`.
 
 **Path mode** is for installations without wildcard DNS
-(`moor server init --routing path`): apps live at `https://<host>/<app>/`,
-previews at `https://<host>/<app>--<env>/`, and the console at `/`.
+(`moor server init --routing path`): apps live at `https://<host>/<app>/` and
+previews at `https://<host>/<app>--<env>/`. The console must have a hostname of
+its own: a page of any app sharing its origin could make requests as whoever is
+signed in, and read the answers, whatever its cookies say. So path mode needs two
+DNS records, and no wildcard. Apps do share an origin with one another there.
 
 Serving an app under a prefix needs the app's cooperation, because the app
 generates links. Moorage helps as much as it safely can:
@@ -62,6 +65,8 @@ generates links. Moorage helps as much as it safely can:
   instead.
 - `Location` headers that point at an absolute path without the prefix are
   rewritten to include it, and `Set-Cookie` paths are scoped to the prefix.
+  With path mode `strip_prefix` is `[app].strip_prefix`, and on a custom domain's
+  path `moor domains add --strip-prefix`. Static sites always have it stripped.
 - Response bodies are **never rewritten** — that approach is fragile and is
   deliberately not offered.
 - Static sites are fully supported under a prefix as long as they use
@@ -96,13 +101,19 @@ status polling and platform page assets. Requests under it never reach apps.
   `X-Forwarded-Prefix`, `Forwarded`, `X-Real-IP`, and `X-Request-Id`
   (generated if absent, echoed on the response, recorded in logs).
 - **Headers removed:** hop-by-hop headers, any incoming `X-Moorage-*` header,
-  and Moorage's own cookies — so a client can never spoof platform identity.
+  however spelled (some servers read an underscore as a dash), Moorage tokens in
+  `Authorization`, and Moorage's own cookies — so a client can never spoof platform
+  identity, and an app never gets a credential of the platform's.
 - **No indexing outside production:** responses from previews and named
   environments carry `X-Robots-Tag: noindex` (configurable, and available for
   production on purely internal installations).
 - **Identity headers:** behind a *sign-in* gate, the app receives
-  `X-Moorage-User`, `X-Moorage-User-Email`, `X-Moorage-User-Name` and
-  `X-Moorage-Groups`. Apps can trust these because they listen on loopback.
+  `X-Moorage-User`, `X-Moorage-User-Email` and `X-Moorage-User-Name`. These are
+  trustworthy only for requests that came through the router: instances listen on
+  loopback, which other apps on the machine can reach directly, past the gate. Every
+  proxied request therefore carries `X-Moorage-Proxy-Token`, equal to the instance's
+  `$MOORAGE_PROXY_TOKEN`, which differs per environment. An app that does not trust
+  what else runs here compares them. Groups arrive with groups.
 - **Protocols:** WebSockets and other upgrades (browsers open these over
   HTTP/1.1, and Moorage always proxies upgrades to backends over HTTP/1.1 —
   even to `h2c` processes); server-sent events and streaming responses are
@@ -145,21 +156,31 @@ behind your own TLS proxy. ACME arrives with internet-facing support.
 ## Access gates
 
 Each environment has one access gate. Defaults come from server-wide settings
-per environment kind (e.g. *previews require sign-in*), can be suggested by
-the manifest, and can be overridden by maintainers.
+per environment kind (e.g. *previews require sign-in*), can be tightened by the
+manifest, which is a deployer's and cannot open what the server has closed, and can
+be overridden by maintainers. Access is decided by the nearest address in
+`X-Forwarded-For` that is not a trusted proxy, never by what a client put in front
+of it.
 
 | Gate | Behaviour |
 |---|---|
 | `public` | Anyone can access. |
 | `password` | A shared password. Browsers get a small branded form; non-browser clients may use HTTP Basic. Remembered by cookie for a configurable period. |
-| `login` | Visitor must be signed in to Moorage — any user, or only members of the app's project/groups. Identity is passed to the app in headers. API tokens with the `gate` scope are accepted as bearer tokens for scripted access. |
+| `login` | Visitor must be signed in to Moorage — with a role in the app's project, or with `any_user` anyone with an account. Being let in is checked again within a minute, so that losing an account or a role ends it. Identity is passed to the app in headers. API tokens with the `gate` scope are accepted as bearer tokens for scripted access. |
 | `share` | Only reachable through share links. |
 | IP allow-list | CIDR list, combinable with any gate above. |
 
 **Share links** work with every gate: `moor share --expires 7d [--max-uses 20]`
 produces `https://<host>/.moorage/share/<token>`. Tokens are 128-bit random
 values stored hashed, expire, can be revoked, and record who created them.
-Redeeming one sets a host-only cookie and redirects to the clean URL.
+Redeeming one sets a host-only cookie and redirects to the clean URL. A link
+with a limited number of uses asks for a click (a `POST`), since whatever
+fetches addresses to preview them would otherwise use it up.
+
+A request that outlives its way in is ended: a stream or a WebSocket is looked at again
+every minute, as the gate stands then, and what let it in. Those a gate turns away do
+not count as activity: they do not keep a preview
+from expiring, an environment from sleeping, or wake one.
 
 ### Sign-in gate flow
 
@@ -169,11 +190,11 @@ sequenceDiagram
     participant A as App host (ingress)
     participant C as Console host
     B->>A: GET https://app--x.apps.example.com/page
-    A-->>B: 302 → console /auth/gate?host=…&return=/page
+    A-->>B: 302 → console /auth/gate?host=…&return=/page&state=… (and a state cookie)
     B->>C: GET /auth/gate (session cookie, or sign in first)
     C-->>B: 302 → https://app--x…/.moorage/auth/callback?code=ONE_TIME_CODE
     B->>A: GET /.moorage/auth/callback?code=…
-    A->>A: redeem code (single use, 60 s), set host-only gate cookie
+    A->>A: check state against the browser's, redeem code (single use, 60 s), set host-only gate cookie
     A-->>B: 302 → /page
 ```
 
@@ -183,8 +204,12 @@ sequenceDiagram
   (`__Host-` prefix, `Secure`, `HttpOnly`, `SameSite=Lax`). It is never scoped
   to the parent domain; otherwise every app on a sibling subdomain would
   receive it.
-- **Gate cookies** are host-only per app hostname, HMAC-signed with an expiry,
-  and stripped from requests before they are proxied to the app.
+- **Gate cookies** are host-only per app hostname (`__Host-` prefix with HTTPS),
+  HMAC-signed with a key derived from the master key, over the environment's ID, a
+  generation that a change of the gate moves, an expiry, and what let them in. They
+  are stripped from requests before they are proxied to the app.
+- The **state cookie** of a sign-in shows that the browser that comes back with a
+  code is the one that left: otherwise someone could have a visitor signed in as them.
 - Apps on sibling subdomains are *same-site* with the console, so the API
   requires CSRF tokens for cookie-authenticated mutations and checks
   `Origin` / `Sec-Fetch-Site` (see [Security](08-security.md)).

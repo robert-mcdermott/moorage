@@ -32,6 +32,9 @@ import (
 // Options configure a Manager.
 type Options struct {
 	DataDir string
+	// ProxyToken is what shows an environment's instances that a request came through the
+	// router, for those that do not trust what else can reach them on this machine.
+	ProxyToken func(envID string) string
 	// ShimCmd runs `moor shim`; Shell runs `moor sh -c` for commands that
 	// are not simple. ShimEnv and ShellEnv are added to their environments.
 	ShimCmd  []string

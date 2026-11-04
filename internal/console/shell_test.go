@@ -55,7 +55,7 @@ func TestPagesAreStrict(t *testing.T) {
 	f := newFixture(t)
 	f.signedInAdmin()
 	f.db.EnsureApp(f.ctx, "shop")
-	for _, path := range []string{"/", "/activity", "/welcome", "/new", "/apps/shop", "/apps/shop/deployments", "/apps/shop/deploy", "/apps/brand-new/deploy", "/apps/shop/logs", "/apps/shop/variables", "/apps/shop/variables/edit", "/apps/shop/settings", "/account", "/account/keys", "/account/tokens", "/account/sessions", "/settings", "/settings/users", "/settings/registries", "/settings/system", "/settings/audit", "/projects", "/projects/default", "/previews", "/apps/shop/environments"} {
+	for _, path := range []string{"/", "/activity", "/welcome", "/new", "/apps/shop", "/apps/shop/deployments", "/apps/shop/deploy", "/apps/brand-new/deploy", "/apps/shop/logs", "/apps/shop/variables", "/apps/shop/variables/edit", "/apps/shop/settings", "/account", "/account/keys", "/account/tokens", "/account/sessions", "/settings", "/settings/users", "/settings/registries", "/settings/system", "/settings/audit", "/projects", "/projects/default", "/previews", "/apps/shop/environments", "/apps/shop/access"} {
 		res, body := f.get(path)
 		if res.StatusCode != http.StatusOK {
 			t.Errorf("%s: %d", path, res.StatusCode)

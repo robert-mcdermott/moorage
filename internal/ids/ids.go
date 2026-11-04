@@ -30,6 +30,8 @@ const (
 	Event      = "evt"
 	Project    = "prj"
 	Audit      = "aud"
+	ShareLink  = "shr"
+	Domain     = "dom"
 )
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

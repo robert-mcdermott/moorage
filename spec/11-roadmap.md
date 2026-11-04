@@ -920,8 +920,33 @@ directory, supervises it, and serves it on its own hostname.
 6. **Access gates.** Password, sign-in (with identity headers), share links,
    IP allow-lists, default gates per environment kind, `noindex` outside
    production; an independent review of the gate, cookie and CSRF design.
+   - Done in slice 6: every gate, `moor access`, `moor share`, an **Access** tab,
+     `access` in the manifest and `[access]` in `server.toml`, with previews behind
+     a sign-in by default. Those turned away neither wake an environment nor count
+     as using it.
+   - Found by the independent review of slice 6, each with a test now. A list of
+     addresses believed the leftmost `X-Forwarded-For`, which a client writes. Other
+     apps can reach an instance over loopback, past the gate, and say who they like: so
+     apps that do not trust their neighbours check `X-Moorage-Proxy-Token`. Parallel
+     guesses all ran before the first failure counted, so a burst is now turned away. Bad
+     links could lock out everyone by the limit for the whole environment, which now counts
+     only passwords. A tab in `next` made the sign-in redirect leave the site. `X_Moorage_User`
+     reached apps that read an underscore as a dash. A gate cookie outlived the console
+     session that opened it. A Moorage token sent to any app reached it. Opening a link could
+     replace who someone was. A stream outlived its way in. A deployer's manifest could
+     open a gate that an administrator had closed, so that a manifest now only tightens. A
+     change of the gate could silently clear its list of addresses. A gate's hashed assets
+     were marked for shared caches. Without HTTPS, one app can still set another hostname's
+     cookies and so sign someone in as someone else, which is documented, not solved.
 7. **Paths and domains.** Path prefixes and path mode; custom domains with
    DNS verification.
+   - Done in slice 7: `moor domains`, verified by a CNAME or the server's address, with
+     paths on them, so that several apps share a hostname; `routing = "path"`, with redirects
+     and cookies fitted to the path, `X-Forwarded-Prefix` and `$MOORAGE_BASE_PATH`.
+   - Found by slice 7: path mode as first designed put apps on the console's own origin,
+     where a script in any of them could act as whoever is signed in. It now needs a
+     separate console hostname. The internal CA is name-constrained to the server's domain,
+     so that HTTPS at another hostname needs a certificate from elsewhere until ACME.
 8. **Release 0.4.0.**
 
 ## 0.5.0: real apps, observed (planned)

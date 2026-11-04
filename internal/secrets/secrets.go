@@ -11,7 +11,9 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -35,6 +37,13 @@ type MasterKey struct {
 	Path    string
 	Created bool
 	key     []byte
+}
+
+// Derive returns a key for one purpose, made from the master key. It changes with the master key.
+func (m MasterKey) Derive(purpose string) []byte {
+	mac := hmac.New(sha256.New, m.key)
+	mac.Write([]byte("moorage " + purpose))
+	return mac.Sum(nil)
 }
 
 // LoadMasterKey reads the master key: from the file named by

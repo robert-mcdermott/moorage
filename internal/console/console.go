@@ -24,6 +24,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
+	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -39,7 +40,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -98,6 +99,8 @@ type Options struct {
 	Runtime  Runtime
 	// Keyring seals what the settings pages are given to keep.
 	Keyring Keyring
+	// GateRoute says what a hostname and a path serve, for the sign-in gates.
+	GateRoute func(host, path string) (ingress.RouteInfo, bool)
 }
 
 // Console serves the pages.
@@ -115,11 +118,13 @@ type Console struct {
 	runtime  Runtime
 	keyring  Keyring
 	started  time.Time
+	// gateRoute says what a hostname and a path serve, for the sign-in gates.
+	gateRoute func(host, path string) (ingress.RouteInfo, bool)
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now()}
+	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -156,6 +161,14 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("GET /auth/gate", c.gateSignIn)
+	mux.HandleFunc("GET /apps/{app}/access", c.accessPage)
+	mux.HandleFunc("POST /apps/{app}/access", c.actionWith(auth.ScopeAdmin, maxForm, c.setAccess))
+	mux.HandleFunc("POST /apps/{app}/domains", c.actionWith(auth.ScopeAdmin, maxForm, c.addDomain))
+	mux.HandleFunc("POST /apps/{app}/domains/verify", c.actionWith(auth.ScopeAdmin, maxForm, c.verifyDomain))
+	mux.HandleFunc("POST /apps/{app}/domains/remove", c.actionWith(auth.ScopeAdmin, maxForm, c.removeDomain))
+	mux.HandleFunc("POST /apps/{app}/share-links", c.action(c.createShareLink))
+	mux.HandleFunc("POST /apps/{app}/share-links/{id}/revoke", c.action(c.revokeShareLink))
 	mux.HandleFunc("POST /apps/{app}/sleep", c.action(c.sleepApp))
 	mux.HandleFunc("POST /apps/{app}/wake", c.action(c.wakeApp))
 	mux.HandleFunc("GET /previews", c.previewsPage)
@@ -280,6 +293,8 @@ type data struct {
 	EnvNames []string
 	EnvInfo  store.Environment
 	EnvRows  []environmentRow
+	// Gate says who may reach it, on its Access page.
+	Gate *accessView
 	// Usage says how much room it takes.
 	Usage deploy.AppUsage
 
@@ -508,7 +523,7 @@ func (c *Console) setup(w http.ResponseWriter, r *http.Request) {
 
 // safeNext keeps a redirect after signing in on this site.
 func safeNext(next string) string {
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, `/\`) || strings.ContainsAny(next, "\r\n") {
+	if !ingress.SafeLocalPath(next) {
 		return "/"
 	}
 	return next

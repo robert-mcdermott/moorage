@@ -20,6 +20,9 @@ import (
 type requestInfo struct {
 	id       string
 	instance string
+	// prefix is the path it is served at, and proxyToken shows the app it came through here.
+	prefix     string
+	proxyToken string
 }
 
 type infoKey struct{}
@@ -101,26 +104,43 @@ func wantsPage(r *http.Request) bool {
 // log. A request ID from a trusted proxy is kept; otherwise one is made.
 func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 	start := time.Now()
-	client := remoteIP(r.RemoteAddr)
-	trusted := isTrusted(client, rt.trusted)
-	info := &requestInfo{id: newRequestID()}
+	client := rt.clientAddress(r)
+	trusted := isTrusted(remoteIP(r.RemoteAddr), rt.trusted)
+	info := &requestInfo{id: newRequestID(), prefix: rte.prefix, proxyToken: rte.proxyToken}
 	if id := r.Header.Get("X-Request-Id"); trusted && validRequestID(id) {
 		info.id = id
 	}
-	if trusted {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			client = strings.TrimSpace(strings.Split(xff, ",")[0])
-		}
-	}
 	w.Header().Set("X-Request-Id", info.id)
 	key := rte.app + "/" + rte.env
-	rt.active.Store(key, start)
 	open := rt.openCount(key)
 	open.Add(1)
 	defer open.Add(-1)
-	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-	if rt.awaitAwake(rec, r, rte) {
-		rte.handler.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), infoKey{}, info)))
+	rec := &recorder{ResponseWriter: w, status: http.StatusOK, prefix: rte.prefix, private: rte.gate.guarded()}
+	user := ""
+	// Those the gate turns away neither keep an environment alive, nor wake it.
+	if who, ok := rt.admit(rec, r, rte); ok {
+		rt.active.Store(key, start)
+		ctx := context.WithValue(r.Context(), infoKey{}, info)
+		if who != nil {
+			user = who.user.Email
+			ctx = context.WithValue(ctx, identityKey{}, who)
+		}
+		if rte.gate.guarded() {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			defer cancel()
+			defer rt.watchAdmission(ctx, cancel, r, rte, who)()
+		}
+		if rt.awaitAwake(rec, r, rte) {
+			inner := r.WithContext(ctx)
+			if rte.strip {
+				stripped := *r.URL
+				stripped.Path = strings.TrimPrefix(r.URL.Path, rte.prefix)
+				stripped.RawPath = ""
+				inner.URL = &stripped
+			}
+			rte.handler.ServeHTTP(rec, inner)
+		}
 	}
 	rt.access(rte, accessEntry{
 		Time:     start.UTC(),
@@ -133,6 +153,7 @@ func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 		Millis:   float64(time.Since(start).Microseconds()) / 1000,
 		Client:   client,
 		Instance: info.instance,
+		User:     user,
 	})
 }
 
@@ -159,6 +180,7 @@ type accessEntry struct {
 	Millis   float64   `json:"ms"`
 	Client   string    `json:"client"`
 	Instance string    `json:"instance,omitempty"`
+	User     string    `json:"user,omitempty"`
 }
 
 // access appends an entry to logs/router/<app>/<env>.log.
@@ -222,16 +244,35 @@ type recorder struct {
 	status int
 	bytes  int64
 	wrote  bool
+	// prefix is the path it is served at, whose redirects and cookies must fit it, and private
+	// says that what it serves is not for everyone, so that no cache should keep it for them.
+	prefix  string
+	private bool
+}
+
+// finalHeaders changes what is about to be sent.
+func (r *recorder) finalHeaders() {
+	h := r.ResponseWriter.Header()
+	if r.prefix != "" {
+		rewriteForPrefix(h, r.prefix)
+	}
+	if cc := h.Get("Cache-Control"); r.private && strings.Contains(cc, "public") {
+		h.Set("Cache-Control", strings.ReplaceAll(cc, "public", "private"))
+	}
 }
 
 func (r *recorder) WriteHeader(code int) {
-	if !r.wrote {
+	if !r.wrote && code >= 200 {
+		r.finalHeaders()
 		r.status, r.wrote = code, true
 	}
 	r.ResponseWriter.WriteHeader(code)
 }
 
 func (r *recorder) Write(b []byte) (int, error) {
+	if !r.wrote {
+		r.finalHeaders()
+	}
 	r.wrote = true
 	n, err := r.ResponseWriter.Write(b)
 	r.bytes += int64(n)
@@ -240,7 +281,13 @@ func (r *recorder) Write(b []byte) (int, error) {
 
 func (r *recorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
-func (r *recorder) Flush() { http.NewResponseController(r.ResponseWriter).Flush() }
+func (r *recorder) Flush() {
+	if !r.wrote {
+		r.finalHeaders()
+		r.wrote = true
+	}
+	http.NewResponseController(r.ResponseWriter).Flush()
+}
 
 func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	r.status, r.wrote = http.StatusSwitchingProtocols, true

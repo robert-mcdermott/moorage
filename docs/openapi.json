@@ -13,6 +13,66 @@
       }
     },
     "schemas": {
+      "Access": {
+        "properties": {
+          "allow": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "any_user": {
+            "type": "boolean"
+          },
+          "asked_in_vain": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "password_missing": {
+            "type": "boolean"
+          },
+          "password_set": {
+            "type": "boolean"
+          },
+          "setting": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "source",
+          "allow"
+        ],
+        "type": "object"
+      },
+      "AccessChange": {
+        "properties": {
+          "allow": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "any_user": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
       "App": {
         "properties": {
           "created_at": {
@@ -405,6 +465,46 @@
         "required": [
           "op",
           "text"
+        ],
+        "type": "object"
+      },
+      "Domain": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "record": {
+            "type": "string"
+          },
+          "strip_prefix": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "hostname",
+          "verified",
+          "record"
         ],
         "type": "object"
       },
@@ -803,6 +903,20 @@
         ],
         "type": "object"
       },
+      "NewDomain": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "strip_prefix": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "type": "object"
+      },
       "NewEnvironment": {
         "properties": {
           "branch": {
@@ -851,6 +965,17 @@
         "required": [
           "public_key"
         ],
+        "type": "object"
+      },
+      "NewShareLink": {
+        "properties": {
+          "expires": {
+            "type": "string"
+          },
+          "max_uses": {
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "NewToken": {
@@ -1280,6 +1405,49 @@
           "created_at",
           "last_seen_at",
           "expires_at"
+        ],
+        "type": "object"
+      },
+      "ShareLink": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "max_uses": {
+            "type": "integer"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "uses": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_by",
+          "created_at",
+          "expires_at",
+          "uses"
         ],
         "type": "object"
       },
@@ -2065,6 +2233,128 @@
         "x-moorage-permission": "deploy"
       }
     },
+    "/apps/{app}/envs/{env}/access": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvAccess",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Access"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Who may reach an environment",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "put": {
+        "operationId": "putAppsAppEnvsEnvAccess",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Access"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Change who may reach an environment, at once",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
     "/apps/{app}/envs/{env}/deployments": {
       "get": {
         "operationId": "getAppsAppEnvsEnvDeployments",
@@ -2215,6 +2505,258 @@
           "apps"
         ],
         "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/domains": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvDomains",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Domain"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an environment's domains",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "post": {
+        "operationId": "postAppsAppEnvsEnvDomains",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewDomain"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Attach a domain, which serves once its DNS points here",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/domains/remove": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvDomainsRemove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewDomain"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Detach a domain",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/domains/verify": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvDomainsVerify",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewDomain"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Look now at where a domain points",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
       }
     },
     "/apps/{app}/envs/{env}/instances": {
@@ -2943,6 +3485,189 @@
           }
         ],
         "summary": "Serve an earlier release again",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/share-links": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvShareLinks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ShareLink"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an environment's share links",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      },
+      "post": {
+        "operationId": "postAppsAppEnvsEnvShareLinks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewShareLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareLink"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Make a link that lets someone reach an environment: the answer alone has its address",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/share-links/{id}": {
+      "delete": {
+        "operationId": "deleteAppsAppEnvsEnvShareLinksId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "End a share link, and within a minute everyone it let in",
         "tags": [
           "apps"
         ],

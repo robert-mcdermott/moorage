@@ -413,16 +413,23 @@ func (m *Manager) addMoorage(app, env string, rel store.Release, build store.Bui
 	if err != nil {
 		kind = store.KindProduction
 	}
+	token := ""
+	if m.opts.ProxyToken != nil {
+		if id, err := m.db.EnvID(context.Background(), app, env); err == nil {
+			token = m.opts.ProxyToken(id)
+		}
+	}
 	for k, v := range map[string]string{
-		"HOST":              host,
-		"MOORAGE_APP":       app,
-		"MOORAGE_ENV":       env,
-		"MOORAGE_ENV_KIND":  kind,
-		"MOORAGE_RELEASE":   "v" + strconv.Itoa(rel.Version),
-		"MOORAGE_BUILD_ID":  build.ID,
-		"MOORAGE_URL":       m.cfg.EnvURL(app, env),
-		"MOORAGE_BASE_PATH": "",
-		"MOORAGE_DATA_DIR":  dataDir,
+		"MOORAGE_PROXY_TOKEN": token,
+		"HOST":                host,
+		"MOORAGE_APP":         app,
+		"MOORAGE_ENV":         env,
+		"MOORAGE_ENV_KIND":    kind,
+		"MOORAGE_RELEASE":     "v" + strconv.Itoa(rel.Version),
+		"MOORAGE_BUILD_ID":    build.ID,
+		"MOORAGE_URL":         m.cfg.EnvURL(app, env),
+		"MOORAGE_BASE_PATH":   m.cfg.EnvPrefix(app, env),
+		"MOORAGE_DATA_DIR":    dataDir,
 	} {
 		vars[k] = v
 		delete(secrets, k)

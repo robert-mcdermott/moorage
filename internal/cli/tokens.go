@@ -141,6 +141,7 @@ func newTokensCreateCmd() *cobra.Command {
   read    see apps, deployments, releases and logs; fetch their repositories
   deploy  also deploy, restart, roll back, push, and see variables
   admin   also change variables, and manage your tokens and keys
+  gate    only get through the sign-in gates of apps, as you
 
 --app restricts it to one app, and --expires makes it stop working after a
 time, such as 90d.`,
@@ -170,7 +171,7 @@ time, such as 90d.`,
 	}
 	conn.addFlags(cmd)
 	f := cmd.Flags()
-	f.StringSliceVar(&scopes, "scope", []string{"deploy"}, "what it may do: read, deploy or admin")
+	f.StringSliceVar(&scopes, "scope", []string{"deploy"}, "what it may do: read, deploy, admin, or gate to get through sign-in gates")
 	f.StringVar(&app, "app", "", "restrict it to one app")
 	f.StringVar(&expires, "expires", "", "stop working after this long, such as 90d")
 	return cmd

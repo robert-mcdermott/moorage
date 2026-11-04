@@ -30,7 +30,11 @@ how it works inside and where it is going.
   already built
 - [Variables and secrets](variables.md)
 - [Previews and environments](previews.md): a place of its own for every branch,
-  staging, promoting and locks
+  staging, promoting, locks and sleeping
+- [Who can reach an app](access.md): passwords, signing in, share links and lists
+  of addresses
+- [Your own domains, and paths](domains.md): hostnames of your own, several apps on one
+  hostname, and servers with no wildcard DNS
 
 ## Reference
 
@@ -57,6 +61,9 @@ how it works inside and where it is going.
 | `moor promote --from ENV` | Releases what one environment runs to another, without building it again |
 | `moor lock`, `moor unlock` | Stops deployments to an environment, and lets them go on |
 | `moor sleep`, `moor wake` | Stops an environment's instances until a request wakes it, and starts them |
+| `moor access` | Shows who can reach an environment; `set` changes it |
+| `moor share` | Makes a link that lets someone reach an environment; `list` and `revoke` them |
+| `moor domains` | Lists an environment's own hostnames; `add`, `verify` and `remove` one |
 | `moor redeploy` | Builds the current release's source again, and rolls it out |
 | `moor ps` | Lists the app's instances: status, health, port, PID |
 | `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |

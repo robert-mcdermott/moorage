@@ -434,6 +434,81 @@ type Environment struct {
 	LastActive time.Time `json:"last_active_at,omitzero"`
 }
 
+// Domain is a hostname of your own, or a path on one, attached to an environment.
+type Domain struct {
+	// Address is its hostname and path, as you would write them.
+	Address     string `json:"address"`
+	Hostname    string `json:"hostname"`
+	Prefix      string `json:"prefix,omitempty"`
+	StripPrefix bool   `json:"strip_prefix,omitempty"`
+	// Verified says that its DNS was seen to point here, so that it serves.
+	Verified   bool      `json:"verified"`
+	VerifiedAt time.Time `json:"verified_at,omitzero"`
+	CheckedAt  time.Time `json:"checked_at,omitzero"`
+	// Problem says why it does not point here, and Record what DNS record it needs.
+	Problem string `json:"problem,omitempty"`
+	Record  string `json:"record"`
+}
+
+// NewDomain names a domain.
+type NewDomain struct {
+	Address     string `json:"address"`
+	StripPrefix bool   `json:"strip_prefix,omitempty"`
+}
+
+// Access says who may reach an environment.
+type Access struct {
+	// Mode is the gate it has: public, password, login or share.
+	Mode string `json:"mode"`
+	// Source says where that comes from: setting, manifest or server.
+	Source string `json:"source"`
+	// Setting is the gate set for it, if one is; otherwise it is left to the manifest and the server.
+	Setting string `json:"setting,omitempty"`
+	// AskedInVain says that its manifest asks for no gate, which only a maintainer can allow.
+	AskedInVain bool `json:"asked_in_vain,omitempty"`
+	// PasswordSet says that it has a password, and PasswordMissing that it needs one, and
+	// that nobody can reach it until it has.
+	PasswordSet     bool `json:"password_set,omitempty"`
+	PasswordMissing bool `json:"password_missing,omitempty"`
+	// Allow lists the addresses it can be reached from; none is anywhere.
+	Allow []string `json:"allow"`
+	// AnyUser lets anyone with an account through the login gate, not only those with a role.
+	AnyUser bool `json:"any_user,omitempty"`
+}
+
+// AccessChange changes who may reach an environment.
+type AccessChange struct {
+	// Mode is public, password, login or share; empty leaves it to the manifest and the server.
+	Mode string `json:"mode"`
+	// Password, if not empty, is its new password.
+	Password string `json:"password,omitempty"`
+	// Allow, if present, replaces the list of addresses: an empty one is from anywhere.
+	Allow   *[]string `json:"allow,omitempty"`
+	AnyUser bool      `json:"any_user,omitempty"`
+}
+
+// ShareLink lets whoever holds it reach an environment, whatever its gate.
+type ShareLink struct {
+	ID string `json:"id"`
+	// URL is the link, which only making it shows.
+	URL        string    `json:"url,omitempty"`
+	CreatedBy  string    `json:"created_by"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	MaxUses    int       `json:"max_uses,omitempty"`
+	Uses       int       `json:"uses"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	RevokedAt  time.Time `json:"revoked_at,omitzero"`
+}
+
+// NewShareLink makes a share link.
+type NewShareLink struct {
+	// Expires is how long it lasts, such as 3d or 12h: seven days unless it says.
+	Expires string `json:"expires,omitempty"`
+	// MaxUses is how many times it can be used; 0 is without limit.
+	MaxUses int `json:"max_uses,omitempty"`
+}
+
 // NewEnvironment makes a named environment.
 type NewEnvironment struct {
 	Name   string `json:"name"`

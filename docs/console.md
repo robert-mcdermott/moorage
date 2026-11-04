@@ -91,6 +91,13 @@ production, **Lock** one against deployments, **Pin** a preview and **Remove** o
 **Previews** in the sidebar has those of every app you can see, with when each was last used and
 when it expires.
 
+## Domains and access
+
+An app's **Domains and access** tab has [hostnames of your own](domains.md) for the chosen environment, with the
+DNS record each needs and whether it points here. It says [who can reach](access.md) the environment, and why, and for
+maintainers changes it: anyone, a password, those signed in, or only share links, and a list of addresses. Below it,
+deployers make and revoke **share links**, each shown only when it is made.
+
 ## A deployment
 
 Its page shows how it is going, as it goes:

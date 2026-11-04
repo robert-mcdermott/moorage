@@ -64,6 +64,8 @@ type App struct {
 	Root       string   `toml:"root"`
 	Shell      string   `toml:"shell"`
 	Watch      []string `toml:"watch"`
+	// StripPrefix takes away the path it is served at from what it hears, with path routing.
+	StripPrefix bool `toml:"strip_prefix"`
 }
 
 // Load reads dir/moorage.toml. It returns nil, nil when there is none.

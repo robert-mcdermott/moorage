@@ -72,16 +72,10 @@ func Lint(m *Manifest) []string {
 		if m.Previews.Data != "" {
 			notYet("previews.data", "a preview's data directory starts empty")
 		}
-		if m.Previews.Access != "" {
-			notYet("previews.access", "access gates arrive in a later release")
-		}
 	}
 	for name, e := range m.Environments {
 		if e.Resources != nil {
 			notYet("environments."+name+".resources", "a later release")
-		}
-		if e.Access != "" {
-			notYet("environments."+name+".access", "access gates arrive in a later release")
 		}
 	}
 	if len(m.Services) > 0 {

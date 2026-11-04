@@ -10,7 +10,7 @@
 //	TESTAPP_IGNORE_TERM  ignore the stop signal (to test forced stops)
 //	TESTAPP_PRINT        print the value of this variable at start
 //
-// Paths: /health, /pid, /env?name=X, /headers, /slow?ms=N, /crash, /sick
+// Paths: /health, /pid, /env?name=X, /headers, /redirect?to=X, /path, /slow?ms=N, /crash, /sick
 // (from then on /health fails), and /upgrade, which switches to an echo
 // protocol (to test proxied upgrades).
 package testapp
@@ -107,8 +107,14 @@ func handler() http.Handler {
 	mux.HandleFunc("/sick", func(w http.ResponseWriter, r *http.Request) { sick.Store(true); fmt.Fprint(w, "now sick") })
 	mux.HandleFunc("/pid", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, os.Getpid()) })
 	mux.HandleFunc("/env", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, os.Getenv(r.URL.Query().Get("name"))) })
+	mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "from_app", Value: "1", Path: "/"})
+		w.Header().Set("Location", r.URL.Query().Get("to"))
+		w.WriteHeader(http.StatusFound)
+	})
+	mux.HandleFunc("/path", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, r.URL.Path) })
 	mux.HandleFunc("/headers", func(w http.ResponseWriter, r *http.Request) {
-		for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Request-Id", "X-Moorage-User"} {
+		for _, h := range []string{"Cookie", "Authorization", "X-Moorage-User", "X-Moorage-User-Email", "X-Moorage-User-Name", "X-Moorage-Proxy-Token", "X_moorage_user", "X-Real-Ip", "X-Forwarded-Prefix", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Request-Id"} {
 			fmt.Fprintf(w, "%s: %s\n", h, r.Header.Get(h))
 		}
 		fmt.Fprintf(w, "Host: %s\n", r.Host)

@@ -156,6 +156,11 @@ func (c *Console) settingsPage(w http.ResponseWriter, r *http.Request) {
 				{"Browsers see", cfg.Proxy.ExternalScheme},
 				{"Trusted proxies", orNone(strings.Join(cfg.Proxy.Trusted, ", "))},
 			}},
+			{"Who may reach what, unless the manifest or a maintainer says otherwise", []setting{
+				{"Production", gateLabels[cfg.Access.Production]},
+				{"Named environments", gateLabels[cfg.Access.Named]},
+				{"Previews", gateLabels[cfg.Access.Preview]},
+			}},
 			{"Running apps", []setting{
 				{"Container engine", cfg.Containers.Engine},
 				{"Data directory", cfg.DataDir},

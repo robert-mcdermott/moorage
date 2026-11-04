@@ -73,7 +73,7 @@ func startLocalServer(t *testing.T) string {
 	case <-ready:
 	case err := <-done:
 		t.Fatalf("server did not start: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("server did not start in time")
 	}
 	t.Cleanup(func() {

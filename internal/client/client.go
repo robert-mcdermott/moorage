@@ -727,6 +727,65 @@ func (c *Client) WakeEnvironment(ctx context.Context, app, env string) (apitypes
 	return out, err
 }
 
+// Domains lists an environment's domains.
+func (c *Client) Domains(ctx context.Context, app, env string) ([]apitypes.Domain, error) {
+	var out []apitypes.Domain
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "domains"), nil, "", &out)
+	return out, err
+}
+
+// AddDomain attaches a domain to an environment.
+func (c *Client) AddDomain(ctx context.Context, app, env string, req apitypes.NewDomain) (apitypes.Domain, error) {
+	var out apitypes.Domain
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "domains"), req, &out)
+	return out, err
+}
+
+// VerifyDomain looks now at where a domain points.
+func (c *Client) VerifyDomain(ctx context.Context, app, env, address string) (apitypes.Domain, error) {
+	var out apitypes.Domain
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "domains/verify"), apitypes.NewDomain{Address: address}, &out)
+	return out, err
+}
+
+// RemoveDomain detaches a domain.
+func (c *Client) RemoveDomain(ctx context.Context, app, env, address string) error {
+	return c.post(ctx, http.MethodPost, envPath(app, env, "domains/remove"), apitypes.NewDomain{Address: address}, nil)
+}
+
+// Access says who may reach an environment.
+func (c *Client) Access(ctx context.Context, app, env string) (apitypes.Access, error) {
+	var out apitypes.Access
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "access"), nil, "", &out)
+	return out, err
+}
+
+// SetAccess changes who may reach an environment.
+func (c *Client) SetAccess(ctx context.Context, app, env string, change apitypes.AccessChange) (apitypes.Access, error) {
+	var out apitypes.Access
+	err := c.post(ctx, http.MethodPut, envPath(app, env, "access"), change, &out)
+	return out, err
+}
+
+// ShareLinks lists an environment's share links.
+func (c *Client) ShareLinks(ctx context.Context, app, env string) ([]apitypes.ShareLink, error) {
+	var out []apitypes.ShareLink
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "share-links"), nil, "", &out)
+	return out, err
+}
+
+// CreateShareLink makes a link that lets someone reach an environment.
+func (c *Client) CreateShareLink(ctx context.Context, app, env string, req apitypes.NewShareLink) (apitypes.ShareLink, error) {
+	var out apitypes.ShareLink
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "share-links"), req, &out)
+	return out, err
+}
+
+// RevokeShareLink ends a share link.
+func (c *Client) RevokeShareLink(ctx context.Context, app, env, id string) error {
+	return c.do(ctx, http.MethodDelete, envPath(app, env, "share-links/"+url.PathEscape(id)), nil, "", nil)
+}
+
 // DeleteProject deletes a project that has no apps.
 func (c *Client) DeleteProject(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(name), nil, "", nil)

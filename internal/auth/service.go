@@ -138,6 +138,8 @@ type Service struct {
 	Log       *slog.Logger
 	// Now, if set, replaces the clock (tests).
 	Now func() time.Time
+
+	gate gateCodes
 }
 
 func (s *Service) now() time.Time {

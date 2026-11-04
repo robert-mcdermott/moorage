@@ -39,6 +39,12 @@ const (
 	EnvironmentUnlocked  = "environment.unlocked"
 	EnvironmentSlept     = "environment.slept"
 	EnvironmentWoke      = "environment.woke"
+	AccessChanged        = "access.changed"
+	ShareCreated         = "share.created"
+	ShareRevoked         = "share.revoked"
+	DomainAdded          = "domain.added"
+	DomainVerified       = "domain.verified"
+	DomainRemoved        = "domain.removed"
 	ServerStarted        = "server.started"
 )
 
@@ -165,13 +171,13 @@ func Transient(kind string) bool { return kind == DeploymentStarted }
 // Level says how an event of a type should look: "ok", "info", "warn" or "fail".
 func Level(kind string) string {
 	switch kind {
-	case DeploymentLive, InstanceHealthy:
+	case DeploymentLive, InstanceHealthy, DomainVerified:
 		return "ok"
 	case DeploymentFailed:
 		return "fail"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
-	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked, EnvironmentWoke:
+	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked, EnvironmentWoke, AccessChanged, ShareCreated, ShareRevoked, DomainAdded, DomainRemoved:
 		return "info"
 	case AppDeleted, EnvironmentDeleted, EnvironmentLocked:
 		return "warn"
@@ -276,6 +282,18 @@ func Summary(e store.Event) string {
 		return "Environment " + e.Env + " made"
 	case EnvironmentDeleted:
 		return "Environment " + e.Env + " removed" + by
+	case DomainAdded:
+		return text(e, "domain") + " attached to " + e.Env + by
+	case DomainVerified:
+		return text(e, "domain") + " points here, and serves " + e.Env
+	case DomainRemoved:
+		return text(e, "domain") + " detached from " + e.Env + by
+	case AccessChanged:
+		return e.Env + "'s gate is now " + text(e, "mode") + by
+	case ShareCreated:
+		return "A share link to " + e.Env + " was made" + by
+	case ShareRevoked:
+		return "A share link to " + e.Env + " was revoked" + by
 	case EnvironmentSlept:
 		if e.Actor == "" {
 			return e.Env + " went to sleep: nothing was using it"

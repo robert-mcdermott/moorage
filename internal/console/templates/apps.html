@@ -9,6 +9,7 @@
   {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/variables{{envq .Env}}"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
   <a href="/apps/{{.App.Name}}/deploy{{envq .Env}}"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
   <a href="/apps/{{.App.Name}}/environments"{{if eq .Tab "environments"}} aria-current="page"{{end}}>Environments</a>
+  <a href="/apps/{{.App.Name}}/access{{envq .Env}}"{{if eq .Tab "access"}} aria-current="page"{{end}}>Domains and access</a>
   {{if .Access.Manage}}<a href="/apps/{{.App.Name}}/settings"{{if eq .Tab "settings"}} aria-current="page"{{end}}>Settings</a>{{end}}
 </nav>
 {{if and (gt (len .EnvNames) 1) (ne .Tab "environments") (ne .Tab "settings")}}
@@ -482,13 +483,14 @@
   <table class="apps envs">
     <thead><tr><th scope="col">Environment</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Release</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
     <tbody>
-    {{range .EnvRows}}
+    {{range $row := .EnvRows}}
     <tr>
       <td>
         <a class="app-name" href="/apps/{{.App}}{{envq .Name}}">{{.Name}}</a>
         {{if eq .Kind "preview"}}<span class="badge info">Preview</span>{{end}}
         {{with .LockedBy}}<span class="badge warn" title="Locked by {{.}}">Locked</span>{{end}}
         {{if .Pinned}}<span class="badge">Pinned</span>{{end}}
+        {{with .Gate}}<a class="badge quiet-link" href="/apps/{{$app}}/access{{envq $row.Name}}" title="Who may reach it">{{.}}</a>{{end}}
         {{with .Branch}}<div class="muted small">branch {{.}}</div>{{end}}
       </td>
       <td>{{template "status" .Status}}</td>
@@ -577,7 +579,7 @@
     <tbody>
     {{range .EnvRows}}
     <tr>
-      <td><a class="app-name" href="/apps/{{.App}}{{envq .Name}}">{{.App}} · {{.Name}}</a>{{if .Pinned}} <span class="badge">Pinned</span>{{end}}{{with .Branch}}<div class="muted small">branch {{.}}</div>{{end}}</td>
+      <td><a class="app-name" href="/apps/{{.App}}{{envq .Name}}">{{.App}} · {{.Name}}</a>{{if .Pinned}} <span class="badge">Pinned</span>{{end}}{{with .Gate}} <span class="badge">{{.}}</span>{{end}}{{with .Branch}}<div class="muted small">branch {{.}}</div>{{end}}</td>
       <td>{{template "status" .Status}}</td>
       <td><a href="{{.URL}}">{{bareURL .URL}}</a></td>
       <td class="muted nowrap" data-label="Last used">{{agoOrDash .Active}}</td>
@@ -596,4 +598,125 @@
 </section>
 {{end}}
 </div>
+{{end}}
+
+{{define "app-access"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{$env := .Env}}
+{{with .Gate}}
+{{if .PasswordMissing}}<p class="notice fail" role="alert">Its gate asks for a password nobody has set, so nobody can reach it. Set one below.</p>{{end}}
+{{with .NewLink}}
+<section class="notice ok new-link" role="status">
+  <p>Here is the link. It is shown only now, so copy it before you leave this page.</p>
+  {{template "command" .}}
+</section>
+{{end}}
+<section class="block">
+  <div class="section-heading"><h2>Domains</h2></div>
+  <p class="muted">It is at <a href="{{$.App.URL}}">{{bareURL $.App.URL}}</a>. It can also be at a hostname of your own, or a path on one, once its DNS points here.{{if .NoCertificate}} This server's own CA vouches only for its own domain, so that HTTPS at another hostname needs <code>[tls] mode = "files"</code> with a certificate for it, or a proxy in front.{{end}}</p>
+  {{if .Domains}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Domain</th><th scope="col">State</th><th scope="col">Its DNS</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Domains}}
+      <tr>
+        <td class="app-name">{{.Address}}{{if .StripPrefix}} <span class="muted small">the path is taken away</span>{{end}}</td>
+        <td data-label="State">{{if .Verified}}<span class="badge ok">Serving</span>{{else}}<span class="badge warn">Not pointing here yet</span>{{end}}</td>
+        <td class="muted small" data-label="Its DNS"><code>{{.Record}}</code>{{with .Problem}}<div>{{.}}</div>{{end}}</td>
+        <td class="row-end env-actions">{{if $.Access.Manage}}
+          {{if not .Verified}}
+          <form method="post" action="/apps/{{$app}}/domains/verify{{envq $env}}" data-busy="Looking…">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="address" value="{{.Address}}">
+            <button class="quiet small" type="submit">Look again</button>
+          </form>{{end}}
+          <form method="post" action="/apps/{{$app}}/domains/remove{{envq $env}}" data-confirm="Detach {{.Address}}?">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="address" value="{{.Address}}">
+            <button class="quiet small" type="submit">Detach</button>
+          </form>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  {{if $.Access.Manage}}
+  <form class="panel panel-pad share-form" method="post" action="/apps/{{$app}}/domains{{envq $env}}" data-busy="Looking…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="domain-address">Hostname, and path if any</label><input id="domain-address" name="address" required autocomplete="off" spellcheck="false" placeholder="portal.example.com"></div>
+    <label class="check"><input type="checkbox" name="strip" value="1"> Take a path away from what the app hears</label>
+    <button class="quiet" type="submit">Attach it</button>
+  </form>
+  {{end}}
+</section>
+<section class="panel panel-pad block">
+  <h2>Who can reach it</h2>
+  {{if .AskedInVain}}<p class="notice warn" role="status">Its <code>moorage.toml</code> asks for no gate, which only a maintainer can allow: choose Anyone below to allow it.</p>{{end}}
+  <p><span class="badge{{if eq .Mode "public"}} ok{{else}} info{{end}}">{{.Label}}</span> <span class="muted small">{{.Source}}</span></p>
+  {{if $.Access.Manage}}
+  <form method="post" action="/apps/{{$app}}/access{{envq $env}}" data-busy="Saving…" class="gate-form">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <fieldset>
+      <legend>Its gate</legend>
+      <label class="check"><input type="radio" name="mode" value=""{{if not .Setting}} checked{{end}}> As its manifest and the server say</label>
+      <label class="check"><input type="radio" name="mode" value="public"{{if eq .Setting "public"}} checked{{end}}> Anyone</label>
+      <label class="check"><input type="radio" name="mode" value="password"{{if eq .Setting "password"}} checked{{end}}> A password that you share</label>
+      <label class="check"><input type="radio" name="mode" value="login"{{if eq .Setting "login"}} checked{{end}}> People signed in here: the app hears who they are</label>
+      <label class="check"><input type="radio" name="mode" value="share"{{if eq .Setting "share"}} checked{{end}}> Only people with a share link</label>
+    </fieldset>
+    <div class="field">
+      <label for="gate-password">Password {{if .PasswordSet}}<span class="hint">(it has one: leave this empty to keep it)</span>{{else}}<span class="hint">(for the password gate)</span>{{end}}</label>
+      <input id="gate-password" type="password" name="password" autocomplete="new-password" minlength="8">
+    </div>
+    <label class="check"><input type="checkbox" name="any_user" value="1"{{if .AnyUser}} checked{{end}}> With a sign-in, let in anyone with an account, not only those with a role in its project</label>
+    <div class="field">
+      <label for="gate-allow">Only from these addresses <span class="hint">(optional, one to a line: 10.0.0.0/8 or 192.0.2.7)</span></label>
+      <textarea id="gate-allow" name="allow" rows="3" spellcheck="false">{{.AllowText}}</textarea>
+    </div>
+    <p class="hint small">Changing the gate or its password ends the way in of everyone who is in.</p>
+    <div class="actions"><button class="quiet" type="submit">Save</button></div>
+  </form>
+  {{else if .AllowText}}
+  <p class="muted">Only from: {{.AllowText}}</p>
+  {{end}}
+</section>
+{{if $.Access.Deploy}}
+<section class="block">
+  <div class="section-heading"><h2>Share links</h2></div>
+  <p class="muted">A link lets whoever holds it through any gate, without an account or a password, until it ends.</p>
+  {{if .Links}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Made</th><th scope="col">State</th><th scope="col">Expires</th><th scope="col">Uses</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Links}}
+      <tr>
+        <td><time datetime="{{iso .Created}}">{{ago .Created}}</time> <span class="muted small">by {{.By}}</span></td>
+        <td data-label="State">{{if .Active}}<span class="badge ok">{{.State}}</span>{{else}}<span class="badge">{{.State}}</span>{{end}}</td>
+        <td class="muted" data-label="Expires">{{if .Active}}<time datetime="{{iso .Expires}}">{{untilText .Expires}}</time>{{else}}—{{end}}</td>
+        <td data-label="Uses">{{.Uses}}</td>
+        <td class="row-end">{{if .Active}}
+          <form method="post" action="/apps/{{$app}}/share-links/{{.ID}}/revoke{{envq $env}}" data-confirm="End this link, and the way in of whoever it let in?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <button class="quiet small" type="submit">Revoke</button>
+          </form>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  <form class="panel panel-pad share-form" method="post" action="/apps/{{$app}}/share-links{{envq $env}}" data-busy="Making…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="share-expires">It lasts</label>
+      <select id="share-expires" name="expires"><option value="1d">A day</option><option value="7d" selected>A week</option><option value="30d">A month</option><option value="90d">Three months</option></select></div>
+    <div class="field"><label for="share-uses">Uses <span class="hint">(optional)</span></label><input id="share-uses" type="number" name="max_uses" min="1" inputmode="numeric" placeholder="No limit"></div>
+    <button class="quiet" type="submit">Make a link</button>
+  </form>
+</section>
+{{end}}
+{{end}}
 {{end}}

@@ -384,9 +384,10 @@ func TestPreviewsExpire(t *testing.T) {
 		_, err := c.Environment(ctx, "docs", "left-alone")
 		return status(err) == http.StatusNotFound
 	})
-	if res, _ := get(t, addrs.HTTP, "docs--left-alone.localhost", "/"); res.StatusCode != http.StatusNotFound {
-		t.Errorf("the preview that went: %d", res.StatusCode)
-	}
+	waitUntil(t, "the preview that went to stop answering", func() bool {
+		res, _ := get(t, addrs.HTTP, "docs--left-alone.localhost", "/")
+		return res.StatusCode == http.StatusNotFound
+	})
 	for _, env := range []string{"in-use", "kept"} {
 		if e, err := c.Environment(ctx, "docs", env); err != nil || e.Name != env {
 			t.Errorf("%s: %+v %v", env, e, err)

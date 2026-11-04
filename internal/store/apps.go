@@ -69,6 +69,9 @@ type Route struct {
 	Build   Build
 	// Asleep says that its instances are stopped until a request wakes it.
 	Asleep bool
+	// EnvID and Access say who may reach it.
+	EnvID  string
+	Access EnvAccess
 }
 
 // EnsureApp creates the app if it does not exist yet, with its production
@@ -439,6 +442,7 @@ func (db *DB) ReleasesBefore(ctx context.Context, app, env string, before, limit
 // Routes lists every environment that serves a release, with its build.
 func (db *DB) Routes(ctx context.Context) ([]Route, error) {
 	rows, err := db.Reader.QueryContext(ctx, `SELECT a.name, e.name, e.kind, r.version, e.asleep_at IS NOT NULL,
+			e.id, e.access_mode, e.access_password, e.access_allow, e.access_any_user, e.access_generation,
 			b.id, b.app_id, b.source_type, b.artifact_kind, b.artifact_ref, b.plan, b.files, b.size_bytes, b.created_at
 		FROM environments e
 		JOIN apps a ON a.id = e.app_id
@@ -453,11 +457,15 @@ func (db *DB) Routes(ctx context.Context) ([]Route, error) {
 		var rt Route
 		var plan string
 		var created int64
+		var mode, password, allow sql.NullString
+		var anyUser int
 		b := &rt.Build
 		if err := rows.Scan(&rt.App, &rt.Env, &rt.Kind, &rt.Version, &rt.Asleep,
+			&rt.EnvID, &mode, &password, &allow, &anyUser, &rt.Access.Generation,
 			&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &created); err != nil {
 			return nil, err
 		}
+		rt.Access.Mode, rt.Access.PasswordHash, rt.Access.Allow, rt.Access.AnyUser = mode.String, password.String, splitAllow(allow.String), anyUser != 0
 		b.Plan = json.RawMessage(plan)
 		b.CreatedAt = time.UnixMilli(created).UTC()
 		out = append(out, rt)

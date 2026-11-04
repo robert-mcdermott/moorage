@@ -12,7 +12,8 @@ and releases. Those places are its **environments**:
 Production is at `shop.apps.example.com`, and the others at `shop--staging.apps.example.com`.
 The double dash keeps the name one label, so that the one wildcard DNS record and certificate
 the server already has cover every environment of every app. Anything but production answers
-with `X-Robots-Tag: noindex`, so that search engines leave it alone.
+with `X-Robots-Tag: noindex`, so that search engines leave it alone, and each can have
+[a gate of its own](access.md).
 
 ## Previews
 
@@ -45,6 +46,10 @@ secret from previews when you set it:
 ```bash
 moor env set --secret --production-only STRIPE_KEY
 ```
+
+**Who can reach it** is, by default, those [signed in](access.md#signing-in) with a role in the app's
+project, since it is work in progress with production's variables. [Share links](access.md#share-links) let in
+someone else, a maintainer can open one, and `preview = "public"` in `server.toml` opens them all.
 
 **Its data** starts empty: `$MOORAGE_DATA_DIR` is its own, and `on_create` in `[release]` runs
 once, to seed it.

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/build"
+	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ids"
@@ -59,6 +60,10 @@ type Options struct {
 	Repos *gitserver.Repos
 	// ForgetApp has the router let go of an app's files, which are about to move or go.
 	ForgetApp func(app string)
+	// Config is the server's configuration: its hostnames.
+	Config config.Config
+	// Resolver looks up what a domain points to, unless the system's is to.
+	Resolver DomainResolver
 	// Busy says whether an environment has requests going on, such as a stream.
 	Busy func(app, env string) bool
 	// LastActive says when an environment last had a request, since the server started.

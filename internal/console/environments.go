@@ -11,6 +11,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
@@ -90,6 +91,8 @@ type environmentRow struct {
 	Status                       status
 	// Asleep says that its instances are stopped until a request wakes it.
 	Asleep bool
+	// Gate says who may reach it, unless that is anyone.
+	Gate string
 	// CanAct and CanRemove say what the viewer may do with it.
 	CanAct, CanRemove bool
 }
@@ -110,6 +113,11 @@ func (c *Console) environmentRow(r *http.Request, e store.Environment, access au
 		}
 	}
 	row.Asleep = !e.AsleepAt.IsZero()
+	if c.deployer != nil {
+		if state, err := c.deployer.Access(r.Context(), e.App, e.Name); err == nil && state.Mode != ingress.GatePublic {
+			row.Gate = gateLabels[state.Mode]
+		}
+	}
 	if deps, err := c.db.Deployments(r.Context(), e.App, e.Name, 1); err == nil && len(deps) > 0 {
 		switch {
 		case inProgress(deps[0]):

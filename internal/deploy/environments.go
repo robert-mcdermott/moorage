@@ -366,6 +366,7 @@ func (d *Deployer) SweepEnvironments(ctx context.Context, now time.Time) {
 		}
 		d.sweepSleep(ctx, e, now)
 	}
+	d.sweepDomains(ctx, now)
 }
 
 // Sweep looks at the environments every so often, until ctx ends.
