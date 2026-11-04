@@ -111,8 +111,8 @@ func Run(ctx context.Context, o Options) []Check {
 	}
 	if o.GOOS == "linux" {
 		checks = append(checks, checkKernel(o))
-		checks = append(checks, checkIsolation(o))
 	}
+	checks = append(checks, checkIsolation(o))
 	if running && o.InstancePorts != nil {
 		if c, ok := checkApps(ctx, o); ok {
 			checks = append(checks, c)
@@ -563,7 +563,7 @@ func checkIsolation(o Options) Check {
 	c := Check{Name: "isolation", Status: OK, Detail: st.Describe()}
 	if st.Level == isolate.None {
 		c.Status = Info
-		c.Fix = "On a server that others use, run it as root, as the system service does: each app then gets a user of its own."
+		c.Fix = "Apps are kept apart on Linux. On a server that others use, run it as root there, as the system service does: each app then gets a user of its own."
 	}
 	if len(st.Notes) > 0 {
 		c.Detail += " (" + strings.Join(st.Notes, "; ") + ")"

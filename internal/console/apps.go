@@ -137,7 +137,7 @@ func (c *Console) isolation() isolate.Status {
 }
 
 // isolationText says in words how an app's instances run.
-func (c *Console) isolationText(plan manifest.Plan) string {
+func (c *Console) isolationText(app, env string, plan manifest.Plan) string {
 	st := c.isolation()
 	text := "It runs as the same user as the server's other apps."
 	switch st.Level {
@@ -145,6 +145,9 @@ func (c *Console) isolationText(plan manifest.Plan) string {
 		text = "It runs as a user of its own."
 	case isolate.Sandbox:
 		text = "It runs as a user of its own, in a sandbox."
+	}
+	if rt, ok := c.runtime.(interface{ SharingUser(app, env string) int }); ok && rt.SharingUser(app, env) > 0 {
+		text = "It started before this server kept apps apart, and goes on as the server's user until it restarts."
 	}
 	r := plan.Resources
 	if r == nil || (r.Memory == 0 && r.CPU == 0 && r.PIDs == 0) {
@@ -450,7 +453,7 @@ func (c *Console) appView(ctx context.Context, app, env string) (appView, error)
 			want = wanted(plan, formation)
 			view.Processes = c.processViews(app, env, rel.Version, plan, formation)
 			if plan.Container == nil {
-				view.Isolation = c.isolationText(plan)
+				view.Isolation = c.isolationText(app, env, plan)
 			}
 			for _, proc := range view.Processes {
 				for _, in := range proc.Instances {

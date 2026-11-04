@@ -36,14 +36,6 @@ func probe(cfg Config) (Status, error) {
 	return settle(cfg, os.Geteuid() == 0, landlockVersion(), true)
 }
 
-func ownerOf(path string) (uint32, uint32, bool) {
-	var st unix.Stat_t
-	if err := unix.Lstat(path, &st); err != nil {
-		return 0, 0, false
-	}
-	return st.Uid, st.Gid, true
-}
-
 // prepareCgroups readies the group that apps run in. It is a top-level group of its own, and not a
 // part of the service's: a service that hands out controllers from its own group cannot be restarted
 // by a systemd older than 254, since that puts the new process in a group that may no longer hold one.

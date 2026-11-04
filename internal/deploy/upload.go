@@ -20,6 +20,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/build"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress/static"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -94,6 +95,9 @@ func storeBuild(ctx context.Context, db *store.DB, dataDir, app string, planned 
 		}
 	}
 	if err := build.MakeReadOnly(contentDir); err != nil {
+		return store.Build{}, false, err
+	}
+	if err := isolate.CloseAbove(final); err != nil {
 		return store.Build{}, false, err
 	}
 	if err := os.Rename(partial, final); err != nil {

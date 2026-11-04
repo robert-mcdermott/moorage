@@ -44,8 +44,15 @@ strangers' code, which needs virtual machines.
 has to change, since its build is read-only.
 
 Upgrading a server that already runs as root changes who its apps run as when they next start, and
-Moorage gives them their data directories then. An app that reads something only root can read will
-stop being able to, and `level = "none"` keeps it as it was while you look into that.
+Moorage gives them their data directories then. **Instances that were running through the upgrade go on
+as root until they restart**, which the app's page and **Settings → System** say: `moor restart APP`
+does it without downtime, and the other apps cannot read their files in the meantime. An app that reads
+something only root can read will stop being able to, and `level = "none"` keeps it as it was while you
+look into that. Coming back from `none`, an app gets back what it wrote as root the next time it starts.
+
+An app's environments share its user, so that a preview can read production's data and variables. Keep
+what should not meet in apps of their own. `/dev/shm` is left writable in a sandbox too, as programs
+expect it to be, and is shared between apps, under the usual file permissions.
 
 The data directory and `moor` itself have to be where other users can reach them. `/var/lib/moorage`
 and `/usr/local/bin`, where the system service puts them, are. If they are not, `auto` stays at
@@ -77,8 +84,9 @@ pids = 200
 | Anywhere else | Moorage restarts an instance that stays over it for three samples, 30 seconds or so | Not enforced, which the app's page says |
 | In a container | The engine enforces it | The engine enforces it |
 
-An instance killed for its memory is restarted, and says so where it says how it last exited:
-**out of memory**. A command or cron job killed in that way fails, and says so too.
+An instance the kernel kills for its memory is restarted, and says so where it says how it last exited:
+**out of memory**. A command or cron job killed in that way fails, and says so too. One that Moorage restarts
+instead says that it was stopped, with `SIGTERM`, and the activity says why.
 
 Builds count for half as much for CPU as running apps do where the kernel can enforce that, so
 that a heavy build slows itself down rather than the apps people are using.

@@ -1,6 +1,7 @@
 package isolate
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -124,5 +125,163 @@ func TestDescribe(t *testing.T) {
 		if (Status{Level: level}).Describe() == "" {
 			t.Error(level)
 		}
+	}
+}
+
+// TestSealOnceWithALinkAtItsMark: a build step can leave anything at the name of the mark. With a link there,
+// a server running as root would create the file it leads to.
+func TestSealOnceWithALinkAtItsMark(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no such modes or owners")
+	}
+	sealOwner = os.Getuid()
+	t.Cleanup(func() { sealOwner = 0 })
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "made-by-root")
+	if err := os.Symlink(outside, filepath.Join(dir, sealedMark)); err != nil {
+		t.Skip(err)
+	}
+	if err := sealOnce(dir, uint32(os.Getgid())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(outside); err == nil {
+		t.Error("it wrote through the link")
+	}
+	info, err := os.Lstat(filepath.Join(dir, sealedMark))
+	if err != nil || !info.Mode().IsRegular() {
+		t.Errorf("the mark: %v %v", info, err)
+	}
+}
+
+// TestWalksStayInside: what a walk is given cannot take it elsewhere, by a link to a directory it meets, or one
+// swapped in on the way.
+func TestWalksStayInside(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no such modes")
+	}
+	dir := t.TempDir()
+	outside := t.TempDir()
+	file := filepath.Join(outside, "theirs")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "out")); err != nil {
+		t.Skip(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mine"), []byte("x"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyModes(dir); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("the walk reached outside: %v %v", info, err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "mine")); err != nil || info.Mode().Perm() != 0o640 {
+		t.Errorf("%v %v", info, err)
+	}
+}
+
+// TestOwnTreeWillNotFollowALink: a backup can hold a link where a directory should be.
+func TestOwnTreeWillNotFollowALink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no such modes")
+	}
+	outside := t.TempDir()
+	if err := os.Chmod(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "production")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skip(err)
+	}
+	if err := ownTree(link, uint32(os.Getuid()), uint32(os.Getgid()), 0o700); err == nil {
+		t.Error("it went along with a link")
+	}
+	if info, err := os.Stat(outside); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("it changed what the link led to: %v %v", info, err)
+	}
+}
+
+// TestUserFromTheDatabase will not take the database's word for root.
+func TestUserFromTheDatabase(t *testing.T) {
+	for uid, ok := range map[uint32]bool{0: false, 1000: false, 299999: false, 300000: true, 300002: true} {
+		p := &Policy{uidBase: DefaultUIDBase, Identity: func(context.Context, string) (uint32, error) { return uid, nil }}
+		if _, err := p.uidOf(context.Background(), "shop"); (err == nil) != ok {
+			t.Errorf("user %d: %v", uid, err)
+		}
+	}
+}
+
+// TestCloseEachLeavesLinksAlone: a link in there could lead anywhere.
+func TestCloseEachLeavesLinksAlone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no such modes")
+	}
+	dir := t.TempDir()
+	open := filepath.Join(dir, "shop")
+	if err := os.Mkdir(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Chmod(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Skip(err)
+	}
+	if err := closeEach(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(open); err != nil || info.Mode().Perm() != 0o750 {
+		t.Errorf("%v %v", info, err)
+	}
+	if info, err := os.Stat(outside); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("%v %v", info, err)
+	}
+}
+
+// TestSealingLeavesOtherBuildsAlone: a package manager's cache links the same file into the builds of different
+// apps, and sealing one for its app must not take it away from the others.
+func TestSealingLeavesOtherBuildsAlone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no such modes or owners")
+	}
+	sealOwner = os.Getuid()
+	t.Cleanup(func() { sealOwner = 0 })
+	base := t.TempDir()
+	mine, theirs := filepath.Join(base, "mine"), filepath.Join(base, "theirs")
+	for _, d := range []string{mine, theirs} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := filepath.Join(mine, "routing.py")
+	if err := os.WriteFile(file, []byte("shared"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(theirs, "routing.py")
+	if err := os.Link(file, other); err != nil {
+		t.Skip(err)
+	}
+	if err := seal(mine, uint32(os.Getgid())); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(other)
+	if err != nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("sealing one changed the other: %v %v", info, err)
+	}
+	sealed, err := os.Stat(file)
+	if err != nil || sealed.Mode().Perm() != 0o640 {
+		t.Errorf("%v %v", sealed, err)
+	}
+	if os.SameFile(info, sealed) {
+		t.Error("they are still one file")
+	}
+	if got, err := os.ReadFile(file); err != nil || string(got) != "shared" {
+		t.Errorf("%q %v", got, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(mine, "*.sealing")); len(left) != 0 {
+		t.Errorf("%v", left)
 	}
 }

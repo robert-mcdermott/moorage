@@ -97,6 +97,10 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 		Marker(job.Log, "             %s", n)
 	}
 	if plan.Container != nil {
+		// Nothing of its own runs here, but its files are as much its own.
+		if err := isolate.CloseAbove(job.Dir); err != nil {
+			return Result{}, err
+		}
 		return b.buildImage(ctx, job, plan, appDir)
 	}
 
@@ -174,7 +178,11 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 		return Result{}, err
 	}
 	if plan.Kind == manifest.KindStatic {
-		idx, err := static.BuildIndex(filepath.Join(job.Dir, filepath.FromSlash(plan.Root)))
+		root, err := siteRoot(job.Dir, plan.Root)
+		if err != nil {
+			return Result{}, err
+		}
+		idx, err := static.BuildIndex(root)
 		if err != nil {
 			return Result{}, err
 		}
@@ -190,6 +198,23 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Plan: plan, Files: files, Size: size}, nil
+}
+
+// siteRoot finds the directory a build's site is in, which has to be in the build. A build step can make links,
+// and a link on the way to another directory would publish that one, with what the server may read.
+func siteRoot(buildDir, root string) (string, error) {
+	base, err := filepath.EvalSymlinks(buildDir)
+	if err != nil {
+		return "", err
+	}
+	site, err := filepath.EvalSymlinks(filepath.Join(buildDir, filepath.FromSlash(root)))
+	if err != nil {
+		return "", &Error{Msg: fmt.Sprintf("the site's directory %s is not there", root), Err: err}
+	}
+	if site != base && !strings.HasPrefix(site, base+string(filepath.Separator)) {
+		return "", &Error{Msg: fmt.Sprintf("the site's directory %s leads outside the build", root)}
+	}
+	return filepath.Join(buildDir, filepath.FromSlash(root)), nil
 }
 
 // buildImage builds an app's image, or fetches the one it names, and settles

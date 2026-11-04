@@ -137,6 +137,12 @@ func (d *Driver) Status(id string) (shim.State, bool, error) {
 	return res.State, true, nil
 }
 
+// RunsAsItsOwnUser says whether an instance was started to run as a user of its own.
+func (d *Driver) RunsAsItsOwnUser(id string) bool {
+	spec, err := shim.ReadSpec(d.specPath(id))
+	return err == nil && spec.Isolate != nil && spec.Isolate.Drop
+}
+
 func (d *Driver) token(id string) string {
 	spec, err := shim.ReadSpec(d.specPath(id))
 	if err != nil {

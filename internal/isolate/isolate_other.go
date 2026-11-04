@@ -11,8 +11,6 @@ func resolve(cfg Config) (Status, error) { return settle(cfg, false, 0, false) }
 
 func probe(cfg Config) (Status, error) { return resolve(cfg) }
 
-func ownerOf(string) (uint32, uint32, bool) { return 0, 0, false }
-
 // Wrap would apply s to cmd, but there is nothing on this system to apply.
 func Wrap(_ *exec.Cmd, s *Spec) (func(), error) {
 	if s != nil {

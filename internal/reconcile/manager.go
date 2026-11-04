@@ -122,6 +122,9 @@ type instance struct {
 
 	// softLimit is the memory it may use, to watch where the kernel will not enforce it.
 	softLimit int64
+	// sharesUser says that it runs as the server does on a server that keeps apps apart: it was started before
+	// it did, and goes on so until it restarts.
+	sharesUser bool
 
 	stopHealth context.CancelFunc
 }
@@ -293,6 +296,10 @@ func (m *Manager) Adopt(ctx context.Context) error {
 		es := m.env(li.App, li.Env)
 		if li.Port != 0 {
 			in.backend = ingress.NewBackend(li.ID, fmt.Sprintf("127.0.0.1:%d", li.Port))
+		}
+		if m.opts.Isolation.Isolating() && !in.container && !m.driver.RunsAsItsOwnUser(li.ID) {
+			in.sharesUser = true
+			m.log.Warn("this instance started before apps were kept apart, and goes on as the server's user until it restarts", "app", li.App, "env", li.Env, "instance", li.ID)
 		}
 		es.add(in)
 		m.log.Info("adopted a running instance", "app", li.App, "env", li.Env, "instance", li.ID, "pid", st.AppPID)
@@ -554,7 +561,28 @@ func (m *Manager) Isolation() isolate.Status {
 	if m.opts.Isolation == nil {
 		return isolate.Status{Asked: isolate.None, Level: isolate.None}
 	}
-	return m.opts.Isolation.Status
+	st := m.opts.Isolation.Status
+	waiting := 0
+	for _, es := range m.allEnvs() {
+		waiting += es.sharingUser()
+	}
+	if waiting > 0 {
+		st.Notes = append(append([]string{}, st.Notes...), fmt.Sprintf("%d instances started before apps were kept apart, and go on as the server's user until they restart", waiting))
+	}
+	return st
+}
+
+// SharingUser says how many of an environment's instances still run as the server does.
+func (m *Manager) SharingUser(app, env string) int { return m.env(app, env).sharingUser() }
+
+func (es *envState) sharingUser() int {
+	n := 0
+	for _, in := range es.list() {
+		if in.sharesUser {
+			n++
+		}
+	}
+	return n
 }
 
 // softLimitOf is the memory to watch, where the kernel will not enforce the limit itself.

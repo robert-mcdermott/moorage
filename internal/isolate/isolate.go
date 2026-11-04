@@ -7,10 +7,13 @@ package isolate
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/robert-mcdermott/moorage/internal/platform"
 )
 
 // The levels of isolation. Auto is User where the server runs as root on Linux, and None otherwise.
@@ -98,8 +101,22 @@ type Policy struct {
 	Status
 	dataDir string
 	binary  string
+	uidBase uint32
 	// Identity says which user an app runs as.
 	Identity func(ctx context.Context, app string) (uint32, error)
+}
+
+// uidOf says which user an app runs as, which has to be one of those kept for apps. This comes from the database,
+// which a backup can bring from anywhere, and a server running as root should not take its word for root.
+func (p *Policy) uidOf(ctx context.Context, app string) (uint32, error) {
+	uid, err := p.Identity(ctx, app)
+	if err != nil {
+		return 0, err
+	}
+	if uid == 0 || uid < p.uidBase {
+		return 0, fmt.Errorf("the database says it runs as user %d, and those kept for apps start at %d: see uid_base under [isolation]", uid, p.uidBase)
+	}
+	return uid, nil
 }
 
 // Isolating says whether apps run as users of their own.
@@ -114,7 +131,7 @@ func New(cfg Config, identity func(ctx context.Context, app string) (uint32, err
 	if err != nil {
 		return nil, err
 	}
-	p := &Policy{Status: st, dataDir: cfg.DataDir, binary: cfg.Binary, Identity: identity}
+	p := &Policy{Status: st, dataDir: cfg.DataDir, binary: cfg.Binary, uidBase: cfg.UIDBase, Identity: identity}
 	if p.Isolating() {
 		if err := p.tighten(); err != nil {
 			return nil, err
@@ -218,7 +235,59 @@ func (p *Policy) tighten() error {
 			return fmt.Errorf("close %s: %w", m, err)
 		}
 	}
+	// What each app has, from before apps were kept apart, or from what never runs as one: the group of its
+	// app is given it the next time that app starts, and until then only the server goes in.
+	for _, part := range []string{"builds", "data"} {
+		if err := closeEach(filepath.Join(p.dataDir, part), 0o750); err != nil {
+			return err
+		}
+	}
+	return closeEach(filepath.Join(p.dataDir, "tmp"), 0o700)
+}
+
+// closeEach takes what is in a directory away from everyone else, leaving alone what is not a directory.
+func closeEach(dir string, mode fs.FileMode) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() { // a link is not one, and is not followed
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&^mode != 0 {
+			path := filepath.Join(dir, e.Name())
+			if err := os.Chmod(path, info.Mode().Perm()&mode); err != nil {
+				return fmt.Errorf("close %s: %w", path, err)
+			}
+		}
+	}
 	return nil
+}
+
+// CloseAbove closes the directory holding a thing of an app's, data/<app> or builds/<app>, where the server runs
+// as root and could otherwise leave it open to every app there. What never runs as an app, such as a site or a
+// container, needs it no more open than that: containers get what they mount from a root engine.
+func CloseAbove(path string) error {
+	if !platform.IsPrivileged() {
+		return nil
+	}
+	parent := filepath.Dir(path)
+	info, err := os.Stat(parent)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o007 == 0 {
+		return nil
+	}
+	return os.Chmod(parent, info.Mode().Perm()&0o770)
 }
 
 // Dirs are what an instance or a command uses.
@@ -244,7 +313,7 @@ func (p *Policy) Instance(ctx context.Context, app, id string, dirs Dirs, limits
 	}
 	s := &Spec{Port: port}
 	if p.Isolating() {
-		uid, err := p.Identity(ctx, app)
+		uid, err := p.uidOf(ctx, app)
 		if err != nil {
 			return nil, fmt.Errorf("the user of %s: %w", app, err)
 		}
@@ -307,7 +376,7 @@ func (p *Policy) Build(ctx context.Context, app, id, dir, tmp string) (*Spec, er
 	if !p.Isolating() {
 		return nil, nil
 	}
-	uid, err := p.Identity(ctx, app)
+	uid, err := p.uidOf(ctx, app)
 	if err != nil {
 		return nil, fmt.Errorf("the user of %s: %w", app, err)
 	}
@@ -338,29 +407,57 @@ func (p *Policy) Seal(ctx context.Context, app, dir string) error {
 	if p == nil || !p.Isolating() {
 		return nil
 	}
-	uid, err := p.Identity(ctx, app)
+	uid, err := p.uidOf(ctx, app)
 	if err != nil {
 		return err
 	}
 	return seal(dir, uid)
 }
 
-// ownTree makes a directory someone's, and all that is in it if it was someone else's.
+// ownTree makes a directory someone's, and all that is in it if it was someone else's. The directory has to be
+// one: a link here would give away whatever it led to.
 func ownTree(dir string, uid, gid uint32, mode fs.FileMode) error {
 	if err := os.MkdirAll(dir, mode); err != nil {
 		return err
 	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
 	if err := os.Chmod(dir, mode); err != nil {
 		return err
 	}
-	if owner, group, ok := ownerOf(dir); ok && owner == uid && group == gid {
-		return nil
-	}
-	return filepath.WalkDir(dir, func(path string, _ fs.DirEntry, err error) error {
+	// All of it each time, and not only when the top is someone else's: what ran as root before now, such as an
+	// app that has not restarted since an upgrade, leaves its files among those that are already theirs.
+	return walkInside(dir, func(root *os.Root, name string, d fs.DirEntry) error {
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		return os.Lchown(path, int(uid), int(gid))
+		if owner, group, _, ok := statOf(info); ok && owner == uid && group == gid {
+			return nil
+		}
+		return root.Lchown(name, int(uid), int(gid))
+	})
+}
+
+// walkInside goes through all that is in a directory, and acts on it through a handle that cannot leave it. What
+// this walks may belong to someone who is still running, and who could swap a directory for a link on the way:
+// going by paths, that would take the walk, as root, to wherever the link leads.
+func walkInside(dir string, act func(root *os.Root, name string, d fs.DirEntry) error) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return act(root, name, d)
 	})
 }
 
@@ -375,43 +472,86 @@ func ownParent(path string, gid uint32) error {
 
 const sealedMark = ".sealed"
 
-// sealOnce seals a build the first time an isolated app runs from it: one from before isolation may
-// hold what only its owner can read.
+// sealOnce seals a build the first time an isolated app runs from it: one from before isolation may hold what
+// only its owner can read. A build step can leave anything at the name of the mark, and only a plain file counts.
 func sealOnce(dir string, gid uint32) error {
 	mark := filepath.Join(dir, sealedMark)
-	if _, err := os.Stat(mark); err == nil {
+	if info, err := os.Lstat(mark); err == nil && info.Mode().IsRegular() {
 		return nil
 	}
 	if err := seal(dir, gid); err != nil {
 		return err
 	}
-	return os.WriteFile(mark, nil, 0o640)
+	if err := os.Remove(mark); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	f, err := os.OpenFile(mark, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
+// sealOwner is who a sealed build belongs to: root, except in a test that is not.
+var sealOwner = 0
+
 func seal(dir string, gid uint32) error {
-	if err := filepath.WalkDir(dir, func(path string, _ fs.DirEntry, err error) error {
+	if err := walkInside(dir, func(root *os.Root, name string, d fs.DirEntry) error {
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		return os.Lchown(path, 0, int(gid))
+		// A package manager may have linked this from its cache, and then from there to other builds. Changing
+		// who it belongs to would change it for all of them, so that this one gets a copy of its own.
+		if _, _, links, ok := statOf(info); ok && links > 1 && info.Mode().IsRegular() {
+			if err := ownCopy(root, name, info); err != nil {
+				return err
+			}
+		}
+		return root.Lchown(name, sealOwner, int(gid))
 	}); err != nil {
 		return err
 	}
 	return applyModes(dir)
 }
 
+// ownCopy replaces a file with a copy that shares nothing with any other name.
+func ownCopy(root *os.Root, name string, info fs.FileInfo) error {
+	in, err := root.Open(name)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	copied := name + ".sealing"
+	_ = root.Remove(copied)
+	out, err := root.OpenFile(copied, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, in)
+	if closed := out.Close(); err == nil {
+		err = closed
+	}
+	if err != nil {
+		_ = root.Remove(copied)
+		return err
+	}
+	_ = root.Chtimes(copied, info.ModTime(), info.ModTime())
+	return root.Rename(copied, name)
+}
+
 // applyModes lets the group read and run what the owner may, and nobody else do anything.
 func applyModes(dir string) error {
-	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.Type()&fs.ModeSymlink != 0 {
-			return err
+	return walkInside(dir, func(root *os.Root, name string, d fs.DirEntry) error {
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
 			return err
 		}
 		mode := info.Mode().Perm()
-		return os.Chmod(path, mode&0o700|(mode&0o500)>>3)
+		return root.Chmod(name, mode&0o700|(mode&0o500)>>3)
 	})
 }
 

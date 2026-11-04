@@ -252,6 +252,45 @@ def try_user_level():
     check("another app cannot read its build", not ask("bob", "/read", path=code)["ok"])
     check("another app cannot list its builds", not ask("bob", "/list", path=str(data / "builds" / "alice"))["ok"])
 
+    # What never runs as an app is as closed as what does.
+    site = work / "src" / "gated"
+    site.mkdir(parents=True, exist_ok=True)
+    (site / "index.html").write_text("for those who may see it")
+    run_moor("deploy", str(site), "--app", "gated", "--static")
+    check("another app cannot list a site's builds", not ask("bob", "/list", path=str(data / "builds" / "gated"))["ok"])
+    files = list((data / "builds" / "gated").glob("*/site/index.html"))
+    check("another app cannot read a site's files", len(files) == 1 and not ask("bob", "/read", path=str(files[0]))["ok"], str(files))
+
+    # What a build leaves does not make the server, as root, write or publish what it leads to.
+    victim = work / "only-root-may-change-this"
+    victim.write_text("as it was")
+    victim.chmod(0o600)
+    secret_dir = data / "keys"
+    linked = work / "src" / "linked"
+    linked.mkdir(parents=True, exist_ok=True)
+    (linked / "moorage.toml").write_text(f"""[app]
+runtime = "static"
+[build]
+command = 'mkdir dist; echo hi > dist/index.html; ln -s {victim} ../index.json; ln -s {victim} ../.sealed'
+[static]
+dir = "dist"
+""")
+    run_moor("deploy", str(linked), "--app", "linked")
+    check("a link left by a build is not written through", victim.read_text() == "as it was", victim.read_text())
+    published = work / "src" / "published"
+    published.mkdir(parents=True, exist_ok=True)
+    (published / "moorage.toml").write_text(f"""[app]
+runtime = "static"
+[build]
+command = 'ln -s {data} x'
+[static]
+dir = "x/keys"
+""")
+    refused = run_moor("deploy", str(published), "--app", "published", check_it=False)
+    check("a site cannot be a directory outside its build", refused.returncode != 0 and "outside the build" in refused.stdout + refused.stderr, refused.stdout + refused.stderr)
+    status, _ = get("published.localhost", "/master.key")
+    check("and the master key is not published", status != 200, str(status))
+
     for what, path in [("the database", "moorage.db"), ("the keys", "keys/admin-token"), ("the master key", "keys/master.key"), ("the logs", "logs"), ("the repositories", "repos"), ("the shims' files", "run")]:
         target = str(data / path)
         ok = ask("bob", "/read", path=target)["ok"] if "." in path or "/" in path else ask("bob", "/list", path=target)["ok"]
