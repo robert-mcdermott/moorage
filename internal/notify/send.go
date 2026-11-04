@@ -152,7 +152,7 @@ func guardedDialer(allow []netip.Prefix) *net.Dialer {
 				}
 			}
 			if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() || addr.IsInterfaceLocalMulticast() || slices.Contains(metadataAddresses, addr) || isOwnAddress(addr) {
-				return fmt.Errorf("notifications may not reach %s, unless [notifications] allow in server.toml says so", addr)
+				return fmt.Errorf("this server may not reach %s on anyone's say, unless [notifications] allow in server.toml says so", addr)
 			}
 			return nil
 		},
@@ -175,10 +175,14 @@ func isOwnAddress(addr netip.Addr) bool {
 	return false
 }
 
-func (s *Service) httpClient() *http.Client {
-	dialer := guardedDialer(s.Allow)
+func (s *Service) httpClient() *http.Client { return GuardedClient(s.Allow, 15*time.Second) }
+
+// GuardedClient reaches what this server may reach on someone's say, and no further: see guardedDialer. No timeout means
+// that it takes as long as whoever asks allows.
+func GuardedClient(allow []netip.Prefix, timeout time.Duration) *http.Client {
+	dialer := guardedDialer(allow)
 	return &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: timeout,
 		// A redirect could go anywhere, and an answer has nothing more to say to us.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Transport:     &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: 10 * time.Second, DisableKeepAlives: true},

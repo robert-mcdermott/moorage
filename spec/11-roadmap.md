@@ -1099,6 +1099,13 @@ directory, supervises it, and serves it on its own hostname.
 2. **Forge integration.** Connected repositories, deploy webhooks,
    pull-request previews with status checks and URL comments, approval for
    forks and unknown authors.
+   - Done in slice 2: `moor forge`, an API and a section of an app's settings; webhooks signed the way GitHub, GitLab and
+     Gitea sign them, and for anything else that can sign one; looking every minute for a server no forge can reach;
+     previews named after pull requests, with a check and one comment each; approval of one commit at a time.
+   - Found by slice 2: a pull request's manifest could have named an environment for the branch that it knew it would go by, so
+     it has no say other than turning its preview off. A branch and its pull request would both have had a preview. A
+     token kept through a change of address could have been sent anywhere by whoever changed it, so it goes with its
+     address. The fake forge is all this has been tried against: no real forge has yet sent it an event.
 3. **Interactive access.** `moor run -it`, the line-mode web console,
    `moor exec`, the file browser for data directories.
 4. **Telemetry export.** Log forwarding, OTLP, threshold alerts.

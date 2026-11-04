@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
+	"github.com/robert-mcdermott/moorage/internal/forge"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
@@ -111,6 +112,8 @@ type Options struct {
 	Notifier *notify.Service
 	// Backups makes backups.
 	Backups *backup.Service
+	// Forges connects apps to repositories.
+	Forges *forge.Service
 	// SSO signs people in through a provider.
 	SSO *sso.Service
 }
@@ -127,6 +130,7 @@ type Console struct {
 	pages  map[string]*template.Template
 
 	deployer *deploy.Deployer
+	forges   *forge.Service
 	runtime  Runtime
 	keyring  Keyring
 	started  time.Time
@@ -140,7 +144,7 @@ type Console struct {
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
+	c := &Console{forges: o.Forges, notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -205,6 +209,10 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/environments/{env}/promote", c.environmentAction(c.promoteEnvironment))
 	mux.HandleFunc("GET /apps/{app}/settings", c.appSettingsPage)
 	mux.HandleFunc("POST /apps/{app}/settings/move", c.actionWith(auth.ScopeAdmin, maxForm, c.moveApp))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/connect", c.actionWith(auth.ScopeAdmin, maxForm, c.connectForge))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/disconnect", c.actionWith(auth.ScopeAdmin, maxForm, c.disconnectForge))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/sync", c.actionWith(auth.ScopeAdmin, maxForm, c.syncForge))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/pulls/{number}/approve", c.actionWith(auth.ScopeAdmin, maxForm, c.approveForgePull))
 	mux.HandleFunc("POST /apps/{app}/settings/rename", c.actionWith(auth.ScopeAdmin, maxForm, c.renameApp))
 	mux.HandleFunc("POST /apps/{app}/settings/delete", c.actionWith(auth.ScopeAdmin, maxForm, c.deleteApp))
 	mux.HandleFunc("GET /apps/{app}/logs", c.logsPage)
@@ -362,6 +370,8 @@ type data struct {
 	Run  *runView
 	// Usage says how much room it takes.
 	Usage deploy.AppUsage
+	// Forge is the repository it deploys from, if the server does that.
+	Forge *forgeView
 
 	// Deploying an app.
 	Image                 string

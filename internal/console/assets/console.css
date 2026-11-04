@@ -289,12 +289,15 @@ main { flex: 1; width: 100%; max-width: 68rem; padding: var(--s5) var(--s6) var(
 .block { margin-top: var(--s5); }
 .small { font-size: .82rem; }
 .nowrap { white-space: nowrap; }
+.repository h3 { margin: var(--s6) 0 var(--s2); font-size: 1rem; }
+.repository > .muted + form { margin-top: var(--s4); }
+.pull-title { min-width: 15rem; width: 38%; }
 .clip { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clip-cell { max-width: 26rem; overflow-wrap: anywhere; }
 .table-scroll { overflow-x: auto; }
 a.plain { text-decoration: none; }
 a.badge { text-decoration: none; }
-.notice { padding: var(--s3) var(--s4); margin-bottom: var(--s4); border: 1px solid transparent; border-radius: var(--radius-small); }
+.notice { overflow-wrap: anywhere; padding: var(--s3) var(--s4); margin-bottom: var(--s4); border: 1px solid transparent; border-radius: var(--radius-small); }
 .notice.ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok); }
 .notice.fail { color: var(--fail); background: var(--fail-soft); border-color: var(--fail); }
 .output { margin-top: var(--s2); max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .82rem; }

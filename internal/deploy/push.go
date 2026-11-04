@@ -25,7 +25,15 @@ type Pushes struct {
 // the push waits for its deployment, and fails if the deployment does, so
 // the branch stays where it was.
 func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
+	_, err := ps.Deliver(ctx, p)
+	return err
+}
+
+// Deliver does what a push asks, and says which deployment that made and how it ended, if any: it may be right to
+// keep what was pushed and deploy none of it.
+func (ps *Pushes) Deliver(ctx context.Context, p *gitserver.Push) (store.Deployment, error) {
 	out := progress{p.Progress}
+	var none store.Deployment
 	chosen, picked := p.Option("env")
 	var target *gitserver.Update
 	targetEnv, targetKind := names.Production, store.KindProduction
@@ -43,29 +51,29 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 				continue
 			}
 			if target != nil {
-				return errors.New("the push updates two branches that would deploy: push one at a time")
+				return none, errors.New("the push updates two branches that would deploy: push one at a time")
 			}
 			target, targetEnv, targetKind = u, env, kind
 		}
 	}
 	if target == nil {
-		return nil
+		return none, nil
 	}
 	if _, skip := p.Option("skip-deploy"); skip || strings.Contains(target.Message, "[skip deploy]") {
 		out.printf("moorage  %s is kept, not deployed: the push asked to skip the deploy", target.Branch())
-		return nil
+		return none, nil
 	}
 	if why := watchSkips(p, target); why != "" {
 		out.printf("moorage  %s is kept, not deployed: %s", target.Branch(), why)
-		return nil
+		return none, nil
 	}
 	if err := ps.Deployer.checkLock(ctx, p.App, targetEnv); err != nil {
 		var locked *LockedError
 		if errors.As(err, &locked) {
 			out.printf("moorage  %s is kept, not deployed: %v", target.Branch(), err)
-			return nil
+			return none, nil
 		}
-		return err
+		return none, err
 	}
 	if targetKind == store.KindPreview {
 		name, err := ps.Deployer.PreviewName(ctx, p.App, target.Branch())
@@ -73,9 +81,9 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 			var limit *NotPreviewableError
 			if errors.As(err, &limit) {
 				out.printf("moorage  %s is kept, not deployed: %v", target.Branch(), err)
-				return nil
+				return none, nil
 			}
-			return err
+			return none, err
 		}
 		targetEnv = name
 	}
@@ -99,14 +107,17 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 	}
 	dep, created, err := ps.Deployer.SubmitSource(ctx, p.App, targetEnv, p.By, src)
 	if err != nil {
-		return fmt.Errorf("the deployment could not start: %v", err)
+		return none, fmt.Errorf("the deployment could not start: %v", err)
 	}
 	if created {
 		out.printf("moorage  created the app %s", p.App)
 	}
+	if p.Started != nil {
+		p.Started()
+	}
 	if _, detach := p.Option("detach"); detach {
 		out.printf("moorage  deployment %s is queued; follow it with: moor deployments follow %s", dep.ID, dep.ID)
-		return nil
+		return dep, nil
 	}
 
 	// The deployment goes on if the client leaves (Ctrl-C): the push then
@@ -120,16 +131,16 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("deployment %s: %v", dep.ID, err)
+		return dep, fmt.Errorf("deployment %s: %v", dep.ID, err)
 	}
 	if dep.Status != store.Live {
 		reason := dep.Error
 		if reason == "" {
 			reason = dep.Status
 		}
-		return fmt.Errorf("deployment %s %s: %s", dep.ID, dep.Status, reason)
+		return dep, fmt.Errorf("deployment %s %s: %s", dep.ID, dep.Status, reason)
 	}
-	return nil
+	return dep, nil
 }
 
 // watchSkips says why a push should not deploy, if its manifest says which paths matter and it
@@ -161,6 +172,9 @@ func watchSkips(p *gitserver.Push, u *gitserver.Update) string {
 
 // destination says where a pushed branch deploys, or why it does not.
 func (ps *Pushes) destination(ctx context.Context, p *gitserver.Push, u *gitserver.Update, chosen string, picked bool) (env, kind, why string) {
+	if p.Preview == gitserver.PreviewOnly {
+		return ps.previewOnly(ctx, p, u)
+	}
 	if picked {
 		if chosen == names.Production {
 			return names.Production, store.KindProduction, ""
@@ -188,7 +202,25 @@ func (ps *Pushes) destination(ctx context.Context, p *gitserver.Push, u *gitserv
 			declared = m
 		}
 	}
-	return branchTarget(declared, u.Branch())
+	env, kind, why = branchTarget(declared, u.Branch())
+	if why == "" && kind == store.KindPreview && p.Preview == gitserver.PreviewNever {
+		return "", "", "it has no preview for being pushed"
+	}
+	return env, kind, why
+}
+
+// previewOnly says where a pull request deploys: to its own preview, or nowhere. Its code comes with a manifest that
+// could name any environment for it, and that is not for it to say. All it may do is ask for no preview.
+func (ps *Pushes) previewOnly(ctx context.Context, p *gitserver.Push, u *gitserver.Update) (env, kind, why string) {
+	if e, err := ps.Deployer.db.EnvironmentOfBranch(ctx, p.App, u.Branch()); err == nil && e.Kind != store.KindPreview {
+		return "", "", "the environment " + e.Name + " is using its name"
+	}
+	if data, err := p.ReadFile(u.New, manifest.FileName); err == nil {
+		if m, err := manifest.Parse(data, manifest.FileName); err == nil && m.Previews != nil && m.Previews.Enabled != nil && !*m.Previews.Enabled {
+			return "", "", "previews are turned off in its moorage.toml"
+		}
+	}
+	return "", store.KindPreview, ""
 }
 
 // branchDeleted destroys the preview of a branch that is gone.

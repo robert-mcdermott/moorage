@@ -1021,3 +1021,60 @@ type ConfigReport struct {
 	DryRun bool         `json:"dry_run"`
 	Items  []ConfigItem `json:"items"`
 }
+
+// ForgeConnect connects an app to a repository on a forge.
+type ForgeConnect struct {
+	// URL is the repository's https address.
+	URL string `json:"url"`
+	// Kind is github, gitlab, gitea or generic. github.com and gitlab.com need not say.
+	Kind string `json:"kind,omitempty"`
+	// APIURL is where the forge's API is, if not where it usually is.
+	APIURL string `json:"api_url,omitempty"`
+	// Token reads a private repository, and reports back. It is not shown again.
+	Token string `json:"token,omitempty"`
+	// DefaultBranch is its production branch. The repository says, if it can be read.
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// NoPreviews leaves pull requests alone.
+	NoPreviews bool `json:"no_previews,omitempty"`
+	// Poll looks at the repository every minute, for a server that a forge cannot reach.
+	Poll bool `json:"poll,omitempty"`
+}
+
+// ForgeConnection is where an app's code is kept.
+type ForgeConnection struct {
+	App           string `json:"app"`
+	Kind          string `json:"kind"`
+	URL           string `json:"url"`
+	APIURL        string `json:"api_url,omitempty"`
+	DefaultBranch string `json:"default_branch"`
+	// HookURL is where the forge sends what happens.
+	HookURL string `json:"hook_url"`
+	// Secret signs what it sends. Only connecting shows it.
+	Secret      string    `json:"secret,omitempty"`
+	HasToken    bool      `json:"has_token"`
+	Previews    bool      `json:"previews"`
+	Poll        bool      `json:"poll"`
+	LastEventAt time.Time `json:"last_event_at,omitzero"`
+	// LastError says what went wrong with the last thing it told of.
+	LastError string    `json:"last_error,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ForgePull is a pull request that a forge has told of.
+type ForgePull struct {
+	Number   int    `json:"number"`
+	Title    string `json:"title,omitempty"`
+	Author   string `json:"author,omitempty"`
+	FromFork bool   `json:"from_fork,omitempty"`
+	Commit   string `json:"commit"`
+	// State is waiting (for someone to approve it), building, live, failed, skipped or closed.
+	State string `json:"state"`
+	Env   string `json:"env,omitempty"`
+	// URL is its preview.
+	URL string `json:"url,omitempty"`
+	// Error says why it failed, or why it has no preview.
+	Error      string    `json:"error,omitempty"`
+	ApprovedBy string    `json:"approved_by,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}

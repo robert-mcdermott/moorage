@@ -37,6 +37,7 @@ const (
 	Rule         = "rul"
 	Notification = "not"
 	Backup       = "bkp"
+	Hook         = "hok"
 )
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

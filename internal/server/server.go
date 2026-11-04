@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -36,6 +37,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/forge"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
@@ -198,6 +200,8 @@ type Options struct {
 	MetricsEvery time.Duration
 	// BackupTick, if set, overrides how often the schedule of backups is looked at (tests).
 	BackupTick time.Duration
+	// ForgeTick, if set, overrides how often forges that have to be looked at are (tests).
+	ForgeTick time.Duration
 	// NotifyRetry, if set, overrides how long a notification waits before trying again (tests).
 	NotifyRetry time.Duration
 	// CronTick, if set, overrides how often cron jobs are looked at (tests).
@@ -488,14 +492,28 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		stopBackups()
 		backups.Wait()
 	}()
+	forgeCtx, stopForges := context.WithCancel(ctx)
+	forges := &forge.Service{DB: db, Repos: repos, Pushes: &deploy.Pushes{Deployer: deployer}, Keys: keyring, Log: log, Life: forgeCtx, Tick: opts.ForgeTick,
+		Client: notify.GuardedClient(allowed, 20*time.Second), Fetcher: notify.GuardedClient(allowed, 0),
+		EnvURL: cfg.EnvURL,
+		AppURL: func(app string) string { return cfg.PublicURL(cfg.ConsoleHost) + "/apps/" + url.PathEscape(app) },
+		Audit: func(ctx context.Context, by, action, target, result string) {
+			authn.Audit(ctx, store.AuditEntry{Actor: by, Action: action, Target: target, Result: result})
+		},
+	}
+	go forges.Run()
+	defer func() {
+		stopForges()
+		forges.Wait()
+	}()
 	signIn := &sso.Service{DB: db, Auth: authn, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), StateKey: masterKey.Derive("sso state v1")}
 	authn.PasswordsOff = signIn.PasswordsOff
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, opts.GateRecheck, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, forges, opts.GateRecheck, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, Forges: forges, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

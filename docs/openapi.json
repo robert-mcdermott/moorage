@@ -1103,6 +1103,141 @@
         ],
         "type": "object"
       },
+      "ForgeConnect": {
+        "properties": {
+          "api_url": {
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "no_previews": {
+            "type": "boolean"
+          },
+          "poll": {
+            "type": "boolean"
+          },
+          "token": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "ForgeConnection": {
+        "properties": {
+          "api_url": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "has_token": {
+            "type": "boolean"
+          },
+          "hook_url": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "last_event_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "poll": {
+            "type": "boolean"
+          },
+          "previews": {
+            "type": "boolean"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "kind",
+          "url",
+          "default_branch",
+          "hook_url",
+          "has_token",
+          "previews",
+          "poll",
+          "created_by",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ForgePull": {
+        "properties": {
+          "approved_by": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "from_fork": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "commit",
+          "state",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "GitInfo": {
         "properties": {
           "http": {
@@ -5293,6 +5428,303 @@
         "x-moorage-permission": "deploy"
       }
     },
+    "/apps/{app}/forge": {
+      "delete": {
+        "operationId": "deleteAppsAppForge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Let go of an app's repository: what it deployed stays",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      },
+      "get": {
+        "operationId": "getAppsAppForge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeConnection"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Say where an app's code is kept, on a forge",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "put": {
+        "operationId": "putAppsAppForge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgeConnect"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeConnection"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Connect an app to a repository on a forge: the answer alone has the secret that its webhook signs with",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/forge/pulls": {
+      "get": {
+        "operationId": "getAppsAppForgePulls",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ForgePull"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an app's open pull requests",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/forge/pulls/{number}/approve": {
+      "post": {
+        "operationId": "postAppsAppForgePullsNumberApprove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgePull"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Have a pull request built as it is now, which runs its code: this is for one commit",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/forge/sync": {
+      "post": {
+        "operationId": "postAppsAppForgeSync",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Look at an app's repository now, and deploy what has changed",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/previews": {
       "post": {
         "operationId": "postAppsAppPreviews",
@@ -5994,6 +6426,35 @@
           "events"
         ],
         "x-moorage-permission": "read"
+      }
+    },
+    "/hooks/{hook}": {
+      "post": {
+        "operationId": "postHooksHook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hook",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Where a forge sends what happens, signed with the hook's secret",
+        "tags": [
+          "hooks"
+        ],
+        "x-moorage-permission": "public"
       }
     },
     "/me": {

@@ -283,7 +283,7 @@ These change scope or defaults and are best answered by the project owner.
 | Q3 | Internet-facing or internal-only? | **Resolved:** internal-only for now (D17) |
 | Q4 | Are deployers always trusted colleagues, or will untrusted code (e.g. customer-submitted) ever be deployed? | Trusted only; VM-level isolation is out of scope |
 | Q5 | Is single sign-on (OIDC with the corporate identity provider) needed at launch? | Phase 3; local accounts before that. An internal-only rollout makes corporate sign-in more attractive early. |
-| Q6 | Where is source code hosted (GitHub, GitLab, Gitea, other)? Should pull-request previews with status checks come earlier than Phase 3? | Push-based previews in Phase 2, forge integration in Phase 3 |
+| Q6 | Where is source code hosted (GitHub, GitLab, Gitea, other)? Should pull-request previews with status checks come earlier than Phase 3? | Push-based previews in Phase 2, forge integration in Phase 3, which is `moor forge`. Trust is the forge's word on who may push: a pull request from a fork or a stranger is built only when a maintainer approves that commit |
 | Q7 | How important is Windows as a *server* (vs. developer laptop) platform? | Server support completes in Phase 3 |
 | Q8 | How important are managed databases for previews? | Phase 4; apps bring their own or use SQLite in the data directory until then |
 | Q9 | Which toolchains matter after Go, Python and Node? | Bun and Deno in Phase 1–2; Java, Rust, Ruby, PHP, .NET in Phase 4 |

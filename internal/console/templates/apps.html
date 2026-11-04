@@ -496,6 +496,7 @@
     </form>
   </section>
 </div>
+{{with .Forge}}{{template "app-repository" dict "Forge" . "App" $app "CSRF" $csrf}}{{end}}
 <section class="block panel panel-pad danger-zone">
   <h2>Delete this app</h2>
   <p>This stops its instances and removes its variables, releases and everything below. It cannot be undone.</p>
@@ -511,6 +512,73 @@
     <div class="field narrow-form"><label for="confirm-name">To go on, type <code>{{$app}}</code></label><input id="confirm-name" name="confirm" required autocomplete="off" spellcheck="false"></div>
     <div class="actions"><button class="danger-solid" type="submit">Delete {{$app}}</button></div>
   </form>
+</section>
+{{end}}
+
+{{define "app-repository"}}
+{{$app := .App}}{{$csrf := .CSRF}}{{$f := .Forge}}
+{{if $f.NewSecret}}
+<section class="block panel panel-pad secret-once" role="status" id="repository-secret">
+  <h2>Give your forge this webhook</h2>
+  <p class="muted small">In the repository's webhook settings, for pushes and pull requests, sending JSON. The secret is not shown again.</p>
+  <p class="small">Address</p>
+  {{template "command" $f.HookURL}}
+  <p class="small">Secret</p>
+  {{template "command" $f.NewSecret}}
+</section>
+{{end}}
+<section class="block panel panel-pad repository" id="repository">
+  <h2>Repository</h2>
+  {{if $f.Connected}}
+  {{if $f.Conn.LastError}}<p class="notice fail" role="alert">{{$f.Conn.LastError}}</p>{{end}}
+  <dl class="facts">
+    <dt>Deploys from</dt><dd><code>{{$f.Conn.URL}}</code></dd>
+    <dt>Default branch</dt><dd><code>{{$f.Conn.DefaultBranch}}</code>, to production</dd>
+    <dt>Changes</dt><dd>{{if $f.Conn.Poll}}It looks every minute{{else}}The forge tells it, at <code>{{$f.HookURL}}</code>{{end}}</dd>
+    <dt>Pull requests</dt><dd>{{if $f.Conn.Previews}}{{if $f.Conn.Poll}}It cannot hear of them when it only looks: a branch gets a preview instead{{else}}Each gets a preview{{end}}{{else}}Left alone{{end}}</dd>
+    <dt>Token</dt><dd>{{if $f.HasToken}}Kept, for reading it and reporting back{{else}}None: it can only read a public repository, and cannot report back{{end}}</dd>
+    {{if not $f.Conn.LastEventAt.IsZero}}<dt>Last heard</dt><dd><time datetime="{{iso $f.Conn.LastEventAt}}">{{ago $f.Conn.LastEventAt}}</time></dd>{{end}}
+  </dl>
+  <div class="actions">
+    <form method="post" action="/apps/{{$app}}/settings/forge/sync" data-busy="Looking…"><input type="hidden" name="csrf" value="{{$csrf}}"><button type="submit">Look now</button></form>
+    <form method="post" action="/apps/{{$app}}/settings/forge/disconnect" data-busy="Letting go…" data-confirm="Stop deploying {{$app}} from this repository? What it deployed stays."><input type="hidden" name="csrf" value="{{$csrf}}"><button class="quiet" type="submit">Disconnect</button></form>
+  </div>
+  {{if $f.Pulls}}
+  <h3>Pull requests</h3>
+  <div class="table-scroll">
+    <table class="apps">
+      <thead><tr><th>Pull request</th><th>State</th><th>Commit</th><th>Preview</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range $f.Pulls}}
+      <tr>
+        <td class="pull-title"><strong>#{{.Number}}</strong> {{.Title}}<div class="muted small">{{.Author}}{{if .FromFork}}, from a fork{{end}}</div></td>
+        <td class="nowrap">{{template "status" .Status}}{{if .ApprovedBy}}<div class="muted small">approved by {{.ApprovedBy}}</div>{{end}}</td>
+        <td class="nowrap"><code>{{.Short}}</code></td>
+        <td>{{if .PreviewURL}}<a href="{{.PreviewURL}}">{{bareURL .PreviewURL}}</a>{{else if .Error}}<span class="muted small">{{.Error}}</span>{{end}}</td>
+        <td class="nowrap">{{if .Approvable}}<form method="post" action="/apps/{{$app}}/settings/forge/pulls/{{.Number}}/approve" data-busy="Starting…" data-confirm="Build commit {{.Short}} of pull request #{{.Number}}? This runs its code on this server, and its preview has the app's preview variables."><input type="hidden" name="csrf" value="{{$csrf}}"><button class="quiet" type="submit">{{.Action}}</button></form>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else if and $f.Conn.Previews (not $f.Conn.Poll)}}<p class="muted">No open pull requests that it has heard of.</p>{{end}}
+  {{else}}
+  <p class="muted">Deploy from GitHub, GitLab or Gitea: a push to the default branch deploys to production, and each pull request gets a preview. Code from someone who cannot push there waits for you to approve it.</p>
+  <form method="post" action="/apps/{{$app}}/settings/forge/connect" data-busy="Connecting…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="forge-url">Repository address</label><input id="forge-url" name="url" type="url" required value="{{$f.Form.URL}}" placeholder="https://github.com/acme/shop.git" autocomplete="off" spellcheck="false"></div>
+    <div class="field"><label for="forge-kind">Kind of forge</label>
+      <select id="forge-kind" name="kind"><option value="">Say from the address</option><option value="github"{{if eq $f.Form.Kind "github"}} selected{{end}}>GitHub</option><option value="gitlab"{{if eq $f.Form.Kind "gitlab"}} selected{{end}}>GitLab</option><option value="gitea"{{if eq $f.Form.Kind "gitea"}} selected{{end}}>Gitea</option><option value="generic"{{if eq $f.Form.Kind "generic"}} selected{{end}}>Generic</option></select>
+      <p class="hint">github.com and gitlab.com need not say. Generic is any other git server that can sign a webhook, and it cannot report back.</p>
+    </div>
+    <div class="field"><label for="forge-token">Token <span class="muted">(optional)</span></label><input id="forge-token" name="token" type="password" autocomplete="off" spellcheck="false">
+      <p class="hint">It reads a private repository, and sets the checks and comments on pull requests. It is kept sealed.</p>
+    </div>
+    <label class="check"><input type="checkbox" name="previews" value="1" checked> A preview for each pull request</label>
+    <label class="check"><input type="checkbox" name="poll" value="1"{{if $f.Form.Poll}} checked{{end}}> Look every minute, as the forge cannot reach this server</label>
+    <div class="actions"><button type="submit">Connect</button></div>
+  </form>
+  {{end}}
 </section>
 {{end}}
 

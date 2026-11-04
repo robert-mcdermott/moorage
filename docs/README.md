@@ -25,6 +25,8 @@ how it works inside and where it is going.
 
 - [With git push](git.md): the production branch deploys, and the push
   shows the build
+- [From a forge](forges.md): connect a repository on GitHub, GitLab or Gitea, with a preview
+  for each pull request
 - [Go](go.md)
 - [Python](python.md), with uv
 - [Node.js](node.md), with npm

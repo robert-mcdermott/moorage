@@ -6,6 +6,8 @@
 
 - **A server on Windows, as a service.** `moor server install`, in an elevated terminal, makes a Windows service that runs as an account of its own with few rights, and apps run as it too. `[resources]` is enforced there by Job Objects, which an app is inside from before it runs. `moor server resolver install` adds a block to the hosts file. See [installing](docs/install.md#3-run-it-as-a-service).
 
+- **Deploying from a forge.** `moor forge connect`, or the Repository section of an app's settings, connects an app to a repository on GitHub, GitLab or Gitea, or anything else that can sign a webhook. A push to the default branch deploys to production. Each pull request gets a preview, with a check on its commit and one comment that says where it is, and it goes when the pull request closes. What is deployed is what is fetched from the repository, whatever an event says, and a pull request's manifest cannot send it anywhere but its own preview. A pull request from a fork or from someone the forge does not vouch for is not fetched or built until a maintainer approves that commit, and another commit waits again. A server that a forge cannot reach can look every minute instead, with `--poll`. See [Deploying from a forge](docs/forges.md).
+
 ## 0.6.0 (2026-11-04)
 
 Moorage 0.6.0 is about a server you can rely on. On Linux, apps are kept apart from one another. Backups and restoring are built in, and were tried on real services. People can sign in with a second factor, through your identity provider, or through a proxy. A server can upgrade itself, and go back. Moorage is now open source, under the Apache License 2.0.

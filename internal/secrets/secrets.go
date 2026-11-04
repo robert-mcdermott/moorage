@@ -227,6 +227,23 @@ func (k *Keyring) OpenBackup(sealed []byte) (string, error) {
 	return string(plain), nil
 }
 
+// forgeAD binds what a connection to a forge keeps to that app, and to what it is.
+func forgeAD(appID, name string) []byte { return []byte("moorage forge\x00" + appID + "\x00" + name) }
+
+// SealForge encrypts what a connection to a forge has to keep, with the master key.
+func (k *Keyring) SealForge(appID, name, value string) []byte {
+	return seal(k.master, []byte(value), forgeAD(appID, name))
+}
+
+// OpenForge decrypts it.
+func (k *Keyring) OpenForge(appID, name string, sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, forgeAD(appID, name))
+	if err != nil {
+		return "", fmt.Errorf("the forge's %s cannot be decrypted", name)
+	}
+	return string(plain), nil
+}
+
 // channelAD binds what a notification channel needs to that channel.
 func channelAD(id string) []byte { return []byte("moorage channel\x00" + id) }
 

@@ -1069,3 +1069,41 @@ func (c *Client) DeleteApp(ctx context.Context, name string, keepData bool) erro
 	}
 	return c.do(ctx, http.MethodDelete, path, nil, "", nil)
 }
+
+// Forge says where an app's code is kept.
+func (c *Client) Forge(ctx context.Context, app string) (apitypes.ForgeConnection, error) {
+	var out apitypes.ForgeConnection
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/forge", nil, "", &out)
+	return out, err
+}
+
+// ConnectForge connects an app to a repository on a forge.
+func (c *Client) ConnectForge(ctx context.Context, app string, in apitypes.ForgeConnect) (apitypes.ForgeConnection, error) {
+	var out apitypes.ForgeConnection
+	err := c.post(ctx, http.MethodPut, "/api/v1/apps/"+url.PathEscape(app)+"/forge", in, &out)
+	return out, err
+}
+
+// DisconnectForge lets go of an app's repository.
+func (c *Client) DisconnectForge(ctx context.Context, app string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(app)+"/forge", nil, "", nil)
+}
+
+// ForgePulls lists an app's open pull requests.
+func (c *Client) ForgePulls(ctx context.Context, app string) ([]apitypes.ForgePull, error) {
+	var out []apitypes.ForgePull
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/forge/pulls", nil, "", &out)
+	return out, err
+}
+
+// ApproveForgePull has a pull request built, as it is now.
+func (c *Client) ApproveForgePull(ctx context.Context, app string, number int) (apitypes.ForgePull, error) {
+	var out apitypes.ForgePull
+	err := c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/forge/pulls/"+strconv.Itoa(number)+"/approve", nil, "", &out)
+	return out, err
+}
+
+// SyncForge has the server look at an app's repository now.
+func (c *Client) SyncForge(ctx context.Context, app string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/forge/sync", nil, "", nil)
+}
