@@ -38,26 +38,27 @@ function moor(...args) {
     problems.length = 0;
   };
 
+  // WebKit on Linux now and then gives up on a navigation that interrupts a stream the
+  // page holds, with an internal error of its own. Once or twice more is enough.
+  const visit = async (page, url) => {
+    for (let tries = 3; ; tries--) {
+      try {
+        return await page.goto(url);
+      } catch (e) {
+        if (tries <= 1 || !/internal error/.test(e.message)) { throw e; }
+        await page.waitForTimeout(250);
+      }
+    }
+  };
+
   // Claiming the server.
-  await page.goto(`${base}/setup?code=${process.env.CONSOLE_CLAIM}`);
+  await visit(page, `${base}/setup?code=${process.env.CONSOLE_CLAIM}`);
   await page.fill('input[name=email]', 'owner@example.com');
   await page.fill('input[name=password]', passphrase);
   await page.fill('input[name=confirm]', passphrase);
   await page.click('button[type=submit]');
   await page.waitForURL('**/welcome');
   check('claiming the server goes to getting started', true);
-
-  // WebKit on Linux now and then gives up on a navigation that interrupts a stream the
-  // page holds, with an internal error of its own. Once more is enough.
-  const visit = async (page, url) => {
-    try {
-      return await page.goto(url);
-    } catch (e) {
-      if (!/internal error/.test(e.message)) { throw e; }
-      await page.waitForTimeout(250);
-      return page.goto(url);
-    }
-  };
 
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
@@ -82,7 +83,7 @@ function moor(...args) {
   await page.setViewportSize({ width: 1280, height: 800 });
 
   // The palette, from the keyboard. If WebKit gave up on the page's script, load it again.
-  await page.goto(base + '/');
+  await visit(page, base + '/');
   for (let tries = 3; ; tries--) {
     await page.keyboard.press('/');
     try {
@@ -90,7 +91,7 @@ function moor(...args) {
       break;
     } catch (e) {
       if (tries <= 1) { throw e; }
-      await page.reload();
+      await visit(page, page.url());
     }
   }
   await page.keyboard.type('logs shop');
@@ -100,12 +101,12 @@ function moor(...args) {
 
   // The theme stays chosen.
   await page.click('[data-theme-set=dark]');
-  await page.reload();
+  await visit(page, page.url());
   check('the theme stays', await page.evaluate(() => document.documentElement.getAttribute('data-theme')) === 'dark');
   await page.click('[data-theme-set=system]');
 
   // The logs page follows, pauses and filters.
-  await page.goto(base + '/apps/shop/logs');
+  await visit(page, base + '/apps/shop/logs');
   await page.waitForSelector('[data-log-status]:not([hidden])');
   const lines = () => page.locator('[data-logs] .log-line').count();
   const before = await lines();
@@ -130,7 +131,7 @@ function moor(...args) {
   quiet('the logs page');
 
   // A deployment, from the apps list that sees it start to its page as it goes.
-  await page.goto(base + '/');
+  await visit(page, base + '/');
   await page.waitForTimeout(500); // the page's stream opens
   const badge = page.locator('[data-app-row=shop] .badge').first();
   check('the app is healthy', (await badge.textContent()).trim() === 'Healthy', await badge.textContent());
@@ -143,7 +144,7 @@ function moor(...args) {
   check('and sees it end', true);
   quiet('the apps list');
 
-  await page.goto(base + '/apps/shop');
+  await visit(page, base + '/apps/shop');
   await page.click('button:has-text("Redeploy")');
   await page.waitForURL('**/deployments/dep_*');
   await page.waitForFunction(() => document.querySelector('[data-log]') && document.querySelector('[data-log]').textContent.includes('✔ live'), null, { timeout: 60000 });
@@ -153,7 +154,7 @@ function moor(...args) {
   quiet('the deployment page');
 
   // What asks first asks, and takes no for an answer.
-  await page.goto(base + '/apps/shop');
+  await visit(page, base + '/apps/shop');
   const rollback = page.locator('button:has-text("Roll back")').first();
   await rollback.click();
   await page.waitForSelector('#confirm[open]');
@@ -166,7 +167,7 @@ function moor(...args) {
   quiet('rolling back');
 
   // Scaling, from the page, with the instances to show for it.
-  await page.goto(base + '/apps/shop');
+  await visit(page, base + '/apps/shop');
   await page.fill('input[name="process.web"]', '2');
   await page.click('button:has-text("Scale")');
   await page.waitForURL('**/apps/shop**', { timeout: 60000 });
@@ -177,7 +178,7 @@ function moor(...args) {
   quiet('scaling');
 
   // Another environment: chosen at the top, and kept by what is done there.
-  await page.goto(base + '/apps/shop');
+  await visit(page, base + '/apps/shop');
   await page.selectOption('#env-switch', 'staging');
   await page.waitForURL('**/apps/shop?env=staging');
   check('an environment is chosen at the top', await page.locator('text=shop · staging').count() > 0);
@@ -186,9 +187,9 @@ function moor(...args) {
   await page.waitForSelector('text=web.2', { timeout: 15000 });
   await page.waitForFunction(() => !location.search.includes('done='), null, { timeout: 5000 });
   check('what is done there stays there', page.url().includes('env=staging'));
-  await page.goto(base + '/apps/shop/environments');
+  await visit(page, base + '/apps/shop/environments');
   check('the environments are listed', await page.locator('a.app-name:has-text("staging")').count() === 1);
-  await page.goto(base + '/apps/shop?env=staging');
+  await visit(page, base + '/apps/shop?env=staging');
   await page.click('button:has-text("Sleep")');
   await page.waitForSelector('#confirm[open]');
   await page.click('[data-confirm-yes]');
@@ -200,14 +201,14 @@ function moor(...args) {
   quiet('environments');
 
   // Variables: added, then edited as text with a look at what would change.
-  await page.goto(base + '/apps/shop/variables');
+  await visit(page, base + '/apps/shop/variables');
   await page.click('summary:has-text("Add a variable")');
   await page.fill('#var-name', 'API_URL');
   await page.fill('#var-value', 'https://example.com');
   await page.click('.add-var button[type=submit]');
   await page.waitForURL('**/variables?*', { timeout: 60000 });
   check('a variable is released', (await page.textContent('main')).includes('API_URL'));
-  await page.goto(base + '/apps/shop/variables/edit');
+  await visit(page, base + '/apps/shop/variables/edit');
   await page.fill('#vars-text', 'API_URL=https://new.example.com\nADDED=1\n');
   await page.click('button:has-text("See what changes")');
   await page.waitForURL('**/variables/preview');
@@ -219,7 +220,7 @@ function moor(...args) {
   quiet('the variables');
 
   // A token, shown once, with a button to copy it.
-  await page.goto(base + '/account/tokens');
+  await visit(page, base + '/account/tokens');
   await page.fill('#token-name', 'ci');
   await page.click('button:has-text("Make the token")');
   await page.waitForSelector('.secret-once');
@@ -227,11 +228,11 @@ function moor(...args) {
   quiet('the tokens');
 
   // An app made and deleted, which asks for its name first.
-  await page.goto(base + '/new');
+  await visit(page, base + '/new');
   await page.fill('#name', 'brief-app');
   await page.click('button:has-text("Next")');
   await page.waitForURL('**/apps/brief-app/deploy');
-  await page.goto(base + '/apps/brief-app/settings');
+  await visit(page, base + '/apps/brief-app/settings');
   await page.fill('#confirm-name', 'brief-app');
   await page.click('button:has-text("Delete brief-app")');
   await page.waitForURL('**/?done=deleted');
@@ -239,10 +240,10 @@ function moor(...args) {
   quiet('deleting an app');
 
   // Signing out.
-  await page.goto(base + '/account');
+  await visit(page, base + '/account');
   await page.click('#signout button');
   await page.waitForURL(url => !url.pathname.startsWith('/account'));
-  const res = await page.goto(base + '/apps/shop');
+  const res = await visit(page, base + '/apps/shop');
   check('signing out ends it', page.url().includes('/login') && res.status() === 200);
   quiet('signing out');
 
