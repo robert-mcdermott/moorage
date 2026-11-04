@@ -219,7 +219,8 @@ def wait_for(what, cond, seconds=60):
 
 
 def own_build_of(name):
-    return next(p for p in sorted((data / "builds" / name).iterdir()) if (p / "app").is_dir() and not p.name.endswith(".partial"))
+    # The newest: the oldest may be from before isolation.
+    return [p for p in sorted((data / "builds" / name).iterdir()) if (p / "app").is_dir() and not p.name.endswith(".partial")][-1]
 
 
 def try_user_level():
@@ -268,7 +269,7 @@ def try_user_level():
     check("a release command runs as the app", released == str(alice["uid"]), released)
     out = run_moor("run", "--app", "alice", "--", "id", "-u").stdout.strip()
     check("moor run runs as the app", out == str(alice["uid"]), out)
-    out = run_moor("run", "--app", "alice", "--", "sh", "-c", "echo through a shell | cat").stdout.strip()
+    out = run_moor("run", "--app", "alice", "--", "echo through a shell | cat").stdout.strip()
     check("a command through the shell works", "through a shell" in out, out)
     out = run_moor("run", "--app", "bob", "--", "cat", private, check_it=False)
     check("moor run cannot read another app's data", out.returncode != 0, out.stdout)
@@ -308,10 +309,14 @@ pids = 40
                 return True
         return False
     wait_for("the kernel's kill is seen as out of memory", told)
-    check("and it says so", told())
     wait_for("the instance comes back", lambda: ask("carol", "/whoami")["pid"] != who["pid"])
-    run = run_moor("run", "--app", "carol", "--", "python3", "-c", "x = bytearray(300 * 1024 * 1024); x[::4096] = b'1' * len(x[::4096])", check_it=False)
-    check("a command over the limit fails", run.returncode != 0, run.stdout + run.stderr)
+    events = api("/events?app=carol&limit=50")
+    items = events["items"] if isinstance(events, dict) else events
+    check("what happened says so", any("out of memory" in e.get("summary", "") for e in items), str(items)[:300])
+    grab = "python3 -c 'b = bytearray(300 * 1024 * 1024); b[::4096] = bytes(len(b[::4096])); print(\"survived\")'"
+    run = run_moor("run", "--app", "carol", "--", grab, check_it=False)
+    said = run.stdout + run.stderr
+    check("a command over the limit fails, and says why", run.returncode != 0 and "survived" not in said and "out of memory" in said, said)
 
 
 def try_adoption():
@@ -344,8 +349,10 @@ def try_sandbox():
     version = tuple(int(x) for x in abi.split(".")[:2])
     if version >= (6, 7):
         check("an app cannot listen on a second port", not bound["ok"], str(bound))
-    out = run_moor("run", "--app", "alice", "--", "sh", "-c", "touch /tmp/moorage-escaped", check_it=False)
-    check("moor run is in the sandbox too", out.returncode != 0, out.stdout + out.stderr)
+    out = run_moor("run", "--app", "alice", "--", "touch /tmp/moorage-escaped", check_it=False)
+    check("moor run is in the sandbox too", out.returncode != 0 and "denied" in out.stdout + out.stderr, out.stdout + out.stderr)
+    out = run_moor("run", "--app", "alice", "--", "echo through a shell | cat", check_it=False)
+    check("and works there, through the shell", "through a shell" in out.stdout, out.stdout + out.stderr)
     deploy("dave")
     built = (own_build_of("dave") / "app" / "built-by").read_text().split()
     check("a build works in a sandbox", int(built[0]) >= 300000, str(built))

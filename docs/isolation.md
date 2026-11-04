@@ -73,7 +73,7 @@ pids = 200
 
 | Where | Memory | CPU and processes |
 |---|---|---|
-| Linux, with the server running as root | The kernel kills an instance over it, and the whole instance goes together | Enforced by the kernel |
+| Linux, with the server running as root | The kernel kills an instance over it, and the whole instance goes together. It cannot swap instead | Enforced by the kernel |
 | Anywhere else | Moorage restarts an instance that stays over it for three samples, 30 seconds or so | Not enforced, which the app's page says |
 | In a container | The engine enforces it | The engine enforces it |
 

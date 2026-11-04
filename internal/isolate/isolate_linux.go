@@ -132,6 +132,11 @@ func makeCgroup(s *Spec) error {
 		if err := write("memory.oom.group", "1"); err != nil {
 			return fmt.Errorf("limit memory: %w", err)
 		}
+		// Without this, an instance over its limit slows the whole machine by swapping, and is never
+		// stopped. A kernel that does not account for swap has no such file.
+		if err := write("memory.swap.max", "0"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("limit memory: %w", err)
+		}
 	}
 	if s.Limits.CPU > 0 {
 		const period = 100000
