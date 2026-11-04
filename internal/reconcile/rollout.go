@@ -46,16 +46,23 @@ func (e *RolloutError) Error() string {
 // drained and stopped. With the recreate strategy, the old ones are stopped
 // first. If a new instance fails, the new instances are stopped and the old
 // ones keep serving (rolling) — the error says why.
-func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error {
-	return m.rollout(ctx, app, env, rel, build, plan, "")
-}
-
-// rollout is Rollout, of one process if it says, leaving the others running.
-func (m *Manager) rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, only string) error {
-	plan.Defaults()
+func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, commit func() error) error {
 	es := m.env(app, env)
 	es.rollout.Lock()
 	defer es.rollout.Unlock()
+	return m.rollout(ctx, es, rel, build, plan, "", commit)
+}
+
+// rollout is Rollout, of one process if it says, leaving the others running. It takes the environment's
+// rollout lock being held.
+//
+// Once the new instances are ready, commit records that this release is the current one, before they take the
+// traffic and with the lock still held. So nothing that takes the lock can find the old instances gone and the
+// old release still current, which would have it start the old release again. If commit fails, what was running
+// goes on running.
+func (m *Manager) rollout(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan, only string, commit func() error) error {
+	app, env := es.app, es.env
+	plan.Defaults()
 	kind, err := m.db.EnvKind(ctx, app, env)
 	if err != nil {
 		return err
@@ -111,6 +118,12 @@ func (m *Manager) rollout(ctx context.Context, app, env string, rel store.Releas
 		m.retire(es, fresh, 0)
 		return failed
 	}
+	if commit != nil {
+		if err := commit(); err != nil {
+			m.retire(es, fresh, 0)
+			return err
+		}
+	}
 	for _, in := range fresh {
 		m.watch(es, in)
 	}
@@ -124,6 +137,10 @@ func (m *Manager) rollout(ctx context.Context, app, env string, rel store.Releas
 // Restart rolls out the current release again: new instances replace the
 // running ones without downtime.
 func (m *Manager) Restart(ctx context.Context, app, env, process string) error {
+	es := m.env(app, env)
+	es.rollout.Lock()
+	defer es.rollout.Unlock()
+	// Read with the lock held, or this could go on to roll out a release that a deployment has just replaced.
 	rel, build, err := m.db.CurrentRelease(ctx, app, env)
 	if err != nil {
 		return err
@@ -138,7 +155,7 @@ func (m *Manager) Restart(ctx context.Context, app, env, process string) error {
 	if _, known := plan.Processes[process]; process != "" && !known {
 		return &ScaleError{app + " has no process named " + process}
 	}
-	return m.rollout(ctx, app, env, rel, build, plan, process)
+	return m.rollout(ctx, es, rel, build, plan, process, nil)
 }
 
 // ScaleError reports a formation that cannot be: a process the app does not have, or

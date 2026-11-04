@@ -29,7 +29,9 @@ import (
 
 // Runtime runs the processes of releases.
 type Runtime interface {
-	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
+	// Rollout replaces what an environment runs, and calls commit to record the release as current once the
+	// new instances are ready and before they take the traffic.
+	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, commit func() error) error
 	Retire(app, env string)
 	Forget(app string)
 	ForgetEnv(app, env string)
@@ -578,11 +580,11 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 			return abandon(err)
 		}
 		build.Marker(log, "▸ rollout    %s", formationText(plan.WithFormation(running)))
-		if err := d.opts.Runtime.Rollout(ctx, dep.App, dep.Env, rel, b, plan); err != nil {
+		commit := func() error { return d.db.MakeCurrent(ctx, rel.ID) }
+		if err := d.opts.Runtime.Rollout(ctx, dep.App, dep.Env, rel, b, plan, commit); err != nil {
 			return abandon(err)
 		}
-	}
-	if err := d.db.MakeCurrent(ctx, rel.ID); err != nil {
+	} else if err := d.db.MakeCurrent(ctx, rel.ID); err != nil {
 		return rel, err
 	}
 	rel.Current = true

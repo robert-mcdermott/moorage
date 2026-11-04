@@ -425,6 +425,11 @@ func (m *Manager) ensureRoute(ctx context.Context, es *envState, r store.Route, 
 	if err != nil {
 		return err
 	}
+	// The route was read before the lock was held, and a rollout may have finished in between. Going by it
+	// would start a release that has just been replaced. The next look has the new one.
+	if rel.Version != r.Version {
+		return nil
+	}
 	formation, err := m.db.Formation(ctx, r.App, r.Env)
 	if err != nil {
 		return err
@@ -439,6 +444,9 @@ func (m *Manager) ensureRoute(ctx context.Context, es *envState, r store.Route, 
 // Settle brings an environment to what it should be running now, at once, and returns when it
 // is: its instances gone if it has gone to sleep, or healthy if it has woken.
 func (m *Manager) Settle(ctx context.Context, app, env string) error {
+	es := m.env(app, env)
+	es.rollout.Lock()
+	defer es.rollout.Unlock()
 	routes, err := m.db.Routes(ctx)
 	if err != nil {
 		return err
@@ -451,9 +459,6 @@ func (m *Manager) Settle(ctx context.Context, app, env string) error {
 		if err != nil || plan.Kind != manifest.KindProcess {
 			return err
 		}
-		es := m.env(app, env)
-		es.rollout.Lock()
-		defer es.rollout.Unlock()
 		return m.ensureRoute(ctx, es, r, plan)
 	}
 	return nil
@@ -464,9 +469,10 @@ func (m *Manager) Settle(ctx context.Context, app, env string) error {
 // cannot start, and returns the first such failure.
 func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan) error {
 	have := map[string]bool{}
-	var keep, extra []*instance
+	var keep, extra, earlier []*instance
 	for _, in := range es.list() {
 		if in.releaseID != rel.ID {
+			earlier = append(earlier, in)
 			continue
 		}
 		if proc, ok := plan.Processes[in.process]; !ok || in.index > *proc.Instances {
@@ -518,6 +524,13 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 	}
 	if changed {
 		es.serve(rel.ID)
+	}
+	// With the lock held, no rollout is under way, so that these are of a release that is not current: what a
+	// server that stopped part of the way through a rollout left, say. They go once what should be running is.
+	if len(earlier) > 0 && failed == nil {
+		m.log.Warn("instances of another release were running; stopping them", "app", es.app, "env", es.env, "instances", len(earlier), "release", rel.Version)
+		es.serve(rel.ID)
+		m.retire(es, earlier, plan.Deploy.Drain.Std())
 	}
 	return failed
 }
