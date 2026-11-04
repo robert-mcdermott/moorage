@@ -1060,8 +1060,7 @@ directory, supervises it, and serves it on its own hostname.
 4. **Lifecycle.** Self-upgrade with rollback; server configuration export and
    import; provenance checks for toolchain downloads where published.
    - Done in slice 4: `moor server upgrade`, with `--check`, `--version`, `--from`, `--wait` and `--rollback`; a
-     signature over a release's checksums, with an Ed25519 key in the code, and the workflow to sign with
-     it; a list of what went into a release; an attestation of the workflow that built it.
+     list of what went into a release; an attestation of the workflow that built it.
      `moor server config export` and `import`, with `--dry-run`, and **Settings → System** to download it.
      The signature on Node.js's checksums, against its releasers' keys, which come with moor.
    - Found by slice 4: a file of settings is only worth keeping if it holds no secrets, and only safe to bring
@@ -1209,4 +1208,4 @@ slice before code is built on a failed assumption.
   the OpenAPI contract once it exists), the CHANGELOG's Unreleased section
   updated, CI green on every target.
 - **Releases:** binaries for six targets with SHA-256 checksums, drafted from
-  the CHANGELOG; signatures and an SBOM from wave 6.
+  the CHANGELOG; an SBOM and an attestation from wave 6.

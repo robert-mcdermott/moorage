@@ -306,8 +306,7 @@ moor server upgrade --check
 sudo moor server upgrade
 ```
 
-That downloads the newest release and checks that it is what the project published, by its signature and
-its checksum. It then keeps a copy of the database and of the binary, puts the new binary in place, and
+That downloads the newest release and checks it against the checksum published with it. It then keeps a copy of the database and of the binary, puts the new binary in place, and
 restarts the server. Running apps keep running, and the new server takes them over. **If the server does not
 come up on the new version, everything goes back by itself.** A database from a large server can take a
 while to migrate: `--wait 10m` gives it longer than the 2 minutes it otherwise has.
@@ -316,9 +315,8 @@ while to migrate: `--wait 10m` gives it longer than the 2 minutes it otherwise h
 |---|---|
 | `--check` | Only says whether there is a newer version |
 | `--version 0.6.1` | Upgrades to that version, and not the newest |
-| `--from DIR` | Takes the release from a directory or an address, for a mirror or a machine with no way out. It holds a release's files, with the same signature |
+| `--from DIR` | Takes the release from a directory or an address, for a mirror or a machine with no way out. It holds a release's files |
 | `--wait 10m` | Gives the new version longer to come up |
-| `--unsigned` | Takes a release with no signature, for a moor you built yourself, which knows no key. Without it, such a moor refuses, and nothing it downloads is run |
 
 To go back later:
 
@@ -358,8 +356,11 @@ start it again.
 
 ### What a release can be checked against
 
-Each release has `SHA256SUMS`, with `SHA256SUMS.sig` over it, a list of what went into the binaries in
-`moorage-sbom.cdx.json`, and an attestation of the workflow that built them. To look for yourself:
+Each release has `SHA256SUMS`, a list of what went into the binaries in `moorage-sbom.cdx.json`, and an attestation
+of the workflow that built them. An upgrade and the installer both check a download against `SHA256SUMS`, which comes
+from the same place over HTTPS. That catches a damaged download, and a change on the way, and would not catch someone
+who could change the release itself. The attestation is GitHub's own record of what its build made, and that you can
+look at yourself:
 
 ```bash
 gh attestation verify moor-linux-amd64 --repo robert-mcdermott/moorage

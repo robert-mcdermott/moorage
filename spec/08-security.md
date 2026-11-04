@@ -191,10 +191,11 @@ See [Runtime → Isolation levels](05-runtime.md#isolation-levels). Key points:
 - Toolchains are downloaded over HTTPS and verified against the provider's
   published checksums (and signatures where available) before use; exact
   versions are cached and never silently replaced.
-- Moorage releases are signed and checksummed and ship with an SBOM and an attestation of
-  the workflow that built them. `moor server upgrade` checks the signature, with a key that comes
-  with moor, then the checksum, and runs nothing it has downloaded until both have passed. A moor
-  with no key refuses, unless told `--unsigned`.
+- Moorage releases ship with checksums, an SBOM and an attestation of the workflow that built
+  them. `moor server upgrade`, like the installer, checks a release against its checksum, over
+  HTTPS, and runs nothing it has downloaded until that has passed. That does not protect against
+  someone who could change the project's releases: signing them with a key of the project's own
+  would, and is left for if it is ever wanted (decision Q10).
 - Few, pure-Go dependencies; `govulncheck` and dependency updates in CI.
 
 ## Network exposure

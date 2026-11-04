@@ -1,5 +1,5 @@
-// Package upgrade replaces a server's binary with a newer release, once it has shown that it is what
-// the project published, and puts everything back if the new version does not come up.
+// Package upgrade replaces a server's binary with a newer release, once it has matched its published checksum, and
+// puts everything back if the new version does not come up.
 package upgrade
 
 import (
@@ -14,8 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"crypto/ed25519"
 
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -43,10 +41,6 @@ type Options struct {
 	// Source is where the release comes from, and Version which one: empty is the newest.
 	Source  Source
 	Version string
-	// Keys are those a release has to be signed with. A moor that knows none cannot tell one release from another,
-	// and goes no further unless Unsigned says to, which is for a build of one's own.
-	Keys     []ed25519.PublicKey
-	Unsigned bool
 	// Service runs the server, or is nil, when ServerUp says whether one is running by other means.
 	Service  Service
 	ServerUp func() bool
@@ -84,8 +78,6 @@ type Result struct {
 	Available bool
 	// Current says that this is already the version asked for.
 	Current bool
-	// Signed says that the release's signature was checked.
-	Signed bool
 	// Restarted says that the server now runs the new version, and Stopped that it was not running.
 	Restarted, Stopped bool
 	// Restored says that the database went back, and Aside is where it was put.
@@ -147,9 +139,9 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 	if err := o.Source.check(); err != nil {
 		return res, err
 	}
-	// Saying what the project has out runs nothing. Anything else from here on would.
-	if len(o.Keys) == 0 && !o.Unsigned && !(o.Check && !o.Source.Flat) {
-		return res, &RefusedError{"this moor knows no key that releases are signed with, so that it cannot tell a real one from any other, and nothing has changed: run the installer, or --unsigned if you know where this release came from"}
+	// A directory says what it holds only by running it, and only saying what is there should run nothing.
+	if o.Check && o.Source.Flat && o.Version == "" {
+		return res, &RefusedError{"--check cannot say what a release in a directory is without running it: give --version, to look for that one"}
 	}
 	want := o.Version
 	if want == "" {
@@ -178,33 +170,27 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 		}
 	}
 
-	// Find out that it cannot be replaced before downloading anything. --check changes nothing, and can look from
-	// anywhere.
+	// Find out that it cannot be replaced before downloading anything.
 	info, err := os.Stat(o.Executable)
 	if err != nil {
 		return res, err
 	}
-	stagingIn := filepath.Dir(o.Executable)
-	if o.Check {
-		stagingIn = ""
-	} else {
-		cannot := func(err error) error {
-			if errors.Is(err, fs.ErrPermission) {
-				return &RefusedError{fmt.Sprintf("this user cannot use the server's files in %s: run this as a user who can, as with sudo", o.DataDir)}
-			}
-			return err
+	cannot := func(err error) error {
+		if errors.Is(err, fs.ErrPermission) {
+			return &RefusedError{fmt.Sprintf("this user cannot use the server's files in %s: run this as a user who can, as with sudo", o.DataDir)}
 		}
-		if err := os.MkdirAll(stateDir(o.DataDir), 0o700); err != nil {
-			return res, cannot(err)
-		}
-		unlock, err := oneAtATime(o.DataDir)
-		if err != nil {
-			return res, cannot(err)
-		}
-		defer unlock()
-		clearInterrupted(stagingIn)
+		return err
 	}
-	staging, err := os.MkdirTemp(stagingIn, ".moor-upgrade-")
+	if err := os.MkdirAll(stateDir(o.DataDir), 0o700); err != nil {
+		return res, cannot(err)
+	}
+	unlock, err := oneAtATime(o.DataDir)
+	if err != nil {
+		return res, cannot(err)
+	}
+	defer unlock()
+	clearInterrupted(filepath.Dir(o.Executable))
+	staging, err := os.MkdirTemp(filepath.Dir(o.Executable), ".moor-upgrade-")
 	if errors.Is(err, fs.ErrPermission) {
 		return res, &RefusedError{fmt.Sprintf("this user cannot replace %s: run this as a user who can, as with sudo", o.Executable)}
 	}
@@ -213,17 +199,13 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 	}
 	defer os.RemoveAll(staging)
 
-	new, err := o.Source.stage(ctx, staging, want, o.GOOS, o.GOARCH, o.Keys, info.Mode().Perm(), o.Say)
+	new, err := o.Source.stage(ctx, staging, want, o.GOOS, o.GOARCH, info.Mode().Perm(), o.Say)
 	if err != nil {
 		return res, err
 	}
-	res.To, res.Signed = new.Version, new.Signed
+	res.To = new.Version
 	if done, err := o.compare(&res, new.Version); done || err != nil {
 		return res, err
-	}
-	if o.Check {
-		res.Available = true
-		return res, nil
 	}
 
 	st := state{From: o.Current, To: new.Version, At: o.Now(), Executable: o.Executable, Previous: previousPath(o.Executable)}
@@ -296,6 +278,10 @@ func (o Options) compare(res *Result, to string) (bool, error) {
 	}
 	switch {
 	case order == 0:
+		res.Current = true
+		return true, nil
+	case order < 0 && o.Version == "" && !o.Source.Flat:
+		// Nobody asked for this one: it is only that the newest release is older than this, as with a build of one's own.
 		res.Current = true
 		return true, nil
 	case order < 0:

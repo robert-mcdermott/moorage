@@ -1,1 +1,0 @@
-# The public keys that Moorage's releases are signed with: Ed25519, in base64, one to a line.

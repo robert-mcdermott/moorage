@@ -31,13 +31,12 @@ func newServerUpgradeCmd() *cobra.Command {
 	var (
 		cfgFlag, version, from string
 		check, rollback, force bool
-		unsigned               bool
 		wait                   time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade the server to a newer release, or go back from one",
-		Long: `Upgrade downloads a release, checks its signature and checksum, keeps a copy of the
+		Long: `Upgrade downloads a release, checks it against its published checksum, keeps a copy of the
 database and the binary, puts the new binary in place and restarts the server. Apps keep running. If
 the server does not come up on the new version, everything goes back by itself.
 
@@ -77,16 +76,12 @@ since what has happened since is then lost from it.`,
 			if err != nil {
 				return err
 			}
-			keys, err := upgrade.ReleaseKeys()
-			if err != nil {
-				return err
-			}
 			out := cmd.OutOrStdout()
 			layout := server.NewLayout(cfg.DataDir)
 			o := upgrade.Options{
 				Executable: resolved, Current: buildinfo.Version, DataDir: cfg.DataDir, Database: layout.Database,
-				Source: upgrade.Source{Base: from, Flat: from != ""}, Version: strings.TrimPrefix(version, "v"), Keys: keys,
-				Check: check, Force: force, Wait: wait, Unsigned: unsigned,
+				Source: upgrade.Source{Base: from, Flat: from != ""}, Version: strings.TrimPrefix(version, "v"),
+				Check: check, Force: force, Wait: wait,
 				Say:      func(format string, args ...any) { fmt.Fprintf(out, "  "+format+"\n", args...) },
 				ServerUp: func() bool { return serverRunning(layout.LockFile) },
 			}
@@ -127,6 +122,8 @@ since what has happened since is then lost from it.`,
 				return err
 			}
 			switch {
+			case res.Current && res.To != res.From:
+				fmt.Fprintf(out, "This is %s, and the newest release is %s.\n", res.From, res.To)
 			case res.Current:
 				fmt.Fprintf(out, "This is %s already.\n", res.From)
 			case res.Available:
@@ -139,9 +136,6 @@ since what has happened since is then lost from it.`,
 				}
 				fmt.Fprintf(out, "This is %s, and %s is there. To upgrade: %s\n", res.From, res.To, how)
 			default:
-				if !res.Signed {
-					fmt.Fprintln(out, "As you said, this release was only checked against its checksum, and not its signature.")
-				}
 				if res.Restarted {
 					fmt.Fprintf(out, "The server now runs %s, and the apps kept running.\n", res.To)
 				} else if res.Stopped {
@@ -161,7 +155,6 @@ since what has happened since is then lost from it.`,
 	cmd.Flags().BoolVar(&check, "check", false, "only say whether there is a newer version")
 	cmd.Flags().BoolVar(&rollback, "rollback", false, "go back to the version before the last upgrade")
 	cmd.Flags().BoolVar(&force, "force", false, "with --rollback, go back even if that loses what has happened since")
-	cmd.Flags().BoolVar(&unsigned, "unsigned", false, "take a release with no signature, from a build of moor that knows no key: for one that you know the origin of")
 	return cmd
 }
 

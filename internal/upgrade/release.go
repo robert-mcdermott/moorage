@@ -1,12 +1,8 @@
 package upgrade
 
 import (
-	"bufio"
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
-	_ "embed"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,67 +23,11 @@ import (
 // DefaultBase is where the project publishes its releases.
 const DefaultBase = "https://github.com/robert-mcdermott/moorage/releases"
 
-// Names of what a release publishes beside its binaries.
-const (
-	SumsName      = "SHA256SUMS"
-	SignatureName = "SHA256SUMS.sig"
-)
-
-// signedPrefix is added to what is signed, so that a signature made for this cannot be used for anything else.
-const signedPrefix = "moorage release checksums v1\n"
+// SumsName is what a release publishes beside its binaries, to check them against.
+const SumsName = "SHA256SUMS"
 
 // maxBinary is more than a release should ever be, so that a source cannot fill the disk.
 const maxBinary = 1 << 30
-
-//go:embed release-keys.txt
-var embeddedKeys string
-
-// extraKey is one more key to believe, set when building a binary for a test, with -ldflags -X. A
-// released binary has none, and nothing at run time can add one.
-var extraKey string
-
-// ReleaseKeys are the public keys that releases are signed with. There is more than one so that a
-// release can introduce the next key before the last is retired.
-func ReleaseKeys() ([]ed25519.PublicKey, error) {
-	return parseKeys(embeddedKeys + "\n" + extraKey)
-}
-
-func parseKeys(text string) ([]ed25519.PublicKey, error) {
-	var keys []ed25519.PublicKey
-	scanner := bufio.NewScanner(strings.NewReader(text))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		raw, err := base64.StdEncoding.DecodeString(line)
-		if err != nil || len(raw) != ed25519.PublicKeySize {
-			return nil, fmt.Errorf("a release key is not an Ed25519 public key: %q", line)
-		}
-		keys = append(keys, ed25519.PublicKey(raw))
-	}
-	return keys, scanner.Err()
-}
-
-// Sign signs a release's checksums, as the release workflow does.
-func Sign(key ed25519.PrivateKey, sums []byte) string {
-	return base64.StdEncoding.EncodeToString(ed25519.Sign(key, append([]byte(signedPrefix), sums...))) + "\n"
-}
-
-// VerifySignature says whether any of the keys signed these checksums.
-func VerifySignature(keys []ed25519.PublicKey, sums, signature []byte) bool {
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(signature)))
-	if err != nil || len(raw) != ed25519.SignatureSize {
-		return false
-	}
-	message := append([]byte(signedPrefix), sums...)
-	for _, key := range keys {
-		if ed25519.Verify(key, message, raw) {
-			return true
-		}
-	}
-	return false
-}
 
 // AssetName is the name of a release's binary for a platform.
 func AssetName(goos, goarch string) string {
@@ -183,8 +123,8 @@ func (s Source) isURL() bool {
 	return strings.HasPrefix(s.base(), "https://") || strings.HasPrefix(s.base(), "http://")
 }
 
-// check refuses plain HTTP from anywhere but this machine: a signature would catch a change on the
-// way, but not all sources have one, and it tells everyone on the way what is being installed.
+// check refuses plain HTTP from anywhere but this machine: a checksum that comes the same way would be changed along
+// with what it is for.
 func (s Source) check() error {
 	if !s.isURL() || strings.HasPrefix(s.base(), "https://") {
 		return nil
@@ -286,12 +226,12 @@ func (s Source) small(ctx context.Context, version, name string) ([]byte, error)
 type staged struct {
 	Path    string
 	Version string
-	Signed  bool
 }
 
-// stage brings a release's binary into dir. Nothing it brings is run until it has passed the checks, and a
-// checksum is only believed with a signature, unless someone said not to mind (keys are empty only then).
-func (s Source) stage(ctx context.Context, dir, version, goos, goarch string, keys []ed25519.PublicKey, mode os.FileMode, say func(string, ...any)) (staged, error) {
+// stage brings a release's binary into dir. Nothing it brings is run until it matches its checksum, which comes over
+// HTTPS from the same place, as with the installer: it catches damage, and a change on the way, and says nothing
+// of the place itself.
+func (s Source) stage(ctx context.Context, dir, version, goos, goarch string, mode os.FileMode, say func(string, ...any)) (staged, error) {
 	var out staged
 	sums, err := s.small(ctx, version, SumsName)
 	if errors.Is(err, os.ErrNotExist) {
@@ -302,19 +242,6 @@ func (s Source) stage(ctx context.Context, dir, version, goos, goarch string, ke
 	}
 	if err != nil {
 		return out, err
-	}
-	if len(keys) > 0 {
-		signature, err := s.small(ctx, version, SignatureName)
-		if errors.Is(err, os.ErrNotExist) {
-			return out, &RefusedError{"this release is not signed, and every release should be: nothing has changed"}
-		}
-		if err != nil {
-			return out, err
-		}
-		if !VerifySignature(keys, sums, signature) {
-			return out, &RefusedError{"the signature on this release is not one of the project's: nothing has changed"}
-		}
-		out.Signed = true
 	}
 	asset := AssetName(goos, goarch)
 	want, err := checksumOf(sums, asset)

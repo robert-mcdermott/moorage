@@ -7,11 +7,8 @@
 set -euo pipefail
 
 moor=/usr/local/bin/moor
-# A signing key for this check alone, which this build believes, so that an upgrade checks as it would.
 work=$(mktemp -d)
-public_key=$(go run ./internal/upgrade/releasekey new "$work/signing.key")
-key_flag="-X github.com/robert-mcdermott/moorage/internal/upgrade.extraKey=$public_key"
-go build -ldflags "$key_flag" -o moor ./cmd/moor
+go build -o moor ./cmd/moor
 sudo install -m 0755 moor "$moor"
 
 sudo "$moor" server init --preset local
@@ -68,10 +65,7 @@ if [ -z "$new_server_pid" ] || [ "$new_server_pid" = "$server_pid" ]; then echo 
 case "$(uname -s)" in Darwin) os=darwin ;; *) os=linux ;; esac
 case "$(uname -m)" in arm64 | aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
 asset=moor-$os-$arch
-sign_release() {
-  (cd "$1" && shasum -a 256 "$asset" > SHA256SUMS)
-  MOORAGE_RELEASE_KEY=$(cat "$work/signing.key") go run ./internal/upgrade/releasekey sign "$1/SHA256SUMS" > "$1/SHA256SUMS.sig"
-}
+sum_release() { (cd "$1" && shasum -a 256 "$asset" > SHA256SUMS); }
 config=$(sudo "$moor" server status | sed -n 's/^Config: *//p')
 data_dir=$(sudo sed -n 's/^data_dir *= *"\(.*\)"$/\1/p' "$config")
 # What the server that answers says it is, and not what the binary on the disk is.
@@ -81,11 +75,11 @@ running_version() {
 fail() { echo "FAIL: $1"; status=1; }
 started_as=$(running_version)
 mkdir "$work/good" "$work/broken" "$work/altered"
-go build -ldflags "$key_flag -X github.com/robert-mcdermott/moorage/internal/buildinfo.Version=99.0.0" -o "$work/good/$asset" ./cmd/moor
-sign_release "$work/good"
+go build -ldflags "-X github.com/robert-mcdermott/moorage/internal/buildinfo.Version=99.0.0" -o "$work/good/$asset" ./cmd/moor
+sum_release "$work/good"
 
 echo "--- a release that has been changed is refused"
-cp "$work/good/SHA256SUMS" "$work/good/SHA256SUMS.sig" "$work/good/$asset" "$work/altered/"
+cp "$work/good/SHA256SUMS" "$work/good/$asset" "$work/altered/"
 echo "and something more" >> "$work/altered/$asset"
 if sudo "$moor" server upgrade --from "$work/altered"; then fail "a changed release was installed"; fi
 [ "$(running_version)" = "$started_as" ] || fail "a refused release changed the version"
@@ -117,7 +111,7 @@ echo "this version is no good" >&2
 exit 1
 EOF
 chmod +x "$work/broken/$asset"
-sign_release "$work/broken"
+sum_release "$work/broken"
 if sudo "$moor" server upgrade --from "$work/broken" --wait 15s; then fail "a broken version was left running"; fi
 sudo "$moor" server status
 [ "$(running_version)" = "$started_as" ] || fail "it did not go back by itself"

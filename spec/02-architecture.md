@@ -344,7 +344,7 @@ instances immediately.
 stop apps too.
 
 **Upgrade:** `moor server upgrade` downloads the new release, verifies its
-signature and checksum, runs it only then, to ask what it is, snapshots the database,
+checksum, runs it only then, to ask what it is, snapshots the database,
 swaps the binary (keeping the previous one) and restarts the service. If the new
 version does not come up, it goes back by itself. `moor server upgrade --rollback` does
 so later on: the previous binary, and the database snapshot only if the schema has moved
@@ -465,7 +465,7 @@ Planned modules:
   re-parses templates on every request, so console changes show up on reload.
 - Releases are produced for `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`,
   `windows/{amd64,arm64}` with reproducible flags (`-trimpath`, fixed build
-  IDs), SHA-256 checksums, signatures and an SBOM.
+  IDs), SHA-256 checksums, an SBOM and an attestation of the workflow that built them.
 - Version information (`moor version`) includes version, commit and build
   date.
 

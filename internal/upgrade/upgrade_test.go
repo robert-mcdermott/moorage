@@ -2,8 +2,6 @@ package upgrade
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -41,7 +39,7 @@ func TestMain(m *testing.M) {
 }
 
 // aRelease is a directory with a release in it.
-func aRelease(t *testing.T, version string, key ed25519.PrivateKey) string {
+func aRelease(t *testing.T, version string) string {
 	t.Helper()
 	dir := t.TempDir()
 	self, err := os.Executable()
@@ -60,11 +58,6 @@ func aRelease(t *testing.T, version string, key ed25519.PrivateKey) string {
 	sums := []byte(hex.EncodeToString(sum[:]) + "  " + asset + "\n" + strings.Repeat("0", 64) + "  moor-plan9-mips\n")
 	if err := os.WriteFile(filepath.Join(dir, SumsName), sums, 0o644); err != nil {
 		t.Fatal(err)
-	}
-	if key != nil {
-		if err := os.WriteFile(filepath.Join(dir, SignatureName), []byte(Sign(key, sums)), 0o644); err != nil {
-			t.Fatal(err)
-		}
 	}
 	t.Setenv("MOOR_FAKE_VERSION", version)
 	return dir
@@ -171,7 +164,7 @@ func (s aServer) binary(t *testing.T) string {
 }
 
 func (s aServer) options(source Source) Options {
-	return Options{Executable: s.exe, Current: "0.5.0", DataDir: s.data, Database: s.db, Source: source, Unsigned: true, Wait: time.Millisecond, Healthy: func(time.Duration) bool { return true }}
+	return Options{Executable: s.exe, Current: "0.5.0", DataDir: s.data, Database: s.db, Source: source, Wait: time.Millisecond, Healthy: func(time.Duration) bool { return true }}
 }
 
 func wantRefused(t *testing.T, err error, saying string) {
@@ -182,28 +175,18 @@ func wantRefused(t *testing.T, err error, saying string) {
 	}
 }
 
-func newKey(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
-	t.Helper()
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return public, private
-}
-
 func TestUpgradeAndGoBack(t *testing.T) {
 	ctx := context.Background()
-	public, private := newKey(t)
 	s := newServer(t, 21)
 	service := &fakeService{up: true}
-	o := s.options(Source{Base: aRelease(t, "0.6.0", private), Flat: true})
-	o.Keys, o.Service, o.Unsigned = []ed25519.PublicKey{public}, service, false
+	o := s.options(Source{Base: aRelease(t, "0.6.0"), Flat: true})
+	o.Service = service
 
 	res, err := Upgrade(ctx, o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Restarted || !res.Signed || res.To != "0.6.0" || res.From != "0.5.0" || service.restarts != 1 {
+	if !res.Restarted || res.To != "0.6.0" || res.From != "0.5.0" || service.restarts != 1 {
 		t.Errorf("%+v %+v", res, service)
 	}
 	if s.binary(t) != "new" {
@@ -248,7 +231,7 @@ func TestGoingBackOverAMigratedDatabase(t *testing.T) {
 	ctx := context.Background()
 	s := newServer(t, 21)
 	service := &fakeService{up: true}
-	o := s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true})
+	o := s.options(Source{Base: aRelease(t, "0.6.0"), Flat: true})
 	o.Service = service
 	then := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	o.Now = func() time.Time { return then }
@@ -290,7 +273,7 @@ func TestNewVersionThatDoesNotComeUp(t *testing.T) {
 	ctx := context.Background()
 	s := newServer(t, 21)
 	service := &fakeService{up: true, failing: true}
-	o := s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true})
+	o := s.options(Source{Base: aRelease(t, "0.6.0"), Flat: true})
 	o.Service = service
 	answers := 0
 	o.Healthy = func(time.Duration) bool {
@@ -317,24 +300,24 @@ func TestNewVersionThatDoesNotComeUp(t *testing.T) {
 
 func TestReleasesThatAreRefused(t *testing.T) {
 	ctx := context.Background()
-	public, private := newKey(t)
-	_, stranger := newKey(t)
-	keys := []ed25519.PublicKey{public}
 	asset := AssetName(runtime.GOOS, runtime.GOARCH)
 
 	try := func(t *testing.T, change func(dir string), want string) {
 		t.Helper()
 		s := newServer(t, 21)
-		dir := aRelease(t, "0.6.0", private)
+		dir := aRelease(t, "0.6.0")
+		mark := filepath.Join(t.TempDir(), "it-ran")
+		t.Setenv("MOOR_FAKE_MARK", mark)
 		if change != nil {
 			change(dir)
 		}
-		o := s.options(Source{Base: dir, Flat: true})
-		o.Keys, o.Unsigned = keys, false
-		_, err := Upgrade(ctx, o)
+		_, err := Upgrade(ctx, s.options(Source{Base: dir, Flat: true}))
 		wantRefused(t, err, want)
 		if s.binary(t) != "old" {
 			t.Error("the binary changed")
+		}
+		if _, err := os.Stat(mark); err == nil {
+			t.Error("it ran what had not passed")
 		}
 		if _, err := os.Stat(previousPath(s.exe)); err == nil {
 			t.Error("it went as far as swapping")
@@ -355,33 +338,19 @@ func TestReleasesThatAreRefused(t *testing.T) {
 			}
 		}, "does not match its checksum")
 	})
-	t.Run("no signature", func(t *testing.T) {
-		try(t, func(dir string) { os.Remove(filepath.Join(dir, SignatureName)) }, "not signed")
-	})
-	t.Run("signed by someone else", func(t *testing.T) {
-		try(t, func(dir string) {
-			sums, _ := os.ReadFile(filepath.Join(dir, SumsName))
-			os.WriteFile(filepath.Join(dir, SignatureName), []byte(Sign(stranger, sums)), 0o644)
-		}, "not one of the project's")
-	})
-	t.Run("checksums changed after signing", func(t *testing.T) {
-		try(t, func(dir string) {
-			f, _ := os.OpenFile(filepath.Join(dir, SumsName), os.O_APPEND|os.O_WRONLY, 0)
-			defer f.Close()
-			f.WriteString("\n")
-		}, "not one of the project's")
-	})
 	t.Run("nothing for this machine", func(t *testing.T) {
 		try(t, func(dir string) {
 			sums := []byte(strings.Repeat("0", 64) + "  moor-plan9-mips\n")
 			os.WriteFile(filepath.Join(dir, SumsName), sums, 0o644)
-			os.WriteFile(filepath.Join(dir, SignatureName), []byte(Sign(private, sums)), 0o644)
 		}, "0 times")
+	})
+	t.Run("no checksums", func(t *testing.T) {
+		try(t, func(dir string) { os.Remove(filepath.Join(dir, SumsName)) }, "has no "+SumsName)
 	})
 	t.Run("does not run", func(t *testing.T) {
 		t.Setenv("MOOR_FAKE_VERSION", "crash")
 		s := newServer(t, 21)
-		dir := aRelease(t, "crash", nil)
+		dir := aRelease(t, "crash")
 		o := s.options(Source{Base: dir, Flat: true})
 		_, err := Upgrade(ctx, o)
 		wantRefused(t, err, "does not run")
@@ -391,14 +360,14 @@ func TestReleasesThatAreRefused(t *testing.T) {
 	})
 	t.Run("for another machine", func(t *testing.T) {
 		s := newServer(t, 21)
-		dir := aRelease(t, "0.6.0", nil)
+		dir := aRelease(t, "0.6.0")
 		t.Setenv("MOOR_FAKE_PLATFORM", "plan9/mips")
 		_, err := Upgrade(ctx, s.options(Source{Base: dir, Flat: true}))
 		wantRefused(t, err, "is for plan9/mips")
 	})
 	t.Run("not the version it should be", func(t *testing.T) {
 		s := newServer(t, 21)
-		o := s.options(Source{Base: aRelease(t, "0.7.0", nil), Flat: true})
+		o := s.options(Source{Base: aRelease(t, "0.7.0"), Flat: true})
 		o.Version = "0.6.0"
 		_, err := Upgrade(ctx, o)
 		wantRefused(t, err, "says that it is 0.7.0")
@@ -414,11 +383,11 @@ func TestReleasesThatAreRefused(t *testing.T) {
 func TestNowhereToGo(t *testing.T) {
 	ctx := context.Background()
 	s := newServer(t, 21)
-	res, err := Upgrade(ctx, s.options(Source{Base: aRelease(t, "0.5.0", nil), Flat: true}))
+	res, err := Upgrade(ctx, s.options(Source{Base: aRelease(t, "0.5.0"), Flat: true}))
 	if err != nil || !res.Current {
 		t.Errorf("%+v %v", res, err)
 	}
-	_, err = Upgrade(ctx, s.options(Source{Base: aRelease(t, "0.4.0", nil), Flat: true}))
+	_, err = Upgrade(ctx, s.options(Source{Base: aRelease(t, "0.4.0"), Flat: true}))
 	wantRefused(t, err, "--rollback")
 	if s.binary(t) != "old" {
 		t.Error("the binary changed")
@@ -429,7 +398,7 @@ func TestServerNotRunUnderAService(t *testing.T) {
 	ctx := context.Background()
 	s := newServer(t, 21)
 	up := true
-	o := s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true})
+	o := s.options(Source{Base: aRelease(t, "0.6.0"), Flat: true})
 	o.ServerUp = func() bool { return up }
 	res, err := Upgrade(ctx, o)
 	if err != nil || res.Restarted || res.Stopped || s.binary(t) != "new" {
@@ -449,7 +418,7 @@ func TestServerNotRunUnderAService(t *testing.T) {
 func TestServiceThatIsStopped(t *testing.T) {
 	s := newServer(t, 21)
 	service := &fakeService{}
-	o := s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true})
+	o := s.options(Source{Base: aRelease(t, "0.6.0"), Flat: true})
 	o.Service = service
 	res, err := Upgrade(context.Background(), o)
 	if err != nil || !res.Stopped || service.restarts != 0 {
@@ -460,7 +429,7 @@ func TestServiceThatIsStopped(t *testing.T) {
 // TestFromTheProject finds the newest release, and refuses to be told about nothing.
 func TestFromTheProject(t *testing.T) {
 	ctx := context.Background()
-	dir := aRelease(t, "0.6.0", nil)
+	dir := aRelease(t, "0.6.0")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /latest", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/tag/v0.6.0", http.StatusFound)
@@ -511,49 +480,29 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
-func TestKeysInTheCode(t *testing.T) {
-	keys, err := ReleaseKeys()
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, private := newKey(t)
-	signature := Sign(private, []byte("sums"))
-	if !VerifySignature([]ed25519.PublicKey{public}, []byte("sums"), []byte(signature)) {
-		t.Error("its own signature")
-	}
-	if VerifySignature(keys, []byte("sums"), []byte(signature)) {
-		t.Error("a stranger's signature passed")
-	}
-	if _, err := parseKeys("not a key"); err == nil {
-		t.Error("that is no key")
-	}
-}
-
-// TestNothingRunsThatHasNotBeenChecked: a moor with no key to check with goes no further, and --check is no way
-// around that: a hostile source would otherwise be running as root, just for being asked what it is.
-func TestNothingRunsThatHasNotBeenChecked(t *testing.T) {
+// TestCheckRunsNothing: asking what is there should not run it, as a directory could hold anything.
+func TestCheckRunsNothing(t *testing.T) {
 	ctx := context.Background()
 	s := newServer(t, 21)
-	dir := aRelease(t, "0.6.0", nil)
+	dir := aRelease(t, "0.6.0")
 	mark := filepath.Join(t.TempDir(), "it-ran")
 	t.Setenv("MOOR_FAKE_MARK", mark)
-	for _, check := range []bool{false, true} {
-		o := s.options(Source{Base: dir, Flat: true})
-		o.Unsigned, o.Check = false, check
-		_, err := Upgrade(ctx, o)
-		wantRefused(t, err, "--unsigned")
-		if _, err := os.Stat(mark); err == nil {
-			t.Errorf("check %v: it ran what it downloaded", check)
-		}
-		if s.binary(t) != "old" {
-			t.Errorf("check %v: the binary changed", check)
-		}
-	}
-	// Asked for by name, it goes ahead.
+
 	o := s.options(Source{Base: dir, Flat: true})
+	o.Check = true
+	_, err := Upgrade(ctx, o)
+	wantRefused(t, err, "--version")
+
+	o.Version = "0.6.0"
 	res, err := Upgrade(ctx, o)
-	if err != nil || res.Signed || s.binary(t) != "new" {
+	if err != nil || !res.Available || res.To != "0.6.0" {
 		t.Errorf("%+v %v", res, err)
+	}
+	if _, err := os.Stat(mark); err == nil {
+		t.Error("it ran what it was only asked about")
+	}
+	if s.binary(t) != "old" {
+		t.Error("the binary changed")
 	}
 }
 
@@ -561,7 +510,7 @@ func TestNothingRunsThatHasNotBeenChecked(t *testing.T) {
 func TestRollbackIsFromWhereItWent(t *testing.T) {
 	ctx := context.Background()
 	s := newServer(t, 21)
-	o := s.options(Source{Base: aRelease(t, "0.6.1", nil), Flat: true})
+	o := s.options(Source{Base: aRelease(t, "0.6.1"), Flat: true})
 	if _, err := Upgrade(ctx, o); err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +534,7 @@ func TestOneUpgradeAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	_, err = Upgrade(ctx, s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true}))
+	_, err = Upgrade(ctx, s.options(Source{Base: aRelease(t, "0.6.0"), Flat: true}))
 	wantRefused(t, err, "another upgrade")
 	if s.binary(t) != "old" {
 		t.Error("the binary changed")
@@ -610,7 +559,7 @@ func TestWhatAnInterruptedUpgradeLeft(t *testing.T) {
 	if err := os.Mkdir(left, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Upgrade(context.Background(), s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true})); err != nil {
+	if _, err := Upgrade(context.Background(), s.options(Source{Base: aRelease(t, "0.6.0"), Flat: true})); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(left); err == nil {
@@ -618,17 +567,22 @@ func TestWhatAnInterruptedUpgradeLeft(t *testing.T) {
 	}
 }
 
-// TestCheckWithNoKey: asking what the project has out runs nothing, and works even in a moor with no key.
-func TestCheckWithNoKey(t *testing.T) {
+// TestNewestReleaseIsOlderThanThis: as with a build of one's own, which nobody asked to go back from.
+func TestNewestReleaseIsOlderThanThis(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/tag/v0.9.0", http.StatusFound)
+		http.Redirect(w, r, "/tag/v0.4.0", http.StatusFound)
 	}))
 	defer srv.Close()
 	s := newServer(t, 21)
-	o := s.options(Source{Base: srv.URL})
-	o.Unsigned, o.Check = false, true
-	res, err := Upgrade(context.Background(), o)
-	if err != nil || !res.Available || res.To != "0.9.0" {
-		t.Errorf("%+v %v", res, err)
+	for _, check := range []bool{true, false} {
+		o := s.options(Source{Base: srv.URL})
+		o.Check = check
+		res, err := Upgrade(context.Background(), o)
+		if err != nil || !res.Current || res.Available {
+			t.Errorf("check %v: %+v %v", check, res, err)
+		}
+	}
+	if s.binary(t) != "old" {
+		t.Error("the binary changed")
 	}
 }
