@@ -1054,7 +1054,9 @@ directory, supervises it, and serves it on its own hostname.
      passwords needs a way back that does not depend on the provider. An invitation that signs
      someone in would be a way around a second factor. Trusting a header from this machine's own address trusts
      every app on it, so the server warns. The S3 server image that the restore drill used is no longer
-     published, so it runs against another.
+     published, so it runs against another. With a real bucket in it, the drill found that two restores
+     within a second collided part of the way through, leaving half of each: restores now get a directory
+     of their own, and put everything back if they fail.
 4. **Lifecycle.** Self-upgrade with rollback; server configuration export and
    import; provenance checks for toolchain downloads where published.
 5. **Release 0.6.0.**

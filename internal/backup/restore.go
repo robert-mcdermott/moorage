@@ -262,33 +262,91 @@ func Restore(ctx context.Context, r io.Reader, digest string, o RestoreOptions) 
 	if err != nil {
 		return out, err
 	}
-	aside := filepath.Join(o.DataDir, "before-restore-"+now().UTC().Format("20060102T150405Z"))
+	stamp := "before-restore-" + now().UTC().Format("20060102T150405Z")
+	// Each thing moved, so that a failure part of the way through can put it all back: half of one
+	// server and half of another is worse than either.
+	var undo []func()
+	failed := func(err error) (Restored, error) {
+		for i := len(undo) - 1; i >= 0; i-- {
+			undo[i]()
+		}
+		if out.Aside != "" {
+			_ = os.Remove(out.Aside)
+		}
+		out.Aside = ""
+		return out, err
+	}
 	move := func(name string) error {
 		from := filepath.Join(o.DataDir, name)
-		if _, err := os.Lstat(from); errors.Is(err, fs.ErrNotExist) {
+		info, err := os.Lstat(from)
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		if err := os.MkdirAll(aside, 0o700); err != nil {
+		if err != nil {
 			return err
 		}
-		out.Aside = aside
-		return os.Rename(from, filepath.Join(aside, name))
+		// A directory with nothing in it is nothing to keep, and no reason to say that something was kept.
+		if info.IsDir() {
+			if held, err := os.ReadDir(from); err == nil && len(held) == 0 {
+				mode := info.Mode().Perm()
+				if err := os.Remove(from); err != nil {
+					return err
+				}
+				undo = append(undo, func() { _ = os.Mkdir(from, mode) })
+				return nil
+			}
+		}
+		if out.Aside == "" {
+			if out.Aside, err = newAside(o.DataDir, stamp); err != nil {
+				return err
+			}
+		}
+		to := filepath.Join(out.Aside, name)
+		if err := os.Rename(from, to); err != nil {
+			return err
+		}
+		undo = append(undo, func() { _ = os.Rename(to, from) })
+		return nil
 	}
 	for _, name := range []string{databaseName + "-wal", databaseName + "-shm"} {
 		if err := move(name); err != nil {
-			return out, err
+			return failed(err)
 		}
 	}
 	for _, e := range entries {
 		if err := move(e.Name()); err != nil {
-			return out, err
+			return failed(err)
 		}
-		if err := os.Rename(filepath.Join(staging, e.Name()), filepath.Join(o.DataDir, e.Name())); err != nil {
-			return out, fmt.Errorf("move %s into place: %w", e.Name(), err)
+		from, to := filepath.Join(staging, e.Name()), filepath.Join(o.DataDir, e.Name())
+		if err := renameInto(from, to); err != nil {
+			return failed(fmt.Errorf("move %s into place: %w", e.Name(), err))
 		}
+		undo = append(undo, func() { _ = os.Rename(to, from) })
 	}
 	log("%d files", sum.Files)
 	return out, nil
+}
+
+// renameInto moves what arrived into place. A variable so that a test can have it fail.
+var renameInto = os.Rename
+
+// newAside makes the directory for what was there. The name has the time in it, to the second, and
+// two restores can come within one: each gets a directory of its own.
+func newAside(dataDir, stamp string) (string, error) {
+	for i := 1; ; i++ {
+		name := stamp
+		if i > 1 {
+			name = fmt.Sprintf("%s-%d", stamp, i)
+		}
+		path := filepath.Join(dataDir, name)
+		err := os.Mkdir(path, 0o700)
+		if err == nil {
+			return path, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+	}
 }
 
 // cleanEntry refuses a name that would land outside the data directory. os.Root would stop it anyway.

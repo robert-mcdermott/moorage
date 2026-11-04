@@ -620,3 +620,112 @@ func TestManifestReadsBack(t *testing.T) {
 		t.Errorf("%+v %v", m, err)
 	}
 }
+
+func archiveOfAServer(t *testing.T) []byte {
+	t.Helper()
+	from := newServerData(t)
+	return archiveOf(t, from, options(from))
+}
+
+// serverIn makes a data directory that holds a server, by restoring one into it.
+func serverIn(t *testing.T, there string, archive []byte, at time.Time) Restored {
+	t.Helper()
+	restored, err := Restore(context.Background(), bytes.NewReader(archive), "", RestoreOptions{
+		DataDir: there, KeyFingerprint: "abc", Force: true, Now: func() time.Time { return at },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return restored
+}
+
+// TestRestoresWithinASecond: the name of what is kept has the second in it, and the drill found that a
+// fast machine can do two in one.
+func TestRestoresWithinASecond(t *testing.T) {
+	good := archiveOfAServer(t)
+	there := t.TempDir()
+	at := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	serverIn(t, there, good, at)
+	first := serverIn(t, there, good, at)
+	second := serverIn(t, there, good, at)
+	if first.Aside == "" || second.Aside == "" || first.Aside == second.Aside {
+		t.Errorf("%q and %q", first.Aside, second.Aside)
+	}
+	for _, aside := range []string{first.Aside, second.Aside} {
+		if _, err := os.Stat(filepath.Join(aside, databaseName)); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+// TestRestoreOverNothing says nothing was kept when there was nothing to keep: starting a command
+// makes empty directories, and those are not a server that was there.
+func TestRestoreOverNothing(t *testing.T) {
+	good := archiveOfAServer(t)
+	there := t.TempDir()
+	for _, name := range []string{"builds", "certs", "repos"} {
+		if err := os.Mkdir(filepath.Join(there, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restored, err := Restore(context.Background(), bytes.NewReader(good), "", RestoreOptions{DataDir: there, KeyFingerprint: "abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Aside != "" {
+		t.Errorf("kept %s", restored.Aside)
+	}
+	if names, _ := filepath.Glob(filepath.Join(there, "before-restore-*")); len(names) != 0 {
+		t.Errorf("%v", names)
+	}
+}
+
+// TestFailedRestorePutsItBack leaves the server as it was, and not half of each.
+func TestFailedRestorePutsItBack(t *testing.T) {
+	good := archiveOfAServer(t)
+	there := t.TempDir()
+	serverIn(t, there, good, time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC))
+	marker := filepath.Join(there, databaseName)
+	if err := os.WriteFile(marker, []byte("what was there"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// This comes before the database, so that it has been replaced by the time that fails.
+	mine := filepath.Join(there, "data", "mine")
+	if err := os.WriteFile(mine, []byte("mine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(there, "certs")
+	if err := os.RemoveAll(empty); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	renameInto = func(from, to string) error {
+		if filepath.Base(to) == databaseName {
+			return errors.New("the disk has had enough")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { renameInto = os.Rename })
+	restored, err := Restore(context.Background(), bytes.NewReader(good), "", RestoreOptions{DataDir: there, KeyFingerprint: "abc", Force: true})
+	if err == nil || !strings.Contains(err.Error(), "had enough") {
+		t.Fatalf("%v", err)
+	}
+	if restored.Aside != "" {
+		t.Errorf("it says it kept %s", restored.Aside)
+	}
+	if got := readFile(t, marker); got != "what was there" {
+		t.Errorf("%q", got)
+	}
+	if got := readFile(t, mine); got != "mine" {
+		t.Errorf("%q", got)
+	}
+	if names, _ := filepath.Glob(filepath.Join(there, "before-restore-*")); len(names) != 0 {
+		t.Errorf("%v", names)
+	}
+	if info, err := os.Stat(empty); err != nil || !info.IsDir() {
+		t.Errorf("%v %v", info, err)
+	}
+}
