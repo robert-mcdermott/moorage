@@ -318,6 +318,24 @@ func (c *Client) ConfigureSSO(ctx context.Context, in apitypes.SSOConfig) (apity
 	return out, err
 }
 
+// ServerConfig reads the server's settings, with no secrets in them.
+func (c *Client) ServerConfig(ctx context.Context) (apitypes.ServerConfig, error) {
+	var out apitypes.ServerConfig
+	err := c.do(ctx, http.MethodGet, "/api/v1/server/config", nil, "", &out)
+	return out, err
+}
+
+// ImportServerConfig makes the server match a configuration, or says what that would do.
+func (c *Client) ImportServerConfig(ctx context.Context, in apitypes.ServerConfig, dryRun bool) (apitypes.ConfigReport, error) {
+	var out apitypes.ConfigReport
+	path := "/api/v1/server/config/import"
+	if dryRun {
+		path += "?dry_run=true"
+	}
+	err := c.post(ctx, http.MethodPost, path, in, &out)
+	return out, err
+}
+
 // Backups says where backups go, and what has been backed up.
 func (c *Client) Backups(ctx context.Context) (apitypes.Backups, error) {
 	var out apitypes.Backups

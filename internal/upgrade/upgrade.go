@@ -227,7 +227,7 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 		reason = restarted.Error()
 	}
 	o.Say("the server did not come up on %s (%s): going back to %s", new.Version, reason, o.Current)
-	backed, err := goBack(ctx, o, st, true)
+	backed, err := goBack(ctx, o, st, true, true)
 	if err != nil {
 		return res, fmt.Errorf("the server did not come up on %s (%s), and going back failed too: %w", new.Version, reason, err)
 	}
@@ -288,10 +288,12 @@ func Rollback(ctx context.Context, o Options) (Result, error) {
 	if _, err := os.Stat(st.Previous); err != nil {
 		return Result{}, &RefusedError{fmt.Sprintf("the previous binary is not at %s, so there is nothing to go back to: run the installer with the version you want", st.Previous)}
 	}
-	return goBack(ctx, o, st, o.Force)
+	return goBack(ctx, o, st, o.Force, false)
 }
 
-func goBack(ctx context.Context, o Options, st state, force bool) (Result, error) {
+// goBack puts things back. A version that has just failed leaves a server that is not running, by no choice of
+// anyone's, so that coming back from one starts it whatever state it is in. Otherwise a server is left as it was.
+func goBack(ctx context.Context, o Options, st state, force, start bool) (Result, error) {
 	res := Result{From: st.To, To: st.From}
 	restore := false
 	if st.Snapshot != "" {
@@ -311,13 +313,18 @@ func goBack(ctx context.Context, o Options, st state, force bool) (Result, error
 		}
 	}
 
-	wasRunning := false
 	if o.Service != nil {
-		if wasRunning = o.Service.Running(); wasRunning {
+		running := o.Service.Running()
+		switch {
+		case running:
 			o.Say("stopping the server")
 			if err := o.Service.Stop(); err != nil {
 				return res, err
 			}
+			start = true
+		case start:
+			// It may be starting again and again, which should not go on while its files change.
+			_ = o.Service.Stop()
 		}
 	} else if o.ServerUp != nil && o.ServerUp() {
 		return res, &RefusedError{"the server is running: stop it, and do this again"}
@@ -336,14 +343,15 @@ func goBack(ctx context.Context, o Options, st state, force bool) (Result, error
 	if err := os.Remove(statePath(o.DataDir)); err != nil {
 		return res, err
 	}
-	if !wasRunning {
+	if !start || o.Service == nil {
 		res.Stopped = true
 		return res, nil
 	}
 	if err := o.Service.Start(); err != nil {
 		return res, err
 	}
-	if !o.Healthy(o.Wait) {
+	// The version that was running before has no reason to be slow, and this is no time to give up on it.
+	if !o.Healthy(max(o.Wait, time.Minute)) {
 		return res, fmt.Errorf("the previous binary is back, but the server does not answer")
 	}
 	res.Restarted = true

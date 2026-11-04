@@ -98,6 +98,67 @@ schedule = "45 2 * * *"
 command = 'sqlite3 "$MOORAGE_DATA_DIR/app.db" ".backup $MOORAGE_DATA_DIR/app.backup.db"'
 ```
 
+## The server's configuration
+
+A backup holds everything, to bring a server back. Its settings alone are a smaller thing, and a file you can
+read, keep with the rest of what you look after, or bring to another server: people and their roles, projects
+and who is in them, container registries, notification channels and rules, where backups go, and sign-in.
+
+```bash
+moor server config export > moorage-config.toml
+```
+
+**Settings → System** has the same file to download. It holds no secrets. Where one belongs, it names a variable
+of the environment:
+
+```toml
+format = 1
+
+[[user]]
+email = "ada@example.com"
+name = "Ada Lovelace"
+role = "admin"
+
+[[project]]
+name = "web"
+
+[project.members]
+"sam@example.com" = "deployer"
+
+[[registry]]
+host = "ghcr.io"
+username = "robot"
+password = "${MOORAGE_REGISTRY_GHCR_IO_PASSWORD}"
+```
+
+To bring it in, look first at what that would do:
+
+```bash
+moor server config import moorage-config.toml --dry-run
+```
+
+```text
+same    user            ada@example.com
+create  user            sam@example.com     they need a link to choose a password, or single sign-on: moor server users invite sam@example.com
+create  project         web
+skip    registry        ghcr.io             set MOORAGE_REGISTRY_GHCR_IO_PASSWORD and bring this in again
+```
+
+Then do it, with those secrets in the command's environment:
+
+```bash
+MOORAGE_REGISTRY_GHCR_IO_PASSWORD=... moor server config import moorage-config.toml
+```
+
+**It adds and changes, and removes nothing.** What the file does not mention stays as it is, and a server keeps
+the secret it has when the variable is not set, so that bringing a file back to the server it came from changes
+nothing. Something that cannot be done is said, and does not stop the rest; the command then fails.
+
+People's passwords and second factors do not go with them, so someone new needs `moor server users invite`, or
+single sign-on. A disabled user stays disabled until you enable them. `server.toml` is apart from this: it is
+a file already, and is for you to copy. So are your apps: those come from their manifests and repositories, and
+a rule for an app that is not deployed yet is said to have failed, until it is.
+
 ## See also
 
 - [Installing Moorage](install.md)

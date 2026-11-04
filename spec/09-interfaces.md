@@ -94,6 +94,7 @@ Server administration
   moor server resolver [install|remove]  Make *.localhost resolve for a local server (macOS)
   moor registry [login|logout]        Credentials for private container registries
   moor server users [list|create|invite|role|disable|enable]
+  moor server config [export|import]  The server's settings as a file, with no secrets in it
   moor toolchains [list|install|prune|import]
 
   moor version | completion [bash|zsh|fish|powershell]

@@ -4,6 +4,7 @@
 
 ### Added
 
+- **The server's configuration, as a file (wave 6, slice 4).** `moor server config export` writes out people, projects, registries, notifications, backups and sign-in, with no secrets, and `moor server config import` brings it in on that server or another, with `--dry-run` to look first. See [the server's configuration](docs/backups.md#the-servers-configuration).
 - **`moor server upgrade` (wave 6, slice 4).** A server upgrades itself: it checks a release's signature and checksum, keeps a copy of the database and the binary, swaps them, restarts, and goes back by itself if the new version does not come up. `--rollback` goes back later on. Apps keep running throughout. Releases now come with a list of what went into them, and an attestation of the workflow that built them. See [upgrading](docs/install.md#upgrading).
 - **Single sign-on (wave 6, slice 3).** **Settings → Sign-in** connects to any OpenID Connect provider, with accounts made the first time, roles from groups, and an option to turn off passwords. `trusted_header` under `[auth]` believes a proxy that signs people in. See [how people sign in](docs/sign-in.md).
 - **Two-factor sign-in (wave 6, slice 3).** **Your account → Two-factor** adds a code from an authenticator app to signing in, with recovery codes for if you lose it. See [accounts](docs/accounts.md#two-factor-sign-in).

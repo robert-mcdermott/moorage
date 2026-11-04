@@ -259,6 +259,7 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /login", c.post(c.login))
 	mux.HandleFunc("GET /login/sso", c.ssoBegin)
 	mux.HandleFunc("GET "+sso.CallbackPath, c.ssoCallback)
+	mux.HandleFunc("GET /settings/system/configuration", c.downloadConfiguration)
 	mux.HandleFunc("GET /settings/sign-in", c.signInSettings)
 	mux.HandleFunc("POST /settings/sign-in", c.adminAction(c.configureSignIn))
 	mux.HandleFunc("POST /settings/sign-in/off", c.adminAction(c.turnOffSignIn))

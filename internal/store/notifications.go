@@ -80,6 +80,14 @@ func (db *DB) NotificationChannel(ctx context.Context, ref string) (Notification
 	return c, err
 }
 
+// SetNotificationChannelSealed changes where a channel goes.
+func (db *DB) SetNotificationChannelSealed(ctx context.Context, id string, sealed []byte) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE notification_channels SET sealed = ? WHERE id = ?`, sealed, id)
+		return err
+	})
+}
+
 // DeleteNotificationChannel removes a channel, and its rules.
 func (db *DB) DeleteNotificationChannel(ctx context.Context, id string) error {
 	return db.write(ctx, func(tx *sql.Tx) error {

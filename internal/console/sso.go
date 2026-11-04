@@ -4,9 +4,13 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/buildinfo"
+	"github.com/robert-mcdermott/moorage/internal/serverconfig"
 	"github.com/robert-mcdermott/moorage/internal/sso"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 // signInView is the page of how people sign in.
@@ -155,4 +159,32 @@ func (c *Console) trustedSignIn(next http.Handler) http.Handler {
 		r.AddCookie(&http.Cookie{Name: cookie.Name, Value: value})
 		next.ServeHTTP(w, r)
 	})
+}
+
+// downloadConfiguration hands over the server's settings as a file. Only an admin sees it, and it has no
+// secrets in it.
+func (c *Console) downloadConfiguration(w http.ResponseWriter, r *http.Request) {
+	p, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
+	if !p.Admin || !p.Can(auth.ScopeAdmin) {
+		c.message(w, http.StatusForbidden, data{Title: "Not allowed", Heading: "Not allowed", Message: "Only an administrator can read the server's configuration."})
+		return
+	}
+	settings := &serverconfig.Service{DB: c.db, Auth: c.auth, Notifier: c.notifier, Backups: c.backups, SSO: c.sso}
+	f, err := settings.Export(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	body, err := serverconfig.Encode(f, " from "+c.cfg.ConsoleHost+", on "+time.Now().UTC().Format("2 January 2006")+", by "+buildinfo.Version)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	c.auth.Audit(r.Context(), store.AuditEntry{Actor: p.Name, IP: c.auth.ClientIP(r), Action: "server.config.export", Result: "ok"})
+	w.Header().Set("Content-Type", "application/toml; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="moorage-config.toml"`)
+	_, _ = w.Write(body)
 }

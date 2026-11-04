@@ -362,6 +362,242 @@
         ],
         "type": "object"
       },
+      "ConfigBackups": {
+        "properties": {
+          "access_key": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "region": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "secret_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keep"
+        ],
+        "type": "object"
+      },
+      "ConfigChannel": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ConfigItem": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "what": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "name",
+          "action"
+        ],
+        "type": "object"
+      },
+      "ConfigProject": {
+        "properties": {
+          "everyone_role": {
+            "type": "string"
+          },
+          "members": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "viewers_see_logs": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "ConfigRegistry": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "username"
+        ],
+        "type": "object"
+      },
+      "ConfigReport": {
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "dry_run",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ConfigRule": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "events"
+        ],
+        "type": "object"
+      },
+      "ConfigSignIn": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "email_domains": {
+            "type": "string"
+          },
+          "group_claim": {
+            "type": "string"
+          },
+          "group_rules": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "passwords_off": {
+            "type": "boolean"
+          },
+          "provision": {
+            "type": "boolean"
+          },
+          "scopes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id"
+        ],
+        "type": "object"
+      },
+      "ConfigUser": {
+        "properties": {
+          "disabled": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "type": "object"
+      },
       "CreatedChannel": {
         "properties": {
           "created_at": {
@@ -2012,6 +2248,53 @@
           "has_secret",
           "provision",
           "passwords_off"
+        ],
+        "type": "object"
+      },
+      "ServerConfig": {
+        "properties": {
+          "backups": {
+            "$ref": "#/components/schemas/ConfigBackups"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigChannel"
+            },
+            "type": "array"
+          },
+          "format": {
+            "type": "integer"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigProject"
+            },
+            "type": "array"
+          },
+          "registries": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigRegistry"
+            },
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigRule"
+            },
+            "type": "array"
+          },
+          "sign_in": {
+            "$ref": "#/components/schemas/ConfigSignIn"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigUser"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "format"
         ],
         "type": "object"
       },
@@ -7281,6 +7564,94 @@
           }
         ],
         "summary": "Say where backups go and how often",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/config": {
+      "get": {
+        "operationId": "getServerConfig",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Read the server's settings, with no secrets in them",
+        "tags": [
+          "server"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/server/config/import": {
+      "post": {
+        "operationId": "postServerConfigImport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Make the server match a configuration, in what it mentions, or with dry_run say what that would do",
         "tags": [
           "server"
         ],

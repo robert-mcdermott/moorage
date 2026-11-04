@@ -560,6 +560,18 @@ func (s *Service) noteResult(ctx context.Context, c store.NotificationChannel, e
 	}
 }
 
+// ChannelConfig opens what a channel keeps sealed.
+func (s *Service) ChannelConfig(c store.NotificationChannel) (Config, error) { return s.configOf(c) }
+
+// SetChannelConfig changes where a channel goes, keeping it, and so its rules.
+func (s *Service) SetChannelConfig(ctx context.Context, c store.NotificationChannel, cfg Config) error {
+	plain, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return s.DB.SetNotificationChannelSealed(ctx, c.ID, s.Keyring.SealChannel(c.ID, plain))
+}
+
 func (s *Service) configOf(c store.NotificationChannel) (Config, error) {
 	var cfg Config
 	plain, err := s.Keyring.OpenChannel(c.ID, c.Sealed)

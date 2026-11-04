@@ -910,3 +910,109 @@ type AuditEntry struct {
 	Result string         `json:"result"`
 	Data   map[string]any `json:"data,omitempty"`
 }
+
+// ServerConfig is what a server keeps of its own settings, in a form that can be read, kept and brought to
+// another server. It holds no secrets: where one belongs, it names a variable of the environment instead.
+type ServerConfig struct {
+	Format     int              `json:"format" toml:"format"`
+	Users      []ConfigUser     `json:"users,omitempty" toml:"user,omitempty"`
+	Projects   []ConfigProject  `json:"projects,omitempty" toml:"project,omitempty"`
+	Registries []ConfigRegistry `json:"registries,omitempty" toml:"registry,omitempty"`
+	Channels   []ConfigChannel  `json:"channels,omitempty" toml:"channel,omitempty"`
+	Rules      []ConfigRule     `json:"rules,omitempty" toml:"rule,omitempty"`
+	Backups    *ConfigBackups   `json:"backups,omitempty" toml:"backups,omitempty"`
+	SignIn     *ConfigSignIn    `json:"sign_in,omitempty" toml:"sign_in,omitempty"`
+}
+
+// ConfigUser is someone with an account. Nothing of how they sign in goes with them.
+type ConfigUser struct {
+	Email    string `json:"email" toml:"email"`
+	Name     string `json:"name,omitempty" toml:"name,omitempty"`
+	Role     string `json:"role" toml:"role"`
+	Disabled bool   `json:"disabled,omitempty" toml:"disabled,omitempty"`
+}
+
+// ConfigProject is a project, and who is in it. What apps are in it comes from those apps.
+type ConfigProject struct {
+	Name           string            `json:"name" toml:"name"`
+	EveryoneRole   string            `json:"everyone_role,omitempty" toml:"everyone_role,omitempty"`
+	ViewersSeeLogs bool              `json:"viewers_see_logs,omitempty" toml:"viewers_see_logs,omitempty"`
+	Members        map[string]string `json:"members,omitempty" toml:"members,omitempty"`
+}
+
+// ConfigRegistry is the sign-in to a container registry.
+type ConfigRegistry struct {
+	Host     string `json:"host" toml:"host"`
+	Username string `json:"username" toml:"username"`
+	Password string `json:"password,omitempty" toml:"password,omitempty"`
+}
+
+// ConfigChannel is somewhere notifications go.
+type ConfigChannel struct {
+	Name     string   `json:"name" toml:"name"`
+	Kind     string   `json:"kind" toml:"kind"`
+	URL      string   `json:"url,omitempty" toml:"url,omitempty"`
+	Secret   string   `json:"secret,omitempty" toml:"secret,omitempty"`
+	Host     string   `json:"host,omitempty" toml:"host,omitempty"`
+	Port     int      `json:"port,omitempty" toml:"port,omitempty"`
+	Username string   `json:"username,omitempty" toml:"username,omitempty"`
+	Password string   `json:"password,omitempty" toml:"password,omitempty"`
+	From     string   `json:"from,omitempty" toml:"from,omitempty"`
+	To       []string `json:"to,omitempty" toml:"to,omitempty"`
+}
+
+// ConfigRule says what goes to a channel: for an app, a project or, with neither, the whole server.
+type ConfigRule struct {
+	Channel string   `json:"channel" toml:"channel"`
+	Project string   `json:"project,omitempty" toml:"project,omitempty"`
+	App     string   `json:"app,omitempty" toml:"app,omitempty"`
+	Events  []string `json:"events" toml:"events"`
+}
+
+// ConfigBackups says where backups go and how often.
+type ConfigBackups struct {
+	Destination string `json:"destination,omitempty" toml:"destination,omitempty"`
+	Endpoint    string `json:"endpoint,omitempty" toml:"endpoint,omitempty"`
+	Region      string `json:"region,omitempty" toml:"region,omitempty"`
+	AccessKey   string `json:"access_key,omitempty" toml:"access_key,omitempty"`
+	SecretKey   string `json:"secret_key,omitempty" toml:"secret_key,omitempty"`
+	Schedule    string `json:"schedule,omitempty" toml:"schedule,omitempty"`
+	Keep        int    `json:"keep" toml:"keep"`
+}
+
+// ConfigSignIn is single sign-on.
+type ConfigSignIn struct {
+	Issuer       string `json:"issuer" toml:"issuer"`
+	ClientID     string `json:"client_id" toml:"client_id"`
+	ClientSecret string `json:"client_secret,omitempty" toml:"client_secret,omitempty"`
+	Label        string `json:"label,omitempty" toml:"label,omitempty"`
+	Scopes       string `json:"scopes,omitempty" toml:"scopes,omitempty"`
+	EmailDomains string `json:"email_domains,omitempty" toml:"email_domains,omitempty"`
+	Provision    bool   `json:"provision,omitempty" toml:"provision,omitempty"`
+	GroupClaim   string `json:"group_claim,omitempty" toml:"group_claim,omitempty"`
+	GroupRules   string `json:"group_rules,omitempty" toml:"group_rules,omitempty"`
+	PasswordsOff bool   `json:"passwords_off,omitempty" toml:"passwords_off,omitempty"`
+}
+
+// The actions in a report of bringing in a configuration.
+const (
+	ConfigCreate = "create"
+	ConfigChange = "change"
+	ConfigSame   = "same"
+	ConfigSkip   = "skip"
+	ConfigFailed = "failed"
+)
+
+// ConfigItem says what became of one thing.
+type ConfigItem struct {
+	What   string `json:"what"`
+	Name   string `json:"name"`
+	Action string `json:"action"`
+	Note   string `json:"note,omitempty"`
+}
+
+// ConfigReport says what became of a configuration that was brought in, or would have.
+type ConfigReport struct {
+	DryRun bool         `json:"dry_run"`
+	Items  []ConfigItem `json:"items"`
+}

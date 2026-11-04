@@ -81,6 +81,8 @@ func (f *fakeService) Stop() error   { f.up, f.calls = false, append(f.calls, "s
 func (f *fakeService) Restart() error {
 	f.restarts++
 	f.calls = append(f.calls, "restart")
+	// As on a real machine: a version that does not come up leaves a service that is not running.
+	f.up = !f.failing
 	return nil
 }
 
@@ -274,7 +276,7 @@ func TestGoingBackOverAMigratedDatabase(t *testing.T) {
 func TestNewVersionThatDoesNotComeUp(t *testing.T) {
 	ctx := context.Background()
 	s := newServer(t, 21)
-	service := &fakeService{up: true}
+	service := &fakeService{up: true, failing: true}
 	o := s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true})
 	o.Service = service
 	answers := 0
