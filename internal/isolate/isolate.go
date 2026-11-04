@@ -456,7 +456,12 @@ func ownTree(dir string, uid, gid uint32, mode fs.FileMode) error {
 		if err != nil {
 			return err
 		}
-		if owner, group, _, ok := statOf(info); ok && owner == uid && group == gid {
+		owner, group, links, ok := statOf(info)
+		if ok && owner == uid && group == gid {
+			return nil
+		}
+		// A file with another name may be something that an app has linked here to be given, where the system allows that.
+		if ok && links > 1 && info.Mode().IsRegular() {
 			return nil
 		}
 		if err := at.Lchown(name, int(uid), int(gid)); err != nil && name == "." {

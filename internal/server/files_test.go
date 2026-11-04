@@ -207,9 +207,35 @@ func TestDataFiles(t *testing.T) {
 		}
 	}
 
-	// Each environment has its own, and one that has not run has nothing.
+	// Each environment has its own, and one that is not there has nothing, and is not made ready for what is to come.
 	if _, err := c.DataFiles(ctx, "shop", "nothing", ""); status(err) != http.StatusNotFound {
 		t.Errorf("an environment that is not there: %v", err)
+	}
+	if _, err := c.PutDataFile(ctx, "shop", "nothing", "planted.db", strings.NewReader("x"), false); status(err) != http.StatusNotFound {
+		t.Errorf("a file for an environment that is not there: %v", err)
+	}
+	if err := c.MakeDataDir(ctx, "shop", "nothing", "planted"); status(err) != http.StatusNotFound {
+		t.Errorf("a directory for an environment that is not there: %v", err)
+	}
+	if _, err := c.PutDataFile(ctx, "future", "production", "planted.db", strings.NewReader("x"), false); status(err) != http.StatusNotFound {
+		t.Errorf("a file for an app that is not there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "data", "future")); !os.IsNotExist(err) {
+		t.Errorf("a place was made for an app that is not there: %v", err)
+	}
+
+	// A file with another name may be what an app could not read for itself, if the system lets it link that here.
+	if runtime.GOOS != "windows" {
+		elsewhere := filepath.Join(cfg.DataDir, "data", "shop", "linked-from.txt")
+		if err := os.WriteFile(elsewhere, []byte("not the app's"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(elsewhere, filepath.Join(data, "hard-linked")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.GetDataFile(ctx, "shop", "production", "hard-linked"); status(err) != http.StatusUnprocessableEntity {
+			t.Errorf("a file with another name: %v", err)
+		}
 	}
 
 	// Who may.
@@ -305,6 +331,28 @@ func TestFilesInTheConsole(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(data, "sneaky.txt")); err != nil {
 		t.Errorf("the name was not kept to the directory: %v", err)
+	}
+
+	// No one who may not do this gets to send it any of a file: it would go to disk. A session is only for reading the rest.
+	if res, _ := (&consoleUser{t: t, addr: addrs.HTTP, host: cfg.ConsoleHost}).postRaw("/apps/shop/files/upload", "multipart/form-data; boundary=x", []byte("--x--")); res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "/login") {
+		t.Errorf("no one at all: %d %v", res.StatusCode, res.Header)
+	}
+	if res, _ := owner.get("/apps/shop/files?env=../../keys"); res.StatusCode != http.StatusNotFound {
+		t.Errorf("an environment that is a path: %d", res.StatusCode)
+	}
+	if res, _ := owner.get("/apps/shop/files/download?env=../../keys&path=master.key"); res.StatusCode != http.StatusNotFound {
+		t.Errorf("downloading from an environment that is a path: %d", res.StatusCode)
+	}
+	var noToken bytes.Buffer
+	noCSRF := multipart.NewWriter(&noToken)
+	part, _ := noCSRF.CreateFormFile("file", "no-token.txt")
+	part.Write([]byte("x"))
+	noCSRF.Close()
+	if res, _ := owner.postRaw("/apps/shop/files/upload", noCSRF.FormDataContentType(), noToken.Bytes()); res.StatusCode != http.StatusForbidden {
+		t.Errorf("no CSRF token: %d", res.StatusCode)
+	}
+	if _, err := os.Stat(filepath.Join(data, "no-token.txt")); err == nil {
+		t.Error("it was put there with no CSRF token")
 	}
 
 	// A directory, and removing.

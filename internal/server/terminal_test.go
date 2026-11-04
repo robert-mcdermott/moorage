@@ -5,7 +5,9 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -177,6 +179,76 @@ func TestTerminal(t *testing.T) {
 	}
 	w.term.Close()
 	waitUntil(t, "it to stop", func() bool {
+		r, err := c.Run(ctx, "shop", going)
+		return err == nil && r.Status == store.RunCanceled
+	})
+
+	// That goes for what a shell has put in a process group of its own, as it does with each job.
+	w = openTerminal(t, c, "shop", client.TerminalOptions{TTY: true, Rows: 24, Cols: 80, Command: `sh -c 'set -m; sleep 1000 & echo background-is-$!; echo going; wait'`})
+	w.waitFor("going")
+	found := regexp.MustCompile(`background-is-(\d+)`).FindStringSubmatch(w.shown())
+	if found == nil {
+		t.Fatalf("%q", w.shown())
+	}
+	background, _ := strconv.Atoi(found[1])
+	if !processAlive(background) {
+		t.Fatalf("it is not running: %d", background)
+	}
+	w.term.Close()
+	waitUntil(t, "what it put in the background to go", func() bool { return !processAlive(background) })
+
+	// Without a terminal, a command that has ended has ended, whether anyone has finished typing or not.
+	w = openTerminal(t, c, "shop", client.TerminalOptions{Command: `sh -c 'echo done-already; exit 3'`})
+	w.waitFor("done-already")
+	w.wait()
+	if code, _, _ := w.term.Ended(); code == nil || *code != 3 {
+		t.Errorf("%v", code)
+	}
+
+	// And it takes as long as it may, with someone there or not, though they have typed nothing.
+	w = openTerminal(t, c, "shop", client.TerminalOptions{Timeout: "1s", Command: `sleep 100`})
+	w.wait()
+	if _, problem, over := w.term.Ended(); !over || !strings.Contains(problem, "out of time") {
+		t.Errorf("%q %v", problem, over)
+	}
+
+	// All that it says gets to someone who is reading slowly, however long that takes after it has ended.
+	slow, err := c.Terminal(ctx, "shop", "production", client.TerminalOptions{Command: `sh -c 'i=0; while [ $i -lt 2000 ]; do echo line-$i-of-output-that-goes-on-for-a-while-so-as-to-fill-the-pipes; i=$((i+1)); done'`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slow.Close()
+	time.Sleep(3500 * time.Millisecond)
+	shown, err := io.ReadAll(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(shown), "line-1999-") {
+		t.Errorf("it lost what it said: %d bytes", len(shown))
+	}
+
+	// Someone who has gone is noticed though the command is reading nothing of what they typed, and more than a pipe holds.
+	w = openTerminal(t, c, "shop", client.TerminalOptions{Command: `sh -c 'echo going; sleep 1000'`})
+	w.waitFor("going")
+	runs, err = c.Runs(ctx, "shop", "production", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	going = ""
+	for _, r := range runs {
+		if r.Status == "running" {
+			going = r.ID
+		}
+	}
+	if going == "" {
+		t.Fatalf("%+v", runs)
+	}
+	lots := strings.Repeat("x", 256<<10)
+	w.type_(lots)
+	w.term.Resize(30, 90)
+	w.term.Resize(31, 91)
+	w.term.Close()
+	waitUntil(t, "it to notice", func() bool {
 		r, err := c.Run(ctx, "shop", going)
 		return err == nil && r.Status == store.RunCanceled
 	})

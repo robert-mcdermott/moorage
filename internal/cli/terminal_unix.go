@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,3 +31,6 @@ func watchTerminalSize(ctx context.Context, fd int, changed func(rows, cols int)
 		}
 	}
 }
+
+// copyKeys sends what is typed in a terminal.
+func copyKeys(to io.Writer, from *os.File) { io.Copy(to, from) }

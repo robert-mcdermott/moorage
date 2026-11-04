@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/platform"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 const (
@@ -62,9 +64,24 @@ func (d *Deployer) dataDirOf(app, env string) string {
 	return filepath.Join(d.opts.DataDir, "data", app, env)
 }
 
+// dataExists says whether an environment is there to have a data directory, which is what keeps a path out of its name, and
+// something being put where an app will find it later.
+func (d *Deployer) dataExists(ctx context.Context, app, env string) error {
+	if _, err := d.db.Environment(ctx, app, env); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return &FileProblem{Msg: "There is no environment " + env + " of " + app + ".", Missing: true}
+		}
+		return err
+	}
+	return nil
+}
+
 // dataRoot opens a data directory so that nothing that an app has left there can lead out of it: what an app writes is
 // not to be trusted, and the server may be able to read anything. It answers with nil if there is no such directory yet.
-func (d *Deployer) dataRoot(app, env string) (*os.Root, error) {
+func (d *Deployer) dataRoot(ctx context.Context, app, env string) (*os.Root, error) {
+	if err := d.dataExists(ctx, app, env); err != nil {
+		return nil, err
+	}
 	root, err := os.OpenRoot(d.dataDirOf(app, env))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -103,12 +120,12 @@ func describe(info fs.FileInfo) DataFile {
 }
 
 // DataFiles lists a directory within an environment's data directory, with directories first. It says if that is not all.
-func (d *Deployer) DataFiles(app, env, p string) (files []DataFile, more bool, err error) {
+func (d *Deployer) DataFiles(ctx context.Context, app, env, p string) (files []DataFile, more bool, err error) {
 	rel, err := dataPath(p)
 	if err != nil {
 		return nil, false, err
 	}
-	root, err := d.dataRoot(app, env)
+	root, err := d.dataRoot(ctx, app, env)
 	if err != nil {
 		return nil, false, err
 	}
@@ -119,6 +136,12 @@ func (d *Deployer) DataFiles(app, env, p string) (files []DataFile, more bool, e
 		return nil, false, &FileProblem{Msg: "There is nothing at " + rel + ".", Missing: true}
 	}
 	defer root.Close()
+	// Only a directory is opened: for a device, opening it can be enough to do something.
+	if info, err := root.Stat(rel); err != nil {
+		return nil, false, fileFailure(rel, err)
+	} else if !info.IsDir() {
+		return nil, false, &FileProblem{Msg: rel + " is not a directory."}
+	}
 	dir, err := root.OpenFile(rel, os.O_RDONLY|platform.OpenNonblock, 0)
 	if err != nil {
 		return nil, false, fileFailure(rel, err)
@@ -163,13 +186,14 @@ func (d *Deployer) DataFiles(app, env, p string) (files []DataFile, more bool, e
 }
 
 // OpenDataFile opens a file within an environment's data directory, for reading. It is only ever a file: an app can leave
-// a pipe there, which would wait for ever, or a link to something that it may not read itself.
-func (d *Deployer) OpenDataFile(app, env, p string) (*os.File, fs.FileInfo, error) {
+// a pipe there, which would wait for ever, a device, or a link to something that it may not read itself. Nor is it one with
+// another name, which it can be if the app linked something here that it could not read, on a system that allows that.
+func (d *Deployer) OpenDataFile(ctx context.Context, app, env, p string) (*os.File, fs.FileInfo, error) {
 	rel, err := dataPath(p)
 	if err != nil {
 		return nil, nil, err
 	}
-	root, err := d.dataRoot(app, env)
+	root, err := d.dataRoot(ctx, app, env)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -177,6 +201,11 @@ func (d *Deployer) OpenDataFile(app, env, p string) (*os.File, fs.FileInfo, erro
 		return nil, nil, &FileProblem{Msg: "There is nothing at " + rel + ".", Missing: true}
 	}
 	defer root.Close()
+	if info, err := root.Stat(rel); err != nil {
+		return nil, nil, fileFailure(rel, err)
+	} else if !info.Mode().IsRegular() {
+		return nil, nil, &FileProblem{Msg: rel + " is not a file."}
+	}
 	f, err := root.OpenFile(rel, os.O_RDONLY|platform.OpenNonblock, 0)
 	if err != nil {
 		return nil, nil, fileFailure(rel, err)
@@ -190,16 +219,20 @@ func (d *Deployer) OpenDataFile(app, env, p string) (*os.File, fs.FileInfo, erro
 		f.Close()
 		return nil, nil, &FileProblem{Msg: rel + " is not a file."}
 	}
+	if platform.Links(info) > 1 {
+		f.Close()
+		return nil, nil, &FileProblem{Msg: rel + " has another name somewhere, so it is not sent: it may not be the app's own."}
+	}
 	return f, info, nil
 }
 
 // DataPathInfo says what is at a path, as it is if it is followed.
-func (d *Deployer) DataPathInfo(app, env, p string) (DataFile, error) {
+func (d *Deployer) DataPathInfo(ctx context.Context, app, env, p string) (DataFile, error) {
 	rel, err := dataPath(p)
 	if err != nil {
 		return DataFile{}, err
 	}
-	root, err := d.dataRoot(app, env)
+	root, err := d.dataRoot(ctx, app, env)
 	if err != nil {
 		return DataFile{}, err
 	}
@@ -215,7 +248,10 @@ func (d *Deployer) DataPathInfo(app, env, p string) (DataFile, error) {
 }
 
 // ownedData is the root of a data directory, made if it is not there yet, for writing to.
-func (d *Deployer) ownedData(app, env string) (*os.Root, error) {
+func (d *Deployer) ownedData(ctx context.Context, app, env string) (*os.Root, error) {
+	if err := d.dataExists(ctx, app, env); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(d.dataDirOf(app, env), 0o750); err != nil {
 		return nil, err
 	}
@@ -224,7 +260,7 @@ func (d *Deployer) ownedData(app, env string) (*os.Root, error) {
 
 // PutDataFile writes a file within an environment's data directory. It appears all at once, and belongs to whoever the
 // directory belongs to, so that the app can do what it likes with it. The directory has to be there already.
-func (d *Deployer) PutDataFile(app, env, p string, from io.Reader, replace bool) (DataFile, error) {
+func (d *Deployer) PutDataFile(ctx context.Context, app, env, p string, from io.Reader, replace bool) (DataFile, error) {
 	rel, err := dataPath(p)
 	if err != nil {
 		return DataFile{}, err
@@ -232,7 +268,7 @@ func (d *Deployer) PutDataFile(app, env, p string, from io.Reader, replace bool)
 	if rel == "." {
 		return DataFile{}, &FileProblem{Msg: "That is the data directory itself: say what the file is called."}
 	}
-	root, err := d.ownedData(app, env)
+	root, err := d.ownedData(ctx, app, env)
 	if err != nil {
 		return DataFile{}, err
 	}
@@ -245,7 +281,12 @@ func (d *Deployer) PutDataFile(app, env, p string, from io.Reader, replace bool)
 	if !above.IsDir() {
 		return DataFile{}, &FileProblem{Msg: parent + " is not a directory."}
 	}
+	// A directory that anyone may write to is what a container's user is given, who may be anyone. They have to be able
+	// to change what is put there for them.
 	mode := fs.FileMode(0o644)
+	if above.Mode().Perm()&0o002 != 0 {
+		mode = 0o666
+	}
 	if there, err := root.Lstat(rel); err == nil {
 		switch {
 		case there.IsDir():
@@ -275,6 +316,9 @@ func (d *Deployer) PutDataFile(app, env, p string, from io.Reader, replace bool)
 			err = f.Chown(uid, gid)
 		}
 	}
+	if err == nil {
+		err = f.Chmod(mode) // whatever this process's umask has done to it
+	}
 	if closed := f.Close(); err == nil {
 		err = closed
 	}
@@ -292,7 +336,7 @@ func (d *Deployer) PutDataFile(app, env, p string, from io.Reader, replace bool)
 }
 
 // MakeDataDir makes a directory within an environment's data directory.
-func (d *Deployer) MakeDataDir(app, env, p string) error {
+func (d *Deployer) MakeDataDir(ctx context.Context, app, env, p string) error {
 	rel, err := dataPath(p)
 	if err != nil {
 		return err
@@ -300,7 +344,7 @@ func (d *Deployer) MakeDataDir(app, env, p string) error {
 	if rel == "." {
 		return &FileProblem{Msg: "Say what the directory is called.", Conflict: true}
 	}
-	root, err := d.ownedData(app, env)
+	root, err := d.ownedData(ctx, app, env)
 	if err != nil {
 		return err
 	}
@@ -315,6 +359,11 @@ func (d *Deployer) MakeDataDir(app, env, p string) error {
 		}
 		return fileFailure(rel, err)
 	}
+	if above.Mode().Perm()&0o002 != 0 {
+		if err := root.Chmod(rel, 0o777); err != nil {
+			return err
+		}
+	}
 	if uid, gid, ok := platform.OwnedLike(above); ok {
 		return root.Lchown(rel, uid, gid)
 	}
@@ -323,7 +372,7 @@ func (d *Deployer) MakeDataDir(app, env, p string) error {
 
 // RemoveData removes something within an environment's data directory. A link goes, and not what it leads to. A directory
 // with something in it takes being asked for all of it.
-func (d *Deployer) RemoveData(app, env, p string, everything bool) error {
+func (d *Deployer) RemoveData(ctx context.Context, app, env, p string, everything bool) error {
 	rel, err := dataPath(p)
 	if err != nil {
 		return err
@@ -331,7 +380,7 @@ func (d *Deployer) RemoveData(app, env, p string, everything bool) error {
 	if rel == "." {
 		return &FileProblem{Msg: "That is the data directory itself, which stays.", Conflict: true}
 	}
-	root, err := d.dataRoot(app, env)
+	root, err := d.dataRoot(ctx, app, env)
 	if err != nil {
 		return err
 	}

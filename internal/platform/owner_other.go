@@ -9,3 +9,6 @@ const OpenNonblock = 0
 
 // OwnedLike says that there is nothing to do here.
 func OwnedLike(fs.FileInfo) (uid, gid int, ok bool) { return 0, 0, false }
+
+// Links says how many names a file has, as far as anyone here is concerned.
+func Links(fs.FileInfo) uint64 { return 1 }

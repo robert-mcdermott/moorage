@@ -198,7 +198,7 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/console/run", c.actionWith(auth.ScopeDeploy, maxForm, c.consoleRun))
 	mux.HandleFunc("GET /apps/{app}/files", c.filesPage)
 	mux.HandleFunc("GET /apps/{app}/files/download", c.downloadFile)
-	mux.HandleFunc("POST /apps/{app}/files/upload", c.actionWith(auth.ScopeDeploy, deploy.MaxDataFile+1<<20, c.uploadFile))
+	mux.HandleFunc("POST /apps/{app}/files/upload", c.uploadAction(deploy.MaxDataFile+1<<20, c.uploadFile))
 	mux.HandleFunc("POST /apps/{app}/files/folder", c.actionWith(auth.ScopeDeploy, maxForm, c.makeDirectory))
 	mux.HandleFunc("POST /apps/{app}/files/remove", c.actionWith(auth.ScopeDeploy, maxForm, c.removeFile))
 	mux.HandleFunc("POST /apps/{app}/runs", c.action(c.startRun))
@@ -487,11 +487,7 @@ func (c *Console) postUpTo(limit int64, next http.HandlerFunc) http.HandlerFunc 
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
-		parse := r.ParseForm
-		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-			parse = func() error { return r.ParseMultipartForm(8 << 20) }
-		}
-		if err := parse(); err != nil {
+		if err := r.ParseForm(); err != nil {
 			c.message(w, http.StatusBadRequest, data{Title: "Refused", Heading: "That request was refused", Message: "The form could not be read."})
 			return
 		}

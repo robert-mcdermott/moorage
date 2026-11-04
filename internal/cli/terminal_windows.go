@@ -4,6 +4,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"time"
 
@@ -38,6 +40,29 @@ func watchTerminalSize(ctx context.Context, fd int, changed func(rows, cols int)
 				lastCols, lastRows = cols, rows
 				changed(rows, cols)
 			}
+		}
+	}
+}
+
+// copyKeys sends what is typed in a console. Ctrl-Z there is read as the end of the file, with more to come after it, and
+// here it is only a key: with the terminal raw, nothing else would be able to end this.
+func copyKeys(to io.Writer, from *os.File) {
+	buf := make([]byte, 4096)
+	for {
+		n, err := from.Read(buf)
+		if n > 0 {
+			if _, err := to.Write(buf[:n]); err != nil {
+				return
+			}
+		}
+		switch {
+		case errors.Is(err, io.EOF):
+			if _, err := to.Write([]byte{0x1a}); err != nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		case err != nil:
+			return
 		}
 	}
 }

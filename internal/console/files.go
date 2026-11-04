@@ -124,13 +124,13 @@ func (c *Console) showFiles(w http.ResponseWriter, r *http.Request, p auth.Princ
 		return true
 	}
 	if at != "" {
-		info, err := c.deployer.DataPathInfo(app, env, at)
+		info, err := c.deployer.DataPathInfo(r.Context(), app, env, at)
 		if err != nil {
 			missing(err)
 			return
 		}
 		if !info.Dir {
-			f, opened, err := c.deployer.OpenDataFile(app, env, at)
+			f, opened, err := c.deployer.OpenDataFile(r.Context(), app, env, at)
 			if err != nil {
 				missing(err)
 				return
@@ -140,6 +140,7 @@ func (c *Console) showFiles(w http.ResponseWriter, r *http.Request, p auth.Princ
 			if opened.Size() <= maxFilePreview {
 				if content, err := io.ReadAll(io.LimitReader(f, maxFilePreview)); err == nil && utf8.Valid(content) && !strings.ContainsRune(string(content), 0) {
 					file.Preview, file.HasPreview = string(content), true
+					c.auth.Audit(r.Context(), store.AuditEntry{Actor: p.Name, IP: c.auth.ClientIP(r), Action: "file.read", Target: app + "/" + env + ":" + at, Result: "ok"})
 				}
 			}
 			view.File, view.Download = file, filesDownload(app, env, at)
@@ -147,7 +148,7 @@ func (c *Console) showFiles(w http.ResponseWriter, r *http.Request, p auth.Princ
 			return
 		}
 	}
-	files, more, err := c.deployer.DataFiles(app, env, at)
+	files, more, err := c.deployer.DataFiles(r.Context(), app, env, at)
 	if err != nil {
 		missing(err)
 		return
@@ -184,7 +185,7 @@ func (c *Console) downloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	env, at := envOf(r), r.URL.Query().Get("path")
-	f, info, err := c.deployer.OpenDataFile(app, env, at)
+	f, info, err := c.deployer.OpenDataFile(r.Context(), app, env, at)
 	if err != nil {
 		var problem *deploy.FileProblem
 		if errors.As(err, &problem) {
@@ -225,9 +226,8 @@ func (c *Console) uploadFile(w http.ResponseWriter, r *http.Request, p auth.Prin
 		return
 	}
 	defer file.Close()
-	defer r.MultipartForm.RemoveAll()
 	dir, env := r.PostFormValue("path"), envOf(r)
-	if _, err := c.deployer.PutDataFile(app, env, path.Join(dir, path.Base(header.Filename)), file, r.PostFormValue("replace") != ""); err != nil {
+	if _, err := c.deployer.PutDataFile(r.Context(), app, env, path.Join(dir, path.Base(header.Filename)), file, r.PostFormValue("replace") != ""); err != nil {
 		c.fileActionFailed(w, r, p, app, err)
 		return
 	}
@@ -240,7 +240,7 @@ func (c *Console) makeDirectory(w http.ResponseWriter, r *http.Request, p auth.P
 		c.showFiles(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "A directory's name has no slashes in it."})
 		return
 	}
-	if err := c.deployer.MakeDataDir(app, env, path.Join(dir, name)); err != nil {
+	if err := c.deployer.MakeDataDir(r.Context(), app, env, path.Join(dir, name)); err != nil {
 		c.fileActionFailed(w, r, p, app, err)
 		return
 	}
@@ -249,7 +249,7 @@ func (c *Console) makeDirectory(w http.ResponseWriter, r *http.Request, p auth.P
 
 func (c *Console) removeFile(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
 	at, env := r.PostFormValue("path"), envOf(r)
-	if err := c.deployer.RemoveData(app, env, at, r.PostFormValue("everything") != ""); err != nil {
+	if err := c.deployer.RemoveData(r.Context(), app, env, at, r.PostFormValue("everything") != ""); err != nil {
 		c.fileActionFailed(w, r, p, app, err)
 		return
 	}
@@ -333,4 +333,45 @@ func (c *Console) consoleRun(w http.ResponseWriter, r *http.Request, p auth.Prin
 		return
 	}
 	http.Redirect(w, r, address, http.StatusSeeOther)
+}
+
+// uploadAction is an action that takes a file. What makes sure that the form came from here is in the form, so its body has to
+// be read to get to that. It goes to disk, so that is only done for someone who may do this: otherwise anyone could fill
+// the disk with what they never meant to finish sending.
+func (c *Console) uploadAction(limit int64, next func(http.ResponseWriter, *http.Request, auth.Principal, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !auth.SameOrigin(r) {
+			c.auth.Security("a form was posted from another site", "ip", c.auth.ClientIP(r), "path", r.URL.Path)
+			c.refused(w)
+			return
+		}
+		p, ok := c.formUser(w, r)
+		if !ok {
+			return
+		}
+		app, ok := c.lookupApp(w, r, p)
+		if !ok {
+			return
+		}
+		access, err := c.auth.AppAccess(r.Context(), p, app)
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		if !access.Deploy {
+			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "It takes being able to deploy to this app."})
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			c.message(w, http.StatusBadRequest, data{Title: "Refused", Heading: "That request was refused", Message: "The file could not be read, or it is more than can be put here this way."})
+			return
+		}
+		defer r.MultipartForm.RemoveAll()
+		if !auth.CheckCSRF(p.CookieValue, r.PostFormValue("csrf")) {
+			c.refused(w)
+			return
+		}
+		c.audited(w, r, p, func(w http.ResponseWriter) { next(w, r, p, app) })
+	}
 }

@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -17,10 +20,15 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/platform"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
-// terminalPing is how often a terminal's connection is shown to be alive to whatever is in the way.
-const terminalPing = 30 * time.Second
+const (
+	// terminalPing is how often a terminal's connection is shown to be alive to whatever is in the way.
+	terminalPing = 30 * time.Second
+	// terminalWrite is as long as someone may leave what they have been sent unread.
+	terminalWrite = 5 * time.Minute
+)
 
 var terminalKind = regexp.MustCompile(`^[a-zA-Z0-9._+-]{1,64}$`)
 
@@ -61,7 +69,13 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	if !terminalKind.MatchString(kind) {
 		kind = "xterm-256color"
 	}
+	// A browser's fetch of this address would otherwise start a command, and find out only then that it is not a WebSocket.
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		problem(w, http.StatusUpgradeRequired, "websocket_only", "This is a WebSocket.")
+		return
+	}
 	typedFrom, typed := io.Pipe()
+	defer typedFrom.Close()
 	shownFrom, shown := io.Pipe()
 	resize := make(chan platform.TerminalSize, 1)
 	session := &oneoff.Session{TTY: q.Get("tty") == "1", Size: platform.TerminalSize{Rows: terminalDimension(q.Get("rows"), 24), Cols: terminalDimension(q.Get("cols"), 80)},
@@ -74,6 +88,8 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	if s.runFailed(w, err) {
 		return
 	}
+	// Opening one is a GET, which is not otherwise on record as doing anything.
+	s.auth.Audit(r.Context(), store.AuditEntry{Actor: p.Name, IP: s.auth.ClientIP(r), Action: "run." + trigger, Target: app + "/" + env, Result: "ok", Data: map[string]any{"run": run.ID, "instance": instance}})
 	stopRun := func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 		defer cancel()
@@ -91,7 +107,10 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	// Everything shown goes to whoever is there. Once they have gone, it goes nowhere, and the command is not held up.
+	// Everything shown goes to whoever is there. Once they have gone, it goes nowhere, and the command is not held up. They
+	// may be reading slowly, through a pager, and they get a while; anything could be happening at the other end of one
+	// that stays stopped, and it is holding on to a command.
+	var sending atomic.Bool
 	shownAll := make(chan struct{})
 	go func() {
 		defer close(shownAll)
@@ -99,7 +118,12 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, err := shownFrom.Read(buf)
 			if n > 0 {
-				if werr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
+				sending.Store(true)
+				writing, stopWriting := context.WithTimeout(ctx, terminalWrite)
+				werr := conn.Write(writing, websocket.MessageBinary, buf[:n])
+				stopWriting()
+				sending.Store(false)
+				if werr != nil {
 					cancel()
 					io.Copy(io.Discard, shownFrom)
 					return
@@ -110,16 +134,38 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
+	// What is typed waits its turn apart from reading the connection, which is how someone leaving is noticed, as a command
+	// need not be reading what is typed at it. There is a limit: past that it stops reading, which is what slows down
+	// whatever is sending a large file.
+	typing := make(chan []byte, 64)
+	var endTyping sync.Once
+	stopTyping := func() { endTyping.Do(func() { close(typing) }) }
+	go func() {
+		defer typed.Close()
+		for data := range typing {
+			if _, err := typed.Write(data); err != nil {
+				for range typing { // none of it is wanted now, and whoever is sending it should not stop for that
+				}
+				return
+			}
+		}
+	}()
 	go func() {
 		defer cancel()
-		defer typed.Close()
+		defer stopTyping()
+		over := false
 		for {
 			kind, data, err := conn.Read(ctx)
 			if err != nil {
 				return
 			}
 			if kind == websocket.MessageBinary {
-				if _, err := typed.Write(data); err != nil {
+				if over {
+					continue
+				}
+				select {
+				case typing <- data:
+				case <-ctx.Done():
 					return
 				}
 				continue
@@ -129,17 +175,22 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if said.EOF {
-				typed.Close()
+				over = true
+				stopTyping()
 			}
 			if said.Rows > 0 && said.Cols > 0 {
+				size := platform.TerminalSize{Rows: terminalDimension(strconv.Itoa(said.Rows), 24), Cols: terminalDimension(strconv.Itoa(said.Cols), 80)}
+				// Only the last one matters, and nothing need be listening.
 				select {
-				case resize <- platform.TerminalSize{Rows: terminalDimension(strconv.Itoa(said.Rows), 24), Cols: terminalDimension(strconv.Itoa(said.Cols), 80)}:
-				case <-ctx.Done():
-					return
+				case <-resize:
+				default:
 				}
+				resize <- size
 			}
 		}
 	}()
+	// Something written shows whether the connection is still there, without needing anyone to answer: while it is not
+	// being read, for as long as what is typed waits, nothing else would. It is also what keeps it open past a proxy.
 	go func() {
 		t := time.NewTicker(terminalPing)
 		defer t.Stop()
@@ -148,10 +199,14 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if err := conn.Ping(ctx); err != nil {
-					if ctx.Err() == nil {
-						cancel()
-					}
+				if sending.Load() {
+					continue
+				}
+				writing, stopWriting := context.WithTimeout(ctx, terminalWrite)
+				err := conn.Write(writing, websocket.MessageText, []byte("{}"))
+				stopWriting()
+				if err != nil {
+					cancel()
 					return
 				}
 			}
@@ -165,9 +220,12 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	}()
 	send := func(m apitypes.TerminalMessage) {
 		data, err := json.Marshal(m)
-		if err == nil {
-			conn.Write(ctx, websocket.MessageText, data)
+		if err != nil {
+			return
 		}
+		writing, stopWriting := context.WithTimeout(ctx, terminalWrite)
+		defer stopWriting()
+		conn.Write(writing, websocket.MessageText, data)
 	}
 	send(apitypes.TerminalMessage{Run: run.ID})
 	select {
@@ -179,9 +237,14 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	shown.Close()
 	<-shownAll
 	final, err := s.db.Run(context.WithoutCancel(r.Context()), app, run.ID)
-	if err != nil {
+	switch {
+	case err != nil:
+		stopRun()
 		send(apitypes.TerminalMessage{Ended: true, Error: sentenceOf(err)})
-	} else {
+	case !final.Finished():
+		stopRun()
+		send(apitypes.TerminalMessage{Ended: true, Error: "It could not be followed, so it has been stopped."})
+	default:
 		doc := runDoc(final)
 		send(apitypes.TerminalMessage{Ended: true, ExitCode: doc.ExitCode, Error: doc.Error})
 	}

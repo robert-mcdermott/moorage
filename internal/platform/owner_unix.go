@@ -23,3 +23,11 @@ func OwnedLike(info fs.FileInfo) (uid, gid int, ok bool) {
 	}
 	return int(st.Uid), int(st.Gid), true
 }
+
+// Links says how many names a file has.
+func Links(info fs.FileInfo) uint64 {
+	if st, is := info.Sys().(*syscall.Stat_t); is {
+		return uint64(st.Nlink)
+	}
+	return 1
+}

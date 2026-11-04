@@ -96,6 +96,10 @@ func joinTerminal(cmd *cobra.Command, c *client.Client, app, env string, o clien
 	}
 	if interactive {
 		go func() {
+			if raw {
+				copyKeys(t, os.Stdin)
+				return
+			}
 			io.Copy(t, cmd.InOrStdin())
 			if !o.TTY {
 				t.CloseInput()

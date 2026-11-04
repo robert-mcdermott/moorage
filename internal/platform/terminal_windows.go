@@ -4,6 +4,7 @@ package platform
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -16,10 +17,11 @@ import (
 
 // Terminal is a command running in a pseudo-console: what it shows is read from this, and what is typed is written to it.
 type Terminal struct {
+	// mu keeps a change of size from reaching a pseudo-console that has been closed.
+	mu              sync.Mutex
 	console         windows.Handle
 	process, job    windows.Handle
 	in, out         *os.File
-	closeConsole    sync.Once
 	closeEverything sync.Once
 }
 
@@ -123,6 +125,11 @@ func (t *Terminal) Write(p []byte) (int, error) { return t.in.Write(p) }
 
 // Resize says that the terminal is another size now.
 func (t *Terminal) Resize(size TerminalSize) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.console == 0 {
+		return nil
+	}
 	return windows.ResizePseudoConsole(t.console, windows.Coord{X: int16(size.Cols), Y: int16(size.Rows)})
 }
 
@@ -141,12 +148,15 @@ func (t *Terminal) Wait() (int, error) {
 	return int(code), nil
 }
 
+// closeTheConsole closes it once, and may take as long as it takes what it wrote to be read.
 func (t *Terminal) closeTheConsole() {
-	t.closeConsole.Do(func() {
-		if t.console != 0 {
-			windows.ClosePseudoConsole(t.console)
-		}
-	})
+	t.mu.Lock()
+	console := t.console
+	t.console = 0
+	t.mu.Unlock()
+	if console != 0 {
+		windows.ClosePseudoConsole(console)
+	}
 }
 
 // Kill kills all that is in the command's job.
@@ -160,10 +170,12 @@ func (t *Terminal) Kill() {
 func (t *Terminal) Close() {
 	t.closeEverything.Do(func() {
 		t.in.Close()
+		// Closing it waits for what it has written to be read, and no one else may be doing that by now.
 		go func() {
-			t.closeTheConsole()
+			io.Copy(io.Discard, t.out)
 			t.out.Close()
 		}()
+		go t.closeTheConsole()
 		if t.process != 0 {
 			windows.CloseHandle(t.process)
 		}

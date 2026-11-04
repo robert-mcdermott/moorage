@@ -47,16 +47,8 @@ func (s *Server) dataFiles(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := s.db.Environment(r.Context(), app, env); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			problem(w, http.StatusNotFound, "not_found", "There is no environment "+env+" of "+app+".")
-			return
-		}
-		s.internal(w, err)
-		return
-	}
 	at := r.URL.Query().Get("path")
-	files, more, err := s.deployer.DataFiles(app, env, at)
+	files, more, err := s.deployer.DataFiles(r.Context(), app, env, at)
 	if s.fileFailed(w, err) {
 		return
 	}
@@ -74,7 +66,7 @@ func (s *Server) dataFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	at := r.URL.Query().Get("path")
-	f, info, err := s.deployer.OpenDataFile(app, env, at)
+	f, info, err := s.deployer.OpenDataFile(r.Context(), app, env, at)
 	if s.fileFailed(w, err) {
 		return
 	}
@@ -98,7 +90,7 @@ func (s *Server) putDataFile(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusRequestEntityTooLarge, "too_large", "That is more than can be put here this way.")
 		return
 	}
-	f, err := s.deployer.PutDataFile(app, env, q.Get("path"), r.Body, q.Get("replace") == "true")
+	f, err := s.deployer.PutDataFile(r.Context(), app, env, q.Get("path"), r.Body, q.Get("replace") == "true")
 	if s.fileFailed(w, err) {
 		return
 	}
@@ -110,7 +102,7 @@ func (s *Server) makeDataDir(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.fileFailed(w, s.deployer.MakeDataDir(app, env, r.URL.Query().Get("path"))) {
+	if s.fileFailed(w, s.deployer.MakeDataDir(r.Context(), app, env, r.URL.Query().Get("path"))) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -122,7 +114,7 @@ func (s *Server) removeData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	if s.fileFailed(w, s.deployer.RemoveData(app, env, q.Get("path"), q.Get("recursive") == "true")) {
+	if s.fileFailed(w, s.deployer.RemoveData(r.Context(), app, env, q.Get("path"), q.Get("recursive") == "true")) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
