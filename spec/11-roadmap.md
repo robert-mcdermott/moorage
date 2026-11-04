@@ -669,7 +669,7 @@ directory, supervises it, and serves it on its own hostname.
      - The reference for `moorage.toml` did not mention the `dockerfile` and `image`
        runtimes, or list them under detection.
 
-## 0.3.0: the console (planned)
+## 0.3.0: the console (released 2026-11-03)
 
 ### Wave 3
 
@@ -809,7 +809,23 @@ directory, supervises it, and serves it on its own hostname.
      - Not yet: revealing a secret (with the audit log, wave 4); a level filter beyond
        "only problems"; the logs of one-off runs and cron (with them, wave 5); and deleting
        or renaming an app, which the design has and no slice did: added to wave 4.
-5. **Release 0.3.0.**
+5. **Release 0.3.0.** The version, its CHANGELOG section and this roadmap; pull request
+   `wave3` → `main`; tag `v0.3.0`; release.
+   - Done in slice 5:
+     - Version 0.3.0 and its CHANGELOG section, led by what it means to someone upgrading;
+       the README and the documentation describe it, with pictures of the console.
+     - `.github/scripts/console-check.sh` and a CI job: a real server with a real app, and
+       the console driven as a person would in Chromium, Firefox and WebKit, at desktop and
+       phone width. Anything a page complains of fails it, above all what the
+       Content-Security-Policy refuses.
+   - Found by slice 5:
+     - All three browsers passed as they were, which closes what slices 2 and 3 left open.
+       A screen reader is still untried.
+     - WebKit does not resolve `*.localhost` by itself, as Chromium and Firefox do, so the
+       check gives it `localhost` as the console's address. That is what
+       `moor server resolver` is for on a Mac.
+     - From here, a release goes through without stopping to ask: pull request, merge once
+       CI is green, tag, and publish the draft once its binaries are there.
 
 ## 0.4.0: previews and sharing (planned)
 

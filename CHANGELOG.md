@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-03)
+
+Moorage 0.3.0 has a web console. Everything you run with `moor` you can now see and do at the server's console address: deploy, scale, restart and roll back apps; watch a deployment's stages and log as they happen; follow and search logs; change variables; manage your keys and tokens, and, as an administrator, users and registries. Every page works without scripts, on a phone, and in Chromium, Firefox and WebKit, which CI now drives for real. It also installs in one line, and gains `moor scale`, `moor redeploy` and `moor password`.
+
+Upgrading from 0.2.0 needs no steps of its own: replace `moor` and restart the server, and running apps are taken over without a restart. Two things take a little more or a little less room from now on: an upload's source is kept beside its build for `moor redeploy`, until the build is collected; and the logs of instances that stopped more than 14 days ago are removed.
 
 ### Added
 
@@ -17,6 +21,12 @@
 - **The web console begins (wave 3, slice 2).** Signing in now leads to the console: the apps, with their addresses and releases; **Activity**, a timeline of what happened; and **Getting started**, which says how the server looks, what to install and how to deploy, and watches for your first deployment. Pages update as things happen, over one stream of events. `⌘K` or `Ctrl+K` jumps to an app, a page or an action. It has light and dark themes that follow the system or your choice, works at phone width, meets WCAG AA contrast, and works without scripts: every page is plain HTML and forms, under a strict Content-Security-Policy with no inline scripts or styles. See [The web console](docs/console.md).
 - **Events.** Deployments, releases, changes of variables (their names, never their values), instances that exit, sicken and recover, and the server starting are recorded for 90 days. `moor events` shows them and `-f` follows them; `GET /api/v1/events` lists them and `GET /api/v1/events/stream` follows them as server-sent events, catching up after a reconnection. A token restricted to an app sees only that app's.
 - **One line to install (wave 3, slice 1).** `curl … install.sh | sh` on macOS and Linux, and `irm … install.ps1 | iex` in PowerShell on Windows 11. Each picks the file for the computer from the latest release, requires exactly one matching SHA-256 checksum, runs the downloaded program's version check, and only then puts it in place, so a failed download never replaces a working copy. Neither needs administrator rights: `moor` goes to `~/.local/bin`, or to `/usr/local/bin` as root, or on Windows to `%LocalAppData%\Programs\Moorage`, which is added to the user `PATH`. Running one again upgrades `moor` without disturbing a running server or its apps, including on Windows, where the running file is moved aside; `MOOR_VERSION` installs a particular release. See [Installing Moorage](docs/install.md).
+
+### Changed
+
+- **`moor logs` reads more.** With `--source` it adds an app's builds, requests and events to its instances' output. A line that is a JSON object prints as its message and fields; `--json` still has the line as written.
+- **A rollback, a change of variables and an upload ready to run now write a log,** like any other deployment.
+- **Scaling comes earlier than planned.** The roadmap had it in 0.5.0; the console needed it.
 
 ## 0.2.0 (2026-11-03)
 

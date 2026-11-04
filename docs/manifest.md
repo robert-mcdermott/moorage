@@ -3,7 +3,7 @@
 `moorage.toml`, at the top of an app's directory, says how Moorage builds
 and runs the app. It is optional: without it, Moorage detects the kind of
 app (see [Detection](#detection)), and `moor manifest explain` shows what it
-detected. This page describes the manifest as Moorage 0.2.0 implements it;
+detected. This page describes the manifest as Moorage 0.3.0 implements it;
 the [design](../spec/03-manifest.md) describes what later releases add.
 
 ```bash

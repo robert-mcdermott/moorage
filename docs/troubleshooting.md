@@ -12,7 +12,7 @@ server's files.
 
 ```text
 ✔ config         /etc/moorage/server.toml
-✔ server         running 0.2.0 on :80
+✔ server         running 0.3.0 on :80
 ✔ listen.http    answering on :80
 ✔ listen.https   answering on :443
 ✔ listen.ssh     answering on :2222

@@ -9,7 +9,7 @@ import (
 // Version is the version being developed or released. The release workflow
 // refuses a tag vX.Y.Z that does not match it, so it is set to the release
 // number by the last slice of each wave.
-var Version = "0.2.0"
+var Version = "0.3.0"
 
 // Info describes the running binary.
 type Info struct {
