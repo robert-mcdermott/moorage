@@ -724,10 +724,11 @@
       <div class="field"><label for="member-email">Email address</label><input id="member-email" type="email" name="email" value="{{.FormEmail}}" required autocomplete="off"></div>
       <div class="field"><label for="member-role">Role</label>
         <select id="member-role" name="role">
-          <option value="viewer">Viewer: sees it, and its logs</option>
-          <option value="deployer" selected>Deployer: also deploys, restarts, rolls back and scales</option>
-          <option value="maintainer">Maintainer: also its variables, members and fate</option>
+          <option value="viewer">Viewer</option>
+          <option value="deployer" selected>Deployer</option>
+          <option value="maintainer">Maintainer</option>
         </select>
+        <p class="hint small">A viewer sees its apps and logs. A deployer also deploys, restarts, rolls back and scales them. A maintainer also changes their variables and this project's members.</p>
       </div>
       <div class="actions"><button type="submit">Add them</button></div>
     </form>
@@ -739,7 +740,7 @@
       <div class="field"><label for="everyone">Those who are not members are</label>
         {{$everyone := .Project.EveryoneRole}}
         <select id="everyone" name="everyone">
-          <option value="none"{{if not $everyone}} selected{{end}}>Nobody here: they do not see it</option>
+          <option value="none"{{if not $everyone}} selected{{end}}>Nothing here</option>
           {{range $roles}}<option value="{{.}}"{{if eq . $everyone}} selected{{end}}>{{.}}s</option>{{end}}
         </select>
       </div>

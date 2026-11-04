@@ -54,8 +54,14 @@ function moor(...args) {
     for (const path of pages) {
       const res = await page.goto(base + path);
       check(`${path} at ${width}px answers`, res.status() === 200, String(res.status()));
-      const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      check(`${path} at ${width}px fits`, over <= 1, `${over}px too wide`);
+      const over = await page.evaluate(() => {
+        const limit = document.documentElement.clientWidth;
+        const wide = [...document.querySelectorAll('body *')]
+          .filter(el => el.getBoundingClientRect().right > limit + 1 && !el.closest('.table-scroll, .logs, .log'))
+          .slice(0, 5).map(el => `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.className ? '.' + String(el.className).split(' ').join('.') : ''}`);
+        return { by: document.documentElement.scrollWidth - limit, wide };
+      });
+      check(`${path} at ${width}px fits`, over.by <= 1, `${over.by}px too wide: ${over.wide.join(', ')}`);
     }
     quiet(`the pages at ${width}px`);
   }
