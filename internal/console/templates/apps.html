@@ -10,6 +10,8 @@
   <a href="/apps/{{.App.Name}}/deploy{{envq .Env}}"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
   <a href="/apps/{{.App.Name}}/metrics{{envq .Env}}"{{if eq .Tab "metrics"}} aria-current="page"{{end}}>Metrics</a>
   <a href="/apps/{{.App.Name}}/cron{{envq .Env}}"{{if eq .Tab "cron"}} aria-current="page"{{end}}>Cron</a>
+  {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/console{{envq .Env}}"{{if eq .Tab "console"}} aria-current="page"{{end}}>Console</a>
+  <a href="/apps/{{.App.Name}}/files{{envq .Env}}"{{if eq .Tab "files"}} aria-current="page"{{end}}>Files</a>{{end}}
   <a href="/apps/{{.App.Name}}/environments"{{if eq .Tab "environments"}} aria-current="page"{{end}}>Environments</a>
   <a href="/apps/{{.App.Name}}/access{{envq .Env}}"{{if eq .Tab "access"}} aria-current="page"{{end}}>Domains and access</a>
   {{if .Access.Manage}}<a href="/apps/{{.App.Name}}/settings"{{if eq .Tab "settings"}} aria-current="page"{{end}}>Settings</a>{{end}}
@@ -580,6 +582,134 @@
   </form>
   {{end}}
 </section>
+{{end}}
+
+{{define "app-console"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{with .LineConsole}}
+<section class="panel panel-pad line-console" data-line-console data-history="{{json .History}}">
+  <h2>Run a command</h2>
+  <p class="muted">Each command runs by itself, as a one-off instance of the current release, with its variables and its data. Nothing carries over from one to the next, and it cannot ask you anything. For a shell, there is <code>moor run -it -- /bin/sh</code>. What it says is kept, with secrets taken out, and who ran it is on record.</p>
+  <div class="log transcript" data-transcript role="log" aria-label="What has been run" tabindex="0" hidden></div>
+  <form class="prompt" method="post" action="/apps/{{$app}}/console/run{{envq $.Env}}" data-line-form>
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="visually-hidden" for="console-command">Command</label>
+    <span class="prompt-mark" aria-hidden="true">$</span>
+    <input id="console-command" name="command" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ls -la" data-line-input>
+    <button type="submit" data-line-run>Run</button>
+    <button class="quiet" type="button" data-line-stop hidden>Stop it</button>
+  </form>
+</section>
+{{if .Recent}}
+<section class="block">
+  <h2>Earlier commands</h2>
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th>Command</th><th>How it went</th><th>When</th><th>Who</th></tr></thead>
+      <tbody>
+      {{range .Recent}}
+      <tr>
+        <td><a href="/apps/{{$app}}/runs/{{.ID}}"><code>{{.Command}}</code></a></td>
+        <td class="nowrap"><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span></td>
+        <td class="muted nowrap"><time datetime="{{iso .At}}">{{ago .At}}</time></td>
+        <td class="muted">{{.By}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "app-files"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{$envq := envq .Env}}
+{{with .Files}}
+<nav class="crumbs path-crumbs" aria-label="Where this is in the data directory">
+  <ol>
+    <li><a href="{{.Top}}">Data directory</a></li>
+    {{range .Crumbs}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}
+  </ol>
+</nav>
+{{with .File}}
+<section class="panel panel-pad">
+  <h2>{{.Name}}</h2>
+  <p class="muted">{{size .Size}}, changed <time datetime="{{iso .Modified}}">{{ago .Modified}}</time></p>
+  <div class="actions">
+    <a class="button" href="{{$.Files.Download}}">Download</a>
+    <form method="post" action="/apps/{{$app}}/files/remove{{$envq}}" data-busy="Removing…" data-confirm="Remove {{.Name}}? There is no way back but a backup.">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="path" value="{{$.Files.Path}}">
+      <button class="quiet" type="submit">Remove it</button>
+    </form>
+  </div>
+</section>
+{{if .HasPreview}}
+<section class="block"><h2 class="visually-hidden">What is in it</h2><pre class="log" tabindex="0">{{.Preview}}</pre></section>
+{{else}}
+<p class="muted block">It is too long to show here, or it is not text.</p>
+{{end}}
+{{else}}
+<div class="panel table-scroll">
+  {{if .Rows}}
+  <table class="apps files">
+    <thead><tr><th>Name</th><th>Size</th><th>Changed</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Rows}}
+    <tr>
+      <td class="file-name">{{if or .Dir (not .Other)}}<a href="{{.Href}}">{{.Name}}{{if .Dir}}/{{end}}</a>{{else}}{{.Name}}{{end}}{{if .Link}} <span class="muted small">a link</span>{{end}}{{if .Other}} <span class="muted small">not a file</span>{{end}}</td>
+      <td class="muted nowrap">{{if .Download}}{{size .Size}}{{end}}</td>
+      <td class="muted nowrap"><time datetime="{{iso .Modified}}">{{ago .Modified}}</time></td>
+      <td class="row-end nowrap">
+        {{if .Download}}<a class="button quiet small" href="{{.Download}}" aria-label="Download {{.Name}}">Download</a>{{end}}
+        <form class="inline" method="post" action="/apps/{{$app}}/files/remove{{$envq}}" data-busy="Removing…" data-confirm="Remove {{.Name}}{{if .Dir}}, and all that is in it{{end}}? There is no way back but a backup.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="path" value="{{.Path}}">
+          {{if and .Dir (not .Link)}}<input type="hidden" name="everything" value="1">{{end}}
+          <button class="quiet small" type="submit" aria-label="Remove {{.Name}}">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="panel-pad muted">There is nothing here. This is where the app keeps what it means to keep: it finds it as <code>MOORAGE_DATA_DIR</code>.</p>
+  {{end}}
+</div>
+{{if .More}}<p class="muted small">There is more here than this shows.</p>{{end}}
+<div class="deploy-ways block">
+  <section class="panel panel-pad">
+    <h2>Put a file here</h2>
+    <p class="muted">Up to 1 GB. It belongs to the app, and appears all at once.</p>
+    <form method="post" action="/apps/{{$app}}/files/upload{{$envq}}" enctype="multipart/form-data" data-busy="Uploading…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="path" value="{{.Path}}">
+      <div class="field"><label for="upload-file">File</label><input id="upload-file" name="file" type="file" required></div>
+      <label class="check"><input type="checkbox" name="replace" value="1"> Take the place of one of the same name</label>
+      <div class="actions"><button class="quiet" type="submit">Put it here</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>Make a directory</h2>
+    <form method="post" action="/apps/{{$app}}/files/folder{{$envq}}" data-busy="Making…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="path" value="{{.Path}}">
+      <div class="field"><label for="folder-name">Name</label><input id="folder-name" name="name" required autocomplete="off" spellcheck="false"></div>
+      <div class="actions"><button class="quiet" type="submit">Make it</button></div>
+    </form>
+  </section>
+</div>
+{{end}}
+{{end}}
 {{end}}
 
 {{define "app-environments"}}

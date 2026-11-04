@@ -69,6 +69,8 @@ type route struct {
 	status int
 	// stream, if set, is a prototype of the lines of an NDJSON response.
 	stream any
+	// socket says that it becomes a WebSocket, and stays open.
+	socket bool
 	// sse, if set, is a prototype of the events of a server-sent event stream.
 	sse any
 	// multipart marks a deploy's multipart/form-data request.
@@ -210,6 +212,13 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/apps/{app}/envs/{env}/cron/{job}/run", perm: canDeploy, handler: s.runCronJob, status: http.StatusAccepted, summary: "Run a cron job now", response: apitypes.Run{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/runs", perm: canRead, handler: s.runs, summary: "List an environment's runs, newest first; job= is those of a cron job", response: []apitypes.Run{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/runs", perm: canDeploy, handler: s.startRun, status: http.StatusAccepted, summary: "Run a command in the current release, with its variables and data", request: apitypes.NewRun{}, response: apitypes.Run{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/files", perm: canDeploy, handler: s.dataFiles, summary: "List a directory within an environment's data directory", query: map[string]string{"path": "Where, from the top of it."}, response: apitypes.DataListing{}},
+		{method: "DELETE", path: "/apps/{app}/envs/{env}/files", perm: canDeploy, handler: s.removeData, status: http.StatusNoContent, summary: "Remove something from a data directory", query: map[string]string{"path": "What.", "recursive": "true takes a directory with all that is in it."}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/files/content", perm: canDeploy, handler: s.dataFileContent, summary: "Read a file in a data directory", query: map[string]string{"path": "Which."}},
+		{method: "PUT", path: "/apps/{app}/envs/{env}/files/content", perm: canDeploy, handler: s.putDataFile, status: http.StatusCreated, summary: "Write a file in a data directory, up to 1 GB: it appears all at once", query: map[string]string{"path": "Where.", "replace": "true takes the place of what is there."}, response: apitypes.DataFile{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/files/directory", perm: canDeploy, handler: s.makeDataDir, status: http.StatusCreated, summary: "Make a directory in a data directory", query: map[string]string{"path": "Where."}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/terminal", perm: canDeploy, handler: s.terminal, socket: true, summary: "Run a command with someone at the other end of it, as moor run -it does. It becomes a WebSocket, with what is typed and shown in binary messages, and TerminalMessage in text ones. This takes a token, and not a session",
+			query: map[string]string{"command": "What to run.", "instance": "A running container to run it in, rather than a new one-off instance.", "timeout": "How long it may take, such as 10m.", "tty": "1 gives it a terminal. Otherwise it has pipes.", "rows": "How tall the terminal is.", "cols": "How wide the terminal is.", "term": "The kind of terminal it is."}},
 		{method: "GET", path: "/apps/{app}/runs/{id}", perm: canRead, handler: s.run, summary: "How a run went", response: apitypes.Run{}},
 		{method: "POST", path: "/apps/{app}/runs/{id}/stop", perm: canDeploy, handler: s.stopRun, summary: "Stop a run that is going on", response: apitypes.Run{}},
 		{method: "GET", path: "/apps/{app}/runs/{id}/log", perm: canReadLogs, handler: s.runLog, summary: "What a run says, as NDJSON; follow=true stays open until it ends", stream: apitypes.LogLine{}},
@@ -325,7 +334,7 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 			}
 		}
 		ctx := context.WithValue(r.Context(), principalKey{}, p)
-		if rt.stream != nil || rt.sse != nil {
+		if rt.stream != nil || rt.sse != nil || rt.socket {
 			// What stays open must end when whoever opened it may no longer see it.
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithCancel(ctx)

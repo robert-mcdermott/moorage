@@ -61,8 +61,8 @@ moor run --env staging --timeout 10m -- ./seed.sh
 What it says comes back as it says it, on standard output and standard error, and `moor` ends with its
 exit status, so that a script can tell. Interrupting `moor` stops the command. `--detach` leaves it running.
 
-It takes an hour at the most unless `--timeout` says otherwise, up to a day. It is not interactive: a
-command that asks for input gets none. Running a command takes a deployer, as deploying does, and each is in
+It takes an hour at the most unless `--timeout` says otherwise, up to a day. A command that asks for input
+gets none, unless you are [at a terminal](interactive.md#a-terminal), with `-it`. Running a command takes a deployer, as deploying does, and each is in
 [the audit log](accounts.md#who-did-what). Secrets are kept out of what is recorded of its output.
 
 The **Cron** tab in the console has a box to run one, too.

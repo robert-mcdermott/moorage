@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
+	"github.com/robert-mcdermott/moorage/internal/oneoff"
+	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/shim"
 )
 
@@ -203,7 +205,10 @@ var plainWords = regexp.MustCompile(`^[A-Za-z0-9_./:,@%+-][A-Za-z0-9_./:,@%+= -]
 // command returns what runs in the container, if not what the image says to.
 // Variables are the container's, so anything but plain words is left to the
 // image's shell.
-func command(s Spec) []string {
+func command(s Spec) []string { return commandLine(s.Command) }
+
+func commandLine(line string) []string {
+	s := Spec{Command: line}
 	switch {
 	case s.Command == "":
 		return nil
@@ -928,6 +933,50 @@ func (d *Driver) RunOnce(ctx context.Context, s Spec, timeout time.Duration, std
 		return fmt.Errorf("it exited with status %d", st.ExitCode)
 	}
 	return nil
+}
+
+// RunSession is RunOnce with someone at the other end of it. The engine's command line runs in the session, in a terminal
+// if it has one, which is what -t asks of the container's.
+func (d *Driver) RunSession(ctx context.Context, s Spec, timeout time.Duration, session *oneoff.Session) error {
+	common, env, err := d.runArgs(s)
+	if err != nil {
+		return err
+	}
+	name := containerName(s)
+	args := append([]string{"run", "--name", name, "--interactive"}, d.labels(s)...)
+	if session.TTY {
+		args = append(args, "--tty")
+	}
+	args = append(args, common...)
+	args = append(args, imageArgs(s)...)
+	authEnv, cleanup, err := d.engine.withAuth(ctx)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	defer d.engine.output(context.WithoutCancel(ctx), nil, "rm", "-f", name)
+	cmd := exec.Command(d.engine.Bin, args...)
+	cmd.Env = append(append(os.Environ(), env...), authEnv...)
+	return oneoff.Attach(ctx, cmd, s.Command, session, timeout, platform.TreeLimits{}, nil)
+}
+
+// ExecSession runs a command in a container that is running. The engine runs it through the container's own shell, if the
+// command needs one, as what is in an image is not known here.
+func (d *Driver) ExecSession(ctx context.Context, id, command string, timeout time.Duration, session *oneoff.Session) error {
+	d.mu.Lock()
+	t := d.tracked[id]
+	d.mu.Unlock()
+	if t == nil {
+		return fmt.Errorf("the instance %s is not running", id)
+	}
+	args := []string{"exec", "--interactive"}
+	if session.TTY {
+		args = append(args, "--tty")
+	}
+	args = append(append(args, t.name), commandLine(command)...)
+	cmd := exec.Command(d.engine.Bin, args...)
+	cmd.Env = os.Environ()
+	return oneoff.Attach(ctx, cmd, command, session, timeout, platform.TreeLimits{}, nil)
 }
 
 // Shutdown stops watching: the containers go on running, for the next server to

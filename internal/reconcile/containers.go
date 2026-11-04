@@ -14,6 +14,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
+	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/shim"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -118,7 +119,7 @@ func (m *Manager) adoptContainer(ctx context.Context, li store.LiveInstance, pla
 
 // runContainerOnce runs a command once in a container of the release's image:
 // the release command of a deployment.
-func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer) error {
+func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer, session *oneoff.Session) error {
 	if m.opts.Containers == nil {
 		return container.ErrNoEngine
 	}
@@ -136,13 +137,53 @@ func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel sto
 	for _, v := range secrets {
 		values = append(values, v)
 	}
+	spec := container.Spec{
+		ID: ids.New(ids.Instance), App: app, Env: env, Process: process, Release: "v" + strconv.Itoa(rel.Version),
+		Image: c.Image, Command: command, Vars: vars, Secrets: secrets, DataDir: dataDir, Mount: c.Mount,
+		User: c.User, Memory: c.Memory, CPU: c.CPU, PIDs: c.PIDs,
+	}
+	if session != nil {
+		return m.opts.Containers.RunSession(ctx, spec, timeout, session)
+	}
 	out := logs.NewWriter(log, logs.Stdout).Redact(values...)
 	errw := logs.NewWriter(log, logs.Stderr).Redact(values...)
 	defer out.Flush()
 	defer errw.Flush()
-	return m.opts.Containers.RunOnce(ctx, container.Spec{
-		ID: ids.New(ids.Instance), App: app, Env: env, Process: process, Release: "v" + strconv.Itoa(rel.Version),
-		Image: c.Image, Command: command, Vars: vars, Secrets: secrets, DataDir: dataDir, Mount: c.Mount,
-		User: c.User, Memory: c.Memory, CPU: c.CPU, PIDs: c.PIDs,
-	}, timeout, out, errw)
+	return m.opts.Containers.RunOnce(ctx, spec, timeout, out, errw)
+}
+
+// ExecSession runs a command in a container that is running, with someone at the other end of it.
+func (m *Manager) ExecSession(ctx context.Context, app, env, instance, command string, timeout time.Duration, session *oneoff.Session) error {
+	if err := m.CanExec(app, env, instance); err != nil {
+		return err
+	}
+	return m.opts.Containers.ExecSession(ctx, instance, command, timeout, session)
+}
+
+// CanExec says why a command cannot run in an instance, if it cannot.
+func (m *Manager) CanExec(app, env, instance string) error {
+	for _, in := range m.env(app, env).list() {
+		if in.id != instance {
+			continue
+		}
+		if !in.container || m.opts.Containers == nil {
+			return &NotContainerError{instance}
+		}
+		return nil
+	}
+	return &NoInstanceError{instance}
+}
+
+// NotContainerError says that an instance is not in a container, so that there is nothing to go into.
+type NotContainerError struct{ Instance string }
+
+func (e *NotContainerError) Error() string {
+	return e.Instance + " is not in a container, so it has nothing of its own to go into: moor run has the same files, variables and user"
+}
+
+// NoInstanceError says that there is no such instance.
+type NoInstanceError struct{ Instance string }
+
+func (e *NoInstanceError) Error() string {
+	return "there is no instance " + e.Instance + ": moor ps lists them"
 }

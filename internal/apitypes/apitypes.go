@@ -1078,3 +1078,36 @@ type ForgePull struct {
 	ApprovedBy string    `json:"approved_by,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
+
+// TerminalMessage is said in a text message on a terminal's WebSocket, where binary messages are what is typed and shown.
+type TerminalMessage struct {
+	// Rows and Cols, from whoever is typing, say that the terminal is that size now.
+	Rows int `json:"rows,omitempty"`
+	Cols int `json:"cols,omitempty"`
+	// EOF, from whoever is typing, says that there is no more to type.
+	EOF bool `json:"eof,omitempty"`
+	// Run, from the server, is the run that this is.
+	Run string `json:"run,omitempty"`
+	// Ended, from the server, says that it is over, and how. ExitCode is there if it exited of its own accord.
+	Ended    bool   `json:"ended,omitempty"`
+	ExitCode *int   `json:"exit_code,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// DataFile is something in an environment's data directory.
+type DataFile struct {
+	Name string `json:"name"`
+	// Kind is file, directory, link or other. A link can also be a directory, which it then says it is.
+	Kind     string    `json:"kind"`
+	Link     bool      `json:"link,omitempty"`
+	Size     int64     `json:"size"`
+	Modified time.Time `json:"modified"`
+}
+
+// DataListing is what is in a directory within a data directory.
+type DataListing struct {
+	Path  string     `json:"path"`
+	Files []DataFile `json:"files"`
+	// More says that there is more than this.
+	More bool `json:"more,omitempty"`
+}

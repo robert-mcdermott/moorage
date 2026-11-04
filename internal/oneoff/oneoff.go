@@ -34,6 +34,8 @@ type Command struct {
 	Timeout time.Duration
 	// Isolate says how it runs: as which user, in which cgroup, in what sandbox.
 	Isolate *isolate.Spec
+	// Session, if any, has someone at the other end of it, in place of Stdout and Stderr.
+	Session *Session
 }
 
 // ExitError reports a command that ran and did not succeed.
@@ -75,6 +77,16 @@ func Run(ctx context.Context, c Command) error {
 		cmd.Env = append(append([]string{}, c.Env...), c.ShellEnv...)
 	}
 	cmd.Dir = c.Dir
+	if c.Session != nil {
+		if err := Attach(ctx, cmd, c.Command, c.Session, c.Timeout, c.Isolate.TreeLimits(), c.Isolate); err != nil {
+			var exit *ExitError
+			if !errors.As(err, &exit) && !errors.Is(err, ctx.Err()) {
+				return fmt.Errorf("start %q: %w", c.Command, err)
+			}
+			return err
+		}
+		return nil
+	}
 	cmd.Stdout, cmd.Stderr = c.Stdout, c.Stderr
 	cmd.WaitDelay = 2 * time.Second // do not wait forever for descendants holding the output open
 	release, err := isolate.Wrap(cmd, c.Isolate)

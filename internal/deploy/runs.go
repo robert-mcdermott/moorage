@@ -115,7 +115,14 @@ type RunRequest struct {
 	Job, Trigger string
 	Command      string
 	Timeout      time.Duration
+	// Session has someone at the other end of it, and what is said is not kept.
+	Session *oneoff.Session
+	// Instance is a running container to run it in, rather than a new one-off instance.
+	Instance string
 }
+
+// sessionNote is what stays of a session in place of what was said, which can have a password in it.
+const sessionNote = "This was an interactive session. What was said in it is not kept.\n"
 
 // StartRun starts a command, as a one-off instance of an environment's current release, with its
 // variables and data directory. It returns at once; FollowRun has what it says.
@@ -147,6 +154,11 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 	if req.Trigger == "" {
 		req.Trigger = "manual"
 	}
+	if req.Instance != "" {
+		if err := d.opts.Runtime.CanExec(req.App, req.Env, req.Instance); err != nil {
+			return store.Run{}, &NotRunnableError{err.Error()}
+		}
+	}
 	run := store.Run{
 		ID: ids.New(ids.Run), App: req.App, Env: req.Env, Job: req.Job, Command: req.Command, Trigger: req.Trigger, CreatedBy: req.By,
 		Version: rel.Version, Status: store.RunRunning, StartedAt: time.Now().UTC(),
@@ -170,7 +182,19 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 		logFile, err := logs.Open(LogPath(d.opts.DataDir, req.App, run.ID), RunLogSize, 1)
 		if err == nil {
 			defer logFile.Close()
-			err = d.opts.Runtime.RunOnce(runCtx, req.App, req.Env, rel, b, plan, process, req.Command, req.Timeout, logFile)
+			switch {
+			case req.Session == nil:
+				err = d.opts.Runtime.RunOnce(runCtx, req.App, req.Env, rel, b, plan, process, req.Command, req.Timeout, logFile)
+			case req.Instance != "":
+				err = d.opts.Runtime.ExecSession(runCtx, req.App, req.Env, req.Instance, req.Command, req.Timeout, req.Session)
+			default:
+				err = d.opts.Runtime.RunSession(runCtx, req.App, req.Env, rel, b, plan, process, req.Command, req.Timeout, req.Session)
+			}
+			if req.Session != nil {
+				writer := logs.NewWriter(logFile, logs.Stdout)
+				io.WriteString(writer, sessionNote)
+				writer.Flush()
+			}
 		}
 		d.finishRun(run, err, runCtx)
 	}()

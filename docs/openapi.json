@@ -714,6 +714,54 @@
         ],
         "type": "object"
       },
+      "DataFile": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "link": {
+            "type": "boolean"
+          },
+          "modified": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "size",
+          "modified"
+        ],
+        "type": "object"
+      },
+      "DataListing": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DataFile"
+            },
+            "type": "array"
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "files"
+        ],
+        "type": "object"
+      },
       "Deployment": {
         "properties": {
           "app": {
@@ -3970,6 +4018,322 @@
         "x-moorage-permission": "admin"
       }
     },
+    "/apps/{app}/envs/{env}/files": {
+      "delete": {
+        "operationId": "deleteAppsAppEnvsEnvFiles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "What.",
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "true takes a directory with all that is in it.",
+            "in": "query",
+            "name": "recursive",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Remove something from a data directory",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      },
+      "get": {
+        "operationId": "getAppsAppEnvsEnvFiles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Where, from the top of it.",
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListing"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List a directory within an environment's data directory",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/files/content": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvFilesContent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which.",
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Read a file in a data directory",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      },
+      "put": {
+        "operationId": "putAppsAppEnvsEnvFilesContent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Where.",
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "true takes the place of what is there.",
+            "in": "query",
+            "name": "replace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataFile"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Write a file in a data directory, up to 1 GB: it appears all at once",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/files/directory": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvFilesDirectory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Where.",
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Make a directory in a data directory",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}/instances": {
       "get": {
         "operationId": "getAppsAppEnvsEnvInstances",
@@ -5118,6 +5482,112 @@
           }
         ],
         "summary": "Stop an environment's instances until a request wakes it",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/terminal": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvTerminal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How wide the terminal is.",
+            "in": "query",
+            "name": "cols",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "What to run.",
+            "in": "query",
+            "name": "command",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A running container to run it in, rather than a new one-off instance.",
+            "in": "query",
+            "name": "instance",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How tall the terminal is.",
+            "in": "query",
+            "name": "rows",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The kind of terminal it is.",
+            "in": "query",
+            "name": "term",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How long it may take, such as 10m.",
+            "in": "query",
+            "name": "timeout",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "1 gives it a terminal. Otherwise it has pipes.",
+            "in": "query",
+            "name": "tty",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Run a command with someone at the other end of it, as moor run -it does. It becomes a WebSocket, with what is typed and shown in binary messages, and TerminalMessage in text ones. This takes a token, and not a session",
         "tags": [
           "apps"
         ],

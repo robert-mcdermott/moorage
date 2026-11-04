@@ -253,10 +253,24 @@ it), so the console reports the protection that is actually in effect.
   down waits for its next time: a job running late may be worse than one not
   running. A job runs in an environment that is asleep without waking the rest.
 - `moor run -- <command>` starts a one-off instance and streams its output,
-  returning its exit code; interrupting it stops the command. Interactive sessions over a PTY through
-  the API's WebSocket (`moor run -it -- bash`, and a web terminal in the
-  console) arrive in Phase 3. For containers, `moor exec <instance>` attaches
-  to a running container.
+  returning its exit code; interrupting it stops the command.
+- `moor run -it -- <command>` has someone at the other end of it, over the API's
+  WebSocket (`GET .../terminal`): binary messages are what is typed and shown, and text
+  messages say the rest. It runs in a pseudo-terminal, or a pseudo-console on Windows, as
+  the leader of a session whose every process goes with it, and in the app's user, cgroup and
+  sandbox as any one-off instance is. Its `Run` is on record, and what is said in it is not,
+  as it can include a password. Its connection ending stops it, and access is looked at again
+  while it goes on. The route takes a token and refuses a session, as a browser would send
+  a session's cookie for any page's WebSocket. `moor exec <instance>` does the same through the
+  engine, for a running container.
+- A line-mode console in the browser runs one command at a time as an ordinary run, with its
+  output followed over the API's log route. Nothing is typed at a command, and there is no state
+  from one to the next.
+- A data directory is reached only through `os.Root`, as anything in it was written by an app and
+  the server may be able to read everything: a link out of it is not followed. A file to be read
+  is opened non-blocking, as a pipe would wait for ever, and only a plain file is read. A file
+  written from outside appears by a rename, and belongs to the directory's owner. It is
+  only ever served as `attachment`, `application/octet-stream`, `nosniff`.
 
 ## Container driver details
 

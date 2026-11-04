@@ -150,6 +150,10 @@ func (c *Console) runPage(w http.ResponseWriter, r *http.Request) {
 	d.Env, d.EnvNames = envValue(run.Env), nil
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, appAddress(app, run.Env, "", nil)}, {"Cron", appAddress(app, run.Env, "/cron", nil)}}
 	d.Tab = "cron"
+	if run.Job == "" && d.Access.Deploy {
+		d.Crumbs[2] = crumb{"Console", appAddress(app, run.Env, "/console", nil)}
+		d.Tab = "console"
+	}
 	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, run.Env)}
 	view := &runView{runRow: runRowOf(run), Version: run.Version, Error: run.Error, Running: !run.Finished()}
 	if run.HasExit {

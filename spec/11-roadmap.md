@@ -1108,6 +1108,13 @@ directory, supervises it, and serves it on its own hostname.
      address. The fake forge is all this has been tried against: no real forge has yet sent it an event.
 3. **Interactive access.** `moor run -it`, the line-mode web console,
    `moor exec`, the file browser for data directories.
+   - Done in slice 3: terminals over a WebSocket, with a pseudo-terminal on Unix and a pseudo-console on Windows; pipes with
+     `-i`; `moor exec` in a running container; a Console tab that runs one command at a time; `moor files`, its API, and a Files
+     tab.
+   - Found by slice 3: a browser sends its cookies with a WebSocket to anywhere, from any page, so a terminal takes a token and
+     not a session. What is typed can be a password, so what is said in a terminal is not kept. An app can leave a link or a pipe
+     for a server that may be able to read anything, so its data directory is opened with `os.Root`, and only a plain file
+     is ever sent. Go has no way of giving a process a pseudo-console through `os/exec`, so there it goes through CreateProcess.
 4. **Telemetry export.** Log forwarding, OTLP, threshold alerts.
 5. **Release 0.7.0.**
 

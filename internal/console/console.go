@@ -7,6 +7,7 @@ package console
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -45,7 +46,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"login-code", "apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
+		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics", "app-console", "app-files"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -58,6 +59,10 @@ func parseTemplates(source fs.FS, asset func(string) string) (map[string]*templa
 		"asset": asset, "ago": ago, "iso": iso, "clock": clock, "date": func(t time.Time) string { return t.Format("2 Jan 2006") },
 		"mask": func() string { return secretMask }, "countText": countText, "size": humanSizeOf, "envq": envQuery, "agoOrDash": agoOrDash, "untilText": untilText, "bareURL": bareURL,
 		"orDash": orNone,
+		"json": func(v any) (string, error) {
+			encoded, err := json.Marshal(v)
+			return string(encoded), err
+		},
 		"orNobody": func(s string) string {
 			if s == "" {
 				return "Nobody"
@@ -185,6 +190,13 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /apps/{app}/metrics", c.metricsPage)
 	mux.HandleFunc("GET /apps/{app}/cron", c.cronPage)
 	mux.HandleFunc("GET /apps/{app}/runs/{id}", c.runPage)
+	mux.HandleFunc("GET /apps/{app}/console", c.consolePage)
+	mux.HandleFunc("POST /apps/{app}/console/run", c.actionWith(auth.ScopeDeploy, maxForm, c.consoleRun))
+	mux.HandleFunc("GET /apps/{app}/files", c.filesPage)
+	mux.HandleFunc("GET /apps/{app}/files/download", c.downloadFile)
+	mux.HandleFunc("POST /apps/{app}/files/upload", c.actionWith(auth.ScopeDeploy, deploy.MaxDataFile+1<<20, c.uploadFile))
+	mux.HandleFunc("POST /apps/{app}/files/folder", c.actionWith(auth.ScopeDeploy, maxForm, c.makeDirectory))
+	mux.HandleFunc("POST /apps/{app}/files/remove", c.actionWith(auth.ScopeDeploy, maxForm, c.removeFile))
 	mux.HandleFunc("POST /apps/{app}/runs", c.action(c.startRun))
 	mux.HandleFunc("POST /apps/{app}/runs/{id}/stop", c.action(c.stopRun))
 	mux.HandleFunc("POST /apps/{app}/cron/{job}/run", c.action(c.runCronJob))
@@ -372,6 +384,9 @@ type data struct {
 	Usage deploy.AppUsage
 	// Forge is the repository it deploys from, if the server does that.
 	Forge *forgeView
+	// Files is what is in its data directory, and LineConsole where commands are run.
+	Files       *filesView
+	LineConsole *lineConsoleView
 
 	// Deploying an app.
 	Image                 string
@@ -457,7 +472,11 @@ func (c *Console) postUpTo(limit int64, next http.HandlerFunc) http.HandlerFunc 
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
-		if err := r.ParseForm(); err != nil {
+		parse := r.ParseForm
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			parse = func() error { return r.ParseMultipartForm(8 << 20) }
+		}
+		if err := parse(); err != nil {
 			c.message(w, http.StatusBadRequest, data{Title: "Refused", Heading: "That request was refused", Message: "The form could not be read."})
 			return
 		}

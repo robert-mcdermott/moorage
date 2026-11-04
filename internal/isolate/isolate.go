@@ -69,6 +69,15 @@ type Spec struct {
 	Limits Limits `json:"limits,omitempty"`
 }
 
+// GiveTerminal gives a terminal to the user who will run in it, as what it runs may open it again: to ask for a password,
+// say, and not have that seen.
+func GiveTerminal(tty string, s *Spec) error {
+	if s == nil || !s.Drop {
+		return nil
+	}
+	return os.Chown(tty, int(s.UID), int(s.GID))
+}
+
 // Status says what a server asked for, and what it has.
 type Status struct {
 	// Asked is what its configuration asks for, and Level what is in effect.

@@ -651,32 +651,41 @@ func (s *Service) Sync(ctx context.Context, app string) error {
 // look finds what has changed in a repository, when nothing is telling of that.
 func (s *Service) look(ctx context.Context, c store.ForgeConnection, again bool) {
 	defer s.lockApp(c.App)()
-	s.note(ctx, c, "a look", s.lookAt(ctx, c, again))
+	settled, err := s.lookAt(ctx, c, again)
+	if err == nil && !settled {
+		// Nothing went wrong this time, as nothing was tried. What failed before still stands, and goes on saying so.
+		if err := s.DB.NoteForgeHeard(context.WithoutCancel(ctx), c.AppID, time.Now()); err != nil {
+			s.Log.Warn("note a look at a forge", "app", c.App, "err", err)
+		}
+		return
+	}
+	s.note(ctx, c, "a look", err)
 }
 
 // lookAt deals with whatever differs from the last time that it looked. The first time, that is everything, and only
-// the default branch counts: a repository's old branches are not there to be deployed all at once.
-func (s *Service) lookAt(ctx context.Context, c store.ForgeConnection, again bool) error {
+// the default branch counts: a repository's old branches are not there to be deployed all at once. It says whether the
+// default branch is where the repository has it, which is how it knows that nothing that failed still stands.
+func (s *Service) lookAt(ctx context.Context, c store.ForgeConnection, again bool) (settled bool, _ error) {
 	if name, err := s.Repos.RemoteDefaultBranch(ctx, s.fetchOptions(c)); err != nil {
-		return err
+		return false, err
 	} else if name != "" && name != c.DefaultBranch {
 		c.DefaultBranch = name
 		if err := s.DB.SetForgeDefaultBranch(ctx, c.AppID, name); err != nil {
-			return err
+			return false, err
 		}
 	}
 	before, err := s.Repos.RefsUnder(c.App, headsRef)
 	if err != nil {
-		return err
+		return false, err
 	}
 	fetching, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	if err := s.Repos.Fetch(fetching, c.App, s.fetchOptions(c), "+refs/heads/*:"+headsRef+"*"); err != nil {
-		return err
+		return false, err
 	}
 	after, err := s.Repos.RefsUnder(c.App, headsRef)
 	if err != nil {
-		return err
+		return false, err
 	}
 	branches := make([]string, 0, len(after))
 	for branch := range after {
@@ -714,5 +723,9 @@ func (s *Service) lookAt(ctx context.Context, c store.ForgeConnection, again boo
 			}
 		}
 	}
-	return errors.Join(problems...)
+	if len(problems) > 0 {
+		return false, errors.Join(problems...)
+	}
+	head, _, _ := s.Repos.BranchHead(c.App, c.DefaultBranch)
+	return after[c.DefaultBranch] == "" || head == after[c.DefaultBranch], nil
 }

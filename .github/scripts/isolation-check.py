@@ -8,6 +8,8 @@ import http.client
 import json
 import os
 import pathlib
+import pty
+import select
 import shutil
 import signal
 import subprocess
@@ -223,6 +225,31 @@ def own_build_of(name):
     return [p for p in sorted((data / "builds" / name).iterdir()) if (p / "app").is_dir() and not p.name.endswith(".partial")][-1]
 
 
+def in_a_terminal(app, typed):
+    """Runs moor run -it in a terminal of its own, types at it, and says what it showed and how it ended."""
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ.update(env)
+        os.environ["TERM"] = "xterm"
+        os.execv(moor, [moor, "run", "-it", "--app", app, "--server", address, "--token", token(), "--", "/bin/sh"])
+    time.sleep(2)
+    os.write(fd, typed)
+    shown = b""
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        ready, _, _ = select.select([fd], [], [], 1)
+        if ready:
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            shown += data
+    _, status = os.waitpid(pid, 0)
+    return {"text": shown.decode(errors="replace"), "code": os.waitstatus_to_exitcode(status)}
+
+
 def try_user_level():
     print("--- each app as its own user", flush=True)
     run_moor("env", "set", "--app", "alice", "--secret", "THE_SECRET", given="hunter2")
@@ -312,6 +339,18 @@ dir = "x/keys"
     check("a command through the shell works", "through a shell" in out, out)
     out = run_moor("run", "--app", "bob", "--", "cat", private, check_it=False)
     check("moor run cannot read another app's data", out.returncode != 0, out.stdout)
+    shown = in_a_terminal("alice", b"id -u; tty; test -O \"$(tty)\" && echo the-terminal-is-mine; stty size; exit 4\n")
+    check("a terminal runs as the app", str(alice["uid"]) in shown["text"], shown["text"])
+    check("and its terminal is its own", "the-terminal-is-mine" in shown["text"], shown["text"])
+    check("and it ends as it ends", shown["code"] == 4, shown)
+    listed = run_moor("files", "--app", "alice").stdout
+    check("the data directory can be listed", "NAME" in listed, listed)
+    run_moor("files", "put", __file__, "put-here.txt", "--app", "alice")
+    owner = pathlib.Path(alice["data"], "put-here.txt").stat().st_uid
+    check("what is put there belongs to the app", owner == alice["uid"], owner)
+    os.symlink("/etc/shadow", pathlib.Path(alice["data"], "a-way-out"))
+    out = run_moor("files", "get", "a-way-out", "-", "--app", "alice", check_it=False)
+    check("a link out of it is not followed", out.returncode != 0 and "root:" not in out.stdout, out.stdout)
     wait_for("a cron job runs as the app", lambda: ask("alice", "/read", path=alice["data"] + "/cron-by").get("value", "").strip() == str(alice["uid"]))
 
 

@@ -158,6 +158,14 @@ func (db *DB) NoteForgeEvent(ctx context.Context, appID, problem string, at time
 	})
 }
 
+// NoteForgeHeard records that a forge was heard from, with nothing to say about how that went.
+func (db *DB) NoteForgeHeard(ctx context.Context, appID string, at time.Time) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE forge_connections SET last_event_at = ? WHERE app_id = ?`, at.UnixMilli(), appID)
+		return err
+	})
+}
+
 func scanPull(row interface{ Scan(...any) error }) (ForgePull, error) {
 	var p ForgePull
 	var updated int64

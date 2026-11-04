@@ -54,6 +54,36 @@ func StartInJob(cmd *exec.Cmd, limits TreeLimits) (windows.Handle, error) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_SUSPENDED
+	job, err := newJob(limits)
+	if err != nil {
+		return 0, err
+	}
+	if err := cmd.Start(); err != nil {
+		windows.CloseHandle(job)
+		return 0, err
+	}
+	fail := func(err error) (windows.Handle, error) {
+		cmd.Process.Kill()
+		cmd.Wait()
+		windows.CloseHandle(job)
+		return 0, err
+	}
+	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.PROCESS_SUSPEND_RESUME, false, uint32(cmd.Process.Pid))
+	if err != nil {
+		return fail(err)
+	}
+	defer windows.CloseHandle(h)
+	if err := windows.AssignProcessToJobObject(job, h); err != nil {
+		return fail(err)
+	}
+	if status, _, _ := ntResumeProcess.Call(uintptr(h)); status != 0 {
+		return fail(windows.NTStatus(status))
+	}
+	return job, nil
+}
+
+// newJob makes a Job Object that holds what is in it to limits, and kills it when the last handle to it closes.
+func newJob(limits TreeLimits) (windows.Handle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return 0, err
@@ -90,27 +120,6 @@ func StartInJob(cmd *exec.Cmd, limits TreeLimits) (windows.Handle, error) {
 			windows.CloseHandle(job)
 			return 0, err
 		}
-	}
-	if err := cmd.Start(); err != nil {
-		windows.CloseHandle(job)
-		return 0, err
-	}
-	fail := func(err error) (windows.Handle, error) {
-		cmd.Process.Kill()
-		cmd.Wait()
-		windows.CloseHandle(job)
-		return 0, err
-	}
-	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.PROCESS_SUSPEND_RESUME, false, uint32(cmd.Process.Pid))
-	if err != nil {
-		return fail(err)
-	}
-	defer windows.CloseHandle(h)
-	if err := windows.AssignProcessToJobObject(job, h); err != nil {
-		return fail(err)
-	}
-	if status, _, _ := ntResumeProcess.Call(uintptr(h)); status != 0 {
-		return fail(windows.NTStatus(status))
 	}
 	return job, nil
 }

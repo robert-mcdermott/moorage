@@ -23,6 +23,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
+	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -39,6 +40,9 @@ type Runtime interface {
 	Scale(ctx context.Context, app, env string, change map[string]int) (map[string]int, error)
 	Settle(ctx context.Context, app, env string) error
 	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer) error
+	RunSession(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, session *oneoff.Session) error
+	ExecSession(ctx context.Context, app, env, instance, command string, timeout time.Duration, session *oneoff.Session) error
+	CanExec(app, env, instance string) error
 }
 
 // Keyring seals and opens the values of secret variables.

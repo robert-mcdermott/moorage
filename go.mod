@@ -16,7 +16,11 @@ require (
 	mvdan.cc/sh/v3 v3.14.1
 )
 
-require github.com/go-jose/go-jose/v4 v4.1.4
+require (
+	github.com/coder/websocket v1.8.14
+	github.com/creack/pty v1.1.24
+	github.com/go-jose/go-jose/v4 v4.1.4
+)
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
