@@ -194,14 +194,21 @@ blast radius, and the console states the level of every environment.
 |---|---|---|
 | `none` | Instances run as the service user, in their own process group / Job Object. | All |
 | `user` *(Linux default when the daemon runs as root)* | Each app gets its own UID/GID from a reserved range (no `/etc/passwd` entries needed). Build directories are read-only to the app; its data directory is owned by the app's UID. Apps cannot read each other's data or secrets on disk. | Linux |
-| `sandbox` | `user` + cgroup limits + Landlock filesystem rules (read-only: build dir, toolchains, system libraries; read-write: data dir, temp dir) + `no_new_privs`; on kernels with Landlock network support, bind restricted to the assigned port. | Linux ≥ 5.13 |
+| `sandbox` | `user` + Landlock filesystem rules (read-only: build dir, toolchains, system libraries; read-write: data dir, temp dir) + `no_new_privs`; on kernels with Landlock network support, bind restricted to the assigned port. | Linux ≥ 5.13 |
 | `container` *(planned)* | Native build run inside a minimal container. | Where an engine is available |
+
+Limits are not a level: `[resources]` is enforced as far as the server can, at any
+level. Running as root on Linux, that is a cgroup for the instance. Anywhere else an
+instance that stays over its memory limit is restarted, and CPU and process limits
+are not held to, which the console says.
 
 On Linux the controls are applied *in the child* between fork and exec by a
 tiny exec helper: the shim re-executes `moor` in a helper mode as the app's
-process, already inside the instance cgroup and under the app's UID/GID; the
-helper applies Landlock and `no_new_privs`, then replaces itself with the app
-via `exec`. The shim itself stays unrestricted, so it can keep writing logs
+process, already inside the instance cgroup; the helper applies `no_new_privs`
+and Landlock, switches to the app's UID/GID, sets the parent-death signal again
+(a change of user cancels it), then replaces itself with the app via `exec`.
+Starting as root, it does not need to be readable by the app's user, though `moor`
+does for commands that run in the embedded shell, which the server checks. The shim itself stays unrestricted, so it can keep writing logs
 and taking commands from the server. Everything is plain system calls — no external
 tools. Landlock runs in best-effort mode (it is a no-op on kernels without
 it), so the console reports the protection that is actually in effect.

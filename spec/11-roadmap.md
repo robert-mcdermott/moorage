@@ -1030,6 +1030,13 @@ directory, supervises it, and serves it on its own hostname.
 1. **Linux isolation.** Per-app UIDs, cgroup limits, the Landlock sandbox,
    soft enforcement elsewhere; limits and the effective isolation level in
    the console. Runs spike S7.
+   - Done in slice 1: all of that, as `[isolation]` in `server.toml` and `[resources]` in the
+     manifest, with `.github/scripts/isolation-check.py` trying it on a real server as root in CI.
+     Builds have a user and a cache of their own, in the app's group.
+   - Found by slice 1: limits are not a level, so that `[resources]` is enforced as far as a server
+     can at any level. The service's own cgroup cannot hand out controllers on a systemd older than
+     254, whose restart then fails, so that limits have a top-level group. A change of user cancels
+     the parent-death signal. Landlock is per thread until exec, so that the helper keeps to one.
 2. **Backups.** On demand and scheduled, to a local path or S3-compatible
    storage; restore; an automated restore drill in CI.
 3. **Identity.** OIDC single sign-on, TOTP, trusted-header authentication

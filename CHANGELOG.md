@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Apps kept apart on Linux (wave 6, slice 1).** A server running as root gives each app an operating system user of its own, and its builds another: its data is its own, its build is read-only, and other apps cannot read its secrets. `level = "sandbox"` under `[isolation]` in `server.toml` adds Landlock and `no_new_privs`. See [how apps are kept apart](docs/isolation.md).
+- **`[resources]` outside containers.** Memory, CPU and process limits for any app, enforced by the kernel where the server runs as root on Linux. Elsewhere an instance that stays over its memory limit is restarted, and the console says what is not held to. An instance killed for its memory says that it ran out of memory.
+
 ## 0.5.0 (2026-11-04)
 
 Moorage 0.5.0 is about apps once they are running. They can have cron jobs and one-off commands, charts of how they are doing, and notifications when they are not. Drop a folder in the console and it is a static site, with every release at an address of its own. A server of 4 CPUs and 8 GB holds 60 environments with sleep on, as [measured](docs/install.md#how-big-a-machine). Moorage is now licensed under the [Apache License 2.0](LICENSE).

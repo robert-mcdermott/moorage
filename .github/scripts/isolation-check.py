@@ -197,8 +197,8 @@ drain = "0s"
     run_moor("deploy", "--app", name, str(app))
 
 
-def ask(name, path, **query):
-    url = path + ("?" + urllib.parse.urlencode(query) if query else "")
+def ask(name, route, **query):
+    url = route + ("?" + urllib.parse.urlencode(query) if query else "")
     status, body = get(f"{name}.localhost", url)
     if status != 200:
         raise RuntimeError(f"{name}{url}: {status} {body[:200]!r}")
