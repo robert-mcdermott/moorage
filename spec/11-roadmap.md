@@ -831,22 +831,35 @@ directory, supervises it, and serves it on its own hostname.
 
 ### Wave 4
 
-1. **Projects and roles.** Projects; viewer, deployer and maintainer roles
+1. **A home of its own.** `~/.moorage` by default for a server set up as oneself on macOS
+   and Linux, and for `moor`'s configuration; existing servers stay, and are found.
+   - Done in slice 1:
+     - One folder, the same on both, with `XDG_CONFIG_HOME` and `XDG_DATA_HOME` winning on
+       Linux if they are set. `moor` looks where earlier versions put things when
+       `~/.moorage` has no configuration, so nothing moves under anyone.
+     - The examples check now runs under a path with a space, as the system-wide location on
+       macOS has.
+   - Found by slice 1:
+     - Nothing had ever built under a path with a space, which the default on macOS was. With
+       real toolchains, Go, Python with uv, Node.js, a static site and a container all build
+       and run under one, so the system-wide location on macOS can stay. The check keeps
+       the space, so that this stays true.
+2. **Projects and roles.** Projects; viewer, deployer and maintainer roles
    enforced in the API; the audit log in the API, CLI and console.
-2. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
+3. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
    zone and with `moor apps rename` and `delete`: its instances, builds, logs and
    repository go, and what it keeps in its data directory is said first.
-3. **Previews and environments.** Branch previews (naming, inheritance, TTL,
+4. **Previews and environments.** Branch previews (naming, inheritance, TTL,
    pinning, limits, destroyed with their branch), named environments,
    `promote`, deploy locks, the Previews page.
-4. **Sleep and wake.** Idle sleep with the waking-up page; per-process
+5. **Sleep and wake.** Idle sleep with the waking-up page; per-process
    opt-out.
-5. **Access gates.** Password, sign-in (with identity headers), share links,
+6. **Access gates.** Password, sign-in (with identity headers), share links,
    IP allow-lists, default gates per environment kind, `noindex` outside
    production; an independent review of the gate, cookie and CSRF design.
-6. **Paths and domains.** Path prefixes and path mode; custom domains with
+7. **Paths and domains.** Path prefixes and path mode; custom domains with
    DNS verification.
-7. **Release 0.4.0.**
+8. **Release 0.4.0.**
 
 ## 0.5.0: real apps, observed (planned)
 

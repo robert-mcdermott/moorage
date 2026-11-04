@@ -215,9 +215,13 @@ elevated Administrator on Windows), per-user otherwise (laptop mode):
 
 | Platform | Configuration (system / per-user) | Data directory (system / per-user) |
 |---|---|---|
-| Linux | `/etc/moorage/server.toml` / `~/.config/moorage/server.toml` | `/var/lib/moorage` / `~/.local/share/moorage` (XDG variables honoured) |
-| macOS | `/Library/Application Support/Moorage/server.toml` / `~/Library/Application Support/Moorage/server.toml` | the same directory as the configuration |
+| Linux | `/etc/moorage/server.toml` / `~/.moorage/server.toml` | `/var/lib/moorage` / `~/.moorage/data` (`XDG_CONFIG_HOME` and `XDG_DATA_HOME` win, if set) |
+| macOS | `/Library/Application Support/Moorage/server.toml` / `~/.moorage/server.toml` | `/Library/Application Support/Moorage` / `~/.moorage/data` |
 | Windows | `%ProgramData%\Moorage\server.toml` / `%LocalAppData%\Moorage\server.toml` | the same directory as the configuration |
+
+A per-user server set up by a version before 0.4.0 stays where it was
+(`~/.config/moorage` and `~/.local/share/moorage` on Linux, `~/Library/Application
+Support/Moorage` on macOS): `moor` looks there when `~/.moorage` has no configuration.
 
 ```
 <data>/

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **`~/.moorage` is the default home (wave 4, slice 1).** Set up as yourself on macOS or Linux, a server keeps `server.toml` and `data/` in `~/.moorage`, and `moor` its `config.toml`: one folder, the same on both, short to type. An existing server stays where it is, and `moor` finds it. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` still win on Linux, if they are set. Servers set up as root and Windows have not moved.
+
 ## 0.3.0 (2026-11-03)
 
 Moorage 0.3.0 has a web console. Everything you run with `moor` you can now see and do at the server's console address: deploy, scale, restart and roll back apps; watch a deployment's stages and log as they happen; follow and search logs; change variables; manage your keys and tokens, and, as an administrator, users and registries. Every page works without scripts, on a phone, and in Chromium, Firefox and WebKit, which CI now drives for real. It also installs in one line, and gains `moor scale`, `moor redeploy` and `moor password`.

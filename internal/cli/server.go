@@ -33,9 +33,9 @@ func newServerCmd() *cobra.Command {
 // defaults returns where server.toml and the data directory go when neither
 // a flag nor MOORAGE_CONFIG / MOORAGE_DATA_DIR says otherwise: system-wide
 // locations when running as root (or an elevated Administrator), per-user
-// locations otherwise.
+// locations otherwise, or where an earlier version put them.
 func defaults() (platform.Dirs, error) {
-	return platform.DefaultDirs(platform.IsPrivileged())
+	return platform.FindDirs(platform.IsPrivileged())
 }
 
 func configPath(flag string) (string, error) {

@@ -133,7 +133,12 @@ CGO_ENABLED=0 go build -trimpath -o moor ./cmd/moor
 preset. Run it as root for a server that starts with the machine (the file
 goes to `/etc/moorage/server.toml` on Linux, `/Library/Application
 Support/Moorage/server.toml` on macOS), or as yourself to try Moorage on
-your own computer (the file goes to your user's configuration directory).
+your own computer: everything then goes in one folder, `~/.moorage`, on macOS and Linux,
+and in `%LocalAppData%\Moorage` on Windows. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` win on
+Linux, if they are set.
+
+A server set up as yourself by an earlier version stays where it is, and `moor` finds it.
+To move one, stop it, move the folder, change `data_dir` in `server.toml`, and start it again.
 
 **On your own computer** — apps at `http://<app>.localhost:8080`:
 
