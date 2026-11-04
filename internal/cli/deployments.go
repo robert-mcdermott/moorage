@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
@@ -54,7 +55,7 @@ that is running with 'moor deployments follow ID'.`,
 				if !d.FinishedAt.IsZero() {
 					took = d.FinishedAt.Sub(d.CreatedAt).Round(10 * time.Millisecond).String()
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", d.ID, d.Source, d.Status, release, took, ago(d.CreatedAt))
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", d.ID, source(d), d.Status, release, took, ago(d.CreatedAt))
 			}
 			return w.Flush()
 		},
@@ -91,7 +92,10 @@ func newDeploymentShowCmd() *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintf(w, "Deployment\t%s\n", d.ID)
 			fmt.Fprintf(w, "App\t%s (%s)\n", d.App, d.Env)
-			fmt.Fprintf(w, "Source\t%s\n", d.Source)
+			fmt.Fprintf(w, "Source\t%s\n", source(d))
+			if d.Message != "" {
+				fmt.Fprintf(w, "Commit\t%s %s\n", d.Commit, d.Message)
+			}
 			fmt.Fprintf(w, "Status\t%s\n", d.Status)
 			if d.Release != nil {
 				fmt.Fprintf(w, "Release\tv%d\n", d.Release.Version)
@@ -138,4 +142,20 @@ written. Fails if the deployment failed.`,
 	}
 	conn.addFlags(cmd)
 	return cmd
+}
+
+// source says what a deployment deployed: for a push, the branch and the
+// commit.
+func source(d apitypes.Deployment) string {
+	if d.Source == "image" {
+		return "image " + d.Ref
+	}
+	if d.Commit == "" {
+		return d.Source
+	}
+	commit := d.Commit
+	if len(commit) > 7 {
+		commit = commit[:7]
+	}
+	return "push " + strings.TrimPrefix(d.Ref, "refs/heads/") + "@" + commit
 }

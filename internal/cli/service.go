@@ -3,20 +3,28 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/driver/native"
 	"github.com/robert-mcdermott/moorage/internal/platform"
+	"github.com/robert-mcdermott/moorage/internal/server"
 	"github.com/robert-mcdermott/moorage/internal/service"
+	"github.com/robert-mcdermott/moorage/internal/truststore"
 )
 
 // serviceTarget is what the service commands work on: the service of this
@@ -86,18 +94,90 @@ func (t *serviceTarget) healthy(wait time.Duration) bool {
 }
 
 // stopApps stops every app instance of the server, as a server shutting
-// down for good would.
-func (t *serviceTarget) stopApps(cmd *cobra.Command) {
-	d := native.New(filepath.Join(t.cfg.DataDir, "run", "shims"), nil, nil)
-	ids := d.List()
-	for _, id := range ids {
-		if err := d.Stop(id, 30*time.Second); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "could not stop %s: %v\n", id, err)
+// down for good would: those it runs natively, and those in containers.
+func stopApps(cmd *cobra.Command, cfg config.Config) {
+	type stopper interface {
+		List() []string
+		Stop(id string, stopTimeout time.Duration) error
+	}
+	drivers := []stopper{native.New(filepath.Join(cfg.DataDir, "run", "shims"), nil, nil)}
+	if engine, err := container.Find(cfg.Containers.Engine); err == nil {
+		drivers = append(drivers, container.New(engine, server.ContainerLabel(cfg), slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))))
+	}
+	var wg sync.WaitGroup
+	var stopped atomic.Int32
+	for _, d := range drivers {
+		for _, id := range d.List() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := d.Stop(id, 30*time.Second); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "could not stop %s: %v\n", id, err)
+					return
+				}
+				stopped.Add(1)
+			}()
 		}
 	}
-	if len(ids) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "Stopped %d app instance%s; the server starts them again when it starts.\n", len(ids), plural(len(ids)))
+	wg.Wait()
+	if n := int(stopped.Load()); n > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Stopped %d app instance%s; the server starts them again when it starts.\n", n, plural(n))
 	}
+}
+
+// serviceFor finds this machine's service; tests keep theirs out of it.
+var serviceFor = service.For
+
+// runsServer reports whether a service runs the server configured by this file:
+// a server tried out with a configuration of its own must not stop the real one.
+func runsServer(m service.Manager, configFile string) bool {
+	unit, err := os.ReadFile(m.File())
+	return err == nil && strings.Contains(string(unit), configFile)
+}
+
+// stopForeground stops a server that is not running under the service manager,
+// such as one started with moor server run. The data directory's lock says
+// whether one runs, and holds its process ID. It reports whether it stopped one.
+func stopForeground(cfg config.Config) (bool, error) {
+	file := server.NewLayout(cfg.DataDir).LockFile
+	if _, err := os.Stat(file); err != nil {
+		return false, nil
+	}
+	held := func() bool {
+		lock, err := platform.LockFile(file)
+		if err != nil {
+			return errors.Is(err, platform.ErrLocked)
+		}
+		lock.Unlock()
+		return false
+	}
+	// Read before the check, which leaves its own ID in the file if the lock is free.
+	data, readErr := os.ReadFile(file)
+	if errors.Is(readErr, os.ErrPermission) {
+		return false, fmt.Errorf("this user may not use the server's files in %s: use sudo", cfg.DataDir)
+	}
+	if !held() {
+		return false, nil
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if readErr != nil || err != nil || pid <= 0 {
+		return false, errors.New("a server is running, and this system does not say which: stop it where it runs (Ctrl-C)")
+	}
+	p, err := os.FindProcess(pid)
+	if err == nil {
+		err = p.Signal(syscall.SIGTERM)
+	}
+	if err != nil {
+		return false, fmt.Errorf("a server is running as process %d, and it cannot be stopped from here (%v): stop it where it runs (Ctrl-C), or use sudo", pid, err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for held() {
+		if time.Now().After(deadline) {
+			return false, fmt.Errorf("the server, process %d, has not stopped", pid)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return true, nil
 }
 
 func newServerInstallCmd() *cobra.Command {
@@ -174,7 +254,7 @@ service again brings the server, and its apps, back.`,
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s.\n", t.manager.File())
 			if !keepApps {
-				t.stopApps(cmd)
+				stopApps(cmd, t.cfg)
 			}
 			return nil
 		},
@@ -213,20 +293,37 @@ func newServerStopCmd() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
 		Use:   "stop",
-		Short: "Stop the server's service (the apps keep running)",
-		Long: `Stop the server's service. The apps keep running, and the server adopts them
-when it starts again; --all stops them too.`,
+		Short: "Stop the server (the apps keep running)",
+		Long: `Stop the server: its service, or one started with moor server run. The apps keep
+running, and the server adopts them when it starts again; --all stops them too,
+whether or not a server is running.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := t.load(); err != nil {
+			_, cfg, err := loadServerConfig(t.cfgFlag)
+			if err != nil {
 				return err
 			}
-			if err := t.manager.Stop(); err != nil {
+			out := cmd.OutOrStdout()
+			stopped := false
+			if m, err := serviceFor(platform.IsPrivileged()); err == nil && runsServer(m, cfg.Path) {
+				if st, err := m.Status(); err == nil && st.Installed {
+					if err := m.Stop(); err != nil {
+						return err
+					}
+					stopped = true
+				}
+			}
+			foreground, err := stopForeground(cfg)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "The server is stopped.")
+			if stopped || foreground {
+				fmt.Fprintln(out, "The server is stopped.")
+			} else {
+				fmt.Fprintln(out, "The server is not running.")
+			}
 			if all {
-				t.stopApps(cmd)
+				stopApps(cmd, cfg)
 			}
 			return nil
 		},
@@ -291,9 +388,36 @@ func newServerStatusCmd() *cobra.Command {
 			fmt.Fprintf(out, "Server:   %s on %s\n", answer, t.cfg.Listen.HTTP)
 			fmt.Fprintf(out, "Config:   %s\n", t.path)
 			fmt.Fprintf(out, "Logs:     %s\n", t.manager.Logs())
+			if fp := caFingerprint(t.cfg); fp != "" {
+				fmt.Fprintf(out, "CA:       SHA-256 %s (moor trust)\n", fp)
+			}
+			if data, err := os.ReadFile(server.NewLayout(t.cfg.DataDir).ClaimCode); err == nil {
+				fmt.Fprintf(out, "Claim:    no accounts yet: create the first at %s\n", claimURL(t.cfg, strings.TrimSpace(string(data))))
+			}
 			return nil
 		},
 	}
 	t.addFlag(cmd)
 	return cmd
+}
+
+// caFingerprint is the fingerprint of the server's internal CA, if it has one
+// and this user can read it.
+func caFingerprint(cfg config.Config) string {
+	if cfg.TLS.Mode != "internal" {
+		return ""
+	}
+	file := cfg.TLS.CACert
+	if file == "" {
+		file = filepath.Join(server.NewLayout(cfg.DataDir).Certs, "ca.crt")
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	cert, err := parseCA(data, file)
+	if err != nil {
+		return ""
+	}
+	return truststore.Fingerprint(cert)
 }

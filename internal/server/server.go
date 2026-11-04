@@ -5,7 +5,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	stdlog "log"
@@ -14,25 +16,31 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/robert-mcdermott/moorage/internal/api"
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/build"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
+	consolepages "github.com/robert-mcdermott/moorage/internal/console"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/localdns"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/secrets"
 	"github.com/robert-mcdermott/moorage/internal/store"
 	"github.com/robert-mcdermott/moorage/internal/toolchain"
+	"github.com/robert-mcdermott/moorage/internal/truststore"
 )
 
 // Layout names the files and directories inside a data directory
-// (docs/02-architecture.md, "On-disk layout").
+// (spec/02-architecture.md, "On-disk layout").
 type Layout struct {
 	Root       string
 	Database   string
@@ -54,6 +62,10 @@ type Layout struct {
 	// MasterKey seals the data keys of secrets (unless the key is given
 	// elsewhere: see secrets.LoadMasterKey).
 	MasterKey string
+	// SSHHostKey is the git server's SSH host key.
+	SSHHostKey string
+	// ClaimCode holds the first-run claim code until the server is claimed.
+	ClaimCode string
 }
 
 // NewLayout returns the layout of the data directory root.
@@ -76,6 +88,8 @@ func NewLayout(root string) Layout {
 		LockFile:   at("run", "moor.lock"),
 		AdminToken: at("keys", "admin-token"),
 		MasterKey:  at("keys", "master.key"),
+		SSHHostKey: at("keys", "ssh_host_ed25519_key"),
+		ClaimCode:  at("keys", "claim-code"),
 	}
 }
 
@@ -119,6 +133,10 @@ func (l Layout) Prepare() error {
 type Addrs struct {
 	HTTP  net.Addr
 	HTTPS net.Addr
+	// SSH is nil when git pushes over SSH are off.
+	SSH net.Addr
+	// DNS is nil when the DNS responder is off.
+	DNS net.Addr
 }
 
 // Options adjust Run.
@@ -139,6 +157,24 @@ type Options struct {
 	// GCMinAge, if set, overrides how old a build must be before garbage
 	// collection may remove it (tests shorten it).
 	GCMinAge time.Duration
+}
+
+// authorizeGit decides a Smart HTTP request by the API token in its password:
+// fetching needs the read scope, pushing the deploy scope, and a token for one
+// app reaches only that app.
+func authorizeGit(r *http.Request, authn *auth.Service, password, app string, push bool) (string, error) {
+	p, err := authn.Token(r.Context(), password, authn.ClientIP(r))
+	if err != nil {
+		return "", gitserver.ErrBadCredentials
+	}
+	scope := auth.ScopeRead
+	if push {
+		scope = auth.ScopeDeploy
+	}
+	if !p.Can(scope) || !p.CanApp(app) {
+		return "", gitserver.ErrForbidden
+	}
+	return p.Name, nil
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully. The
@@ -194,7 +230,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 
 	// The master key is created with the first secret's data key, never
 	// once secrets exist: they could not be read with a new key.
-	sealed, err := db.HasDataKeys(ctx)
+	sealed, err := db.HasSealed(ctx)
 	if err != nil {
 		return err
 	}
@@ -222,6 +258,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Go: cfg.Toolchains.GoURL, Node: cfg.Toolchains.NodeURL, UV: cfg.Toolchains.UVURL, Python: cfg.Toolchains.PythonURL,
 	})
 	shell := []string{exe, "sh", "-c"}
+	engine, containers := findContainers(cfg, db, keyring, log)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
 		DataDir:       cfg.DataDir,
 		ShimCmd:       []string{exe, "shim"},
@@ -233,6 +270,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Trusted:       router.Trusted(),
 		ToolchainBins: toolchains.BinDirs,
 		Secrets:       keyring,
+		Containers:    containers,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)
@@ -247,7 +285,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	go runtime.Run(ctx)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
-		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv},
+		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
 		Runtime: runtime,
 		Reload:  router.Reload,
 		URL: func(app, env string) string {
@@ -259,9 +297,28 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.
 	defer deployer.Shutdown()
+	authn := &auth.Service{
+		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
+		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
+	}
+	claimCode, err := authn.PrepareClaim(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare the first-run claim: %w", err)
+	}
+	if claimCode != "" {
+		log.Info("this server has no accounts yet: claim it with the setup link",
+			"url", cfg.PublicURL(cfg.ConsoleHost)+"/setup?code="+claimCode)
+	}
+
+	// The git server: Smart HTTP on the console's hostname, SSH on its own
+	// port.
+	git := &gitserver.Server{Repos: gitserver.NewRepos(layout.Repos), Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, tokenHash, runtime, deployer, log))
-	console.Handle("/", ingress.Placeholder())
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, log))
+	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
+		return authorizeGit(r, authn, password, app, push)
+	}})
+	console.Handle("/", consolepages.New(authn, db, log))
 	router.SetConsole(console)
 
 	var tlsConfig *tls.Config
@@ -283,6 +340,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 				"certificate", filepath.Join(layout.Certs, "ca.crt"), "download", cfg.PublicURL(cfg.ConsoleHost)+"/.moorage/ca.crt")
 		}
 		router.SetCACert(ca.PEM())
+		log.Info("the internal CA; moor trust installs it on other machines", "fingerprint", "SHA-256 "+truststore.Fingerprint(ca.Certificate()))
 		tlsConfig = ingress.TLSConfig(ca)
 	}
 
@@ -294,7 +352,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	errorLog := slog.NewLogLogger(log.Handler(), slog.LevelWarn)
 	var httpHandler http.Handler = router
 	servers := []*http.Server{}
-	served := make(chan error, 2)
+	served := make(chan error, 3)
 
 	if tlsConfig != nil {
 		httpsLn, err := net.Listen("tcp", cfg.Listen.HTTPS)
@@ -314,14 +372,65 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	servers = append(servers, httpSrv)
 	go func() { served <- httpSrv.Serve(httpLn) }()
 
+	var sshSrv *gitserver.SSH
+	if cfg.Listen.SSH != "" {
+		hostKey, err := gitserver.LoadHostKey(layout.SSHHostKey)
+		if err != nil {
+			return fmt.Errorf("the SSH host key: %w", err)
+		}
+		sshLn, err := net.Listen("tcp", cfg.Listen.SSH)
+		if err != nil {
+			for _, s := range servers {
+				s.Close()
+			}
+			return listenError(cfg.Listen.SSH, err)
+		}
+		addrs.SSH = sshLn.Addr()
+		sshSrv = &gitserver.SSH{
+			Git: git, HostKey: hostKey, Attempts: authn.Limits,
+			Key: func(ctx context.Context, key ssh.PublicKey) (string, bool) {
+				p, _, err := authn.Key(ctx, ssh.FingerprintSHA256(key))
+				return p.Name, err == nil
+			},
+			Used: func(fingerprint string) {
+				if k, err := db.SSHKeyByFingerprint(ctx, fingerprint); err == nil {
+					db.TouchSSHKey(ctx, k.ID)
+				}
+			},
+		}
+		go func() {
+			if err := sshSrv.Serve(sshLn); err != nil {
+				served <- err
+			}
+		}()
+	}
+
+	if cfg.Listen.DNS != "" {
+		dnsConn, err := net.ListenPacket("udp", cfg.Listen.DNS)
+		if err != nil {
+			for _, s := range servers {
+				s.Close()
+			}
+			return listenError(cfg.Listen.DNS, err)
+		}
+		defer dnsConn.Close()
+		addrs.DNS = dnsConn.LocalAddr()
+		go func() {
+			if err := localdns.Serve(ctx, dnsConn, cfg.Domain, log); err != nil {
+				log.Error("the DNS responder stopped", "err", err)
+			}
+		}()
+		log.Info("answering DNS queries for the domain, on loopback", "dns", addrs.DNS.String(), "domain", cfg.Domain)
+	}
+
 	info := buildinfo.Get()
 	log.Info("moorage server started",
 		"version", info.Version, "commit", info.Commit,
 		"config", cfg.Path, "data_dir", cfg.DataDir, "domain", cfg.Domain,
 		"http", addrs.HTTP.String(), "https", addrString(addrs.HTTPS), "tls", cfg.TLS.Mode,
 		"console", cfg.PublicURL(cfg.ConsoleHost))
-	if cfg.Listen.SSH != "" {
-		log.Warn("git pushes over SSH arrive in wave 2; listen.ssh is not served yet", "ssh", cfg.Listen.SSH)
+	if addrs.SSH != nil {
+		log.Info("git pushes over SSH", "ssh", addrs.SSH.String(), "host_key", ssh.FingerprintSHA256(sshSrv.HostKey.PublicKey()))
 	}
 	if opts.Ready != nil {
 		opts.Ready(addrs)
@@ -334,6 +443,9 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		runErr = fmt.Errorf("HTTP server: %w", err)
 	}
 	log.Info("moorage server stopping")
+	if sshSrv != nil {
+		sshSrv.Close()
+	}
 	shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	for _, s := range servers {
@@ -365,10 +477,49 @@ func addrString(a net.Addr) string {
 func listenError(addr string, err error) error {
 	msg := fmt.Sprintf("listen on %s: %v", addr, err)
 	switch {
-	case errors.Is(err, syscall.EACCES), errors.Is(err, os.ErrPermission):
+	case platform.AccessDenied(err):
 		msg += "\n  ports below 1024 need extra privileges: run as root or grant CAP_NET_BIND_SERVICE (Linux), or use a port such as 8080"
-	case errors.Is(err, syscall.EADDRINUSE):
+	case platform.AddressInUse(err):
 		msg += "\n  another program is already listening there"
 	}
 	return errors.New(msg)
+}
+
+// findContainers finds the container engine, if the server has one. Without one
+// apps that need containers cannot be deployed, and everything else goes on.
+func findContainers(cfg config.Config, db *store.DB, keyring *secrets.Keyring, log *slog.Logger) (*container.Engine, *container.Driver) {
+	engine, err := container.Find(cfg.Containers.Engine)
+	if errors.Is(err, container.ErrNoEngine) {
+		log.Info("no container engine: apps can run natively, not in containers")
+		return nil, nil
+	}
+	if err != nil {
+		log.Warn("apps cannot run in containers", "err", err)
+		return nil, nil
+	}
+	engine.TmpDir = filepath.Join(cfg.DataDir, "tmp")
+	engine.Auth = func(ctx context.Context) ([]byte, error) {
+		registries, err := db.Registries(ctx)
+		if err != nil {
+			return nil, err
+		}
+		creds := make([]container.Credential, 0, len(registries))
+		for _, r := range registries {
+			password, err := keyring.OpenRegistry(r.Host, r.Sealed)
+			if err != nil {
+				return nil, err
+			}
+			creds = append(creds, container.Credential{Host: r.Host, Username: r.Username, Password: password})
+		}
+		return container.AuthFile(creds), nil
+	}
+	log.Info("apps can run in containers", "engine", engine.Kind, "path", engine.Bin)
+	return engine, container.New(engine, ContainerLabel(cfg), log)
+}
+
+// ContainerLabel tells this server's containers from any other's on the same
+// engine: each manages only its own.
+func ContainerLabel(cfg config.Config) string {
+	sum := sha256.Sum256([]byte(cfg.DataDir))
+	return hex.EncodeToString(sum[:6])
 }

@@ -1,0 +1,34 @@
+# How Moorage serves this site: the files of public/, as they are.
+[app]
+name = "handbook"
+runtime = "static"
+
+[static]
+dir = "public"
+# /about serves about.html, and /about.html redirects to /about.
+clean_urls = true
+# Served, with status 404, for addresses that are not pages.
+not_found = "404.html"
+
+# Headers for every file.
+[[static.headers]]
+for = "/*"
+values = { "X-Frame-Options" = "DENY", "Referrer-Policy" = "strict-origin-when-cross-origin" }
+
+# The stylesheet changes rarely: let browsers keep it for a day. (Files whose
+# names carry a content hash, such as app.3f2a9c1b.css, are cached for good
+# without a rule.)
+[[static.headers]]
+for = "/assets/*"
+values = { "Cache-Control" = "public, max-age=86400" }
+
+# The guide used to live under /docs: keep the old links working.
+[[static.redirects]]
+from = "/docs/*"
+to = "/guide/:splat"
+status = 301
+
+[[static.redirects]]
+from = "/team"
+to = "/about"
+status = 301

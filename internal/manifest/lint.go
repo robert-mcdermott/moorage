@@ -33,23 +33,22 @@ func Lint(m *Manifest) []string {
 	}
 
 	notYet := func(what, arrives string) { add("%s is accepted but has no effect yet (%s)", what, arrives) }
+	inContainers := m.App.Runtime == "dockerfile" || m.App.Runtime == "image"
 	switch m.App.Runtime {
-	case "dockerfile", "image":
-		notYet("runtime "+m.App.Runtime, "containers arrive in 0.2.0")
 	case "bun", "deno":
 		notYet("runtime "+m.App.Runtime, "a later release")
 	}
-	if m.Container != nil {
-		notYet("[container]", "containers arrive in 0.2.0")
+	if m.Container != nil && !inContainers && m.App.Runtime != "" && m.App.Runtime != "auto" {
+		add("[container] has no effect with the %s runtime: it is for the dockerfile and image runtimes", m.App.Runtime)
 	}
 	if m.Bun != nil || m.Deno != nil {
 		notYet("[bun] and [deno]", "a later release")
 	}
 	if len(m.App.Watch) > 0 {
-		notYet("app.watch", "deploys on git push arrive in 0.2.0")
+		notYet("app.watch", "a later release")
 	}
 	if m.App.Root != "" && m.App.Root != "." {
-		notYet("app.root", "deploys on git push arrive in 0.2.0; deploy the app's directory instead")
+		notYet("app.root", "a later release; deploy the app's directory instead")
 	}
 	if m.App.Shell == "system" {
 		notYet(`app.shell = "system"`, "commands run in the embedded shell")
@@ -61,12 +60,12 @@ func Lint(m *Manifest) []string {
 		notYet("[[routes]]", "path routes arrive in a later release")
 	}
 	if len(m.Vars) > 0 {
-		notYet("[vars]", "declared variables arrive in the next release")
+		notYet("[vars]", "declared variables arrive in a later release")
 	}
-	if m.Resources != nil {
-		notYet("[resources]", "limits arrive in a later release")
+	if m.Resources != nil && !inContainers {
+		notYet("[resources]", "limits apply to containers for now; for other apps they arrive in a later release")
 	}
-	if m.Storage != nil {
+	if m.Storage != nil && !inContainers {
 		notYet("[storage]", "it applies to containers; $MOORAGE_DATA_DIR is always available")
 	}
 	if m.Previews != nil {

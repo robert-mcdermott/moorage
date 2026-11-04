@@ -111,6 +111,9 @@ func explain(w io.Writer, plan manifest.Plan) {
 		kind += " (a static site)"
 	}
 	section("runtime", kind)
+	if c := plan.Container; c != nil {
+		explainContainer(section, c, plan)
+	}
 	var tcs []string
 	for _, t := range plan.Toolchains {
 		v := t.Version
@@ -128,7 +131,7 @@ func explain(w io.Writer, plan manifest.Plan) {
 	for _, s := range plan.Steps {
 		steps = append(steps, fmt.Sprintf("%-8s %s", s.Name+":", s.Command))
 	}
-	if len(steps) == 0 {
+	if len(steps) == 0 && plan.Container == nil {
 		steps = []string{"(nothing to build)"}
 	}
 	section("build", steps...)
@@ -154,7 +157,11 @@ func explain(w io.Writer, plan manifest.Plan) {
 		case !*p.Expose:
 			check = "health: running for " + p.Health.MinUptime.Std().String()
 		}
-		procs = append(procs, fmt.Sprintf("%s: %s", name, p.Command), fmt.Sprintf("  ×%d · %s", *p.Instances, check))
+		command := p.Command
+		if command == "" {
+			command = "(what the image says to run)"
+		}
+		procs = append(procs, fmt.Sprintf("%s: %s", name, command), fmt.Sprintf("  ×%d · %s", *p.Instances, check))
 	}
 	section("processes", procs...)
 	if plan.Release != nil {
@@ -211,4 +218,37 @@ comment at the top of the manifest).`,
 			return err
 		},
 	}
+}
+
+// explainContainer says what an app that runs in a container will run.
+func explainContainer(section func(string, ...string), c *manifest.ContainerPlan, plan manifest.Plan) {
+	if c.From != "" {
+		section("image", c.From+"  (pulled, and pinned to its digest, when deploying)")
+	} else {
+		build := "build -f " + c.File + " " + c.Context
+		if c.Target != "" {
+			build += " --target " + c.Target
+		}
+		section("image", build)
+	}
+	port := "the lowest port the image exposes, or 8080"
+	if c.Port != 0 {
+		port = strconv.Itoa(c.Port)
+	}
+	section("port", port)
+	section("data", c.Mount)
+	var limits []string
+	if c.User != "" {
+		limits = append(limits, "user "+c.User)
+	}
+	if c.Memory > 0 {
+		limits = append(limits, "memory "+humanBytes(c.Memory))
+	}
+	if c.CPU > 0 {
+		limits = append(limits, "cpu "+strconv.FormatFloat(c.CPU, 'f', -1, 64))
+	}
+	if c.PIDs > 0 {
+		limits = append(limits, "pids "+strconv.Itoa(c.PIDs))
+	}
+	section("limits", limits...)
 }

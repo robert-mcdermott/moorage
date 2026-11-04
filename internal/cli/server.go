@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/platform"
@@ -23,8 +24,9 @@ func newServerCmd() *cobra.Command {
 		Use:   "server",
 		Short: "Set up and run a Moorage server",
 	}
-	cmd.AddCommand(newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
-		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd())
+	cmd.AddCommand(newServerUsersCmd(), newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
+		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd(), newServerDoctorCmd(),
+		newServerProxyConfigCmd(), newServerResolverCmd())
 	return cmd
 }
 
@@ -95,6 +97,16 @@ system-wide when run as root (Administrator on Windows), per-user otherwise.`,
 				return err
 			}
 			printInitSummary(cmd, path, cfgFlag != "" || os.Getenv("MOORAGE_CONFIG") != "", preset, cfg)
+			// A data directory with a database has a server already: it may be
+			// claimed, and it makes or removes its own code when it starts.
+			layout := server.NewLayout(cfg.DataDir)
+			if _, err := os.Stat(layout.Database); os.IsNotExist(err) {
+				code, err := auth.EnsureClaimCode(layout.ClaimCode)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "\nOnce it runs, claim it by creating the first account at:\n\n  %s\n", claimURL(cfg, code))
+			}
 			return nil
 		},
 	}
@@ -118,7 +130,8 @@ func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset
 	case len(c.Proxy.Trusted) > 0:
 		fmt.Fprintf(out, "Point your TLS proxy at http://%s for %s and *.%s. It must keep the\n", c.Listen.HTTP, c.ConsoleHost, c.Domain)
 		fmt.Fprintf(out, "Host header, pass WebSocket upgrades, not buffer responses, and allow long\n")
-		fmt.Fprintf(out, "requests and large uploads (see docs/06-ingress.md, \"Behind a TLS proxy\").\n\n")
+		fmt.Fprintf(out, "requests and large uploads. moor server proxy-config nginx prints a\n")
+		fmt.Fprintf(out, "configuration for nginx.\n\n")
 	case c.Domain != "localhost":
 		fmt.Fprintf(out, "Point a wildcard DNS record, *.%s, at this server.\n\n", c.Domain)
 	}
@@ -130,7 +143,12 @@ func printInitSummary(cmd *cobra.Command, path string, explicitPath bool, preset
 	if platform.IsPrivileged() {
 		install = "sudo " + install
 	}
-	fmt.Fprintf(out, "Start the server with:\n\n  %s\n\nor install it as a service that starts with the computer:\n\n  %s\n", run, install)
+	fmt.Fprintf(out, "Start the server with:\n\n  %s\n\nor install it as a service that starts with the computer:\n\n  %s\n\nmoor server doctor checks the setup at any time.\n", run, install)
+}
+
+// claimURL is the first-run setup link.
+func claimURL(c config.Config, code string) string {
+	return c.PublicURL(c.ConsoleHost) + "/setup?code=" + code
 }
 
 func quoteArg(s string) string {

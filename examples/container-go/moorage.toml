@@ -1,0 +1,26 @@
+# How Moorage builds and runs this app. With a go.mod here, Moorage would
+# build a native binary; this says to build the Containerfile instead.
+[app]
+name = "guestbook"
+runtime = "dockerfile"
+
+# The image's limits: it gets no more than this from the server.
+[resources]
+memory = "64MiB"
+pids = 64
+
+# The data directory appears in the container at this path, as
+# MOORAGE_DATA_DIR. /data is the default; it is here to show where it is set.
+[storage]
+mount = "/data"
+
+# The image has no shell, and needs none: words like these run directly. It runs
+# once for each new release, before that release takes traffic.
+[release]
+command = "/guestbook migrate"
+
+[processes.web]
+# A new release takes traffic only once this answers. No command: the web
+# process runs what the image says to.
+health = { path = "/healthz" }
+stop_timeout = "10s"

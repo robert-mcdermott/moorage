@@ -332,13 +332,20 @@ func envState(ctx context.Context, tx *sql.Tx, app, env string) (string, int, er
 
 // Apps lists the apps by name, with their current production release.
 func (db *DB) Apps(ctx context.Context) ([]AppSummary, error) {
+	return db.AppsAfter(ctx, "", -1)
+}
+
+// AppsAfter lists up to limit apps (no limit if negative) by name, after the
+// name after.
+func (db *DB) AppsAfter(ctx context.Context, after string, limit int) ([]AppSummary, error) {
 	rows, err := db.Reader.QueryContext(ctx, `SELECT a.id, a.name, a.created_at,
 			r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, b.files, b.size_bytes
 		FROM apps a
 		JOIN environments e ON e.app_id = a.id AND e.kind = 'production'
 		LEFT JOIN releases r ON r.id = e.current_release_id
 		LEFT JOIN builds b ON b.id = r.build_id
-		ORDER BY a.name`)
+		WHERE a.name > ?
+		ORDER BY a.name LIMIT ?`, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -367,6 +374,12 @@ func (db *DB) Apps(ctx context.Context) ([]AppSummary, error) {
 
 // Releases lists an environment's releases, newest first.
 func (db *DB) Releases(ctx context.Context, app, env string) ([]Release, error) {
+	return db.ReleasesBefore(ctx, app, env, 0, -1)
+}
+
+// ReleasesBefore lists up to limit releases (no limit if negative), newest
+// first, older than the version before (0: from the newest).
+func (db *DB) ReleasesBefore(ctx context.Context, app, env string, before, limit int) ([]Release, error) {
 	var envID string
 	var currentID sql.NullString
 	err := db.Reader.QueryRowContext(ctx, `SELECT e.id, e.current_release_id
@@ -380,7 +393,7 @@ func (db *DB) Releases(ctx context.Context, app, env string) ([]Release, error) 
 	}
 	rows, err := db.Reader.QueryContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, b.files, b.size_bytes
 		FROM releases r JOIN builds b ON b.id = r.build_id
-		WHERE r.env_id = ? ORDER BY r.version DESC`, envID)
+		WHERE r.env_id = ? AND (? = 0 OR r.version < ?) ORDER BY r.version DESC LIMIT ?`, envID, before, before, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -182,8 +182,13 @@ or asked for without echoing it, so that it stays out of the shell's history.`,
 // readSecret reads a secret's value: asked for without echo on a terminal,
 // otherwise all of standard input without its last line ending.
 func readSecret(cmd *cobra.Command, name string) (string, error) {
+	return readHidden(cmd, "Value of "+name, name)
+}
+
+// readHidden is readSecret, asking for name with prompt.
+func readHidden(cmd *cobra.Command, prompt, name string) (string, error) {
 	if file, ok := cmd.InOrStdin().(*os.File); ok && term.IsTerminal(int(file.Fd())) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Value of %s: ", name)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", prompt)
 		value, err := term.ReadPassword(int(file.Fd()))
 		fmt.Fprintln(cmd.ErrOrStderr())
 		if err != nil {

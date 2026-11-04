@@ -312,3 +312,120 @@ func TestPublicURL(t *testing.T) {
 		}
 	}
 }
+
+func TestSetListenDNS(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.toml")
+	cfg, err := Preset("local", PresetOptions{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(path, cfg, "local", false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	load := func() Config {
+		t.Helper()
+		c, err := Load(path, func(string) string { return "" })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	if load().Listen.DNS != "" {
+		t.Error("on by default")
+	}
+	if err := SetListenDNS(path, "127.0.0.1:15353"); err != nil {
+		t.Fatal(err)
+	}
+	if got := load().Listen.DNS; got != "127.0.0.1:15353" {
+		t.Errorf("set: %q", got)
+	}
+	if load().Listen.HTTP != cfg.Listen.HTTP {
+		t.Error("it changed something else")
+	}
+	if err := SetListenDNS(path, "127.0.0.1:15354"); err != nil {
+		t.Fatal(err)
+	}
+	if got := load().Listen.DNS; got != "127.0.0.1:15354" {
+		t.Errorf("changed: %q", got)
+	}
+	if err := SetListenDNS(path, ""); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(before) {
+		t.Errorf("removing it did not restore the file:\n%s\n---\n%s", before, after)
+	}
+
+	// Written from the start, it reads back the same.
+	cfg.Listen.DNS = "127.0.0.1:15353"
+	other := filepath.Join(dir, "other.toml")
+	if err := Write(other, cfg, "local", false); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(other, func(string) string { return "" })
+	if err != nil || c.Listen.DNS != cfg.Listen.DNS {
+		t.Errorf("%v %q", err, c.Listen.DNS)
+	}
+
+	os.WriteFile(other, []byte("domain = \"x\"\n"), 0o644)
+	if err := SetListenDNS(other, "127.0.0.1:1"); err == nil {
+		t.Error("a file with no [listen]")
+	}
+}
+
+func TestListenDNSIsLoopback(t *testing.T) {
+	cfg, err := Preset("local", PresetOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for addr, ok := range map[string]bool{"127.0.0.1:15353": true, "[::1]:15353": true, "0.0.0.0:53": false, ":53": false, "localhost:53": false, "192.0.2.1:53": false} {
+		cfg.Listen.DNS = addr
+		if err := cfg.Validate(); (err == nil) != ok {
+			t.Errorf("%s: %v", addr, err)
+		}
+	}
+}
+
+func TestNginx(t *testing.T) {
+	cfg, err := Preset("lan", PresetOptions{Domain: "apps.example.com", DataDir: t.TempDir(), BehindProxy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := cfg.ProxyProblems(); len(p) != 0 {
+		t.Errorf("%v", p)
+	}
+	got := Nginx(cfg, NginxOptions{Cert: "/c.crt", Key: "/c.key"})
+	for _, want := range []string{
+		"server 127.0.0.1:8080;",
+		"server_name moorage.apps.example.com *.apps.example.com;",
+		"listen 443 ssl;", "listen 80;",
+		"return 308 https://$host$request_uri;",
+		"ssl_certificate     /c.crt;", "ssl_certificate_key /c.key;",
+		"proxy_set_header Host              $host;",
+		"proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;",
+		"proxy_set_header X-Forwarded-Proto $scheme;",
+		"proxy_set_header Upgrade    $http_upgrade;",
+		"proxy_set_header Connection $moorage_connection;",
+		"proxy_http_version 1.1;",
+		"proxy_buffering         off;", "proxy_request_buffering off;",
+		"proxy_read_timeout   1h;", "client_max_body_size 0;",
+		"moor server doctor --public-url https://moorage.apps.example.com\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
+		}
+	}
+	got = Nginx(cfg, NginxOptions{HTTPPort: 8081, HTTPSPort: 8443})
+	for _, want := range []string{"listen 8443 ssl;", "listen 8081;", "return 308 https://$host:8443$request_uri;", "--public-url https://moorage.apps.example.com:8443\n", "/etc/nginx/tls/apps.example.com.crt"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
+		}
+	}
+
+	direct, _ := Preset("lan", PresetOptions{Domain: "apps.example.com", DataDir: t.TempDir()})
+	if p := direct.ProxyProblems(); len(p) < 2 {
+		t.Errorf("%v", p)
+	}
+}

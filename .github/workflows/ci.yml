@@ -59,6 +59,99 @@ jobs:
           MOORAGE_TEST_BUILDS: '1'
         run: go test ./internal/server -run TestSampleApps -v -timeout 20m
 
+  examples:
+    # Deploys every app of examples/ with the moor binary, from the app's
+    # directory, and checks its pages and its API.
+    name: Examples (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Deploy and check the examples
+        run: .github/scripts/examples-check.sh
+
+  containers:
+    # Runs apps in containers with each engine: the driver on its own, then
+    # deploys through a whole server. Hosted Ubuntu runners have both engines.
+    name: Containers (${{ matrix.engine }})
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [podman, docker]
+    runs-on: ubuntu-latest
+    env:
+      MOORAGE_TEST_CONTAINERS: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Versions
+        run: ${{ matrix.engine }} version
+      - name: The container driver
+        run: go test ./internal/driver/container -v -count=1 -timeout 10m
+      - name: Deploys in containers
+        if: ${{ !cancelled() }}
+        run: go test ./internal/server -run 'TestContainer' -v -count=1 -timeout 15m
+
+  trust:
+    # Puts the server's CA into each system's real trust store, and checks that
+    # what uses that store accepts its certificates. It also tries the resolver
+    # rule on macOS. The runner is thrown away afterwards.
+    name: Trust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # A system that waits for someone to confirm would otherwise wait for hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Trust the CA, and take it back
+        shell: bash
+        run: .github/scripts/trust-check.sh
+
+  proxy:
+    # Runs a server behind a real nginx, with the configuration moor writes.
+    name: Behind nginx
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install nginx
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nginx
+      - name: Deploy and push through nginx
+        run: .github/scripts/proxy-check.sh
+
+  upgrade:
+    # Takes over the data directory and running apps of a server of the last
+    # published release, with this code.
+    name: Upgrade (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Upgrade from the last release
+        run: .github/scripts/upgrade-check.sh
+
   service:
     # Installs the server as a system service (systemd, launchd), restarts it
     # with an app under load, and checks the app kept running (spike S2).

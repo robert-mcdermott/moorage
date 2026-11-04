@@ -1,5 +1,5 @@
 // Package native runs app instances as supervised OS processes, each through
-// its own shim (docs/05-runtime.md, "Drivers"). Instances outlive the
+// its own shim (spec/05-runtime.md, "Drivers"). Instances outlive the
 // server: a new server finds them again from their files in the run
 // directory.
 package native

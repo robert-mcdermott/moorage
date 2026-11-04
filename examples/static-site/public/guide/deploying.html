@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deploying · Team handbook</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header>
+    <a class="name" href="/">Team handbook</a>
+    <nav><a href="/guide/" aria-current="page">Guide</a><a href="/about">About</a></nav>
+  </header>
+  <main>
+    <h1>Deploying</h1>
+    <p class="lede">Our apps run on our own Moorage server. This handbook is
+    one of them.</p>
+
+    <h2>Deploy an app</h2>
+    <p>From the app's directory:</p>
+    <pre><code>moor deploy</code></pre>
+    <p>Moorage builds the app, shows the build as it happens, and switches to
+    the new release once it is healthy. A static site like this one is
+    swapped in at once.</p>
+
+    <h2>Undo a deploy</h2>
+    <pre><code>moor rollback</code></pre>
+    <p>The previous release is back in a moment.</p>
+
+    <h2>Configure an app</h2>
+    <pre><code>moor env set --secret DATABASE_URL</code></pre>
+    <p>Secrets are asked for, encrypted on the server, and never shown
+    again.</p>
+  </main>
+  <footer>Kept in the team's repository; deployed with Moorage.</footer>
+</body>
+</html>

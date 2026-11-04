@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Prefixes of the entities in the data model (docs/10-data-model.md).
+// Prefixes of the entities in the data model (spec/10-data-model.md).
 const (
 	App        = "app"
 	Env        = "env"
@@ -25,6 +25,8 @@ const (
 	User       = "usr"
 	Token      = "tok"
 	Var        = "var"
+	SSHKey     = "key"
+	Session    = "ses"
 )
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

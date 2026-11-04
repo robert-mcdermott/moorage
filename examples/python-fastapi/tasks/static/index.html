@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tasks</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1 id="title">Tasks</h1>
+      <p id="summary" aria-live="polite"></p>
+    </header>
+
+    <form id="add" autocomplete="off">
+      <label class="visually-hidden" for="new-title">New task</label>
+      <input id="new-title" name="title" placeholder="What needs doing?" maxlength="200" required>
+      <button type="submit">Add</button>
+    </form>
+
+    <nav aria-label="Show">
+      <button type="button" data-filter="all" aria-pressed="true">All</button>
+      <button type="button" data-filter="open" aria-pressed="false">Open</button>
+      <button type="button" data-filter="done" aria-pressed="false">Done</button>
+      <button type="button" id="clear" class="quiet">Clear done</button>
+    </nav>
+
+    <ul id="tasks"></ul>
+    <p id="empty" hidden>Nothing here yet.</p>
+    <p id="error" role="alert" hidden></p>
+
+    <footer id="release"></footer>
+  </main>
+</body>
+</html>

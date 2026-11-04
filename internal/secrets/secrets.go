@@ -1,5 +1,5 @@
 // Package secrets encrypts the values of secret variables
-// (docs/08-security.md, "Secrets"; decision D16). Each value is sealed with
+// (spec/08-security.md, "Secrets"; decision D16). Each value is sealed with
 // AES-256-GCM under its app's data key, with the app, the scope and the
 // variable's name as associated data, so a ciphertext cannot be moved to
 // another variable. Data keys are themselves sealed by the master key, which
@@ -174,6 +174,24 @@ func (k *Keyring) dataKey(ctx context.Context, appID string) (cipher.AEAD, error
 	}
 	k.keys[appID] = aead
 	return aead, nil
+}
+
+// registryAD binds a password to its registry.
+func registryAD(host string) []byte { return []byte("moorage registry\x00" + host) }
+
+// SealRegistry encrypts a container registry's password, with the master key:
+// it belongs to the server, not to an app.
+func (k *Keyring) SealRegistry(host, password string) []byte {
+	return seal(k.master, []byte(password), registryAD(host))
+}
+
+// OpenRegistry decrypts a container registry's password.
+func (k *Keyring) OpenRegistry(host string, sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, registryAD(host))
+	if err != nil {
+		return "", fmt.Errorf("the password for %s cannot be decrypted", host)
+	}
+	return string(plain), nil
 }
 
 // valueAD binds a value to its variable: the app, the scope (an

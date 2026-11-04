@@ -37,17 +37,47 @@ func (c *connection) addFlags(cmd *cobra.Command) {
 	f.StringVar(&c.caCert, "ca-cert", "", "PEM file of an extra CA to trust, such as the server's internal CA (default: $MOOR_CA_CERT)")
 }
 
-// client connects to --server or $MOOR_SERVER; without either, to the
-// server configured on this machine, over its loopback address, with its
-// admin token when this user can read it.
+// client connects as resolve says.
 func (c *connection) client() (*client.Client, error) {
-	serverURL := firstOf(c.server, os.Getenv("MOOR_SERVER"))
-	token := firstOf(c.token, os.Getenv("MOOR_TOKEN"))
+	serverURL, token, caCert, err := c.resolve()
+	if err != nil {
+		return nil, err
+	}
+	return client.New(serverURL, token, caCert)
+}
+
+// resolve picks the server and credentials: --server and --token, or
+// $MOOR_SERVER and $MOOR_TOKEN; failing those, the current context (or, given
+// only a server, its context); failing that, the server configured on this
+// machine, over its loopback address, with its admin token when this user can
+// read it. $MOORAGE_CONFIG names that server on purpose, so it comes before the
+// current context.
+func (c *connection) resolve() (serverURL, token, caCert string, err error) {
+	serverURL = firstOf(c.server, os.Getenv("MOOR_SERVER"))
+	token = firstOf(c.token, os.Getenv("MOOR_TOKEN"))
+	caCert = firstOf(c.caCert, os.Getenv("MOOR_CA_CERT"))
+	cfg, err := loadClientConfig()
+	if err != nil {
+		return "", "", "", err
+	}
+	if token == "" {
+		var ctx *clientContext
+		switch {
+		case serverURL != "":
+			ctx = cfg.forServer(serverURL)
+		case os.Getenv("MOORAGE_CONFIG") == "":
+			ctx = cfg.current()
+		}
+		if ctx != nil {
+			serverURL, token = ctx.Server, ctx.Token
+			caCert = firstOf(caCert, ctx.CACert)
+		}
+	}
 	if serverURL == "" || token == "" {
 		localURL, localToken, err := localServer()
 		if serverURL == "" {
 			if err != nil {
-				return nil, fmt.Errorf("no server to talk to: pass --server and --token, or set MOOR_SERVER and MOOR_TOKEN (%v)", err)
+				return "", "", "", fmt.Errorf("no server to talk to: sign in with moor login, pass --server and --token, or set MOOR_SERVER and MOOR_TOKEN (%v)", err)
 			}
 			serverURL = localURL
 		}
@@ -55,7 +85,7 @@ func (c *connection) client() (*client.Client, error) {
 			token = localToken
 		}
 	}
-	return client.New(serverURL, token, firstOf(c.caCert, os.Getenv("MOOR_CA_CERT")))
+	return serverURL, token, caCert, nil
 }
 
 // localServer returns the loopback URL of the server configured on this
@@ -85,8 +115,9 @@ func localServer() (url, token string, err error) {
 	return "http://" + net.JoinHostPort(host, port), token, nil
 }
 
-// resolveApp picks the app from --app, $MOOR_APP or [app].name in the
-// current directory's moorage.toml, which it also returns.
+// resolveApp picks the app from --app, $MOOR_APP, [app].name in the
+// current directory's moorage.toml (which it also returns), or the app of
+// the repository's moorage git remote.
 func resolveApp(flag string) (string, *manifest.Manifest, error) {
 	m, err := manifest.Load(".")
 	if err != nil {
@@ -97,7 +128,10 @@ func resolveApp(flag string) (string, *manifest.Manifest, error) {
 		app = m.App.Name
 	}
 	if app == "" {
-		return "", m, errors.New("which app? pass --app NAME, set MOOR_APP, or set name under [app] in moorage.toml")
+		app = remoteApp(defaultRemote)
+	}
+	if app == "" {
+		return "", m, errors.New("which app? pass --app NAME, set MOOR_APP, set name under [app] in moorage.toml, or add a git remote with moor git remote")
 	}
 	return app, m, names.ValidateApp(app)
 }
@@ -114,7 +148,7 @@ func firstOf(values ...string) string {
 func newDeployCmd() *cobra.Command {
 	var (
 		conn                     connection
-		app, env                 string
+		app, env, image          string
 		static, artifact, detach bool
 	)
 	cmd := &cobra.Command{
@@ -138,19 +172,33 @@ With --artifact, DIR (default: the current directory) holds an app that is
 ready to run, such as a compiled binary; the [processes] of moorage.toml in
 the current directory say how to run it.
 
+With --image, the server fetches an image and runs it in a container, pinned to
+the digest it has now. The moorage.toml in DIR (default: the current directory)
+is sent with it, if there is one, and no other file. A private registry needs its
+credentials on the server: see moor registry login.
+
 A new release takes over once its instances are healthy; until then the
 previous release keeps serving.`,
 		Example: `  moor deploy                       # build and deploy the current directory
   moor deploy ./api --app api
   moor deploy --static ./public --app docs
-  moor deploy --artifact ./dist --app api`,
+  moor deploy --artifact ./dist --app api
+  moor deploy --image ghcr.io/acme/api:1.4 --app api`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if static && artifact {
 				return usageError{errors.New("pass --static or --artifact, not both")}
 			}
+			if image != "" && (static || artifact) {
+				return usageError{errors.New("pass --image alone, without --static or --artifact")}
+			}
+			if image != "" {
+				if err := manifest.ValidateImage(image); err != nil {
+					return usageError{err}
+				}
+			}
 			if !static && !artifact {
-				return deploySource(cmd, &conn, app, env, firstOf(firstArg(args), "."), detach)
+				return deploySource(cmd, &conn, app, env, firstOf(firstArg(args), "."), image, detach)
 			}
 			appName, m, err := resolveApp(app)
 			if err != nil {
@@ -201,6 +249,7 @@ previous release keeps serving.`,
 	}
 	conn.addFlags(cmd)
 	f := cmd.Flags()
+	f.StringVar(&image, "image", "", "run this image in a container, pinned to its digest, instead of building DIR")
 	f.BoolVar(&static, "static", false, "upload a directory of files and serve them as they are")
 	f.BoolVar(&artifact, "artifact", false, "upload an app that is ready to run and run its [processes]")
 	f.BoolVar(&detach, "detach", false, "return once the deployment is queued, without following it")
@@ -213,7 +262,7 @@ previous release keeps serving.`,
 var alwaysLeftOut = map[string]bool{".git": true, "node_modules": true, ".venv": true, "__pycache__": true, ".DS_Store": true}
 
 // deploySource uploads dir as source and follows its deployment.
-func deploySource(cmd *cobra.Command, conn *connection, appFlag, env, dir string, detach bool) error {
+func deploySource(cmd *cobra.Command, conn *connection, appFlag, env, dir, image string, detach bool) error {
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return fmt.Errorf("%s is not a directory", dir)
 	}
@@ -243,6 +292,23 @@ func deploySource(cmd *cobra.Command, conn *connection, appFlag, env, dir string
 		return err
 	}
 	out := cmd.OutOrStdout()
+	if image != "" {
+		d, _, err := c.DeployImage(cmd.Context(), appName, env, image, dir, func(rel string, d fs.DirEntry) bool {
+			return d.IsDir() || rel != manifest.FileName
+		})
+		if err != nil {
+			return err
+		}
+		if d.AppCreated {
+			fmt.Fprintf(out, "Created app %s.\n", d.App)
+		}
+		fmt.Fprintf(out, "Deployment %s of %s to %s on %s is %s.\n", d.ID, image, appName, c.Server(), d.Status)
+		if detach {
+			fmt.Fprintf(out, "\nFollow it with: moor deployments follow %s\n", d.ID)
+			return nil
+		}
+		return followDeployment(cmd, c, d.ID)
+	}
 	fmt.Fprintf(out, "Uploading %s to %s on %s\n", dir, appName, c.Server())
 	d, stats, err := c.DeploySource(cmd.Context(), appName, env, dir, skip)
 	if err != nil {
@@ -371,7 +437,11 @@ func newReleasesCmd() *cobra.Command {
 				if r.Current {
 					mark = "*"
 				}
-				fmt.Fprintf(w, "%s\tv%d\t%s\t%d\t%s\t%s\n", mark, r.Version, r.Reason, r.Files, humanBytes(r.Size), ago(r.CreatedAt))
+				files := "-"
+				if r.Files > 0 {
+					files = strconv.Itoa(r.Files)
+				}
+				fmt.Fprintf(w, "%s\tv%d\t%s\t%s\t%s\t%s\n", mark, r.Version, r.Reason, files, humanBytes(r.Size), ago(r.CreatedAt))
 			}
 			return w.Flush()
 		},

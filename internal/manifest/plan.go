@@ -38,6 +38,9 @@ type Plan struct {
 	// out to have nothing to run (a Node app without a start script).
 	StaticFallback bool `json:"static_fallback,omitempty"`
 
+	// Container, if set, says that the app runs in containers.
+	Container *ContainerPlan `json:"container,omitempty"`
+
 	Processes map[string]Process `json:"processes,omitempty"`
 	Release   *Release           `json:"release,omitempty"`
 	Deploy    Deploy             `json:"deploy"`
@@ -46,6 +49,38 @@ type Plan struct {
 	// Notes say what detection found and decided.
 	Notes []string `json:"notes,omitempty"`
 }
+
+// ContainerPlan says how an app's image is made and how its containers run.
+type ContainerPlan struct {
+	// File, Context, Target and Args build the image (the dockerfile runtime).
+	File    string            `json:"file,omitempty"`
+	Context string            `json:"context,omitempty"`
+	Target  string            `json:"target,omitempty"`
+	Args    map[string]string `json:"args,omitempty"`
+	// From is the image asked for (the image runtime).
+	From string `json:"from,omitempty"`
+	// Image is what runs, settled by the build: the built tag, or From pinned
+	// to its digest, so that rollbacks and restarts run exactly the same image.
+	Image string `json:"image,omitempty"`
+	// Port is where the app listens inside the container. It is settled by the
+	// build: the manifest's, or the image's first EXPOSE, or else DefaultContainerPort.
+	Port int `json:"port,omitempty"`
+	// User runs the container as someone other than the image's default.
+	User string `json:"user,omitempty"`
+	// Mount is where the environment's data directory appears.
+	Mount string `json:"mount"`
+	// Memory (bytes), CPU (cores) and PIDs limit each container; 0 for none.
+	Memory int64   `json:"memory,omitempty"`
+	CPU    float64 `json:"cpu,omitempty"`
+	PIDs   int     `json:"pids,omitempty"`
+}
+
+// DefaultContainerPort is where a container's app is taken to listen when
+// neither the manifest nor the image says.
+const DefaultContainerPort = 8080
+
+// DefaultMount is where a container's data directory appears by default.
+const DefaultMount = "/data"
 
 // Toolchain is a toolchain a build needs.
 type Toolchain struct {
@@ -71,8 +106,8 @@ const (
 
 // Validate checks a plan received with an upload.
 func (p *Plan) Validate() error {
-	if len(p.Steps) > 0 || len(p.Toolchains) > 0 || len(p.Path) > 0 || len(p.DirEnv) > 0 || p.Root != "" || p.Release != nil {
-		return &planError{"an uploaded plan cannot carry build steps, toolchains or release commands; deploy the source to have it built"}
+	if len(p.Steps) > 0 || len(p.Toolchains) > 0 || len(p.Path) > 0 || len(p.DirEnv) > 0 || p.Root != "" || p.Release != nil || p.Container != nil {
+		return &planError{"an uploaded plan cannot carry build steps, toolchains, containers or release commands; deploy the source to have it built"}
 	}
 	switch p.Kind {
 	case KindStatic:
@@ -108,7 +143,7 @@ func (p *Plan) Defaults() {
 	if p.Release != nil && p.Release.Timeout == 0 {
 		p.Release.Timeout = Duration(10 * time.Minute)
 	}
-	if p.BuildTimeout == 0 && len(p.Steps) > 0 {
+	if p.BuildTimeout == 0 && (len(p.Steps) > 0 || p.Container != nil) {
 		p.BuildTimeout = Duration(20 * time.Minute)
 	}
 }

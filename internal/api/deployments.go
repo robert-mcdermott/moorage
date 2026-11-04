@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
@@ -17,6 +18,7 @@ import (
 func (s *Server) deploymentDoc(d store.Deployment) apitypes.Deployment {
 	doc := apitypes.Deployment{
 		ID: d.ID, App: d.App, Env: d.Env, URL: s.appURL(d.App), Source: d.SourceType, Status: d.Status,
+		Ref: d.SourceRef, Commit: d.SourceCommit, Message: d.SourceMessage,
 		Build: d.BuildID, Error: d.Error, Output: d.Output, CreatedBy: d.CreatedBy,
 		CreatedAt: d.CreatedAt, StartedAt: d.StartedAt, FinishedAt: d.FinishedAt,
 	}
@@ -36,11 +38,22 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	limit := 20
-	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 200 {
-		limit = n
+	limit, cursor, ok := pageParams(w, r, 20)
+	if !ok {
+		return
 	}
-	deps, err := s.db.Deployments(r.Context(), app, env, limit)
+	var created time.Time
+	var id string
+	if cursor != "" {
+		at, rest, _ := strings.Cut(cursor, "/")
+		ms, err := strconv.ParseInt(at, 10, 64)
+		if err != nil || rest == "" {
+			problem(w, http.StatusBadRequest, "invalid_cursor", "That cursor is not one the API gave.")
+			return
+		}
+		created, id = time.UnixMilli(ms), rest
+	}
+	deps, err := s.db.DeploymentsBefore(r.Context(), app, env, created, id, limit+1)
 	if errors.Is(err, store.ErrNotFound) {
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return
@@ -49,11 +62,16 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	out := make([]apitypes.Deployment, 0, len(deps))
-	for _, d := range deps {
-		out = append(out, s.deploymentDoc(d))
+	page := apitypes.Page[apitypes.Deployment]{Items: []apitypes.Deployment{}}
+	for i, d := range deps {
+		if i == limit {
+			last := deps[i-1]
+			page.NextCursor = encodeCursor(strconv.FormatInt(last.CreatedAt.UnixMilli(), 10) + "/" + last.ID)
+			break
+		}
+		page.Items = append(page.Items, s.deploymentDoc(d))
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, page)
 }
 
 // lookupDeployment reads the {id} path value and its deployment.
@@ -70,6 +88,10 @@ func (s *Server) lookupDeployment(w http.ResponseWriter, r *http.Request) (store
 	}
 	if err != nil {
 		s.internal(w, err)
+		return d, false
+	}
+	if !who(r).CanApp(d.App) {
+		problem(w, http.StatusNotFound, "not_found", "There is no deployment "+id+".")
 		return d, false
 	}
 	return d, true
@@ -94,38 +116,35 @@ func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", apitypes.NDJSONType)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
 	enc := json.NewEncoder(w)
-	f := logs.FollowFromStart(deploy.LogPath(s.dataDir, d.App, d.ID))
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		// The deployment's status is read before its log: a deployment
-		// writes its last line before it records its end.
-		finished := store.Final(d.Status)
-		lines, err := f.Read()
+	write := func(l logs.Line) error {
+		return enc.Encode(apitypes.LogLine{Time: l.Time, Stream: l.Stream, Text: l.Text})
+	}
+	if !follow {
+		lines, err := logs.FollowFromStart(deploy.LogPath(s.dataDir, d.App, d.ID)).Read()
 		if err != nil {
 			s.log.Error("read a deployment log", "deployment", d.ID, "err", err)
 			return
 		}
 		for _, l := range lines {
-			if err := enc.Encode(apitypes.LogLine{Time: l.Time, Stream: l.Stream, Text: l.Text}); err != nil {
+			if write(l) != nil {
 				return
 			}
+		}
+		return
+	}
+	_, err := s.deployer.Follow(r.Context(), d.ID, func(l logs.Line) error {
+		if err := write(l); err != nil {
+			return err
 		}
 		if flusher != nil {
 			flusher.Flush()
 		}
-		if finished || !follow {
-			return
-		}
-		select {
-		case <-r.Context().Done():
-			return
-		case <-tick.C:
-		}
-		if d, err = s.db.Deployment(r.Context(), d.ID); err != nil {
-			return
-		}
+		return nil
+	})
+	if err != nil && r.Context().Err() == nil {
+		s.log.Error("follow a deployment log", "deployment", d.ID, "err", err)
 	}
 }

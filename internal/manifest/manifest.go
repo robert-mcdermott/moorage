@@ -1,5 +1,5 @@
 // Package manifest reads moorage.toml, the file in an app's repository that
-// tells Moorage how to build and run it (docs/03-manifest.md).
+// tells Moorage how to build and run it (spec/03-manifest.md).
 //
 // Every table of manifest version 1 is parsed and checked; Lint reports the
 // ones whose features have not arrived yet. Unknown keys are errors, except

@@ -1,6 +1,6 @@
 // Package logs writes and reads Moorage's log files: plain text, one line per
 // entry, rotated by size, so they can be read with ordinary tools
-// (docs/07-observability.md, "Logs").
+// (spec/07-observability.md, "Logs").
 //
 // An app log line is "<RFC 3339 time> <stream> <text>", where the stream is
 // O (stdout), E (stderr) or M (a note from Moorage, such as a restart).

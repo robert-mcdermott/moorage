@@ -3,6 +3,7 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -204,7 +205,6 @@ func TestResolveOthers(t *testing.T) {
 
 	for files, want := range map[string]string{
 		"nothing.txt":   "cannot tell how to build",
-		"Dockerfile":    "containers",
 		"deno.json":     "not available yet",
 		"bad-toolchain": "cannot be installed yet",
 	} {
@@ -215,6 +215,118 @@ func TestResolveOthers(t *testing.T) {
 		_, _, err := Resolve(tree(t, content), "linux")
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v", files, err)
+		}
+	}
+}
+
+func TestResolveContainers(t *testing.T) {
+	plan, _, err := Resolve(tree(t, map[string]string{"Dockerfile": "FROM x\n"}), "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := plan.Container
+	if plan.Runtime != "dockerfile" || plan.Kind != manifest.KindProcess || c == nil || c.File != "Dockerfile" || c.Context != "." || c.Mount != manifest.DefaultMount {
+		t.Fatalf("detected: %+v %+v", plan, c)
+	}
+	web, ok := plan.Processes[manifest.Web]
+	if !ok || web.Command != "" || !*web.Expose || *web.Instances != 1 {
+		t.Errorf("the web process runs what the image says to: %+v", plan.Processes)
+	}
+	if plan.BuildTimeout == 0 || len(plan.Path) != 0 {
+		t.Errorf("%+v", plan)
+	}
+
+	// Containerfile is preferred, and a language's own runtime before either.
+	plan, _, _ = Resolve(tree(t, map[string]string{"Dockerfile": "", "Containerfile": ""}), "linux")
+	if plan.Container == nil || plan.Container.File != "Containerfile" {
+		t.Errorf("both: %+v", plan.Container)
+	}
+	plan, _, _ = Resolve(tree(t, map[string]string{"Dockerfile": "", "go.mod": "module x\n\ngo 1.24\n", "main.go": "package main\nfunc main() {}\n"}), "linux")
+	if plan.Runtime != "go" || plan.Container != nil {
+		t.Errorf("a Go app with a Dockerfile: %s %+v", plan.Runtime, plan.Container)
+	}
+
+	plan, _, err = Resolve(tree(t, map[string]string{
+		"deploy/app.Containerfile": "FROM x\n",
+		moorage: `[app]
+runtime = "dockerfile"
+
+[container]
+file = "deploy/app.Containerfile"
+context = "deploy"
+target = "prod"
+port = 9000
+user = "1000:1000"
+args = { VERSION = "1", ONLY_ARG = "x" }
+
+[build]
+timeout = "3m"
+command = "ignored"
+env = { VERSION = "from build.env", FROM_BUILD = "y" }
+
+[resources]
+memory = "64MiB"
+cpu = 1.5
+pids = 50
+
+[storage]
+mount = "/var/lib/app"
+
+[release]
+command = "./migrate"
+
+[processes.web]
+command = "./server"
+[processes.worker]
+command = "./worker"
+instances = 2
+`,
+	}), "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = plan.Container
+	if c.File != "deploy/app.Containerfile" || c.Context != "deploy" || c.Target != "prod" || c.Port != 9000 || c.User != "1000:1000" {
+		t.Errorf("%+v", c)
+	}
+	if c.Args["VERSION"] != "1" || c.Args["ONLY_ARG"] != "x" || c.Args["FROM_BUILD"] != "y" {
+		t.Errorf("args: %v", c.Args)
+	}
+	if c.Memory != 64<<20 || c.CPU != 1.5 || c.PIDs != 50 || c.Mount != "/var/lib/app" {
+		t.Errorf("limits: %+v", c)
+	}
+	if plan.BuildTimeout.Std().Minutes() != 3 || plan.Release == nil || plan.Release.Command != "./migrate" {
+		t.Errorf("%+v", plan)
+	}
+	if plan.Processes["web"].Command != "./server" || *plan.Processes["worker"].Instances != 2 {
+		t.Errorf("%+v", plan.Processes)
+	}
+	if len(plan.Steps) != 0 || !slices.ContainsFunc(plan.Notes, func(n string) bool { return strings.Contains(n, "[build] commands are ignored") }) {
+		t.Errorf("steps %v, notes %v", plan.Steps, plan.Notes)
+	}
+
+	plan, _, err = Resolve(tree(t, map[string]string{moorage: "[app]\nruntime = \"image\"\n[container]\nimage = \"ghcr.io/x/y:1\"\n"}), "linux")
+	if err != nil || plan.Container.From != "ghcr.io/x/y:1" || plan.Container.File != "" {
+		t.Errorf("the image runtime: %v %+v", err, plan.Container)
+	}
+	// Named when deploying, with or without a manifest.
+	plan, _, err = ResolveImage(tree(t, map[string]string{}), "linux", "ghcr.io/x/y:2")
+	if err != nil || plan.Runtime != "image" || plan.Container.From != "ghcr.io/x/y:2" {
+		t.Errorf("--image: %v %+v", err, plan.Container)
+	}
+	plan, _, err = ResolveImage(tree(t, map[string]string{moorage: "[app]\nruntime = \"go\"\n[container]\nimage = \"a:1\"\nport = 7000\n"}), "linux", "ghcr.io/x/y:3")
+	if err != nil || plan.Runtime != "image" || plan.Container.From != "ghcr.io/x/y:3" || plan.Container.Port != 7000 {
+		t.Errorf("--image over a manifest: %v %+v", err, plan.Container)
+	}
+
+	for name, c := range map[string]struct{ manifest, want string }{
+		"no image":               {"[app]\nruntime = \"image\"\n", "needs an image"},
+		"no file":                {"[app]\nruntime = \"dockerfile\"\n", "neither"},
+		"missing file":           {"[app]\nruntime = \"dockerfile\"\n[container]\nfile = \"nope\"\n", "no nope"},
+		"worker needs a command": {"[app]\nruntime = \"image\"\n[container]\nimage = \"a\"\n[processes.worker]\ninstances = 1\n", "worker"},
+	} {
+		if _, _, err := Resolve(tree(t, map[string]string{moorage: c.manifest}), "linux"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }

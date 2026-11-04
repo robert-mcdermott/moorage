@@ -27,11 +27,15 @@ type Release struct {
 // Deployment is the job that produces a release: a deploy, a rollback. A
 // finished deployment that went live carries the release now serving.
 type Deployment struct {
-	ID         string    `json:"id"`
-	App        string    `json:"app"`
-	Env        string    `json:"env"`
-	URL        string    `json:"url"`
-	Source     string    `json:"source"`
+	ID     string `json:"id"`
+	App    string `json:"app"`
+	Env    string `json:"env"`
+	URL    string `json:"url"`
+	Source string `json:"source"`
+	// Ref, Commit and Message say what a push deployed.
+	Ref        string    `json:"ref,omitempty"`
+	Commit     string    `json:"commit,omitempty"`
+	Message    string    `json:"message,omitempty"`
 	Status     string    `json:"status"`
 	Build      string    `json:"build,omitempty"`
 	AppCreated bool      `json:"app_created,omitempty"`
@@ -113,15 +117,187 @@ type VarsResult struct {
 	Deployment *Deployment `json:"deployment,omitempty"`
 }
 
-// Problem is an RFC 9457 error document. Output, when present, holds the
-// last lines of a failing instance's log.
+// SSHKey is a public key that may push over SSH.
+type SSHKey struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Fingerprint string    `json:"fingerprint"`
+	PublicKey   string    `json:"public_key"`
+	CreatedAt   time.Time `json:"created_at"`
+	LastUsedAt  time.Time `json:"last_used_at,omitzero"`
+}
+
+// NewSSHKey registers a public key, in authorized_keys format. Name
+// defaults to the key's comment.
+type NewSSHKey struct {
+	Name      string `json:"name,omitempty"`
+	PublicKey string `json:"public_key"`
+}
+
+// ServerInfo describes the server.
+type ServerInfo struct {
+	Version string  `json:"version"`
+	Git     GitInfo `json:"git"`
+}
+
+// GitInfo gives the prefixes of the apps' git remotes: an app's remote is
+// <prefix>/<app>.git. SSH is empty when pushes over SSH are off.
+type GitInfo struct {
+	SSH  string `json:"ssh,omitempty"`
+	HTTP string `json:"http"`
+}
+
+// Page is one page of a list. NextCursor, when set, is passed back as
+// ?cursor=… for the next page.
+type Page[T any] struct {
+	Items      []T    `json:"items"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// User is an account.
+type User struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	// Role is "admin" or "member".
+	Role      string    `json:"role"`
+	Disabled  bool      `json:"disabled,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Me says who the caller is. Local marks the server's local administrator, who
+// holds the admin token on the server's machine and has no account.
+type Me struct {
+	ID    string `json:"id,omitempty"`
+	Email string `json:"email,omitempty"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
+	Local bool   `json:"local,omitempty"`
+	// Scopes and App are the limits of the token in use, if any.
+	Scopes []string `json:"scopes,omitempty"`
+	App    string   `json:"app,omitempty"`
+}
+
+// LoginRequest signs in with an email address and password.
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// LoginResult is a new session: the session cookie is set, and
+// cookie-authenticated requests that change anything send CSRFToken in the
+// X-CSRF-Token header.
+type LoginResult struct {
+	User      User   `json:"user"`
+	CSRFToken string `json:"csrf_token"`
+}
+
+// DeviceRequest begins a CLI's sign-in. Client names it for the person
+// approving it.
+type DeviceRequest struct {
+	Client string `json:"client"`
+}
+
+// DeviceAuthorization is a sign-in waiting for approval in a browser: the CLI
+// shows UserCode and opens VerificationURLComplete, and polls with DeviceCode
+// every Interval seconds.
+type DeviceAuthorization struct {
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURL         string `json:"verification_url"`
+	VerificationURLComplete string `json:"verification_url_complete"`
+	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval"`
+}
+
+// DeviceTokenRequest asks whether a sign-in has been approved. Until it is,
+// the answer is a problem with the code authorization_pending or slow_down;
+// access_denied and expired_token end it.
+type DeviceTokenRequest struct {
+	DeviceCode string `json:"device_code"`
+}
+
+// DeviceToken is an approved sign-in's API token, given once.
+type DeviceToken struct {
+	Token string `json:"token"`
+	User  User   `json:"user"`
+}
+
+// Session is a browser's sign-in.
+type Session struct {
+	ID         string    `json:"id"`
+	Current    bool      `json:"current,omitempty"`
+	IP         string    `json:"ip,omitempty"`
+	UserAgent  string    `json:"user_agent,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+// Token is an API token, without its secret.
+type Token struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Scopes     []string  `json:"scopes"`
+	App        string    `json:"app,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at,omitzero"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// NewToken creates an API token. Scopes are read, deploy, admin and gate; App,
+// if set, restricts it to one app.
+type NewToken struct {
+	Name      string    `json:"name"`
+	Scopes    []string  `json:"scopes"`
+	App       string    `json:"app,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+}
+
+// CreatedToken is a new token, with its secret, shown this once.
+type CreatedToken struct {
+	Token
+	Secret string `json:"token"`
+}
+
+// NewUser creates an account, with an invitation to choose a password. Role is
+// "member" unless it says "admin".
+type NewUser struct {
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+	Role  string `json:"role,omitempty"`
+}
+
+// UserChange changes an account; fields left out stay as they are.
+type UserChange struct {
+	Role     *string `json:"role,omitempty"`
+	Disabled *bool   `json:"disabled,omitempty"`
+}
+
+// Invitation is a one-time link for a user to choose a password.
+type Invitation struct {
+	User      User      `json:"user"`
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// FieldProblem says what is wrong with one field of a request.
+type FieldProblem struct {
+	Field  string `json:"field"`
+	Detail string `json:"detail"`
+}
+
+// Problem is an RFC 9457 error document, with a stable Code. Errors, when
+// present, say what is wrong field by field; Output holds the last lines of a
+// failing instance's log.
 type Problem struct {
-	Type   string   `json:"type,omitempty"`
-	Title  string   `json:"title"`
-	Status int      `json:"status"`
-	Detail string   `json:"detail,omitempty"`
-	Code   string   `json:"code,omitempty"`
-	Output []string `json:"output,omitempty"`
+	Type   string         `json:"type,omitempty"`
+	Title  string         `json:"title"`
+	Status int            `json:"status"`
+	Detail string         `json:"detail,omitempty"`
+	Code   string         `json:"code,omitempty"`
+	Errors []FieldProblem `json:"errors,omitempty"`
+	Output []string       `json:"output,omitempty"`
 }
 
 // Instance is one running copy of a process.
@@ -168,4 +344,33 @@ const (
 	PlanPart    = "plan"
 	ArchivePart = "archive"
 	SourcePart  = "source"
+	// ImagePart, before a source part, is an image to run instead of building
+	// the source, which then holds no more than the app's manifest.
+	ImagePart = "image"
 )
+
+// Registry is a container registry the server has credentials for.
+type Registry struct {
+	Host      string    `json:"host"`
+	Username  string    `json:"username"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// RegistryLogin is a container registry's credentials.
+type RegistryLogin struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// ProxyCheck says what reached the server, for moor server doctor.
+type ProxyCheck struct {
+	// Peer is who connected, and Trusted whether that is a trusted proxy.
+	Peer           string `json:"peer"`
+	Trusted        bool   `json:"trusted"`
+	Host           string `json:"host"`
+	ForwardedFor   string `json:"forwarded_for,omitempty"`
+	ForwardedProto string `json:"forwarded_proto,omitempty"`
+	ForwardedHost  string `json:"forwarded_host,omitempty"`
+	// TLS says the connection reaching the server was TLS.
+	TLS bool `json:"tls,omitempty"`
+}

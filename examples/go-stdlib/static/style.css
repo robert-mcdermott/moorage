@@ -1,0 +1,95 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f5f7f6;
+  --card: #ffffff;
+  --fg: #1a2420;
+  --muted: #5f6b66;
+  --line: #dfe5e2;
+  --accent: #0f7b6c;
+  --accent-fg: #ffffff;
+  --danger: #b3382c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1413;
+    --card: #171d1c;
+    --fg: #e4ebe8;
+    --muted: #93a19b;
+    --line: #28312f;
+    --accent: #4cc2ae;
+    --accent-fg: #0b1110;
+    --danger: #f08072;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+main {
+  max-width: 44rem;
+  margin: 3rem auto;
+  padding: 1.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+h1 { margin: 0; font-size: 1.6rem; }
+.lede { margin: .25rem 0 1.5rem; color: var(--muted); }
+a { color: var(--accent); }
+
+form { display: grid; gap: .4rem; }
+label { font-weight: 600; font-size: .9rem; margin-top: .4rem; }
+.hint { font-weight: 400; color: var(--muted); }
+
+input {
+  width: 100%;
+  padding: .6rem .75rem;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.code { display: flex; align-items: center; gap: .25rem; }
+.code span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+
+button {
+  justify-self: start;
+  margin-top: .75rem;
+  padding: .6rem 1.2rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.message { margin: 1.25rem 0 0; padding: .6rem .8rem; border-radius: 8px; background: var(--bg); }
+.message.error { color: var(--danger); }
+
+table { width: 100%; margin-top: 1.75rem; border-collapse: collapse; table-layout: fixed; }
+th { text-align: left; font-size: .8rem; color: var(--muted); font-weight: 600; padding: .4rem; }
+td { padding: .55rem .4rem; border-top: 1px solid var(--line); vertical-align: top; }
+th:first-child { width: 30%; }
+.n { width: 5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.url { color: var(--muted); overflow-wrap: anywhere; }
+.empty { margin-top: 1.75rem; color: var(--muted); }
+
+footer {
+  margin-top: 1.75rem;
+  padding-top: .75rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .8rem;
+}

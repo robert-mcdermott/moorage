@@ -135,6 +135,12 @@ func (d *Deploy) Defaults() {
 // ValidateProcesses checks the processes of a plan, reporting every problem.
 func ValidateProcesses(procs map[string]Process) error { return validateProcesses(procs, true) }
 
+// ValidateContainerProcesses checks the processes of a container plan, where
+// the web process may leave its command to the image.
+func ValidateContainerProcesses(procs map[string]Process) error {
+	return validateProcesses(procs, false)
+}
+
 // validateProcesses checks processes; in a manifest, web may leave its
 // command to the runtime's preset.
 func validateProcesses(procs map[string]Process, requireWebCommand bool) error {

@@ -148,6 +148,9 @@ routing = {{q .Routing}}
 http  = {{q .Listen.HTTP}}
 https = {{q .Listen.HTTPS}}   # empty when Moorage does not terminate TLS
 ssh   = {{q .Listen.SSH}}   # git pushes over SSH; empty to disable
+{{- if .Listen.DNS}}
+dns   = {{q .Listen.DNS}}   # answers for the domain on loopback (moor server resolver)
+{{- end}}
 
 [tls]
 # How Moorage terminates TLS:
@@ -192,6 +195,11 @@ external_scheme = {{q .Proxy.ExternalScheme}}
 # uv_url     = "https://github.com/astral-sh/uv/releases"
 # python_url = ""   # handed to uv as its Python mirror
 
+[containers]
+# What runs apps in containers: "auto" for Podman if it is installed, or else
+# Docker, or the path of a binary.
+engine = {{q .Containers.Engine}}
+
 [log]
 level  = {{q .Log.Level}}   # debug, info, warn or error
 format = {{q .Log.Format}}   # text or json
@@ -231,4 +239,52 @@ func quoteList(values []string) string {
 		q[i] = quote(v)
 	}
 	return "[" + strings.Join(q, ", ") + "]"
+}
+
+// SetListenDNS sets listen.dns in a server.toml, or removes it when addr is
+// empty, and leaves the rest of the file as it is.
+func SetListenDNS(path, addr string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	eol := "\n"
+	if bytes.Contains(data, []byte("\r\n")) {
+		eol = "\r\n"
+	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	line := fmt.Sprintf("dns   = %q   # answers for the domain on loopback (moor server resolver)", addr)
+	var out []string
+	in, seen, added := false, false, false
+	for i, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "[") {
+			in = trimmed == "[listen]"
+			seen = seen || in
+		}
+		if in {
+			if key, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(key) == "dns" {
+				if addr != "" {
+					out = append(out, line)
+				}
+				added = true
+				continue
+			}
+			// After the section's last setting.
+			if !added && addr != "" && (i+1 == len(lines) || strings.TrimSpace(lines[i+1]) == "" || strings.HasPrefix(strings.TrimSpace(lines[i+1]), "[")) {
+				out = append(out, l, line)
+				added = true
+				continue
+			}
+		}
+		out = append(out, l)
+	}
+	if !seen {
+		return fmt.Errorf("%s has no [listen] section", path)
+	}
+	return os.WriteFile(path, []byte(strings.Join(out, eol)), fi.Mode().Perm())
 }

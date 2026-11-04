@@ -27,6 +27,7 @@ type Config struct {
 	TLS         TLS        `toml:"tls"`
 	Proxy       Proxy      `toml:"proxy"`
 	Toolchains  Toolchains `toml:"toolchains"`
+	Containers  Containers `toml:"containers"`
 	Log         Log        `toml:"log"`
 
 	// Path is the file the configuration was read from.
@@ -39,6 +40,9 @@ type Listen struct {
 	HTTP  string `toml:"http"`
 	HTTPS string `toml:"https"`
 	SSH   string `toml:"ssh"`
+	// DNS, if set, is a loopback address where the server answers DNS queries
+	// for its domain, for moor server resolver.
+	DNS string `toml:"dns"`
 }
 
 // TLS selects how Moorage terminates TLS, if at all.
@@ -68,6 +72,12 @@ type Proxy struct {
 	Trusted []string `toml:"trusted"`
 	// ExternalScheme is the scheme browsers see: "http" or "https".
 	ExternalScheme string `toml:"external_scheme"`
+}
+
+// Containers says which engine runs apps in containers: "auto" for Podman if
+// it is installed, or else Docker, or the path of a binary.
+type Containers struct {
+	Engine string `toml:"engine"`
 }
 
 // Toolchains says where build toolchains are downloaded from: mirrors of
@@ -192,6 +202,9 @@ func (c *Config) ApplyDefaults() {
 			c.Proxy.ExternalScheme = "http"
 		}
 	}
+	if c.Containers.Engine == "" {
+		c.Containers.Engine = "auto"
+	}
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
 	}
@@ -239,6 +252,12 @@ func (c Config) Validate() error {
 		add("listen.http is required")
 	} else if err := checkListen(c.Listen.HTTP); err != nil {
 		add("listen.http: %v", err)
+	}
+	if c.Listen.DNS != "" {
+		host, _, err := net.SplitHostPort(c.Listen.DNS)
+		if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() {
+			add("listen.dns: %q must be a loopback address and a port, such as 127.0.0.1:15353: it answers only for this computer", c.Listen.DNS)
+		}
 	}
 	for _, l := range []struct{ name, addr string }{{"listen.https", c.Listen.HTTPS}, {"listen.ssh", c.Listen.SSH}} {
 		if l.addr != "" {

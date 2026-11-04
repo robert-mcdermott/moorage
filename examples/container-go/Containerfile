@@ -1,0 +1,14 @@
+# Two stages: Go builds the binary, and the image that runs holds nothing else.
+# Layers are cached between deploys, so a change to main.go leaves go.mod's alone.
+FROM docker.io/library/golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+COPY main.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /guestbook .
+
+FROM scratch
+COPY --from=build /guestbook /guestbook
+# Moorage runs what the image says, as who it says: not root.
+USER 65532:65532
+EXPOSE 8000
+ENTRYPOINT ["/guestbook"]

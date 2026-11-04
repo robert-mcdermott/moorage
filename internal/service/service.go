@@ -1,6 +1,6 @@
 // Package service installs `moor server run` as a system service — a
 // systemd unit on Linux, a launchd job on macOS — and drives it
-// (docs/02-architecture.md, "Linux: service unit and cgroup layout";
+// (spec/02-architecture.md, "Linux: service unit and cgroup layout";
 // decision D18). Both are set up so that stopping or restarting the server
 // leaves the shims, and so the apps, running: the server adopts them when
 // it starts again.
