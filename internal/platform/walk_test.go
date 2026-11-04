@@ -48,6 +48,12 @@ func TestWalkRoot(t *testing.T) {
 
 // TestWalkRootWhileThingsComeAndGo: an app making and removing temporary directories should not stop a walk.
 func TestWalkRootWhileThingsComeAndGo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// It refuses to look at something being deleted, as it would for something that may not be looked at, and
+		// nothing there tells them apart. Apps do not run as anyone else there, and it is what they do elsewhere
+		// that this is about.
+		t.Skip("what is being deleted looks like what may not be read")
+	}
 	dir := t.TempDir()
 	for i := range 300 {
 		if err := os.MkdirAll(filepath.Join(dir, "keep", string(rune('a'+i%26))+strings.Repeat("x", i%7)), 0o755); err != nil {
