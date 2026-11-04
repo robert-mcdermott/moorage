@@ -161,6 +161,7 @@ func (s *Systemd) Status() (Status, error) {
 		}
 	}
 	st.Running = props["ActiveState"] == "active"
+	st.Starting = props["ActiveState"] == "activating"
 	st.PID, _ = strconv.Atoi(props["MainPID"])
 	st.Detail = fmt.Sprintf("%s (%s)", props["ActiveState"], props["SubState"])
 	return st, nil

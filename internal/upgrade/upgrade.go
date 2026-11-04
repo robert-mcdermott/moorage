@@ -17,6 +17,7 @@ import (
 
 	"crypto/ed25519"
 
+	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -42,8 +43,10 @@ type Options struct {
 	// Source is where the release comes from, and Version which one: empty is the newest.
 	Source  Source
 	Version string
-	// Keys are those a release has to be signed with. With none, it only has to match its checksum.
-	Keys []ed25519.PublicKey
+	// Keys are those a release has to be signed with. A moor that knows none cannot tell one release from another,
+	// and goes no further unless Unsigned says to, which is for a build of one's own.
+	Keys     []ed25519.PublicKey
+	Unsigned bool
 	// Service runs the server, or is nil, when ServerUp says whether one is running by other means.
 	Service  Service
 	ServerUp func() bool
@@ -144,6 +147,9 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 	if err := o.Source.check(); err != nil {
 		return res, err
 	}
+	if len(o.Keys) == 0 && !o.Unsigned {
+		return res, &RefusedError{"this moor knows no key that releases are signed with, so that it cannot tell a real one from any other, and nothing has changed: run the installer, or --unsigned if you know where this release came from"}
+	}
 	want := o.Version
 	if want == "" {
 		latest, err := o.Source.Latest(ctx)
@@ -158,17 +164,40 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 			return res, err
 		}
 		if o.Check {
+			// Only what was asked for by number might not be there.
+			if o.Version != "" {
+				if _, err := o.Source.small(ctx, want, SumsName); errors.Is(err, os.ErrNotExist) {
+					return res, &RefusedError{fmt.Sprintf("there is no release %s", want)}
+				} else if err != nil {
+					return res, err
+				}
+			}
 			res.Available = true
 			return res, nil
 		}
 	}
 
-	// Find out that it cannot be replaced before downloading anything.
+	// Find out that it cannot be replaced before downloading anything. --check changes nothing, and can look from
+	// anywhere.
 	info, err := os.Stat(o.Executable)
 	if err != nil {
 		return res, err
 	}
-	staging, err := os.MkdirTemp(filepath.Dir(o.Executable), ".moor-upgrade-")
+	stagingIn := filepath.Dir(o.Executable)
+	if o.Check {
+		stagingIn = ""
+	} else {
+		if err := os.MkdirAll(stateDir(o.DataDir), 0o700); err != nil {
+			return res, err
+		}
+		unlock, err := oneAtATime(o.DataDir)
+		if err != nil {
+			return res, err
+		}
+		defer unlock()
+		clearInterrupted(stagingIn)
+	}
+	staging, err := os.MkdirTemp(stagingIn, ".moor-upgrade-")
 	if errors.Is(err, fs.ErrPermission) {
 		return res, &RefusedError{fmt.Sprintf("this user cannot replace %s: run this as a user who can, as with sudo", o.Executable)}
 	}
@@ -191,9 +220,6 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 	}
 
 	st := state{From: o.Current, To: new.Version, At: o.Now(), Executable: o.Executable, Previous: previousPath(o.Executable)}
-	if err := os.MkdirAll(stateDir(o.DataDir), 0o700); err != nil {
-		return res, err
-	}
 	if err := o.snapshot(ctx, &st); err != nil {
 		return res, err
 	}
@@ -233,6 +259,26 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 	}
 	res.Restored, res.Aside = backed.Restored, backed.Aside
 	return res, &RefusedError{fmt.Sprintf("the server did not come up on %s (%s), so it is back on %s", new.Version, reason, o.Current)}
+}
+
+// oneAtATime holds off anything else that would replace the binary: two at once could leave no way back.
+func oneAtATime(dataDir string) (func(), error) {
+	lock, err := platform.LockFile(filepath.Join(stateDir(dataDir), "lock"))
+	if errors.Is(err, platform.ErrLocked) {
+		return nil, &RefusedError{"another upgrade of this server is going on"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = lock.Unlock() }, nil
+}
+
+// clearInterrupted removes what an upgrade that was stopped left beside the binary.
+func clearInterrupted(dir string) {
+	names, _ := filepath.Glob(filepath.Join(dir, ".moor-upgrade-*"))
+	for _, name := range names {
+		_ = os.RemoveAll(name)
+	}
 }
 
 // compare ends an upgrade that has nowhere to go.
@@ -285,9 +331,19 @@ func Rollback(ctx context.Context, o Options) (Result, error) {
 	if st.Executable != o.Executable {
 		return Result{}, &RefusedError{fmt.Sprintf("the last upgrade replaced %s, and this is %s: run that one", st.Executable, o.Executable)}
 	}
+	// Something else has replaced it since, such as the installer, and going back from here would go further than
+	// the person asking may think.
+	if o.Current != "" && st.To != o.Current {
+		return Result{}, &RefusedError{fmt.Sprintf("the last upgrade went from %s to %s, and this is %s, so that it is not the way back from here: run the installer with the version you want, and see the documentation on going back across a change to the database", st.From, st.To, o.Current)}
+	}
 	if _, err := os.Stat(st.Previous); err != nil {
 		return Result{}, &RefusedError{fmt.Sprintf("the previous binary is not at %s, so there is nothing to go back to: run the installer with the version you want", st.Previous)}
 	}
+	unlock, err := oneAtATime(o.DataDir)
+	if err != nil {
+		return Result{}, err
+	}
+	defer unlock()
 	return goBack(ctx, o, st, o.Force, false)
 }
 

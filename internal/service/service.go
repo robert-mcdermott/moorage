@@ -50,6 +50,8 @@ type Status struct {
 	// Running reports a running server, with its PID when known.
 	Running bool
 	PID     int
+	// Starting says that the service manager is trying to get it running, as it does for one that keeps failing.
+	Starting bool
 	// Detail is the service manager's own summary.
 	Detail string
 }

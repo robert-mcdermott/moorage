@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"text/template"
 )
 
@@ -202,6 +203,7 @@ func (l *Launchd) Status() (Status, error) {
 	if m := launchdState.FindSubmatch(out); m != nil {
 		st.Detail = string(m[1])
 		st.Running = st.Detail == "running"
+		st.Starting = strings.HasPrefix(st.Detail, "spawn")
 	}
 	if m := launchdPID.FindSubmatch(out); m != nil {
 		st.PID, _ = strconv.Atoi(string(m[1]))

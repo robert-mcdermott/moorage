@@ -13,6 +13,7 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	pgperrors "github.com/ProtonMail/go-crypto/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 )
 
 //go:embed node-release-keys/*.asc
@@ -66,11 +67,8 @@ func (m *Manager) checkSignature(ctx context.Context, f file, sums []byte, log i
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return unchecked(fmt.Sprintf("%s has no signature at %s", f.signedAs, f.sigURL))
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("the signature of %s: %s", f.signedAs, resp.Status)
+	if resp.StatusCode != http.StatusOK { // a mirror may say anything, for something it does not have
+		return unchecked(fmt.Sprintf("%s has no signature at %s (%s)", f.signedAs, f.sigURL, resp.Status))
 	}
 	signature, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -82,7 +80,11 @@ func (m *Manager) checkSignature(ctx context.Context, f file, sums []byte, log i
 	case errors.Is(err, pgperrors.ErrUnknownIssuer):
 		return unchecked(fmt.Sprintf("%s is signed by a key that this moor does not know", f.signedAs))
 	case errors.Is(err, pgperrors.ErrKeyExpired) && entity != nil:
-		// The signature is good, by a key that has expired since, as old releases' keys do.
+		// The signature is good, by a key that has expired since, as old releases' keys do. One made after it
+		// expired is another matter: an old key is the likeliest of them to have gone astray.
+		if !madeBeforeExpiry(keys, signature) {
+			return fmt.Errorf("%s failed verification: its signature was made with a key that had already expired", f.signedAs)
+		}
 	case err != nil:
 		return fmt.Errorf("%s failed verification: the signature on its checksums is wrong: %w", f.signedAs, err)
 	}
@@ -92,4 +94,22 @@ func (m *Manager) checkSignature(ctx context.Context, f file, sums []byte, log i
 	}
 	fmt.Fprintf(log, "verified the signature on the checksums of %s, by %s\n", f.signedAs, who)
 	return nil
+}
+
+// madeBeforeExpiry says whether a signature was made while the key that made it was good.
+func madeBeforeExpiry(keys openpgp.EntityList, signature []byte) bool {
+	p, err := packet.Read(bytes.NewReader(signature))
+	if err != nil {
+		return false
+	}
+	sig, ok := p.(*packet.Signature)
+	if !ok || sig.IssuerKeyId == nil {
+		return false
+	}
+	for _, key := range keys.KeysById(*sig.IssuerKeyId) {
+		if key.PublicKey != nil && key.SelfSignature != nil && !key.PublicKey.KeyExpired(key.SelfSignature, sig.CreationTime) {
+			return true
+		}
+	}
+	return false
 }

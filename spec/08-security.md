@@ -79,9 +79,12 @@ hosting needs VM-level isolation and is out of scope.
 - **Single sign-on:** OIDC with PKCE, state and nonce in a signed cookie bound to the
   browser, group-to-role mapping, just-in-time provisioning and an option to disable
   local passwords, with `moor server sso off` as the way back. A subject identifies
-  someone; an email joins an account once, unless the provider says it is unverified.
+  someone; an email joins an account once, if the provider says that it is verified, or the
+  server has been told to take its word.
 - **Trusted headers:** believed only from `[proxy] trusted`, which the server refuses to
-  start without.
+  start without, and ignored until the server has been claimed.
+- **Accounts nobody chose to give:** made by a provider or a proxy, they can look at the projects
+  where everyone has a role, and nothing more, until a group or an administrator says otherwise.
 - **Later phases:** passkeys.
 
 ## Authorisation
@@ -188,8 +191,10 @@ See [Runtime → Isolation levels](05-runtime.md#isolation-levels). Key points:
 - Toolchains are downloaded over HTTPS and verified against the provider's
   published checksums (and signatures where available) before use; exact
   versions are cached and never silently replaced.
-- Moorage releases are signed and checksummed and ship with an SBOM;
-  `moor server upgrade` verifies both before swapping the binary.
+- Moorage releases are signed and checksummed and ship with an SBOM and an attestation of
+  the workflow that built them. `moor server upgrade` checks the signature, with a key that comes
+  with moor, then the checksum, and runs nothing it has downloaded until both have passed. A moor
+  with no key refuses, unless told `--unsigned`.
 - Few, pure-Go dependencies; `govulncheck` and dependency updates in CI.
 
 ## Network exposure

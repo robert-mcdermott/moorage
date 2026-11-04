@@ -24,6 +24,9 @@ import (
 // The test binary stands in for a release: copied and run with the version it is told to say.
 func TestMain(m *testing.M) {
 	if said := os.Getenv("MOOR_FAKE_VERSION"); said != "" {
+		if mark := os.Getenv("MOOR_FAKE_MARK"); mark != "" {
+			os.WriteFile(mark, nil, 0o644)
+		}
 		if said == "crash" {
 			os.Exit(3)
 		}
@@ -160,7 +163,7 @@ func (s aServer) binary(t *testing.T) string {
 }
 
 func (s aServer) options(source Source) Options {
-	return Options{Executable: s.exe, Current: "0.5.0", DataDir: s.data, Database: s.db, Source: source, Wait: time.Millisecond, Healthy: func(time.Duration) bool { return true }}
+	return Options{Executable: s.exe, Current: "0.5.0", DataDir: s.data, Database: s.db, Source: source, Unsigned: true, Wait: time.Millisecond, Healthy: func(time.Duration) bool { return true }}
 }
 
 func wantRefused(t *testing.T, err error, saying string) {
@@ -186,7 +189,7 @@ func TestUpgradeAndGoBack(t *testing.T) {
 	s := newServer(t, 21)
 	service := &fakeService{up: true}
 	o := s.options(Source{Base: aRelease(t, "0.6.0", private), Flat: true})
-	o.Keys, o.Service = []ed25519.PublicKey{public}, service
+	o.Keys, o.Service, o.Unsigned = []ed25519.PublicKey{public}, service, false
 
 	res, err := Upgrade(ctx, o)
 	if err != nil {
@@ -214,6 +217,7 @@ func TestUpgradeAndGoBack(t *testing.T) {
 	// Going back, when the database has not moved on, keeps what has happened since.
 	s.setDatabase(t, 21, "since")
 	service.calls = nil
+	o.Current = "0.6.0"
 	res, err = Rollback(ctx, o)
 	if err != nil {
 		t.Fatal(err)
@@ -244,6 +248,7 @@ func TestGoingBackOverAMigratedDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.setDatabase(t, 22, "migrated and used")
+	o.Current = "0.6.0"
 
 	// Much later, that loses what has happened, so it has to be asked for by name.
 	o.Now = func() time.Time { return then.Add(time.Hour) }
@@ -317,7 +322,7 @@ func TestReleasesThatAreRefused(t *testing.T) {
 			change(dir)
 		}
 		o := s.options(Source{Base: dir, Flat: true})
-		o.Keys = keys
+		o.Keys, o.Unsigned = keys, false
 		_, err := Upgrade(ctx, o)
 		wantRefused(t, err, want)
 		if s.binary(t) != "old" {
@@ -423,6 +428,7 @@ func TestServerNotRunUnderAService(t *testing.T) {
 		t.Errorf("%+v %v", res, err)
 	}
 	// It has to be stopped to go back: it holds the database open.
+	o.Current = "0.6.0"
 	_, err = Rollback(ctx, o)
 	wantRefused(t, err, "stop it")
 	up = false
@@ -512,5 +518,94 @@ func TestKeysInTheCode(t *testing.T) {
 	}
 	if _, err := parseKeys("not a key"); err == nil {
 		t.Error("that is no key")
+	}
+}
+
+// TestNothingRunsThatHasNotBeenChecked: a moor with no key to check with goes no further, and --check is no way
+// around that: a hostile source would otherwise be running as root, just for being asked what it is.
+func TestNothingRunsThatHasNotBeenChecked(t *testing.T) {
+	ctx := context.Background()
+	s := newServer(t, 21)
+	dir := aRelease(t, "0.6.0", nil)
+	mark := filepath.Join(t.TempDir(), "it-ran")
+	t.Setenv("MOOR_FAKE_MARK", mark)
+	for _, check := range []bool{false, true} {
+		o := s.options(Source{Base: dir, Flat: true})
+		o.Unsigned, o.Check = false, check
+		_, err := Upgrade(ctx, o)
+		wantRefused(t, err, "--unsigned")
+		if _, err := os.Stat(mark); err == nil {
+			t.Errorf("check %v: it ran what it downloaded", check)
+		}
+		if s.binary(t) != "old" {
+			t.Errorf("check %v: the binary changed", check)
+		}
+	}
+	// Asked for by name, it goes ahead.
+	o := s.options(Source{Base: dir, Flat: true})
+	res, err := Upgrade(ctx, o)
+	if err != nil || res.Signed || s.binary(t) != "new" {
+		t.Errorf("%+v %v", res, err)
+	}
+}
+
+// TestRollbackIsFromWhereItWent: once something else has replaced the binary, this is not the way back.
+func TestRollbackIsFromWhereItWent(t *testing.T) {
+	ctx := context.Background()
+	s := newServer(t, 21)
+	o := s.options(Source{Base: aRelease(t, "0.6.1", nil), Flat: true})
+	if _, err := Upgrade(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	o.Current = "0.7.0" // the installer has been at it
+	_, err := Rollback(ctx, o)
+	wantRefused(t, err, "not the way back")
+	if s.binary(t) != "new" {
+		t.Error("it went back all the same")
+	}
+}
+
+// TestOneUpgradeAtATime: two together could leave both names holding the new version, and no way back.
+func TestOneUpgradeAtATime(t *testing.T) {
+	ctx := context.Background()
+	s := newServer(t, 21)
+	if err := os.MkdirAll(stateDir(s.data), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := oneAtATime(s.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	_, err = Upgrade(ctx, s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true}))
+	wantRefused(t, err, "another upgrade")
+	if s.binary(t) != "old" {
+		t.Error("the binary changed")
+	}
+}
+
+// TestCheckingForAVersionThatIsNotThere does not say that it is out.
+func TestCheckingForAVersionThatIsNotThere(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	s := newServer(t, 21)
+	o := s.options(Source{Base: srv.URL})
+	o.Version, o.Check = "99.0.0", true
+	_, err := Upgrade(context.Background(), o)
+	wantRefused(t, err, "no release 99.0.0")
+}
+
+// TestWhatAnInterruptedUpgradeLeft goes away with the next one.
+func TestWhatAnInterruptedUpgradeLeft(t *testing.T) {
+	s := newServer(t, 21)
+	left := filepath.Join(filepath.Dir(s.exe), ".moor-upgrade-123")
+	if err := os.Mkdir(left, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Upgrade(context.Background(), s.options(Source{Base: aRelease(t, "0.6.0", nil), Flat: true})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(left); err == nil {
+		t.Error("it is still there")
 	}
 }

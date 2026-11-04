@@ -1077,6 +1077,13 @@ directory, supervises it, and serves it on its own hostname.
      its failure once in three runs on WebKit turned out to be that browser losing its cookies, which it now
      shows by finding the session still on the server.
 5. **Release 0.6.0.**
+   - Found by independent review, and fixed, among much else: as root, a server wrote and read through links that
+     a build step had left, and sealing a build changed files it shared with other apps' builds through a package
+     manager's cache. What never runs as an app was open to every app. Restoring took whatever an archive held, and
+     a backup read through links that an app could swap in. Exporting a configuration could run for ever, and
+     importing one took away what it did not mention. An address a provider did not call verified could join an
+     administrator's account. The lesson of it: unit tests found few of these, and a person's scenario or an
+     attacker's plan found most. The drills on real services found what no test had.
 
 ## 0.7.0: Windows, forges and the terminal (planned)
 

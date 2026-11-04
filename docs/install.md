@@ -295,7 +295,8 @@ and a backup leaves it out. See [backups](backups.md) for a schedule, buckets an
 
 ## Upgrading
 
-A server upgrades itself:
+From 0.6.0, a server upgrades itself. To get to 0.6.0 from an earlier version, [run the installer](#with-the-installer)
+once, and restart the server.
 
 ```bash
 moor server upgrade --check
@@ -317,6 +318,7 @@ while to migrate: `--wait 10m` gives it longer than the 2 minutes it otherwise h
 | `--version 0.6.1` | Upgrades to that version, and not the newest |
 | `--from DIR` | Takes the release from a directory or an address, for a mirror or a machine with no way out. It holds a release's files, with the same signature |
 | `--wait 10m` | Gives the new version longer to come up |
+| `--unsigned` | Takes a release with no signature, for a moor you built yourself, which knows no key. Without it, such a moor refuses, and nothing it downloads is run |
 
 To go back later:
 
@@ -335,6 +337,8 @@ it started with until you restart it. To go back, stop it first.
 Upgrade `moor` on the other machines that use the server too, by running the installer again: a newer server
 may change what the API answers. `moor server doctor` then checks the result.
 
+### With the installer
+
 The installer can upgrade a server as well, without the copies or the way back. Run it again as the same
 user, which replaces `moor` where it is and says what it upgraded from, and restart the server:
 
@@ -342,8 +346,11 @@ user, which replaces `moor` where it is and says what it upgraded from, and rest
 sudo moor server restart
 ```
 
-Until you do, a server goes on with the version it started with. Give the installer an earlier release with
-`MOOR_VERSION` to install that.
+Until you do, a server goes on with the version it started with. A newer server changes the database as it starts,
+after keeping a copy in `backups` in the data directory, and an older one refuses a database that has moved on.
+So to go back to an earlier version in this way: stop the server, put that copy in the place of `moorage.db`,
+and give the installer the version with `MOOR_VERSION`. `moor server upgrade --rollback` only goes back from the
+version it upgraded to, and says so if the installer has been at work since.
 
 On Windows, the server and the supervisors of its apps run from `moor.exe`, and a running program cannot be
 replaced there, so both ways move it aside, where it goes on running. Press Ctrl+C where the server runs, and

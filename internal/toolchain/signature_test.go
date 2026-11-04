@@ -3,6 +3,7 @@ package toolchain
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
@@ -147,5 +149,46 @@ func TestNodeKeysThatComeWithMoor(t *testing.T) {
 		if !strings.Contains(log.String(), "verified") {
 			t.Errorf("%s: %q", version, log.String())
 		}
+	}
+}
+
+// TestSignatureByAKeyThatHadExpired: an old key is the likeliest to have gone astray, and a signature it makes now is
+// not one of those it made while it was good.
+func TestSignatureByAKeyThatHadExpired(t *testing.T) {
+	old := time.Now().AddDate(-4, 0, 0)
+	lifetime := uint32(365 * 24 * 3600)
+	config := &packet.Config{Algorithm: packet.PubKeyAlgoEdDSA, KeyLifetimeSecs: lifetime, Time: func() time.Time { return old }}
+	key, err := openpgp.NewEntity("An Old Releaser", "", "old@example.com", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums := []byte(strings.Repeat("a", 64) + "  node.tar.gz\n")
+	// Made by hand, as whoever holds an old key could: the library would not sign with one that has expired.
+	signed := func(at time.Time) []byte {
+		sig := &packet.Signature{Version: key.PrivateKey.Version, SigType: packet.SigTypeBinary, PubKeyAlgo: key.PrivateKey.PubKeyAlgo, Hash: crypto.SHA256, CreationTime: at, IssuerKeyId: &key.PrivateKey.KeyId}
+		h, err := sig.PrepareSign(&packet.Config{DefaultHash: crypto.SHA256})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Write(sums)
+		if err := sig.Sign(h, key.PrivateKey, &packet.Config{DefaultHash: crypto.SHA256}); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err := sig.Serialize(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out.Bytes()
+	}
+	_, m := newFake(t)
+	m.src.NodeKeys = openpgp.EntityList{key}
+	check := func(signature []byte) error {
+		return m.checkSignature(context.Background(), file{sigURL: serveOnce(t, signature), signedAs: "Node.js 1.2.3"}, sums, io.Discard)
+	}
+	if err := check(signed(old.AddDate(0, 1, 0))); err != nil {
+		t.Errorf("made while it was good: %v", err)
+	}
+	if err := check(signed(time.Now())); err == nil || !strings.Contains(err.Error(), "already expired") {
+		t.Errorf("made since: %v", err)
 	}
 }

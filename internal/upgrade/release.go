@@ -289,8 +289,8 @@ type staged struct {
 	Signed  bool
 }
 
-// stage brings a release's binary into dir. Nothing it brings is run until it has passed the checks,
-// and if there are keys, a checksum is only believed with a signature.
+// stage brings a release's binary into dir. Nothing it brings is run until it has passed the checks, and a
+// checksum is only believed with a signature, unless someone said not to mind (keys are empty only then).
 func (s Source) stage(ctx context.Context, dir, version, goos, goarch string, keys []ed25519.PublicKey, mode os.FileMode, say func(string, ...any)) (staged, error) {
 	var out staged
 	sums, err := s.small(ctx, version, SumsName)
