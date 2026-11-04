@@ -47,6 +47,17 @@ type crumb struct{ Label, Href string }
 type eventRow struct {
 	ID, App, Summary, Level string
 	At                      time.Time
+	// Href is the deployment it is about, if it is about one.
+	Href string
+}
+
+// eventRowOf draws an event for a timeline.
+func eventRowOf(e store.Event) eventRow {
+	row := eventRow{ID: e.ID, App: e.App, Summary: events.Summary(e), Level: events.Level(e.Type), At: e.At}
+	if id, ok := e.Data["deployment"].(string); ok && id != "" {
+		row.Href = "/deployments/" + url.PathEscape(id)
+	}
+	return row
 }
 
 // paletteItem is an entry of the command palette.
@@ -175,7 +186,7 @@ func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
 		d.Older = "/activity?" + older.Encode()
 	}
 	for _, e := range list {
-		d.Events = append(d.Events, eventRow{ID: e.ID, App: e.App, Summary: events.Summary(e), Level: events.Level(e.Type), At: e.At})
+		d.Events = append(d.Events, eventRowOf(e))
 	}
 	// Only the newest page grows by itself, from where it was drawn.
 	d.Live = before == ""

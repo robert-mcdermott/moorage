@@ -15,7 +15,6 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
-	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
@@ -375,7 +374,7 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 		return view, err
 	}
 	for _, e := range list {
-		view.Events = append(view.Events, eventRow{ID: e.ID, App: e.App, Summary: events.Summary(e), Level: events.Level(e.Type), At: e.At})
+		view.Events = append(view.Events, eventRowOf(e))
 	}
 	return view, nil
 }

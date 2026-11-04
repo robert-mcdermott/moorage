@@ -118,7 +118,7 @@
       {{range .Processes}}
         {{range .Instances}}
         <tr>
-          <td class="app-name">{{.Name}}</td>
+          <td class="app-name"><a href="/apps/{{$.App.Name}}/logs?of={{.Name}}" title="Its logs">{{.Name}}</a></td>
           <td>{{template "status" .Status}}</td>
           <td data-label="Release">v{{.Version}}{{if .Replaced}} <span class="muted small">being replaced</span>{{end}}</td>
           <td data-label="Port">{{if .Port}}{{.Port}}{{else}}—{{end}}</td>
@@ -168,7 +168,7 @@
       {{range .Events}}
       <li data-id="{{.ID}}">
         <span class="dot {{.Level}}" aria-hidden="true"></span>
-        <span class="what">{{.Summary}}</span>
+        <span class="what">{{if .Href}}<a href="{{.Href}}">{{.Summary}}</a>{{else}}{{.Summary}}{{end}}</span>
         <time datetime="{{iso .At}}">{{ago .At}}</time>
       </li>
       {{end}}

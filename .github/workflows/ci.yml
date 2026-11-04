@@ -135,6 +135,31 @@ jobs:
       - name: Deploy and push through nginx
         run: .github/scripts/proxy-check.sh
 
+  console:
+    # Tries the web console in real browsers, against a real server with a real app.
+    name: Console (${{ matrix.browser }})
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the browser
+        run: |
+          npm install --no-save playwright@1.56.0
+          npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Try the console
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: .github/scripts/console-check.sh
+
   upgrade:
     # Takes over the data directory and running apps of a server of the last
     # published release, with this code.

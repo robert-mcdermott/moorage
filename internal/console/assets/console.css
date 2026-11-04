@@ -267,7 +267,7 @@ a.badge { text-decoration: none; }
 .app-actions { margin: 0; align-items: flex-start; }
 .scale { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s4); }
 .scale-process { max-width: 16rem; }
-.scale-process input { max-width: 8rem; display: block; }
+.scale-process input { width: 8rem; display: block; }
 .scale-note { flex-basis: 100%; }
 .rollback { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
 .check { display: flex; align-items: center; gap: var(--s2); margin: 0; font-weight: 400; font-size: .85rem; }

@@ -772,7 +772,15 @@
       what.appendChild(where);
       what.appendChild(document.createTextNode(' '));
     }
-    what.appendChild(document.createTextNode(event.summary));
+    var deployment = event.data && event.data.deployment;
+    if (deployment) {
+      var link = document.createElement('a');
+      link.href = '/deployments/' + encodeURIComponent(deployment);
+      link.textContent = event.summary;
+      what.appendChild(link);
+    } else {
+      what.appendChild(document.createTextNode(event.summary));
+    }
     li.appendChild(what);
     var time = document.createElement('time');
     time.setAttribute('datetime', event.at);

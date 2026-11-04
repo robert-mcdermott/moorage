@@ -136,7 +136,7 @@ func TestConsoleDrivesAnApp(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("%d %s", res.StatusCode, page)
 	}
-	contains(t, "the app", page, "web.1", "Healthy", `name="process.web"`, "/apps/shop/restart", "/apps/shop/redeploy", `data-refresh-on="shop"`)
+	contains(t, "the app", page, "web.1", "Healthy", `name="process.web"`, "/apps/shop/restart", "/apps/shop/redeploy", `data-refresh-on="shop"`, `/apps/shop/logs?of=web.1`, `<a href="/deployments/dep_`)
 	token := b.token()
 
 	// Restarting: new instances, and it says so.

@@ -101,7 +101,7 @@
     {{range .Events}}
     <li data-id="{{.ID}}">
       <span class="dot {{.Level}}" aria-hidden="true"></span>
-      <span class="what">{{with .App}}<a class="where" href="/apps/{{.}}">{{.}}</a> {{end}}{{.Summary}}</span>
+      <span class="what">{{with .App}}<a class="where" href="/apps/{{.}}">{{.}}</a> {{end}}{{if .Href}}<a href="{{.Href}}">{{.Summary}}</a>{{else}}{{.Summary}}{{end}}</span>
       <time datetime="{{iso .At}}">{{ago .At}}</time>
     </li>
     {{end}}
