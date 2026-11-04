@@ -948,6 +948,12 @@ directory, supervises it, and serves it on its own hostname.
      separate console hostname. The internal CA is name-constrained to the server's domain,
      so that HTTPS at another hostname needs a certificate from elsewhere until ACME.
 8. **Release 0.4.0.**
+   - Found by the release: CI ran 58 jobs for a commit, being 29 jobs twice, once for the push
+     and once for its pull request. A branch now gets CI from its pull request alone, and a
+     pull request runs the install, trust, service and upgrade jobs only if it touches their
+     files. They always run on `main`, so that tagging waits for `main`'s run. Linux WebKit
+     now and then fails a navigation that interrupts a page's open stream, with an internal
+     error of its own, which the browser check tries again.
 
 ## 0.5.0: real apps, observed (planned)
 
