@@ -1018,6 +1018,10 @@ directory, supervises it, and serves it on its own hostname.
      back deployments lost news that someone was waiting for. A run's log had no limit, a cron
      timeout over a day never ran and said nothing, and the address guard missed this machine's
      other addresses.
+   - Found by CI on the release: an flock belongs to the open file, so that closing it does not let
+     go while a child between fork and exec holds a copy. Metrics made that likely on macOS, by
+     running `ps` so often. Windows says that access is denied when a folder has a file's name, so
+     that errors should go by what is there, and not by what the error says.
 
 ## 0.6.0: hardened (planned)
 

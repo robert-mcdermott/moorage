@@ -19,6 +19,7 @@ Upgrading from 0.4.0 needs no steps of its own: replace `moor` and restart the s
 - **With Moorage's own CA, the addresses of environments and previews had no certificate,** so that a browser got a TLS error. They have one now.
 - **A long request through a login gate with a token ended only with the gate, and not with the token.** Revoking the token ends it now, within a minute.
 - **Following an app's logs or a run's output now ends when you may no longer see them,** within a minute.
+- **A server started right after another stopped could say that the other was still using its data directory,** if a process it was starting at that moment held a copy of the lock. Stopping now lets go of the lock whatever else holds a copy.
 
 ### Added
 
