@@ -113,9 +113,9 @@ share a port.
 | `metric_series` | `id`, `name`, `labels` (JSON: app, env, process, instance, route), `kind` (`gauge`/`counter`/`histogram`) |
 | `metric_1m` | `series_id`, `hour` (start), `data` (BLOB: 60 packed points of min/avg/max/last or histogram buckets) — primary key `(series_id, hour)` |
 | `metric_1h` | `series_id`, `day`, `data` (BLOB: 24 packed points) |
-| `notification_channels` | `id`, `kind`, `config_enc`, `created_by` |
-| `notification_rules` | `id`, `scope` (server/project/app), `scope_id`, `event_types`, `channel_id` |
-| `notifications` | In-console notifications: `id`, `user_id`, `event_id`, `read_at` |
+| `notification_channels` | `id`, `name`, `kind`, `sealed` (address and secrets, by the master key), `created_by`, `sent_at`, `error` |
+| `notification_rules` | `id`, `channel_id`, `project_id` and `app_id` (neither: the whole server), `events` |
+| `notifications` | In-console notifications, with what they say kept whole as events expire on their own schedule: `id`, `user_id`, `kind`, `app`, `env`, `summary`, `link`, `read_at` — 90-day retention |
 
 ### Settings
 

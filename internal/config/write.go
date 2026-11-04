@@ -162,6 +162,15 @@ production = {{q .Access.Production}}
 named      = {{q .Access.Named}}
 preview    = {{q .Access.Preview}}
 
+[notifications]
+# What webhooks and mail servers may be at, though they would be refused as this machine,
+# a link-local address or a cloud's metadata service.
+{{- if .Notifications.Allow}}
+allow = {{list .Notifications.Allow}}
+{{- else}}
+# allow = ["127.0.0.1/32"]
+{{- end}}
+
 [listen]
 http  = {{q .Listen.HTTP}}
 https = {{q .Listen.HTTPS}}   # empty when Moorage does not terminate TLS

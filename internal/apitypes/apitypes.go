@@ -383,6 +383,79 @@ type RegistryLogin struct {
 	Password string `json:"password"`
 }
 
+// NotificationChannel is somewhere notifications can go. Where it goes and how the last attempt
+// went are for administrators.
+type NotificationChannel struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Kind      string     `json:"kind"`
+	Target    string     `json:"target,omitempty"`
+	CreatedBy string     `json:"created_by,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	SentAt    *time.Time `json:"sent_at,omitempty"`
+	Error     string     `json:"error,omitempty"`
+}
+
+// NewNotificationChannel asks for a channel: of a kind, with what that kind needs. A webhook, slack,
+// teams or discord channel needs a URL; email needs a mail server, who it is from and who it goes to.
+type NewNotificationChannel struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	URL  string `json:"url,omitempty"`
+	// The mail server, and how to sign in to it.
+	Host     string   `json:"host,omitempty"`
+	Port     int      `json:"port,omitempty"`
+	Username string   `json:"username,omitempty"`
+	Password string   `json:"password,omitempty"`
+	From     string   `json:"from,omitempty"`
+	To       []string `json:"to,omitempty"`
+}
+
+// CreatedChannel is a channel just made. Secret signs what a webhook sends, and is never shown again.
+type CreatedChannel struct {
+	NotificationChannel
+	Secret string `json:"secret,omitempty"`
+}
+
+// NotificationRule says which events go to which channel. Neither a project nor an app means the
+// whole server.
+type NotificationRule struct {
+	ID        string    `json:"id"`
+	Channel   string    `json:"channel"`
+	Project   string    `json:"project,omitempty"`
+	App       string    `json:"app,omitempty"`
+	Events    []string  `json:"events"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// NewNotificationRule asks for a rule. Channel is its name or ID, and "*" among the events asks for
+// every alert.
+type NewNotificationRule struct {
+	Channel string   `json:"channel"`
+	Project string   `json:"project,omitempty"`
+	App     string   `json:"app,omitempty"`
+	Events  []string `json:"events"`
+}
+
+// Notification is something someone has been told.
+type Notification struct {
+	ID      string     `json:"id"`
+	Kind    string     `json:"kind"`
+	App     string     `json:"app,omitempty"`
+	Env     string     `json:"env,omitempty"`
+	Summary string     `json:"summary"`
+	Link    string     `json:"link,omitempty"`
+	At      time.Time  `json:"at"`
+	ReadAt  *time.Time `json:"read_at,omitempty"`
+}
+
+// Inbox is what someone has been told, newest first.
+type Inbox struct {
+	Unread int            `json:"unread"`
+	Items  []Notification `json:"items"`
+}
+
 // ProxyCheck says what reached the server, for moor server doctor.
 type ProxyCheck struct {
 	// Peer is who connected, and Trusted whether that is a trusted proxy.

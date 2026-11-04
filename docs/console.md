@@ -204,9 +204,17 @@ For administrators.
 - **Users:** add someone, and send them the link it makes: the server sends no email. Change
   a role, disable an account, or make a new link for someone who has lost their password.
 - **Registries:** the credentials of private container registries, sealed.
+- **Notifications:** [channels](notifications.md#channels), each with when it last sent something and
+  why it failed if it did, a way to send it a test, and the rules that say what goes to it.
 - **Audit log:** [who did what](accounts.md#who-did-what), to search and to download.
 - **System:** what the server runs, and what [`moor server doctor`](troubleshooting.md) finds,
   with how to fix it.
+
+## Notifications
+
+**Notifications** in the sidebar has [what you have been told](notifications.md), with how many you have not read: a deployment of
+yours that failed and, in a project you maintain, one that failed, an app that keeps crashing or a cron job that failed. A
+project's page has the rules that send its news to a channel as well, for its maintainers.
 
 ## Activity
 

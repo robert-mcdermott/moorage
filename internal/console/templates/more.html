@@ -427,6 +427,7 @@
   <a href="/settings"{{if eq .Tab "server"}} aria-current="page"{{end}}>Server</a>
   <a href="/settings/users"{{if eq .Tab "users"}} aria-current="page"{{end}}>Users</a>
   <a href="/settings/registries"{{if eq .Tab "registries"}} aria-current="page"{{end}}>Registries</a>
+  <a href="/settings/notifications"{{if eq .Tab "notifications"}} aria-current="page"{{end}}>Notifications</a>
   <a href="/settings/audit"{{if eq .Tab "audit"}} aria-current="page"{{end}}>Audit log</a>
   <a href="/settings/system"{{if eq .Tab "system"}} aria-current="page"{{end}}>System</a>
 </nav>
@@ -567,6 +568,182 @@
     <div class="actions"><button type="submit">Keep the credentials</button></div>
   </form>
 </section>
+{{end}}
+{{end}}
+
+{{define "rule-events"}}
+<fieldset class="field check-list">
+  <legend>What goes to it</legend>
+  {{range .}}<label class="check"><input type="checkbox" name="events" value="{{.Kind}}"{{if .Default}} checked{{end}}> {{.Label}}</label>
+  {{end}}
+  <p class="hint small">A channel told that something went wrong is told when it has come right, too.</p>
+</fieldset>
+{{end}}
+
+{{define "rule-table"}}
+<div class="panel table-scroll">
+  <table class="apps">
+    <thead><tr><th scope="col">For</th><th scope="col">Goes to</th><th scope="col">What goes</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{$csrf := .CSRF}}{{$action := .Action}}
+    {{range .Rules}}
+    <tr>
+      <td class="app-name">{{.Scope}}</td>
+      <td data-label="Goes to">{{.Channel}}</td>
+      <td data-label="What goes">{{range $i, $e := .Events}}{{if $i}}, {{end}}{{$e}}{{end}}</td>
+      <td class="row-end">
+        <form method="post" action="{{$action}}" data-confirm="Remove this rule?">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="rule" value="{{.ID}}">
+          <button class="quiet small danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "settings-notifications"}}
+{{template "settings-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Notifications}}
+{{if .NewName}}
+<section class="panel panel-pad secret-once" role="status">
+  <h2>The channel {{.NewName}} is added</h2>
+  {{if .NewSecret}}
+  <p>This signs what it sends, so that its receiver can tell it came from here. Copy it now: this is the only time it is shown.</p>
+  {{template "command" .NewSecret}}
+  {{end}}
+  <p class="muted small">Nothing goes to it until a rule says so. Add one below, or on the page of a project.</p>
+</section>
+{{end}}
+<section class="block">
+  <div class="section-heading"><h2>Channels</h2></div>
+  {{if .Channels}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Goes to</th><th scope="col">Last sent</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Channels}}
+      <tr>
+        <td class="app-name">{{.Name}}</td>
+        <td data-label="Kind">{{.KindLabel}}</td>
+        <td data-label="Goes to" class="wrap-anywhere">{{.Target}}</td>
+        <td data-label="Last sent">{{if .Error}}<span class="badge fail">Failing</span><div class="muted small wrap-anywhere">{{.Error}}</div>{{else if .SentAt.IsZero}}<span class="muted">Nothing yet</span>{{else}}<time datetime="{{iso .SentAt}}">{{ago .SentAt}}</time>{{end}}</td>
+        <td class="row-end">
+          <div class="row-actions">
+            <form method="post" action="/settings/notifications/channels/test" data-busy="Sending…">
+              <input type="hidden" name="csrf" value="{{$csrf}}">
+              <input type="hidden" name="channel" value="{{.ID}}">
+              <button class="quiet small" type="submit">Send a test</button>
+            </form>
+            <form method="post" action="/settings/notifications/channels/remove" data-confirm="Remove the channel {{.Name}}, and the rules that use it?">
+              <input type="hidden" name="csrf" value="{{$csrf}}">
+              <input type="hidden" name="channel" value="{{.ID}}">
+              <button class="quiet small danger" type="submit">Remove</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <section class="panel empty">
+    <h2>No channels yet</h2>
+    <p>Everyone concerned is told in the console already: maintainers of what fails, and whoever pushed it. A channel sends word to where else you look, such as chat or email.</p>
+  </section>
+  {{end}}
+</section>
+<section class="block">
+  <div class="section-heading"><h2>Rules</h2></div>
+  {{if .Rules}}{{template "rule-table" (dict "Rules" .Rules "CSRF" $csrf "Action" "/settings/notifications/rules/remove")}}
+  {{else}}<p class="panel panel-pad muted">No rules yet: nothing goes to a channel until one says so. A project's maintainers can add rules of their own, on its page.</p>{{end}}
+</section>
+<div class="deploy-ways block">
+  <section class="panel panel-pad">
+    <h2>Add a channel</h2>
+    <form method="post" action="/settings/notifications/channels" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="chan-name">Name</label><input id="chan-name" name="name" value="{{.Form.Name}}" required maxlength="64" placeholder="alerts" autocomplete="off"></div>
+      <div class="field"><label for="chan-kind">Kind</label>
+        {{$kind := .Form.Kind}}
+        <select id="chan-kind" name="kind" data-kind-choice>{{range .Kinds}}<option value="{{.Value}}"{{if eq .Value $kind}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+      </div>
+      <div data-kinds="webhook slack teams discord">
+        <div class="field"><label for="chan-url">Address of the webhook</label><input id="chan-url" name="url" type="url" spellcheck="false" autocomplete="off" placeholder="https://">
+          <p class="hint small">Sealed with the server's master key. Only its host is shown again.</p>
+        </div>
+      </div>
+      <div data-kinds="email">
+        <div class="field"><label for="chan-host">Mail server</label><input id="chan-host" name="host" value="{{.Form.Host}}" spellcheck="false" autocomplete="off" placeholder="smtp.example.com"></div>
+        <div class="field"><label for="chan-port">Port</label><input id="chan-port" name="port" value="{{.Form.Port}}" inputmode="numeric" autocomplete="off" placeholder="587"></div>
+        <div class="field"><label for="chan-user">Username, if it needs one</label><input id="chan-user" name="username" value="{{.Form.Username}}" spellcheck="false" autocomplete="off"></div>
+        <div class="field"><label for="chan-pass">Password</label><input id="chan-pass" name="password" type="password" autocomplete="new-password"></div>
+        <div class="field"><label for="chan-from">From</label><input id="chan-from" name="from" value="{{.Form.From}}" spellcheck="false" autocomplete="off" placeholder="moorage@example.com"></div>
+        <div class="field"><label for="chan-to">To</label><input id="chan-to" name="to" value="{{.Form.To}}" spellcheck="false" autocomplete="off" placeholder="ops@example.com, oncall@example.com"></div>
+      </div>
+      <div class="actions"><button type="submit">Add the channel</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>Add a rule</h2>
+    {{if .Channels}}
+    <form method="post" action="/settings/notifications/rules">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="rule-channel">Channel</label>
+        <select id="rule-channel" name="channel">{{range .Channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+      </div>
+      <div class="field"><label for="rule-scope">For</label>
+        <select id="rule-scope" name="scope">
+          <option value="">The whole server</option>
+          {{with .Projects}}<optgroup label="A project">{{range .}}<option value="project:{{.}}">{{.}}</option>{{end}}</optgroup>{{end}}
+          {{with .Apps}}<optgroup label="An app">{{range .}}<option value="app:{{.}}">{{.}}</option>{{end}}</optgroup>{{end}}
+        </select>
+      </div>
+      {{template "rule-events" .Events}}
+      <div class="actions"><button type="submit">Add the rule</button></div>
+    </form>
+    {{else}}
+    <p class="muted">Add a channel first: a rule says what goes to it.</p>
+    {{end}}
+  </section>
+</div>
+{{end}}
+{{end}}
+
+{{define "notifications"}}
+{{$csrf := .CSRF}}
+{{$admin := .Admin}}
+{{with .Notifications}}
+{{if .Unread}}
+<form class="page-actions" method="post" action="/notifications/read">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <button class="quiet" type="submit">Mark all as read</button>
+</form>
+{{end}}
+<div class="panel">
+  {{if .Items}}
+  <ol class="timeline">
+    {{range .Items}}
+    <li{{if not .Read}} class="unread"{{end}}>
+      <span class="dot {{.Level}}" aria-hidden="true"></span>
+      <span class="what">{{if .App}}<a class="where" href="{{.Where}}">{{.App}}{{with .Env}} · {{.}}{{end}}</a> {{end}}{{if .Link}}<a href="{{.Link}}">{{.Summary}}</a>{{else}}{{.Summary}}{{end}}{{if not .Read}}<span class="visually-hidden"> (not read)</span>{{end}}</span>
+      <time datetime="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time>
+    </li>
+    {{end}}
+  </ol>
+  {{else}}
+  <div class="empty">
+    <h2>Nothing to tell you</h2>
+    <p>You will be told here when a deployment of yours fails, and when one fails, an app keeps crashing or a cron job fails in a project you maintain.{{if $admin}} To send word to chat or email as well, add a channel in <a href="/settings/notifications">Settings</a>.{{end}}</p>
+  </div>
+  {{end}}
+</div>
 {{end}}
 {{end}}
 
@@ -754,6 +931,30 @@
     </form>
   </section>
 </div>
+<section class="block" id="notifications">
+  <div class="section-heading"><h2>Notifications</h2></div>
+  <p class="muted lead">Its maintainers are told in the console when something fails. A rule sends word to a channel as well.</p>
+  {{if .Rules}}{{template "rule-table" (dict "Rules" .Rules "CSRF" $csrf "Action" (printf "/projects/%s/notifications/remove" $project))}}{{end}}
+  {{if .Channels}}
+  <form class="panel panel-pad block rule-form" method="post" action="/projects/{{$project}}/notifications">
+    <h3>Add a rule</h3>
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="rule-channel">Channel</label>
+      <select id="rule-channel" name="channel">{{range .Channels}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+    </div>
+    <div class="field"><label for="rule-app">For</label>
+      <select id="rule-app" name="app">
+        <option value="">All of its apps</option>
+        {{range .Apps}}<option value="{{.}}">{{.}}</option>{{end}}
+      </select>
+    </div>
+    {{template "rule-events" .Events}}
+    <div class="actions"><button type="submit">Add the rule</button></div>
+  </form>
+  {{else}}
+  <p class="panel panel-pad muted">There are no channels to send word to yet. {{if $admin}}Add one in <a href="/settings/notifications">Settings</a>.{{else}}An administrator can add one.{{end}}</p>
+  {{end}}
+</section>
 {{if and $admin (not .Apps) (ne $project "default")}}
 <form class="block" method="post" action="/projects/{{$project}}/delete" data-confirm="Delete the project {{$project}}?">
   <input type="hidden" name="csrf" value="{{$csrf}}">

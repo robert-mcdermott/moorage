@@ -149,6 +149,9 @@ func (c *Console) shellData(r *http.Request, p auth.Principal, page, title strin
 	for _, a := range apps {
 		d.AppNames = append(d.AppNames, a.Name)
 	}
+	if d.Unread, err = c.unread(r, p, visible); err != nil {
+		return data{}, nil, err
+	}
 	return d, apps, nil
 }
 
@@ -219,12 +222,14 @@ func (c *Console) palette(apps []store.AppSummary, admin bool, access map[string
 		{Label: "Sessions", Hint: "Account", Href: "/account/sessions"},
 		{Label: "Projects", Hint: "Page", Href: "/projects"},
 		{Label: "Previews", Hint: "Page", Href: "/previews"},
+		{Label: "Notifications", Hint: "Page", Href: "/notifications"},
 	}
 	if admin {
 		items = append(items,
 			paletteItem{Label: "Settings", Hint: "Server", Href: "/settings"},
 			paletteItem{Label: "Users", Hint: "Server", Href: "/settings/users"},
 			paletteItem{Label: "Container registries", Hint: "Server", Href: "/settings/registries"},
+			paletteItem{Label: "Notification channels and rules", Hint: "Server", Href: "/settings/notifications"},
 			paletteItem{Label: "System", Hint: "Server", Href: "/settings/system"},
 			paletteItem{Label: "Audit log", Hint: "Server", Href: "/settings/audit"},
 		)

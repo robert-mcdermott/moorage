@@ -299,6 +299,63 @@ func (c *Client) RegistryLogout(ctx context.Context, host string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/registries/"+url.PathEscape(host), nil, "", nil)
 }
 
+// Notifications is what the caller has been told.
+func (c *Client) Notifications(ctx context.Context) (apitypes.Inbox, error) {
+	var out apitypes.Inbox
+	err := c.do(ctx, http.MethodGet, "/api/v1/notifications", nil, "", &out)
+	return out, err
+}
+
+// ReadNotifications marks all the caller has been told as read.
+func (c *Client) ReadNotifications(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/notifications/read", nil, "", nil)
+}
+
+// NotificationChannels lists where notifications can go.
+func (c *Client) NotificationChannels(ctx context.Context) ([]apitypes.NotificationChannel, error) {
+	var out []apitypes.NotificationChannel
+	err := c.do(ctx, http.MethodGet, "/api/v1/notifications/channels", nil, "", &out)
+	return out, err
+}
+
+// AddNotificationChannel adds a channel.
+func (c *Client) AddNotificationChannel(ctx context.Context, in apitypes.NewNotificationChannel) (apitypes.CreatedChannel, error) {
+	var out apitypes.CreatedChannel
+	err := c.post(ctx, http.MethodPost, "/api/v1/notifications/channels", in, &out)
+	return out, err
+}
+
+// RemoveNotificationChannel removes a channel, by its name or ID.
+func (c *Client) RemoveNotificationChannel(ctx context.Context, channel string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/notifications/channels/"+url.PathEscape(channel), nil, "", nil)
+}
+
+// TestNotificationChannel sends a channel a test, by its name or ID.
+func (c *Client) TestNotificationChannel(ctx context.Context, channel string) (apitypes.NotificationChannel, error) {
+	var out apitypes.NotificationChannel
+	err := c.do(ctx, http.MethodPost, "/api/v1/notifications/channels/"+url.PathEscape(channel)+"/test", nil, "", &out)
+	return out, err
+}
+
+// NotificationRules lists the rules the caller can see.
+func (c *Client) NotificationRules(ctx context.Context) ([]apitypes.NotificationRule, error) {
+	var out []apitypes.NotificationRule
+	err := c.do(ctx, http.MethodGet, "/api/v1/notifications/rules", nil, "", &out)
+	return out, err
+}
+
+// AddNotificationRule adds a rule.
+func (c *Client) AddNotificationRule(ctx context.Context, in apitypes.NewNotificationRule) (apitypes.NotificationRule, error) {
+	var out apitypes.NotificationRule
+	err := c.post(ctx, http.MethodPost, "/api/v1/notifications/rules", in, &out)
+	return out, err
+}
+
+// RemoveNotificationRule removes a rule.
+func (c *Client) RemoveNotificationRule(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/notifications/rules/"+url.PathEscape(id), nil, "", nil)
+}
+
 // upload sends dir as a deploy: with a plan, a plan part and an archive
 // part; without one, a source part.
 func (c *Client) upload(ctx context.Context, app, env, dir string, plan *manifest.Plan, image string, skip func(string, fs.DirEntry) bool, out any) (PackStats, error) {

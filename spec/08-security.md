@@ -147,7 +147,9 @@ what its answer does not allow. Git asks it for every push and clone, over SSH a
   that credentials travel unencrypted.
 - **SSRF:** features that fetch URLs (webhooks, remote repositories, toolchain
   mirrors) refuse loopback, link-local and metadata addresses unless an admin
-  allows specific ranges.
+  allows specific ranges. Notifications check the address as they connect, so that
+  a name cannot resolve to one thing and then another, follow no redirects, say
+  nothing of an address in their errors, and take `[notifications] allow`.
 
 ## App isolation
 

@@ -142,11 +142,19 @@ can read.
   Microsoft Teams and Discord payload formats), email over SMTP, and in-console
   notifications.
 - **Rules:** per server, project or app — which event types go to which
-  channels. Sensible defaults: deploy failed, crash loop, certificate failure
-  and disk-space warnings go to the app's maintainers; the person who pushed
-  is always told about their own failed deploy.
-- Deduplication and rate limiting so a crash-looping app sends one message,
-  not hundreds, plus a "recovered" message when it heals.
+  channels. Nothing goes to a channel until a rule says so. In the console,
+  with no rules at all: deploy failed, crash loop and failed cron jobs go to the
+  project's maintainers and the server's administrators, disk-space warnings go
+  to administrators, and the person who pushed is always told about their own
+  failed deploy. Certificate failures join these once certificates can fail on
+  their own: Moorage does not obtain them yet.
+- Deduplication so a crash-looping app sends one message, not hundreds, plus a
+  "recovered" message when it heals. Like messages are held back for 15 minutes,
+  per kind, app, environment and cron job, and the next says how many were.
+- A webhook carries `X-Moorage-Signature: t=<unix>,v1=<hex>`, an HMAC-SHA256 of
+  the time, a dot and the body, with a secret made for that channel and shown once.
+- Channels are sealed with the master key. Sending is tried three times, and
+  does not outlive the server: this is not a queue, and the events are the record.
 - **Threshold alerts** *(Phase 3)*: simple per-environment rules on the
   collected metrics — error rate above X % for Y minutes, p95 latency above
   T, memory above 90 % of its limit, disk above a threshold — routed through

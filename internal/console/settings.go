@@ -86,6 +86,10 @@ var settingsNotices = map[string]string{
 	"enabled":          "The account is enabled.",
 	"registry":         "The credentials are kept, sealed. Deployments use them to pull from this registry.",
 	"registry-removed": "The credentials are removed.",
+	"tested":           "The test went. Look for it where the channel goes.",
+	"channel-removed":  "The channel is removed, and the rules that used it.",
+	"rule":             "The rule is added.",
+	"rule-removed":     "The rule is removed.",
 }
 
 // adminAction guards a form for administrators.
@@ -155,6 +159,9 @@ func (c *Console) settingsPage(w http.ResponseWriter, r *http.Request) {
 				{"TLS", tls},
 				{"Browsers see", cfg.Proxy.ExternalScheme},
 				{"Trusted proxies", orNone(strings.Join(cfg.Proxy.Trusted, ", "))},
+			}},
+			{"Notifications", []setting{
+				{"May also reach", orNone(strings.Join(cfg.Notifications.Allow, ", "))},
 			}},
 			{"Who may reach what, unless the manifest or a maintainer says otherwise", []setting{
 				{"Production", gateLabels[cfg.Access.Production]},

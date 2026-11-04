@@ -33,6 +33,8 @@ how it works inside and where it is going.
   staging, promoting, locks and sleeping
 - [Cron jobs and one-off commands](cron.md)
 - [Metrics](metrics.md): charts in the console, and for Prometheus
+- [Notifications](notifications.md): told when something goes wrong, in the console,
+  by webhook, in chat and by email
 - [Who can reach an app](access.md): passwords, signing in, share links and lists
   of addresses
 - [Your own domains, and paths](domains.md): hostnames of your own, several apps on one

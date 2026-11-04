@@ -185,6 +185,24 @@ func (k *Keyring) dataKey(ctx context.Context, appID string) (cipher.AEAD, error
 	return aead, nil
 }
 
+// channelAD binds what a notification channel needs to that channel.
+func channelAD(id string) []byte { return []byte("moorage channel\x00" + id) }
+
+// SealChannel encrypts what a notification channel needs, with the master key: it belongs to
+// the server, not to an app.
+func (k *Keyring) SealChannel(id string, value []byte) []byte {
+	return seal(k.master, value, channelAD(id))
+}
+
+// OpenChannel decrypts what a notification channel needs.
+func (k *Keyring) OpenChannel(id string, sealed []byte) ([]byte, error) {
+	plain, err := open(k.master, sealed, channelAD(id))
+	if err != nil {
+		return nil, fmt.Errorf("the channel %s cannot be decrypted", id)
+	}
+	return plain, nil
+}
+
 // registryAD binds a password to its registry.
 func registryAD(host string) []byte { return []byte("moorage registry\x00" + host) }
 

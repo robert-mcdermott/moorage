@@ -35,6 +35,20 @@
   }
 
   $$('.theme-choice').forEach(function (group) { group.hidden = false; });
+
+  // A form that asks different things of different kinds asks only what the kind chosen needs.
+  $$('[data-kind-choice]').forEach(function (choice) {
+    var parts = choice.form.querySelectorAll('[data-kinds]');
+    function show() {
+      parts.forEach(function (part) {
+        var on = part.getAttribute('data-kinds').split(' ').indexOf(choice.value) >= 0;
+        part.hidden = !on;
+        part.querySelectorAll('input').forEach(function (input) { input.disabled = !on; });
+      });
+    }
+    choice.addEventListener('change', show);
+    show();
+  });
   $$('[data-theme-set]').forEach(function (button) {
     button.addEventListener('click', function () { setTheme(button.getAttribute('data-theme-set')); });
   });

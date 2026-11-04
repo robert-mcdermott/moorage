@@ -158,6 +158,8 @@ body.card-page { display: flex; align-items: center; justify-content: center; pa
 .nav-links a:hover { background: var(--sunk); }
 .nav-links a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .nav-links svg { flex: none; width: 1.1rem; height: 1.1rem; }
+.nav-count { margin-left: auto; min-width: 1.5em; padding: 0 .4em; font-size: .75rem; font-weight: 600; line-height: 1.5; text-align: center; color: var(--accent); background: var(--accent-soft); border-radius: 999px; }
+.nav-links a[aria-current="page"] .nav-count { background: var(--surface); }
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--s3); font-size: .85rem; }
 .who { padding: 0 var(--s2); color: var(--muted); overflow-wrap: anywhere; }
 .who strong { color: var(--text); font-weight: 600; }
@@ -214,6 +216,15 @@ main { flex: 1; width: 100%; max-width: 68rem; padding: var(--s5) var(--s6) var(
 .timeline .dot.info { background: var(--info); }
 .timeline .what { overflow-wrap: anywhere; }
 .timeline .where { margin-right: var(--s2); font-weight: 600; }
+.timeline .unread .what { font-weight: 600; }
+.timeline .unread time { color: var(--text); }
+.rule-form h3 { margin: 0 0 var(--s3); font-size: 1.05rem; }
+.rule-form .field { max-width: 32rem; }
+.check-list { border: 0; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.check-list legend { padding: 0; margin-bottom: var(--s2); font-weight: 600; }
+.row-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
+.wrap-anywhere { overflow-wrap: anywhere; }
+.page-actions { display: flex; justify-content: flex-end; margin-bottom: var(--s3); }
 .timeline time { color: var(--muted); font-size: .85rem; white-space: nowrap; }
 .timeline li.new { animation: arrive 1.5s ease-out; }
 @keyframes arrive { from { background: var(--accent-soft); } }
@@ -295,7 +306,7 @@ a.badge { text-decoration: none; }
 .scale-note { flex-basis: 100%; }
 .rollback { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
 .check { display: flex; align-items: center; gap: var(--s2); margin: 0; font-weight: 400; font-size: .85rem; }
-.check input { width: auto; }
+.check input { width: auto; accent-color: var(--accent); }
 
 .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s2); margin-top: var(--s4); }
 .stage { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s2); padding: var(--s3); background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: var(--radius-small); }

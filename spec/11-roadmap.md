@@ -978,6 +978,14 @@ directory, supervises it, and serves it on its own hostname.
      line's color as others come and go, so that its slot goes by its place among sorted names.
 3. **Notifications.** Webhooks, chat webhooks, email and in-console
    notifications, with rules and deduplication.
+   - Done in slice 3: all of those, with `moor notifications`, a page and a count in the sidebar,
+     channels and rules in Settings and on a project's page, and a word when something recovers.
+   - Found by slice 3: certificates cannot fail yet, as Moorage obtains none, so that the defaults
+     have no such alert until it does. Someone's role in a project may come from its **Everyone
+     else**, so whom to tell cannot be read from its members alone. A chat webhook's address is its
+     secret, and so must stay out of errors, which name the address unless they are unwrapped. An
+     admin adding a rule of a project expects to see it among the rules, so Settings lists them all.
+     A server with a nearly full disk tells you so on the first day: the scratch server here did.
 4. **Static extras.** Drag-and-drop static deploys in the console; static
    release permalinks.
 5. **Release 0.5.0.** Exit check: 50 or more environments on a 4 vCPU / 8 GB

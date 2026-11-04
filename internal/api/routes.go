@@ -136,6 +136,17 @@ func (s *Server) routes() []route {
 			}},
 
 		// Container registries.
+		{method: "GET", path: "/notifications", perm: canRead, handler: s.inbox, summary: "What you have been told, newest first", response: apitypes.Inbox{}},
+		{method: "POST", path: "/notifications/read", perm: canRead, handler: s.readInbox, status: http.StatusNoContent, summary: "Mark all you have been told as read"},
+		{method: "GET", path: "/notifications/channels", perm: canRead, handler: s.channels, summary: "List where notifications can go; where each one goes is for administrators", response: []apitypes.NotificationChannel{}},
+		{method: "POST", path: "/notifications/channels", perm: serverAdmin, handler: s.createChannel, status: http.StatusCreated, summary: "Add a channel; the answer has what signs a webhook, which is not shown again",
+			request: apitypes.NewNotificationChannel{}, response: apitypes.CreatedChannel{}},
+		{method: "DELETE", path: "/notifications/channels/{channel}", perm: serverAdmin, handler: s.deleteChannel, status: http.StatusNoContent, summary: "Remove a channel, and the rules that use it"},
+		{method: "POST", path: "/notifications/channels/{channel}/test", perm: serverAdmin, handler: s.testChannel, summary: "Send a channel a test, and say how it went", response: apitypes.NotificationChannel{}},
+		{method: "GET", path: "/notifications/rules", perm: canRead, handler: s.rules, summary: "List the rules you can see", response: []apitypes.NotificationRule{}},
+		{method: "POST", path: "/notifications/rules", perm: canManage, handler: s.createRule, status: http.StatusCreated, summary: "Add a rule: of the whole server, which takes an admin, or of a project or an app, which takes a maintainer of it",
+			request: apitypes.NewNotificationRule{}, response: apitypes.NotificationRule{}},
+		{method: "DELETE", path: "/notifications/rules/{rule}", perm: canManage, handler: s.deleteRule, status: http.StatusNoContent, summary: "Remove a rule"},
 		{method: "GET", path: "/registries", perm: serverAdmin, handler: s.registries, summary: "List the container registries the server has credentials for", response: []apitypes.Registry{}},
 		{method: "PUT", path: "/registries/{host}", perm: serverAdmin, handler: s.setRegistry, summary: "Store the credentials of a container registry",
 			request: apitypes.RegistryLogin{}, response: apitypes.Registry{}},

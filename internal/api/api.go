@@ -21,6 +21,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -42,14 +43,15 @@ type Server struct {
 	deployer *deploy.Deployer
 	keyring  RegistrySealer
 	bus      *events.Bus
+	notifier *notify.Service
 	log      *slog.Logger
 	// openapiDoc is the OpenAPI document, generated once.
 	openapiDoc func() []byte
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, log: log}
 	s.openapiDoc = sync.OnceValue(func() []byte { return openAPIDocument(s.routes()) })
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {

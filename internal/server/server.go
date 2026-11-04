@@ -34,6 +34,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/layout"
 	"github.com/robert-mcdermott/moorage/internal/localdns"
+	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
@@ -83,6 +84,8 @@ type Options struct {
 	GCMinAge time.Duration
 	// MetricsEvery, if set, overrides how often metrics are sampled (tests).
 	MetricsEvery time.Duration
+	// NotifyRetry, if set, overrides how long a notification waits before trying again (tests).
+	NotifyRetry time.Duration
 	// CronTick, if set, overrides how often cron jobs are looked at (tests).
 	CronTick time.Duration
 	// GateRecheck, if set, overrides how often gates look again at whom they let in (tests).
@@ -307,6 +310,17 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		cronTick = 10 * time.Second
 	}
 	go deployer.RunCron(ctx, cronTick)
+	allowed, err := cfg.NotificationsAllowed()
+	if err != nil {
+		return err
+	}
+	notifier := &notify.Service{DB: db, Bus: bus, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), Allow: allowed, DataDir: cfg.DataDir, RetryAfter: opts.NotifyRetry}
+	notifyCtx, stopNotifying := context.WithCancel(ctx)
+	go notifier.Run(notifyCtx)
+	defer func() {
+		stopNotifying()
+		notifier.Wait()
+	}()
 	authn := &auth.Service{
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
@@ -325,12 +339,12 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

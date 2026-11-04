@@ -8,6 +8,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -28,6 +29,10 @@ type projectView struct {
 	Candidates []store.User
 	// What the form said, when it was refused.
 	FormEmail, FormName string
+	// Where its notifications go, for those who may change that.
+	Rules    []ruleRow
+	Channels []string
+	Events   []notify.RuleEvent
 }
 
 // Roles lists what someone can be in a project, for the pages' forms.
@@ -128,6 +133,13 @@ func (c *Console) showProject(w http.ResponseWriter, r *http.Request, code int, 
 		c.internal(w, err)
 		return
 	}
+	if view.Manage {
+		if view.Rules, view.Channels, err = c.projectRules(r, project.Name, view.Apps); err != nil {
+			c.internal(w, err)
+			return
+		}
+		view.Events = notify.RuleEvents
+	}
 	d.Project = view
 	d.Notice = projectNotices[r.URL.Query().Get("done")]
 	d.Failure = failed
@@ -135,9 +147,11 @@ func (c *Console) showProject(w http.ResponseWriter, r *http.Request, code int, 
 }
 
 var projectNotices = map[string]string{
-	"member":  "They have that role now.",
-	"removed": "They are no longer a member.",
-	"changed": "The project is changed.",
+	"member":       "They have that role now.",
+	"removed":      "They are no longer a member.",
+	"changed":      "The project is changed.",
+	"rule":         "The rule is added.",
+	"rule-removed": "The rule is removed.",
 }
 
 func (c *Console) projectPage(w http.ResponseWriter, r *http.Request) {

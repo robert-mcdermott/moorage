@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -41,7 +42,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-notifications", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -104,6 +105,8 @@ type Options struct {
 	GateRoute func(host, path string) (ingress.RouteInfo, bool)
 	// Metrics has what environments have been doing.
 	Metrics *metrics.Store
+	// Notifier sends what the settings pages set up.
+	Notifier *notify.Service
 }
 
 // Console serves the pages.
@@ -124,11 +127,12 @@ type Console struct {
 	// gateRoute says what a hostname and a path serve, for the sign-in gates.
 	gateRoute func(host, path string) (ingress.RouteInfo, bool)
 	metrics   *metrics.Store
+	notifier  *notify.Service
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
+	c := &Console{notifier: o.Notifier, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -216,6 +220,16 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /settings", c.settingsPage)
 	mux.HandleFunc("GET /settings/users", c.usersPage)
 	mux.HandleFunc("GET /settings/registries", c.registriesPage)
+	mux.HandleFunc("GET /settings/notifications", c.notificationSettings)
+	mux.HandleFunc("POST /settings/notifications/channels", c.adminAction(c.addChannel))
+	mux.HandleFunc("POST /settings/notifications/channels/test", c.adminAction(c.testChannel))
+	mux.HandleFunc("POST /settings/notifications/channels/remove", c.adminAction(c.removeChannel))
+	mux.HandleFunc("POST /settings/notifications/rules", c.adminAction(c.addServerRule))
+	mux.HandleFunc("POST /settings/notifications/rules/remove", c.adminAction(c.removeServerRule))
+	mux.HandleFunc("GET /notifications", c.inbox)
+	mux.HandleFunc("POST /notifications/read", c.accountAction(c.readInbox))
+	mux.HandleFunc("POST /projects/{project}/notifications", c.projectAction(c.addProjectRule))
+	mux.HandleFunc("POST /projects/{project}/notifications/remove", c.projectAction(c.removeProjectRule))
 	mux.HandleFunc("GET /settings/system", c.systemPage)
 	mux.HandleFunc("POST /settings/users/create", c.adminAction(c.createUser))
 	mux.HandleFunc("POST /settings/users/invite", c.adminAction(c.inviteUser))
@@ -294,6 +308,10 @@ type data struct {
 	Settings settingsView
 	Projects []projectRow
 	Project  projectView
+	// Notifications is the pages of notifications.
+	Notifications notificationsView
+	// Unread is how many notifications they have not read.
+	Unread int
 
 	// Access says what the viewer may do with the app the page is about. Env is the
 	// environment in its addresses, empty for production; EnvNames are the app's
