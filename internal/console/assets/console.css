@@ -308,6 +308,8 @@ details > summary { cursor: pointer; font-weight: 600; }
 .narrow h2 { margin-bottom: var(--s1); font-size: 1.05rem; }
 .narrow form { margin-top: var(--s4); }
 .deploy-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); gap: var(--s4); }
+.deploy-ways > * { min-width: 0; }
+.deploy-ways select { min-width: 0; max-width: 100%; }
 .deploy-ways h2 { margin-bottom: var(--s1); font-size: 1.05rem; }
 .deploy-ways form { margin-top: var(--s3); }
 .deploy-ways .command { margin-top: var(--s2); }
