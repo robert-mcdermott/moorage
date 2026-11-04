@@ -239,6 +239,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	router.SetMetrics(metricsStore)
 	toolchains := toolchain.New(filepath.Join(cfg.DataDir, "toolchains"), filepath.Join(cfg.DataDir, "cache"), toolchain.Sources{
 		Go: cfg.Toolchains.GoURL, Node: cfg.Toolchains.NodeURL, UV: cfg.Toolchains.UVURL, Python: cfg.Toolchains.PythonURL,
+		SignaturesOnlyWarn: cfg.Toolchains.Signatures == "warn",
 	})
 	shell := []string{exe, "sh", "-c"}
 	uidBase := cfg.Isolation.UIDBase

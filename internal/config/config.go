@@ -164,6 +164,9 @@ type Toolchains struct {
 	UVURL string `toml:"uv_url"`
 	// PythonURL serves the Python builds uv installs.
 	PythonURL string `toml:"python_url"`
+	// Signatures says what to do with a release whose signature cannot be checked: "require" refuses it,
+	// which is the default, and "warn" goes on and says so. A signature that is wrong is always refused.
+	Signatures string `toml:"signatures"`
 }
 
 // Log configures the server's own log.
@@ -335,6 +338,9 @@ func (c Config) Validate() error {
 	}
 	if c.Auth.TrustedHeader != "" && len(c.Proxy.Trusted) == 0 {
 		add("auth.trusted_header needs proxy.trusted: otherwise anyone could say who they are")
+	}
+	if !oneOf(c.Toolchains.Signatures, []string{"", "require", "warn"}) {
+		add("toolchains.signatures %q must be require or warn", c.Toolchains.Signatures)
 	}
 	if !oneOf(c.Isolation.Level, []string{"", "auto", "none", "user", "sandbox"}) {
 		add("isolation.level %q must be auto, none, user or sandbox", c.Isolation.Level)

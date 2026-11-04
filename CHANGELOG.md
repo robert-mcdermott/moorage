@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Node.js downloads are checked against its signature (wave 6, slice 4).** The checksums of a Node.js release have to be signed by one of its releasers, whose keys come with moor. A new releaser's key needs a new moor, or `signatures = "warn"` under `[toolchains]`. A signature that is wrong is always refused.
 - **The server's configuration, as a file (wave 6, slice 4).** `moor server config export` writes out people, projects, registries, notifications, backups and sign-in, with no secrets, and `moor server config import` brings it in on that server or another, with `--dry-run` to look first. See [the server's configuration](docs/backups.md#the-servers-configuration).
 - **`moor server upgrade` (wave 6, slice 4).** A server upgrades itself: it checks a release's signature and checksum, keeps a copy of the database and the binary, swaps them, restarts, and goes back by itself if the new version does not come up. `--rollback` goes back later on. Apps keep running throughout. Releases now come with a list of what went into them, and an attestation of the workflow that built them. See [upgrading](docs/install.md#upgrading).
 - **Single sign-on (wave 6, slice 3).** **Settings → Sign-in** connects to any OpenID Connect provider, with accounts made the first time, roles from groups, and an option to turn off passwords. `trusted_header` under `[auth]` believes a proxy that signs people in. See [how people sign in](docs/sign-in.md).

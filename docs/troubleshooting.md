@@ -49,6 +49,23 @@ server's files.
 `--public-url` adds [the path through a proxy](proxy.md#check-the-whole-path). The
 exit status is 1 if anything failed, and `--json` prints the checks for a script.
 
+## A build cannot get its toolchain
+
+A build downloads the toolchain it needs, and refuses one that does not match what the project publishes.
+
+**"is signed by a key that this moor does not know".** Node.js releases are signed by those who make them, whose
+keys come with moor. A new releaser's first release can come before the moor that knows them, so upgrade moor
+([upgrading](install.md#upgrading)) and deploy again. If you cannot yet, and have a mirror that leaves signatures
+out or trust the download for now, this goes on and says so in the build's log:
+
+```toml
+[toolchains]
+signatures = "warn"
+```
+
+**"failed verification".** What arrived is not what was published: its checksum or its signature is wrong, and
+`signatures` does not change that. A proxy may be changing it on the way, or a mirror may be damaged.
+
 ## Stopping everything
 
 Apps keep running when the server stops, on purpose. `moor server stop` stops the

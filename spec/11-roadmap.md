@@ -1063,8 +1063,14 @@ directory, supervises it, and serves it on its own hostname.
      signature over a release's checksums, with an Ed25519 key in the code, and the workflow to sign with
      it; a list of what went into a release; an attestation of the workflow that built it.
      `moor server config export` and `import`, with `--dry-run`, and **Settings → System** to download it.
+     The signature on Node.js's checksums, against its releasers' keys, which come with moor.
    - Found by slice 4: a file of settings is only worth keeping if it holds no secrets, and only safe to bring
      in if it removes nothing, so that it names variables of the environment and keeps what is there.
+     Of the toolchains, only Node.js publishes a signature that can be checked with what moor already has: Go's
+     index and uv's checksums stay as they were, and uv's attestations would take a Sigstore client. A new
+     releaser's key needs a new moor, so `signatures = "warn"` is there for when that comes first; a signature
+     that is wrong is refused either way. The service check, on real systemd and launchd, found that going
+     back from a version that had not come up left the server stopped.
      Rolling back should cost nothing unless it must, so the database only goes back if
      the schema moved on. A release's binary should not run at all until it has passed its checks. The
      browser check counted the sign-in page as a page that worked, so a signed-out browser passed it; and

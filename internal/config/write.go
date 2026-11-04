@@ -243,6 +243,9 @@ external_scheme = {{q .Proxy.ExternalScheme}}
 # node_url   = "https://nodejs.org/dist/"
 # uv_url     = "https://github.com/astral-sh/uv/releases"
 # python_url = ""   # handed to uv as its Python mirror
+# A Node.js release has to be signed by a releaser this moor knows. "warn" goes on if that cannot be checked,
+# for a mirror with no signatures, or a new releaser. A signature that is wrong is always refused.
+# signatures = "warn"
 
 [containers]
 # What runs apps in containers: "auto" for Podman if it is installed, or else

@@ -329,8 +329,8 @@ build time and the exact version is recorded in the build.
 | Toolchain | Source | Verification |
 |---|---|---|
 | Go | Official download index (JSON, full release history) | SHA-256 from the index |
-| Node.js | Official distribution index | `SHASUMS256.txt` (its signature, checked against the project's published release keys: wave 6) |
-| uv | Official release assets | Per-asset SHA-256 (+ build provenance attestation, Phase 3) |
+| Node.js | Official distribution index | `SHASUMS256.txt`, and its signature, against the project's published release keys, which come with moor |
+| uv | Official release assets | Per-asset SHA-256. Its attestations are not checked: that takes a Sigstore client, which would outweigh the rest of this table |
 | Python | Installed by uv (`uv python install`) into the toolchain directory | Checksums bundled with uv |
 | Bun | Official release assets | `SHASUMS256.txt` |
 | Deno | Official release assets | Per-asset SHA-256 file |

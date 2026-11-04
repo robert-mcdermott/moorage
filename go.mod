@@ -20,7 +20,7 @@ require github.com/go-jose/go-jose/v4 v4.1.4
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/ProtonMail/go-crypto v1.5.2 // indirect
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
