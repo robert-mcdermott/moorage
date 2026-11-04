@@ -20,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/platform"
@@ -284,8 +285,10 @@ func addFile(ctx context.Context, tw *tar.Writer, root *os.Root, rel, name strin
 	case info.Mode().IsRegular(), info.IsDir():
 	case info.Mode()&fs.ModeSymlink != 0:
 		if link, err = root.Readlink(rel); err != nil {
-			// It was a link when it was looked at. An app may have made it something else by now.
-			if now, statErr := root.Lstat(rel); statErr != nil || now.Mode()&fs.ModeSymlink == 0 {
+			// It was a link when it was looked at. An app may have made it something else by now, and even back again, so
+			// that being told that it is not one, or is not there, is enough to go by.
+			now, statErr := root.Lstat(rel)
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.EINVAL) || statErr != nil || now.Mode()&fs.ModeSymlink == 0 {
 				sum.Changed = append(sum.Changed, name)
 				return nil
 			}

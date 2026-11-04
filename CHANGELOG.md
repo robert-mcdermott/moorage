@@ -24,6 +24,10 @@ Connecting to a real forge, OpenTelemetry collector or syslog server has been tr
 - **Telemetry elsewhere.** `moor server telemetry`, or Settings then Telemetry, sends what apps say to syslog (RFC 5424, over UDP, TCP or TLS), an OpenTelemetry collector or any HTTP endpoint, and what they do to an OpenTelemetry collector. A sink that is down costs nothing but its own place in a queue, and what apps say while the server restarts is sent when it is back. See [Sending telemetry elsewhere](docs/telemetry.md).
 - **Thresholds.** `moor alerts`, or an app's Metrics tab, says when to be told about an environment's error rate, latency, memory or CPU, through the channels that notifications already go to. `[notifications] disk_percent` says how full the server's data volume may get.
 
+### Fixed
+
+- A backup could fail, rarely, if an app swapped a file between a link and a plain file as it was being read, and back again. It now notes that the file changed, as it does for one that is changing.
+
 ## 0.6.0 (2026-11-04)
 
 Moorage 0.6.0 is about a server you can rely on. On Linux, apps are kept apart from one another. Backups and restoring are built in, and were tried on real services. People can sign in with a second factor, through your identity provider, or through a proxy. A server can upgrade itself, and go back. Moorage is now open source, under the Apache License 2.0.
