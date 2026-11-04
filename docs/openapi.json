@@ -288,6 +288,42 @@
         ],
         "type": "object"
       },
+      "CronJob": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "last": {
+            "$ref": "#/components/schemas/Run"
+          },
+          "name": {
+            "type": "string"
+          },
+          "next": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "overlap": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "schedule",
+          "command",
+          "timeout"
+        ],
+        "type": "object"
+      },
       "Deployment": {
         "properties": {
           "app": {
@@ -953,6 +989,20 @@
         ],
         "type": "object"
       },
+      "NewRun": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
       "NewSSHKey": {
         "properties": {
           "name": {
@@ -1326,6 +1376,61 @@
         },
         "type": "object"
       },
+      "Run": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "job": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "app",
+          "env",
+          "command",
+          "trigger",
+          "status",
+          "started_at"
+        ],
+        "type": "object"
+      },
       "SSHKey": {
         "properties": {
           "created_at": {
@@ -1551,6 +1656,15 @@
       "Var": {
         "properties": {
           "build": {
+            "type": "boolean"
+          },
+          "declared": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "missing": {
             "type": "boolean"
           },
           "name": {
@@ -2353,6 +2467,131 @@
           "apps"
         ],
         "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/cron": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvCron",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CronJob"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an environment's cron jobs, with when each next runs and how the last one went",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/envs/{env}/cron/{job}/run": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvCronJobRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Run a cron job now",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
       }
     },
     "/apps/{app}/envs/{env}/deployments": {
@@ -3491,6 +3730,131 @@
         "x-moorage-permission": "deploy"
       }
     },
+    "/apps/{app}/envs/{env}/runs": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Run"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an environment's runs, newest first; job= is those of a cron job",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "post": {
+        "operationId": "postAppsAppEnvsEnvRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewRun"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Run a command in the current release, with its variables and data",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}/share-links": {
       "get": {
         "operationId": "getAppsAppEnvsEnvShareLinks",
@@ -4088,6 +4452,170 @@
           }
         ],
         "summary": "Deploy a preview of a branch that was pushed",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/runs/{id}": {
+      "get": {
+        "operationId": "getAppsAppRunsId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "How a run went",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/runs/{id}/log": {
+      "get": {
+        "operationId": "getAppsAppRunsIdLog",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "What a run says, as NDJSON; follow=true stays open until it ends",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "logs"
+      }
+    },
+    "/apps/{app}/runs/{id}/stop": {
+      "post": {
+        "operationId": "postAppsAppRunsIdStop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Stop a run that is going on",
         "tags": [
           "apps"
         ],

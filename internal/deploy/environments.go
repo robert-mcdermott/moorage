@@ -266,6 +266,16 @@ func (d *Deployer) DeleteEnvironment(ctx context.Context, app, env, by string) e
 	if err != nil {
 		return err
 	}
+	d.cancelRuns(app, env)
+	runIDs, err := d.db.RunIDs(ctx, app, env)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, id := range runIDs {
+			os.Remove(LogPath(d.opts.DataDir, app, id))
+		}
+	}()
 	if d.opts.Runtime != nil {
 		d.opts.Runtime.Retire(app, env)
 		d.opts.Runtime.ForgetEnv(app, env)

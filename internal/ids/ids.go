@@ -32,6 +32,7 @@ const (
 	Audit      = "aud"
 	ShareLink  = "shr"
 	Domain     = "dom"
+	Run        = "run"
 )
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

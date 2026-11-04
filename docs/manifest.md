@@ -65,6 +65,9 @@ LOG_LEVEL = "info"
 | `runtime` | `"auto"` | `auto` (detect), `go`, `python`, `node`, `static`, `command` (your own build), `binary` (run the files as they are), or [`dockerfile` or `image`](containers.md) (run in a container). |
 | `toolchains` | `[]` | More toolchains on the `PATH` while building and running, as `name@version`: `go`, `node`, `python` and `uv` are installed by Moorage, and `name@system` uses the server's own (`"java@system"`). Versions may be partial (`"24"`, `"3.13"`); the exact version is recorded in the build. |
 
+`watch` lists the paths that matter, as globs, whose `*` crosses slashes: a [push](git.md) that touches none of them, nor this
+file, is kept and not deployed.
+
 `strip_prefix`, with [path routing](domains.md#with-no-wildcard-dns-path-routing), takes the path the app is served at away
 from what it hears.
 
@@ -270,6 +273,21 @@ applies to every preview.
 | `sleep_after` | [Sleeps](previews.md#sleeping) after this long without a request. By default a preview does after 30 minutes, and others never do; `"off"` says never. |
 | `access` | [Who can reach it](access.md): `password`, `login` or `share`; `public` only if the server's default is. |
 
+## `[[cron]]`
+
+[Cron jobs](cron.md): `name`, `schedule`, `command`, `timezone`, `timeout`, `overlap` and `environments`.
+
+## `[vars.NAME]`
+
+[What the app expects](variables.md#what-an-app-expects), with no values in the repository.
+
+| Key | Default | |
+|---|---|---|
+| `description` | | Shown in the console and by `moor env`. |
+| `required` | `false` | A deployment fails, early, if nothing sets it. |
+| `secret` | `false` | A deployment fails if it is set, and not as a secret. |
+| `generate` | | `secret` or `uuid`: a value is made once for each environment, and kept as a secret. |
+
 ## `[env]`
 
 Variables for the app, at build and run time, such as `LOG_LEVEL = "info"`.
@@ -321,10 +339,9 @@ and `moor manifest validate` warns that they have no effect yet:
 
 | Setting | Arrives |
 |---|---|
-| `app.watch`, `app.root` | a later release |
-| `[vars]` | a later release (declared variables) |
+| `app.root` | a later release |
 | `[resources]` and `[storage]` outside a container | a later release |
-| `[[cron]]`, `[[routes]]`, `[services]` | later releases |
+| `[[routes]]`, `[services]` | later releases |
 | `previews.data`, `resources` in `[environments.*]` | later releases |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

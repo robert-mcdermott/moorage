@@ -40,7 +40,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -161,6 +161,11 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("GET /apps/{app}/cron", c.cronPage)
+	mux.HandleFunc("GET /apps/{app}/runs/{id}", c.runPage)
+	mux.HandleFunc("POST /apps/{app}/runs", c.action(c.startRun))
+	mux.HandleFunc("POST /apps/{app}/runs/{id}/stop", c.action(c.stopRun))
+	mux.HandleFunc("POST /apps/{app}/cron/{job}/run", c.action(c.runCronJob))
 	mux.HandleFunc("GET /auth/gate", c.gateSignIn)
 	mux.HandleFunc("GET /apps/{app}/access", c.accessPage)
 	mux.HandleFunc("POST /apps/{app}/access", c.actionWith(auth.ScopeAdmin, maxForm, c.setAccess))
@@ -295,6 +300,9 @@ type data struct {
 	EnvRows  []environmentRow
 	// Gate says who may reach it, on its Access page.
 	Gate *accessView
+	// Cron is an environment's cron jobs and runs, and Run one of those.
+	Cron *cronView
+	Run  *runView
 	// Usage says how much room it takes.
 	Usage deploy.AppUsage
 

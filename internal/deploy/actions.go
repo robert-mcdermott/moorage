@@ -172,14 +172,18 @@ func (d *Deployer) sourceOf(ctx context.Context, app string, b store.Build) (Sou
 }
 
 // Restart replaces an environment's instances without downtime.
-func (d *Deployer) Restart(ctx context.Context, app, env, by string) error {
+func (d *Deployer) Restart(ctx context.Context, app, env, process, by string) error {
 	if err := d.Wake(ctx, app, env, by); err != nil {
 		return err
 	}
-	if err := d.opts.Runtime.Restart(ctx, app, env); err != nil {
+	if err := d.opts.Runtime.Restart(ctx, app, env, process); err != nil {
 		return err
 	}
-	d.opts.Events.Publish(ctx, store.Event{Type: events.AppRestarted, App: app, Env: env, Actor: by})
+	data := map[string]any{}
+	if process != "" {
+		data["process"] = process
+	}
+	d.opts.Events.Publish(ctx, store.Event{Type: events.AppRestarted, App: app, Env: env, Actor: by, Data: data})
 	return nil
 }
 

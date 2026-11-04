@@ -337,8 +337,12 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.deployer.Restart(r.Context(), app, env, who(r).Name)
+	err := s.deployer.Restart(r.Context(), app, env, r.URL.Query().Get("process"), who(r).Name)
+	var scale *reconcile.ScaleError
 	switch {
+	case errors.As(err, &scale):
+		problem(w, http.StatusUnprocessableEntity, "invalid_process", sentenceOf(err))
+		return
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return

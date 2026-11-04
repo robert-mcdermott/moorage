@@ -727,6 +727,86 @@ func (c *Client) WakeEnvironment(ctx context.Context, app, env string) (apitypes
 	return out, err
 }
 
+// CronJobs lists an environment's cron jobs.
+func (c *Client) CronJobs(ctx context.Context, app, env string) ([]apitypes.CronJob, error) {
+	var out []apitypes.CronJob
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "cron"), nil, "", &out)
+	return out, err
+}
+
+// RunCronJob runs a cron job now.
+func (c *Client) RunCronJob(ctx context.Context, app, env, job string) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "cron/"+url.PathEscape(job)+"/run"), struct{}{}, &out)
+	return out, err
+}
+
+// Runs lists an environment's runs, newest first; a job's, if it is named.
+func (c *Client) Runs(ctx context.Context, app, env, job string) ([]apitypes.Run, error) {
+	var out []apitypes.Run
+	path := envPath(app, env, "runs")
+	if job != "" {
+		path += "?job=" + url.QueryEscape(job)
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, "", &out)
+	return out, err
+}
+
+// StartRun runs a command in an environment's current release.
+func (c *Client) StartRun(ctx context.Context, app, env string, req apitypes.NewRun) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "runs"), req, &out)
+	return out, err
+}
+
+// Run says how a run went.
+func (c *Client) Run(ctx context.Context, app, id string) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/runs/"+url.PathEscape(id), nil, "", &out)
+	return out, err
+}
+
+// StopRun stops a run that is going on.
+func (c *Client) StopRun(ctx context.Context, app, id string) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/runs/"+url.PathEscape(id)+"/stop", struct{}{}, &out)
+	return out, err
+}
+
+// FollowRun passes what a run says to fn as it comes, and returns the run as it ended.
+func (c *Client) FollowRun(ctx context.Context, app, id string, fn func(apitypes.LogLine) error) (apitypes.Run, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+"/api/v1/apps/"+url.PathEscape(app)+"/runs/"+url.PathEscape(id)+"/log?follow=true", nil)
+	if err != nil {
+		return apitypes.Run{}, err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return apitypes.Run{}, err
+	}
+	defer res.Body.Close()
+	dec := json.NewDecoder(res.Body)
+	for {
+		var l apitypes.LogLine
+		if err := dec.Decode(&l); err != nil {
+			if !errors.Is(err, io.EOF) {
+				return apitypes.Run{}, err
+			}
+			break
+		}
+		if err := fn(l); err != nil {
+			return apitypes.Run{}, err
+		}
+	}
+	return c.Run(ctx, app, id)
+}
+
+// RestartProcess replaces the instances of one process.
+func (c *Client) RestartProcess(ctx context.Context, app, env, process string) ([]apitypes.Instance, error) {
+	var out []apitypes.Instance
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "restart")+"?process="+url.QueryEscape(process), struct{}{}, &out)
+	return out, err
+}
+
 // Domains lists an environment's domains.
 func (c *Client) Domains(ctx context.Context, app, env string) ([]apitypes.Domain, error) {
 	var out []apitypes.Domain

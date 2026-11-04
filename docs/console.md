@@ -44,7 +44,7 @@ deployments change as they do. From here:
 |---|---|---|
 | **Deploy** | Says how: from its directory, with `git push`, or from the page, by uploading a `.tar.gz` of its source or naming an image. It goes to the deployment when one starts. | `moor deploy` |
 | **Redeploy** | Builds again what the current release was built from: the same commit, upload or image name, for when a toolchain has moved, a tag points elsewhere or a build variable has changed. A release uploaded ready to run has nothing to build. | `moor redeploy` |
-| **Restart** | Replaces the instances, without downtime. | `moor restart` |
+| **Restart** | Replaces the instances, without downtime, or those of one process. | `moor restart [PROCESS]` |
 | **Roll back** | Serves the release before this one again, as a new release, in seconds. A deployment's page rolls back to that one, and can restore the variables it ran with. | `moor rollback` |
 | **Scale** | Says how many instances of each process run. | `moor scale` |
 | **Sleep** and **Wake** | Stops its instances until a request wakes it, and starts them again. | `moor sleep`, `moor wake` |
@@ -90,6 +90,11 @@ production, **Lock** one against deployments, **Pin** a preview and **Remove** o
 
 **Previews** in the sidebar has those of every app you can see, with when each was last used and
 when it expires.
+
+## Cron
+
+An app's **Cron** tab lists its [cron jobs](cron.md), with their schedules, when each next runs and how it last went, and
+**Run now** does just that. Below them are its runs, each with what it said, and a box to run a command in the current release.
 
 ## Domains and access
 

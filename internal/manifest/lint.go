@@ -44,23 +44,14 @@ func Lint(m *Manifest) []string {
 	if m.Bun != nil || m.Deno != nil {
 		notYet("[bun] and [deno]", "a later release")
 	}
-	if len(m.App.Watch) > 0 {
-		notYet("app.watch", "a later release")
-	}
 	if m.App.Root != "" && m.App.Root != "." {
 		notYet("app.root", "a later release; deploy the app's directory instead")
 	}
 	if m.App.Shell == "system" {
 		notYet(`app.shell = "system"`, "commands run in the embedded shell")
 	}
-	if len(m.Cron) > 0 {
-		notYet("[[cron]]", "cron jobs arrive in a later release")
-	}
 	if len(m.Routes) > 0 {
 		notYet("[[routes]]", "path routes arrive in a later release")
-	}
-	if len(m.Vars) > 0 {
-		notYet("[vars]", "declared variables arrive in a later release")
 	}
 	if m.Resources != nil && !inContainers {
 		notYet("[resources]", "limits apply to containers for now; for other apps they arrive in a later release")

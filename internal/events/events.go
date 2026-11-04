@@ -42,6 +42,7 @@ const (
 	AccessChanged        = "access.changed"
 	ShareCreated         = "share.created"
 	ShareRevoked         = "share.revoked"
+	CronFailed           = "cron.failed"
 	DomainAdded          = "domain.added"
 	DomainVerified       = "domain.verified"
 	DomainRemoved        = "domain.removed"
@@ -173,7 +174,7 @@ func Level(kind string) string {
 	switch kind {
 	case DeploymentLive, InstanceHealthy, DomainVerified:
 		return "ok"
-	case DeploymentFailed:
+	case DeploymentFailed, CronFailed:
 		return "fail"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
@@ -270,6 +271,9 @@ func Summary(e store.Event) string {
 	case ScaleChanged:
 		return "Scaled to " + text(e, "formation") + by
 	case AppRestarted:
+		if p := text(e, "process"); p != "" {
+			return "Restarted " + p + by
+		}
 		return "Restarted" + by
 	case AppRenamed:
 		return "Renamed from " + text(e, "from") + by
@@ -282,6 +286,8 @@ func Summary(e store.Event) string {
 		return "Environment " + e.Env + " made"
 	case EnvironmentDeleted:
 		return "Environment " + e.Env + " removed" + by
+	case CronFailed:
+		return "The cron job " + text(e, "job") + " failed: " + text(e, "error")
 	case DomainAdded:
 		return text(e, "domain") + " attached to " + e.Env + by
 	case DomainVerified:

@@ -61,6 +61,7 @@ Once the remote is there, the other commands find the app from it:
 | A tag | Kept, not deployed. |
 | `git push moorage --delete BRANCH` | The branch is deleted, and its preview destroyed; the production branch cannot be. |
 | A commit whose message contains `[skip deploy]` | Kept, not deployed. |
+| What touches nothing in `watch` of `[app]`, or `moorage.toml` | Kept, not deployed. |
 
 **A locked environment** [takes no deployments](previews.md#locks): the commits are kept, and not deployed, and the push says so.
 

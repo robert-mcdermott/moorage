@@ -358,6 +358,11 @@ button.danger-solid { color: #fff; background: var(--fail); border-color: var(--
 .share-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s4); margin-top: var(--s3); }
 .share-form .field { margin: 0; }
 .share-form select, .share-form input { width: auto; max-width: 12rem; }
+.restart-one { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s3); }
+.run-command { flex: 1 1 24rem; }
+.share-form .run-command input { width: 100%; max-width: none; }
+.log-lines { margin: 0; padding: var(--s3) var(--s4); overflow-x: auto; font-family: var(--mono); font-size: .82rem; line-height: 1.55; }
+.log-line.is-err { color: var(--fail); }
 .new-link p { margin: 0 0 var(--s2); }
 .lock-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); }
 .lock-offer p { margin: 0; flex: 1 1 20rem; }

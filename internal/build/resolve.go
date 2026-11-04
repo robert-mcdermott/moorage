@@ -144,6 +144,15 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 		r.plan.Environments[name] = over
 	}
 	r.plan.StripPrefix = m.App.StripPrefix
+	for _, c := range m.Cron {
+		r.plan.Cron = append(r.plan.Cron, manifest.CronPlan{Name: c.Name, Schedule: c.Schedule, Command: c.Command, Timezone: c.Timezone, Timeout: c.Timeout, Overlap: c.Overlap, Environments: c.Environments})
+	}
+	for name, v := range m.Vars {
+		if r.plan.Vars == nil {
+			r.plan.Vars = map[string]manifest.VarPlan{}
+		}
+		r.plan.Vars[name] = manifest.VarPlan{Description: v.Description, Required: v.Required, Secret: v.Secret, Generate: v.Generate}
+	}
 	if m.Previews != nil {
 		r.plan.Previews = &manifest.PreviewPlan{Enabled: m.Previews.Enabled, Branches: m.Previews.Branches, TTL: m.Previews.TTL, SleepAfter: m.Previews.SleepAfter, Access: m.Previews.Access}
 	}

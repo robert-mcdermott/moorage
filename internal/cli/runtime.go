@@ -91,12 +91,15 @@ func newRestartCmd() *cobra.Command {
 	var conn connection
 	var app, env string
 	cmd := &cobra.Command{
-		Use:   "restart",
+		Use:   "restart [PROCESS]",
 		Short: "Replace an app's instances without downtime",
 		Long: `Start new instances of the current release, move traffic to them once they
-are healthy, and stop the old ones after their requests finish.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+are healthy, and stop the old ones after their requests finish. With a process,
+only its instances are replaced.`,
+		Example: `  moor restart
+  moor restart worker`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			appName, _, err := resolveApp(app)
 			if err != nil {
 				return err
@@ -105,7 +108,12 @@ are healthy, and stop the old ones after their requests finish.`,
 			if err != nil {
 				return err
 			}
-			ins, err := c.Restart(cmd.Context(), appName, env)
+			var ins []apitypes.Instance
+			if len(args) == 1 {
+				ins, err = c.RestartProcess(cmd.Context(), appName, env, args[0])
+			} else {
+				ins, err = c.Restart(cmd.Context(), appName, env)
+			}
 			if err != nil {
 				return err
 			}

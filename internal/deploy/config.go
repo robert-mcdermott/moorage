@@ -113,12 +113,25 @@ func ListVars(ctx context.Context, db *store.DB, app, env string) ([]apitypes.Va
 	if _, build, err := db.CurrentRelease(ctx, app, env); err == nil {
 		var plan manifest.Plan
 		if json.Unmarshal(build.Plan, &plan) == nil {
-			for name, value := range plan.ForEnv(env, kind).Env {
+			running := plan.ForEnv(env, kind).Env
+			for name, value := range running {
 				out = append(out, apitypes.Var{Name: name, Value: value, Source: "manifest", Overridden: serverNames[name]})
+			}
+			for name, v := range plan.Vars {
+				_, inRepo := running[name]
+				if serverNames[name] || inRepo {
+					for i := range out {
+						if out[i].Name == name {
+							out[i].Declared, out[i].Description = true, v.Description
+						}
+					}
+					continue
+				}
+				out = append(out, apitypes.Var{Name: name, Source: "declared", Secret: v.Secret, Declared: true, Description: v.Description, Missing: v.Required})
 			}
 		}
 	}
-	order := map[string]int{"env": 0, "production": 1, "app": 2, "manifest": 3}
+	order := map[string]int{"env": 0, "production": 1, "app": 2, "manifest": 3, "declared": 4}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Name != out[j].Name {
 			return out[i].Name < out[j].Name

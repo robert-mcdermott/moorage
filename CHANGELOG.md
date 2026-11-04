@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Cron jobs (wave 5, slice 1).** `[[cron]]` in the manifest: five-field schedules or `@daily` and `@every 15m`, time zones, time limits, what to do about overlaps, and which environments. `moor cron`, and a **Cron** tab with when each next runs and how it last went. The last 100 runs of each are kept, with what they said.
+- **`moor run -- COMMAND`.** Runs a command in the current release, with its variables and data, shows what it says, and ends with its exit status. The console has a box for it.
+- **`moor restart PROCESS`.** Replaces the instances of one process, and leaves the others running.
+- **What an app expects.** `[vars.NAME]`: a deployment fails early if a `required` one is missing, and one to `generate` is made once for each environment.
+- **`watch` in `[app]`.** A push that touches none of those paths is kept, not deployed.
+
 ## 0.4.0 (2026-11-03)
 
 Moorage 0.4.0 gives every branch a place of its own, and says who can reach it. Push a branch and it gets its own build, address and data, which sleeps when nobody is using it and goes when its branch does. Staging, promoting what it runs to production, and locks come with it. Each environment can be open, behind a password, for those signed in, or only for people with a share link. Apps can have domains of their own, and belong to projects, in which people have roles, with an audit log of who did what.

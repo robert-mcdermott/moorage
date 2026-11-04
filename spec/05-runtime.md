@@ -241,10 +241,12 @@ it), so the console reports the protection that is actually in effect.
   with the same environment variables and data directory, and no port unless
   requested. Output goes to a per-run log; the last 100 runs per job are kept
   with status, duration and exit code.
-- `moor cron list`, `moor cron run <name>` (manual trigger), and a cron tab in
-  the console showing next and previous runs.
+- `moor cron`, `moor cron run <name>` (manual trigger), and a cron tab in the
+  console showing next and previous runs. A job that was due while the server was
+  down waits for its next time: a job running late may be worse than one not
+  running. A job runs in an environment that is asleep without waking the rest.
 - `moor run -- <command>` starts a one-off instance and streams its output,
-  returning its exit code (Phase 2). Interactive sessions over a PTY through
+  returning its exit code; interrupting it stops the command. Interactive sessions over a PTY through
   the API's WebSocket (`moor run -it -- bash`, and a web terminal in the
   console) arrive in Phase 3. For containers, `moor exec <instance>` attaches
   to a running container.

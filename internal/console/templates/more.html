@@ -120,7 +120,7 @@
       <td class="var-name"><code>{{.Name}}</code>{{if .Secret}} <span class="badge">Secret</span>{{end}}{{if .Build}} <span class="badge info">Build</span>{{end}}</td>
       <td class="var-value">{{if .Secret}}<span class="muted" aria-label="Hidden">{{mask}}</span>{{else}}<code class="wrap">{{.Value}}</code>{{end}}</td>
       <td data-label="From" class="muted small">
-        {{if eq .Source "manifest"}}moorage.toml{{else if eq .Source "app"}}Every environment{{else if eq .Source "production"}}Inherited from production{{else}}This environment{{end}}
+        {{if eq .Source "manifest"}}moorage.toml{{else if eq .Source "app"}}Every environment{{else if eq .Source "production"}}Inherited from production{{else if eq .Source "declared"}}Its manifest expects it{{else}}This environment{{end}}{{if .Missing}} <span class="badge fail">Missing: the next deployment fails without it</span>{{end}}{{with .Description}}<div class="muted small">{{.}}</div>{{end}}
         {{if .Overridden}}<span class="badge warn">Overridden</span>{{end}}
         {{if .UpdatedBy}}<div><time datetime="{{iso .UpdatedAt}}">{{ago .UpdatedAt}}</time> by {{.UpdatedBy}}</div>{{end}}
       </td>

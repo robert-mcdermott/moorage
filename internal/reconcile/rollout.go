@@ -46,6 +46,11 @@ func (e *RolloutError) Error() string {
 // first. If a new instance fails, the new instances are stopped and the old
 // ones keep serving (rolling) — the error says why.
 func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error {
+	return m.rollout(ctx, app, env, rel, build, plan, "")
+}
+
+// rollout is Rollout, of one process if it says, leaving the others running.
+func (m *Manager) rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, only string) error {
 	plan.Defaults()
 	es := m.env(app, env)
 	es.rollout.Lock()
@@ -60,14 +65,24 @@ func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Releas
 	}
 	plan = plan.ForEnv(env, kind).WithFormation(formation)
 
-	old := es.list()
+	var old, others []*instance
+	for _, in := range es.list() {
+		if only == "" || in.process == only {
+			old = append(old, in)
+		} else {
+			others = append(others, in)
+		}
+	}
 	if plan.Deploy.Strategy == "recreate" {
-		es.pool.Set(nil)
+		es.servePool(others)
 		m.retire(es, old, plan.Deploy.Drain.Std())
 		old = nil
 	}
 	var fresh []*instance
 	for _, name := range manifest.SortedProcesses(plan.Processes) {
+		if only != "" && name != only {
+			continue
+		}
 		proc := plan.Processes[name]
 		for i := 1; i <= *proc.Instances; i++ {
 			in, err := m.start(ctx, es, rel, build, plan, name, proc, i)
@@ -98,16 +113,16 @@ func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Releas
 	for _, in := range fresh {
 		m.watch(es, in)
 	}
-	// Exactly the new instances take the traffic: a restart rolls out the
-	// release already running, so its old instances share the release.
-	es.servePool(fresh)
+	// Exactly the new instances take the traffic, and any left running: a restart rolls out
+	// the release already running, so its old instances share the release.
+	es.servePool(append(others, fresh...))
 	m.retire(es, old, plan.Deploy.Drain.Std())
 	return nil
 }
 
 // Restart rolls out the current release again: new instances replace the
 // running ones without downtime.
-func (m *Manager) Restart(ctx context.Context, app, env string) error {
+func (m *Manager) Restart(ctx context.Context, app, env, process string) error {
 	rel, build, err := m.db.CurrentRelease(ctx, app, env)
 	if err != nil {
 		return err
@@ -119,7 +134,10 @@ func (m *Manager) Restart(ctx context.Context, app, env string) error {
 	if plan.Kind != manifest.KindProcess {
 		return fmt.Errorf("%s is a static site; it has no processes to restart", app)
 	}
-	return m.Rollout(ctx, app, env, rel, build, plan)
+	if _, known := plan.Processes[process]; process != "" && !known {
+		return &ScaleError{app + " has no process named " + process}
+	}
+	return m.rollout(ctx, app, env, rel, build, plan, process)
 }
 
 // ScaleError reports a formation that cannot be: a process the app does not have, or
@@ -440,9 +458,9 @@ func (m *Manager) addMoorage(app, env string, rel store.Release, build store.Bui
 // would run (its directory and environment, no port), and waits for it:
 // the release command of a deployment. Its output goes to log as log
 // lines, with the values of secrets removed.
-func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error {
+func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer) error {
 	if plan.Container != nil {
-		return m.runContainerOnce(ctx, app, env, rel, build, plan, command, timeout, log)
+		return m.runContainerOnce(ctx, app, env, rel, build, plan, process, command, timeout, log)
 	}
 	tmp := m.tmpDir("run-" + rel.ID)
 	defer os.RemoveAll(tmp)
@@ -450,7 +468,7 @@ func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Releas
 	if err != nil {
 		return err
 	}
-	vars["MOORAGE_PROCESS"] = "release"
+	vars["MOORAGE_PROCESS"] = process
 	values := make([]string, 0, len(secrets))
 	for k, v := range secrets {
 		vars[k] = v

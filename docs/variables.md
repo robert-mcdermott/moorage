@@ -37,6 +37,25 @@ The key that encrypts secrets, `keys/master.key` in the data directory, must
 be backed up apart from the database. A server whose secrets were encrypted
 with another key, or without its key, refuses to start.
 
+## What an app expects
+
+An app can say what it needs, with no values in the repository:
+
+```toml
+[vars.PAYMENTS_KEY]
+required = true
+secret = true
+description = "Sandbox key for the payments provider"
+
+[vars.SESSION_KEY]
+generate = "secret"
+```
+
+A deployment that lacks one that is `required` fails early, saying which, before the app gets as far as falling
+over, and one that is `secret` must have been set as one. One to `generate` is made the first time it is needed, once for each
+environment, so that every preview gets its own. Rollbacks do not stop to check. `moor env` and the app's
+**Variables** page list them all, with their descriptions, and say what is missing.
+
 ## In other environments
 
 A variable belongs to one environment, or with `--all-envs` to all of them. [A preview](previews.md)

@@ -109,6 +109,7 @@ func (d *Deployer) quiesce(ctx context.Context, app string) (release func(), err
 		}
 	}
 	for _, e := range envs {
+		d.cancelRuns(app, e.Name)
 		lock := d.envLock(app, e.Name)
 		lock.Lock()
 		held = append(held, lock.Unlock)
@@ -245,7 +246,7 @@ func (d *Deployer) RenameApp(ctx context.Context, app, name, by string) error {
 			}
 			var plan manifest.Plan
 			if json.Unmarshal(b.Plan, &plan) == nil && plan.Kind == manifest.KindProcess {
-				if err := d.opts.Runtime.Restart(ctx, name, e.Name); err != nil && failed == nil {
+				if err := d.opts.Runtime.Restart(ctx, name, e.Name, ""); err != nil && failed == nil {
 					failed = err
 				}
 			}

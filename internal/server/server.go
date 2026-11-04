@@ -80,6 +80,8 @@ type Options struct {
 	// GCMinAge, if set, overrides how old a build must be before garbage
 	// collection may remove it (tests shorten it).
 	GCMinAge time.Duration
+	// CronTick, if set, overrides how often cron jobs are looked at (tests).
+	CronTick time.Duration
 	// GateRecheck, if set, overrides how often gates look again at whom they let in (tests).
 	GateRecheck time.Duration
 	// Resolver, if set, looks up what domains point to, instead of the system's (tests).
@@ -293,6 +295,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		sweep = time.Minute
 	}
 	go deployer.Sweep(ctx, sweep)
+	cronTick := opts.CronTick
+	if cronTick == 0 {
+		cronTick = 10 * time.Second
+	}
+	go deployer.RunCron(ctx, cronTick)
 	authn := &auth.Service{
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,

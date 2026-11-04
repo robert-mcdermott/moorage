@@ -91,9 +91,14 @@ type Var struct {
 	// the manifest of the current release).
 	Source string `json:"source"`
 	// Overridden reports a variable that another source sets too, and wins.
-	Overridden bool      `json:"overridden,omitempty"`
-	UpdatedBy  string    `json:"updated_by,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at,omitzero"`
+	Overridden bool `json:"overridden,omitempty"`
+	// Declared says the manifest expects it, for Description; Missing that it is required, and
+	// nothing sets it, so that the next deployment will fail.
+	Declared    bool      `json:"declared,omitempty"`
+	Description string    `json:"description,omitempty"`
+	Missing     bool      `json:"missing,omitempty"`
+	UpdatedBy   string    `json:"updated_by,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitzero"`
 }
 
 // VarsChange sets and unsets variables of an environment (or, with
@@ -432,6 +437,47 @@ type Environment struct {
 	// LockedBy, if set, is who stopped deployments to it.
 	LockedBy   string    `json:"locked_by,omitempty"`
 	LastActive time.Time `json:"last_active_at,omitzero"`
+}
+
+// Run is one running of a command of a release: a cron job's, or one someone asked for.
+type Run struct {
+	ID  string `json:"id"`
+	App string `json:"app"`
+	Env string `json:"env"`
+	// Job is the cron job it belongs to, if any.
+	Job     string `json:"job,omitempty"`
+	Command string `json:"command"`
+	// Trigger is schedule or manual.
+	Trigger   string `json:"trigger"`
+	CreatedBy string `json:"created_by,omitempty"`
+	Version   int    `json:"version,omitempty"`
+	// Status is running, succeeded, failed, canceled or skipped.
+	Status string `json:"status"`
+	// ExitCode is what it exited with, if it did.
+	ExitCode   *int      `json:"exit_code,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at,omitzero"`
+}
+
+// NewRun starts a command.
+type NewRun struct {
+	Command string `json:"command"`
+	// Timeout is how long it may take, such as 10m: an hour unless it says, and a day at most.
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// CronJob is a cron job of an environment, as it stands.
+type CronJob struct {
+	Name     string `json:"name"`
+	Schedule string `json:"schedule"`
+	Command  string `json:"command"`
+	Timezone string `json:"timezone,omitempty"`
+	Overlap  string `json:"overlap,omitempty"`
+	Timeout  string `json:"timeout"`
+	// Next is when it next runs, and Last its newest run.
+	Next time.Time `json:"next,omitzero"`
+	Last *Run      `json:"last,omitempty"`
 }
 
 // Domain is a hostname of your own, or a path on one, attached to an environment.

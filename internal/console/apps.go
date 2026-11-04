@@ -533,7 +533,7 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 }
 
 func (c *Console) restart(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	if err := c.deployer.Restart(lasting(r), app, envOf(r), p.Name); err != nil {
+	if err := c.deployer.Restart(lasting(r), app, envOf(r), r.PostFormValue("process"), p.Name); err != nil {
 		var rollout *reconcile.RolloutError
 		if errors.As(err, &rollout) || errors.Is(err, store.ErrNotFound) {
 			c.actionFailed(w, r, p, app, err)

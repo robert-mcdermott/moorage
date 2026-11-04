@@ -961,6 +961,12 @@ directory, supervises it, and serves it on its own hostname.
 
 1. **Processes.** Cron jobs, one-off runs (`moor run`), restarting one process,
    declared and generated variables, `watch` paths.
+   - Done in slice 1: all of those, with a **Cron** tab in the console. Runs are their own
+     records, with their output, and the last 100 of each job are kept.
+   - Found by slice 1: `@every` may go down to a second, since a job a minute apart cannot be
+     tried in a test of any reasonable length. A rollback does not check declared
+     variables, since it is what one reaches for when things are already wrong. A
+     `watch` list always includes the manifest, or a change to the list itself could be ignored.
 2. **Metrics.** Collection (cgroups, process sampling, engine statistics,
    the ingress), tiered storage, console charts with deploy markers,
    sparklines, the Prometheus endpoint.

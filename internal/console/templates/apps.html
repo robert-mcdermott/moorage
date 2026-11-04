@@ -8,6 +8,7 @@
   {{if .Access.Logs}}<a href="/apps/{{.App.Name}}/logs{{envq .Env}}"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>{{end}}
   {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/variables{{envq .Env}}"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
   <a href="/apps/{{.App.Name}}/deploy{{envq .Env}}"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
+  <a href="/apps/{{.App.Name}}/cron{{envq .Env}}"{{if eq .Tab "cron"}} aria-current="page"{{end}}>Cron</a>
   <a href="/apps/{{.App.Name}}/environments"{{if eq .Tab "environments"}} aria-current="page"{{end}}>Environments</a>
   <a href="/apps/{{.App.Name}}/access{{envq .Env}}"{{if eq .Tab "access"}} aria-current="page"{{end}}>Domains and access</a>
   {{if .Access.Manage}}<a href="/apps/{{.App.Name}}/settings"{{if eq .Tab "settings"}} aria-current="page"{{end}}>Settings</a>{{end}}
@@ -184,6 +185,18 @@
     <button class="quiet" type="submit">Scale</button>
     <p class="hint small scale-note">The number stays for the releases to come.</p>
   </form>
+  {{if gt (len .Processes) 1}}
+  <div class="restart-one">
+    <span class="muted small">Restart only</span>
+    {{range .Processes}}
+    <form method="post" action="/apps/{{$.App.Name}}/restart{{envq $.Env}}" data-busy="Restarting…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="process" value="{{.Name}}">
+      <button class="quiet small" type="submit">{{.Name}}</button>
+    </form>
+    {{end}}
+  </div>
+  {{end}}
 </section>{{end}}
 {{end}}
 {{else}}
@@ -718,5 +731,114 @@
   </form>
 </section>
 {{end}}
+{{end}}
+{{end}}
+
+{{define "app-cron"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{$env := .Env}}
+{{with .Cron}}
+<section class="block" data-refresh="cron">
+  <div class="section-heading"><h2>Cron jobs</h2></div>
+  {{if .Jobs}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Job</th><th scope="col">Schedule</th><th scope="col">Next</th><th scope="col">Last</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Jobs}}
+      <tr>
+        <td><span class="app-name">{{.Name}}</span><div class="muted small"><code>{{.Command}}</code></div></td>
+        <td data-label="Schedule"><code>{{.Schedule}}</code>{{with .Timezone}}<div class="muted small">{{.}}</div>{{end}}</td>
+        <td class="muted nowrap" data-label="Next">{{if .Next.IsZero}}Never{{else}}<time datetime="{{iso .Next}}">{{untilText .Next}}</time>{{end}}</td>
+        <td data-label="Last">{{with .Last}}<a href="/apps/{{$app}}/runs/{{.ID}}"><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span></a> <span class="muted small nowrap"><time datetime="{{iso .At}}">{{ago .At}}</time></span>{{else}}—{{end}}</td>
+        <td class="row-end">{{if $.Access.Deploy}}
+          <form method="post" action="/apps/{{$app}}/cron/{{.Name}}/run{{envq $env}}" data-busy="Starting…">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <button class="quiet small" type="submit">Run now</button>
+          </form>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <section class="panel empty">
+    <h2>No cron jobs here</h2>
+    <p>Declare them in its <code>moorage.toml</code>. Each runs as a one-off instance of the current release, with its variables and data.</p>
+    {{template "command" "[[cron]]\nname = \"nightly\"\nschedule = \"0 3 * * *\"\ncommand = \"python manage.py cleanup\""}}
+  </section>
+  {{end}}
+</section>
+{{if $.Access.Deploy}}
+<form class="panel panel-pad share-form block" method="post" action="/apps/{{$app}}/runs{{envq $env}}" data-busy="Starting…">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="field run-command"><label for="run-command">Run a command <span class="hint">(in the current release, with its variables and data)</span></label><input id="run-command" name="command" required autocomplete="off" spellcheck="false" placeholder="python manage.py migrate"></div>
+  <button class="quiet" type="submit">Run it</button>
+</form>
+{{end}}
+<section class="block" data-refresh="runs">
+  <div class="section-heading"><h2>Runs</h2></div>
+  {{if .Runs}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Run</th><th scope="col">Status</th><th scope="col">Started</th><th scope="col">Took</th><th scope="col">Asked by</th></tr></thead>
+      <tbody>
+      {{range .Runs}}
+      <tr>
+        <td><a class="app-name" href="/apps/{{$app}}/runs/{{.ID}}">{{if .Job}}{{.Job}}{{else}}A command{{end}}</a><div class="muted small"><code>{{.Command}}</code></div></td>
+        <td data-label="Status"><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span></td>
+        <td class="muted nowrap" data-label="Started"><time datetime="{{iso .At}}">{{ago .At}}</time></td>
+        <td class="muted nowrap" data-label="Took">{{with .Took}}{{.}}{{else}}—{{end}}</td>
+        <td class="muted" data-label="Asked by">{{with .By}}{{.}}{{else}}The schedule{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="panel panel-pad muted">Nothing has run here yet.</p>
+  {{end}}
+</section>
+{{end}}
+{{end}}
+
+{{define "app-run"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{with .Run}}
+<div data-refresh="run"{{if .Running}} data-poll{{end}}>
+  <section class="panel panel-pad app-head">
+    <div class="app-summary">
+      <p><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Version}} <strong>v{{.Version}}</strong>{{end}}{{with .Exit}} <span class="muted small">{{.}}</span>{{end}}</p>
+      <p><code>{{.Command}}</code></p>
+      <p class="muted"><time datetime="{{iso .At}}">{{ago .At}}</time>{{with .By}} by {{.}}{{end}}{{with .Took}}, took {{.}}{{end}} <span class="small">· {{.ID}}</span></p>
+    </div>
+    {{if and .Running $.Access.Deploy}}
+    <div class="actions app-actions">
+      <form method="post" action="/apps/{{$app}}/runs/{{.ID}}/stop" data-busy="Stopping…" data-confirm="Stop this run?">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="quiet" type="submit">Stop it</button>
+      </form>
+    </div>
+    {{end}}
+  </section>
+  {{with .Error}}<p class="notice fail" role="status">{{.}}</p>{{end}}
+  {{if $.Access.Logs}}
+  <section class="block">
+    <div class="section-heading"><h2>What it said</h2></div>
+    {{if .Log}}
+    <div class="panel log"><pre class="log-lines">{{range .Log}}<span class="log-line{{if eq .Stream "E"}} is-err{{end}}">{{.Text}}
+</span>{{end}}</pre></div>
+    {{else}}
+    <p class="panel panel-pad muted">{{if .Running}}Nothing yet.{{else}}Nothing.{{end}}</p>
+    {{end}}
+  </section>
+  {{end}}
+</div>
 {{end}}
 {{end}}
