@@ -32,6 +32,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/layout"
 	"github.com/robert-mcdermott/moorage/internal/localdns"
 	"github.com/robert-mcdermott/moorage/internal/notify"
@@ -236,6 +237,20 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Go: cfg.Toolchains.GoURL, Node: cfg.Toolchains.NodeURL, UV: cfg.Toolchains.UVURL, Python: cfg.Toolchains.PythonURL,
 	})
 	shell := []string{exe, "sh", "-c"}
+	uidBase := cfg.Isolation.UIDBase
+	if uidBase == 0 {
+		uidBase = isolate.DefaultUIDBase
+	}
+	isolation, err := isolate.New(isolate.Config{Level: cfg.Isolation.Level, UIDBase: uidBase, DataDir: cfg.DataDir, Binary: exe}, func(ctx context.Context, app string) (uint32, error) {
+		return db.AppUID(ctx, app, uidBase)
+	})
+	if err != nil {
+		return err
+	}
+	log.Info("isolation", "level", isolation.Level, "limits_enforced", isolation.Enforced(), "landlock", isolation.Landlock)
+	for _, note := range isolation.Notes {
+		log.Warn("isolation: " + note)
+	}
 	engine, containers := findContainers(cfg, db, keyring, log)
 	bus := events.New(db, log)
 	defer bus.Close()
@@ -250,6 +265,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
 		ProxyToken:    proxyToken,
 		DataDir:       cfg.DataDir,
+		Isolation:     isolation,
 		ShimCmd:       []string{exe, "shim"},
 		ShimEnv:       opts.ShimEnv,
 		Shell:         shell,
@@ -277,7 +293,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
-		Builder: &build.Builder{DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
+		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
 		Runtime: runtime,
 		Reload:  router.Reload,
 		URL: func(app, env string) string {
@@ -303,7 +319,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		sweep = time.Minute
 	}
 	go deployer.Sweep(ctx, sweep)
-	collector := &metrics.Collector{Store: metricsStore, Log: log, Instances: runtime.MetricsInstances, Containers: runtime.MetricsContainers, DataDir: cfg.DataDir}
+	collector := &metrics.Collector{Store: metricsStore, Log: log, Instances: runtime.MetricsInstances, Containers: runtime.MetricsContainers, DataDir: cfg.DataDir, OverLimit: runtime.OverMemory}
 	go collector.Run(ctx, opts.MetricsEvery)
 	cronTick := opts.CronTick
 	if cronTick == 0 {

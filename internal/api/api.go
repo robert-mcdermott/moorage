@@ -20,6 +20,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/notify"
@@ -414,8 +415,17 @@ func (s *Server) environmentDoc(ctx context.Context, app, env string) (apitypes.
 	plan.Defaults()
 	if plan.Kind == manifest.KindProcess {
 		doc.Formation = map[string]int{}
-		for name, proc := range plan.ForEnv(env, doc.Kind).WithFormation(formation).Processes {
+		running := plan.ForEnv(env, doc.Kind).WithFormation(formation)
+		for name, proc := range running.Processes {
 			doc.Formation[name] = *proc.Instances
+		}
+		if rt, ok := s.runtime.(interface{ Isolation() isolate.Status }); ok && running.Container == nil {
+			st := rt.Isolation()
+			iso := &apitypes.Isolation{Level: st.Level, Enforced: st.Enforced()}
+			if r := running.Resources; r != nil {
+				iso.Memory, iso.CPU, iso.PIDs = r.Memory, r.CPU, r.PIDs
+			}
+			doc.Isolation = iso
 		}
 	}
 	return doc, nil

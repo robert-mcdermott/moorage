@@ -53,20 +53,12 @@ func Lint(m *Manifest) []string {
 	if len(m.Routes) > 0 {
 		notYet("[[routes]]", "path routes arrive in a later release")
 	}
-	if m.Resources != nil && !inContainers {
-		notYet("[resources]", "limits apply to containers for now; for other apps they arrive in a later release")
-	}
 	if m.Storage != nil && !inContainers {
 		notYet("[storage]", "it applies to containers; $MOORAGE_DATA_DIR is always available")
 	}
 	if m.Previews != nil {
 		if m.Previews.Data != "" {
 			notYet("previews.data", "a preview's data directory starts empty")
-		}
-	}
-	for name, e := range m.Environments {
-		if e.Resources != nil {
-			notYet("environments."+name+".resources", "a later release")
 		}
 	}
 	if len(m.Services) > 0 {

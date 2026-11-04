@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/shell"
@@ -301,6 +302,7 @@ func (s *supervisor) recordExit(p *proc) {
 // finish records the final status, answers a pending stop, lets
 // connections finish and exits.
 func (s *supervisor) finish(status string, reply chan Response) int {
+	isolate.Remove(s.spec.Isolate)
 	st := s.update(func(st *State) { st.Status = status })
 	close(s.done)
 	if reply != nil {
@@ -351,7 +353,14 @@ func (s *supervisor) start() (*proc, error) {
 	p.errw = logs.NewWriter(s.log, logs.Stderr).Redact(s.secrets...)
 	cmd.Stdout, cmd.Stderr = p.out, p.errw
 	cmd.WaitDelay = 2 * time.Second // do not wait forever for descendants holding the output open
-	if err := startProcess(p); err != nil {
+	release, err := isolate.Wrap(cmd, s.spec.Isolate)
+	if err != nil {
+		return nil, err
+	}
+	killed := isolate.OOMKills(s.spec.Isolate)
+	err = startProcess(p)
+	release()
+	if err != nil {
 		return nil, err
 	}
 	pid := cmd.Process.Pid
@@ -367,6 +376,9 @@ func (s *supervisor) start() (*proc, error) {
 		p.out.Flush()
 		p.errw.Flush()
 		p.exit = exitOf(cmd, err)
+		if isolate.OOMKills(s.spec.Isolate) > killed {
+			p.exit.Signal = "OOM"
+		}
 		close(p.done)
 	}()
 	return p, nil

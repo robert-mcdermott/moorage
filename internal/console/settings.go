@@ -160,6 +160,9 @@ func (c *Console) settingsPage(w http.ResponseWriter, r *http.Request) {
 				{"Browsers see", cfg.Proxy.ExternalScheme},
 				{"Trusted proxies", orNone(strings.Join(cfg.Proxy.Trusted, ", "))},
 			}},
+			{"Keeping apps apart", []setting{
+				{"Asked for", orDefault(cfg.Isolation.Level, "auto")},
+			}},
 			{"Notifications", []setting{
 				{"May also reach", orNone(strings.Join(cfg.Notifications.Allow, ", "))},
 			}},
@@ -396,6 +399,15 @@ func (c *Console) systemPage(w http.ResponseWriter, r *http.Request) {
 	if stat, err := os.Stat(filepath.Join(c.cfg.DataDir, "moorage.db")); err == nil {
 		view.Facts = append(view.Facts, setting{"Database", humanSizeOf(stat.Size())})
 	}
+	st := c.isolation()
+	limits := "An instance over its memory limit is restarted"
+	if st.Enforced() {
+		limits = "Enforced by the kernel"
+	}
+	view.Facts = append(view.Facts, setting{"Isolation", sentence(st.Describe())}, setting{"Limits", limits})
+	for _, note := range st.Notes {
+		view.Facts = append(view.Facts, setting{"About isolation", sentence(note)})
+	}
 	d.Settings = view
 	c.render(w, http.StatusOK, "settings-system", d)
 }
@@ -411,4 +423,11 @@ func humanSizeOf(n int64) string {
 		exp++
 	}
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + string("KMGTPE"[exp]) + "iB"
+}
+
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }

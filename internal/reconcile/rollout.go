@@ -18,6 +18,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
@@ -339,8 +340,14 @@ func (m *Manager) spec(ctx context.Context, es *envState, rel store.Release, bui
 	if in.port != 0 {
 		vars["PORT"] = strconv.Itoa(in.port)
 	}
+	in.softLimit = m.softLimitOf(plan)
+	iso, err := m.isolation(ctx, es.app, in.id, build, vars["MOORAGE_DATA_DIR"], in.tmpDir, plan, in.port)
+	if err != nil {
+		return shim.Spec{}, nil, err
+	}
 	return shim.Spec{
 		ID:          in.id,
+		Isolate:     iso,
 		Dir:         m.appDir(build),
 		Command:     in.proc.Command,
 		Env:         oneoff.List(vars),
@@ -352,6 +359,16 @@ func (m *Manager) spec(ctx context.Context, es *envState, rel store.Release, bui
 		StopTimeout: in.proc.StopTimeout.Std(),
 		BackoffMin:  m.opts.BackoffMin,
 	}, oneoff.List(secrets), nil
+}
+
+// isolation says how a process of an app runs, with what its limits are.
+func (m *Manager) isolation(ctx context.Context, app, id string, build store.Build, data, tmp string, plan manifest.Plan, port int) (*isolate.Spec, error) {
+	var limits isolate.Limits
+	if r := plan.Resources; r != nil {
+		limits = isolate.Limits{Memory: r.Memory, CPU: r.CPU, PIDs: r.PIDs}
+	}
+	dirs := isolate.Dirs{Build: filepath.Join(m.opts.DataDir, filepath.FromSlash(build.ArtifactRef)), App: m.appDir(build), Data: data, Tmp: tmp}
+	return m.opts.Isolation.Instance(ctx, app, id, dirs, limits, port)
 }
 
 // appDir is the directory a build's app runs in.
@@ -468,13 +485,18 @@ func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Releas
 		return m.runContainerOnce(ctx, app, env, rel, build, plan, process, command, timeout, log)
 	}
 	// Several commands of a release can go at once: the first to end must not take away the others'.
-	tmp := m.tmpDir("run-" + ids.New(ids.Run))
+	id := "run-" + ids.New(ids.Run)
+	tmp := m.tmpDir(id)
 	defer os.RemoveAll(tmp)
 	vars, secrets, err := m.appEnv(ctx, app, env, rel, build, plan, tmp)
 	if err != nil {
 		return err
 	}
 	vars["MOORAGE_PROCESS"] = process
+	iso, err := m.isolation(ctx, app, id, build, vars["MOORAGE_DATA_DIR"], tmp, plan, isolate.NoPortRule)
+	if err != nil {
+		return err
+	}
 	values := make([]string, 0, len(secrets))
 	for k, v := range secrets {
 		vars[k] = v
@@ -487,7 +509,7 @@ func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Releas
 	return oneoff.Run(ctx, oneoff.Command{
 		Command: command, Env: oneoff.List(vars), Dir: m.appDir(build),
 		Shell: m.opts.Shell, ShellEnv: m.opts.ShellEnv,
-		Stdout: out, Stderr: errw, Timeout: timeout,
+		Stdout: out, Stderr: errw, Timeout: timeout, Isolate: iso,
 	})
 }
 

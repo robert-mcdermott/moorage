@@ -491,6 +491,18 @@ type Event struct {
 	Data map[string]any `json:"data,omitempty"`
 }
 
+// Isolation says how an environment's instances are kept from others.
+type Isolation struct {
+	// Level is none, user or sandbox: what is in effect, and not only what is asked for.
+	Level string `json:"level"`
+	// Limits are what the manifest asks. Enforced says that the kernel holds them to it; otherwise
+	// an instance over its memory limit is restarted, and the others are not held to.
+	Memory   int64   `json:"memory,omitempty"`
+	CPU      float64 `json:"cpu,omitempty"`
+	PIDs     int     `json:"pids,omitempty"`
+	Enforced bool    `json:"enforced"`
+}
+
 // Environment is how an environment stands: what it serves and what runs it.
 type Environment struct {
 	App     string   `json:"app"`
@@ -503,6 +515,8 @@ type Environment struct {
 	Instances []Instance     `json:"instances"`
 	// Asleep says that its instances are stopped until a request wakes it.
 	Asleep bool `json:"asleep,omitempty"`
+	// Isolation says how its instances are kept from others, and what limits them.
+	Isolation *Isolation `json:"isolation,omitempty"`
 	// Kind is production, named or preview, and Branch what deploys to it, if a branch does.
 	Kind   string `json:"kind,omitempty"`
 	Branch string `json:"branch,omitempty"`

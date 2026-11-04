@@ -610,6 +610,9 @@
             },
             "type": "array"
           },
+          "isolation": {
+            "$ref": "#/components/schemas/Isolation"
+          },
           "kind": {
             "type": "string"
           },
@@ -846,6 +849,30 @@
           "user",
           "url",
           "expires_at"
+        ],
+        "type": "object"
+      },
+      "Isolation": {
+        "properties": {
+          "cpu": {
+            "type": "number"
+          },
+          "enforced": {
+            "type": "boolean"
+          },
+          "level": {
+            "type": "string"
+          },
+          "memory": {
+            "type": "integer"
+          },
+          "pids": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "enforced"
         ],
         "type": "object"
       },

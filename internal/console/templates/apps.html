@@ -183,6 +183,7 @@
   </div>
 </section>
 {{if $.Access.Deploy}}<section class="block" data-refresh="scale">
+  {{with .Isolation}}<p class="muted small block-note">{{.}} <a href="https://github.com/robert-mcdermott/moorage/blob/main/docs/isolation.md">How apps are kept apart</a></p>{{end}}
   <div class="section-heading"><h2>Scale</h2></div>
   <form class="panel panel-pad scale" method="post" action="/apps/{{.Name}}/scale{{envq $.Env}}" data-busy="Scaling…">
     <input type="hidden" name="csrf" value="{{$csrf}}">

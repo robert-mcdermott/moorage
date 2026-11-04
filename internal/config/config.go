@@ -34,6 +34,8 @@ type Config struct {
 	Access      Access     `toml:"access"`
 	// Notifications says what they may reach.
 	Notifications Notifications `toml:"notifications"`
+	// Isolation says how apps are kept from one another.
+	Isolation Isolation `toml:"isolation"`
 
 	// Path is the file the configuration was read from.
 	Path string `toml:"-"`
@@ -45,6 +47,14 @@ type Access struct {
 	Production string `toml:"production"`
 	Named      string `toml:"named"`
 	Preview    string `toml:"preview"`
+}
+
+// Isolation is how apps are kept from one another (docs/isolation.md).
+type Isolation struct {
+	// Level is "auto", "none", "user" or "sandbox".
+	Level string `toml:"level"`
+	// UIDBase is where the users of apps start.
+	UIDBase uint32 `toml:"uid_base"`
 }
 
 // Notifications is how notifications are sent.
@@ -309,6 +319,12 @@ func (c Config) Validate() error {
 	}
 	if c.Routing == "path" && c.ConsoleHost == c.Domain {
 		add("with routing = \"path\", console_host must be another hostname than domain: pages of apps must not share an origin with the console, or a script in any of them could act as whoever is signed in")
+	}
+	if !oneOf(c.Isolation.Level, []string{"", "auto", "none", "user", "sandbox"}) {
+		add("isolation.level %q must be auto, none, user or sandbox", c.Isolation.Level)
+	}
+	if c.Isolation.UIDBase != 0 && (c.Isolation.UIDBase < 1000 || c.Isolation.UIDBase > 1<<30) {
+		add("isolation.uid_base %d must be between 1000 and %d", c.Isolation.UIDBase, 1<<30)
 	}
 	for _, a := range c.Notifications.Allow {
 		if _, err := ParseTrusted(a); err != nil {

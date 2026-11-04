@@ -178,11 +178,13 @@ entrypoint and command.
 
 ## `[resources]`
 
-Limits for each instance of an app in a container.
+Limits for each instance of an app, and `[environments.NAME.resources]` for one environment's. A
+container's engine enforces them. For an app outside a container, it [depends on the
+server](isolation.md#limits).
 
 | Key | Description |
 |---|---|
-| `memory` | Memory: `"512MiB"`. The kernel kills an instance that goes over it. |
+| `memory` | Memory: `"512MiB"`. An instance that goes over it is killed and restarted, and it says that it ran out of memory. |
 | `cpu` | CPU, in cores: `0.5`, `2`. |
 | `pids` | The most processes and threads. |
 
@@ -340,8 +342,8 @@ and `moor manifest validate` warns that they have no effect yet:
 | Setting | Arrives |
 |---|---|
 | `app.root` | a later release |
-| `[resources]` and `[storage]` outside a container | a later release |
+| `[storage]` outside a container | a later release; `$MOORAGE_DATA_DIR` is always there |
 | `[[routes]]`, `[services]` | later releases |
-| `previews.data`, `resources` in `[environments.*]` | later releases |
+| `previews.data` | a later release |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

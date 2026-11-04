@@ -16,6 +16,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
@@ -45,6 +46,8 @@ type appView struct {
 	Events     []eventRow
 	// Deploying says that a deployment is under way.
 	Deploying bool
+	// Isolation says how its instances are kept from others, and what limits them.
+	Isolation string
 	// Asleep says that its instances are stopped until a request wakes it.
 	Asleep bool
 	// Previous is the release a rollback goes back to, if there is one to serve.
@@ -123,6 +126,48 @@ func instanceStatus(in reconcile.InstanceInfo) status {
 		return status{sentence(in.Status), "fail"}
 	}
 	return status{sentence(in.Status), "warn"}
+}
+
+// isolation says what is in effect on this server.
+func (c *Console) isolation() isolate.Status {
+	if rt, ok := c.runtime.(interface{ Isolation() isolate.Status }); ok {
+		return rt.Isolation()
+	}
+	return isolate.Status{Asked: isolate.None, Level: isolate.None}
+}
+
+// isolationText says in words how an app's instances run.
+func (c *Console) isolationText(plan manifest.Plan) string {
+	st := c.isolation()
+	text := "It runs as the same user as the server's other apps."
+	switch st.Level {
+	case isolate.User:
+		text = "It runs as a user of its own."
+	case isolate.Sandbox:
+		text = "It runs as a user of its own, in a sandbox."
+	}
+	r := plan.Resources
+	if r == nil || (r.Memory == 0 && r.CPU == 0 && r.PIDs == 0) {
+		return text
+	}
+	var limits []string
+	if r.Memory > 0 {
+		limits = append(limits, humanSizeOf(r.Memory)+" of memory")
+	}
+	if r.CPU > 0 {
+		limits = append(limits, strconv.FormatFloat(r.CPU, 'f', -1, 64)+" CPU")
+	}
+	if r.PIDs > 0 {
+		limits = append(limits, strconv.Itoa(r.PIDs)+" processes")
+	}
+	list := strings.Join(limits, ", ")
+	if st.Enforced() {
+		return text + " Each instance is limited to " + list + "."
+	}
+	if r.Memory > 0 {
+		return text + " Each instance asks for " + list + ": this server cannot enforce that, so that one over its memory is restarted, and the rest is not held to."
+	}
+	return text + " Each instance asks for " + list + ", which this server cannot enforce."
 }
 
 func exitText(in reconcile.InstanceInfo) string {
@@ -404,6 +449,9 @@ func (c *Console) appView(ctx context.Context, app, env string) (appView, error)
 			plan = plan.ForEnv(env, kind)
 			want = wanted(plan, formation)
 			view.Processes = c.processViews(app, env, rel.Version, plan, formation)
+			if plan.Container == nil {
+				view.Isolation = c.isolationText(plan)
+			}
 			for _, proc := range view.Processes {
 				for _, in := range proc.Instances {
 					if in.Status.Kind == "ok" && !in.Replaced {

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/shell"
 )
@@ -31,16 +32,23 @@ type Command struct {
 	Stderr   io.Writer
 	// Timeout, if set, bounds the run.
 	Timeout time.Duration
+	// Isolate says how it runs: as which user, in which cgroup, in what sandbox.
+	Isolate *isolate.Spec
 }
 
 // ExitError reports a command that ran and did not succeed.
 type ExitError struct {
-	Command  string
-	Code     int
-	TimedOut time.Duration // the timeout, if the command ran out of time
+	// OutOfMemory says that the kernel killed it for going over its limit.
+	OutOfMemory bool
+	Command     string
+	Code        int
+	TimedOut    time.Duration // the timeout, if the command ran out of time
 }
 
 func (e *ExitError) Error() string {
+	if e.OutOfMemory {
+		return fmt.Sprintf("%q ran out of memory", e.Command)
+	}
 	if e.TimedOut > 0 {
 		return fmt.Sprintf("%q did not finish within %s", e.Command, e.TimedOut)
 	}
@@ -69,7 +77,13 @@ func Run(ctx context.Context, c Command) error {
 	cmd.Dir = c.Dir
 	cmd.Stdout, cmd.Stderr = c.Stdout, c.Stderr
 	cmd.WaitDelay = 2 * time.Second // do not wait forever for descendants holding the output open
+	release, err := isolate.Wrap(cmd, c.Isolate)
+	if err != nil {
+		return fmt.Errorf("start %q: %w", c.Command, err)
+	}
+	defer isolate.Remove(c.Isolate)
 	tree, err := platform.StartTree(cmd)
+	release()
 	if err != nil {
 		return fmt.Errorf("start %q: %w", c.Command, err)
 	}
@@ -85,7 +99,12 @@ func Run(ctx context.Context, c Command) error {
 	}
 	select {
 	case err := <-done:
-		return exitError(c.Command, cmd, err)
+		failed := exitError(c.Command, cmd, err)
+		var exit *ExitError
+		if errors.As(failed, &exit) && isolate.OOMKills(c.Isolate) > 0 {
+			exit.OutOfMemory = true
+		}
+		return failed
 	case <-ctx.Done():
 		tree.Kill()
 		<-done

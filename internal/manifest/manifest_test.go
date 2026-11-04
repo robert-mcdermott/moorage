@@ -236,7 +236,7 @@ anything = { goes = true }
 		t.Errorf("processes: %+v", m.Processes)
 	}
 	warnings := strings.Join(Lint(m), "\n")
-	for _, want := range []string{"[[routes]]", "[resources]", "[services]"} {
+	for _, want := range []string{"[[routes]]", "[services]"} {
 		if !strings.Contains(warnings, want) {
 			t.Errorf("no warning about %s:\n%s", want, warnings)
 		}

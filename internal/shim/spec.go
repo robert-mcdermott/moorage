@@ -10,6 +10,7 @@ package shim
 import (
 	"encoding/json"
 	"errors"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"io/fs"
 	"os"
 	"time"
@@ -41,6 +42,9 @@ type Spec struct {
 	StateFile  string `json:"state_file"`
 	// Token authenticates the server's commands.
 	Token string `json:"token"`
+
+	// Isolate says how the app runs: as which user, in which cgroup, in what sandbox.
+	Isolate *isolate.Spec `json:"isolate,omitempty"`
 
 	Restart     string        `json:"restart"`
 	StopSignal  string        `json:"stop_signal"`

@@ -352,6 +352,7 @@ details > summary { cursor: pointer; font-weight: 600; }
 .dropzone-progress progress { flex: 1 1 12rem; accent-color: var(--accent); }
 .dropzone .notice { margin: var(--s3) 0 0; }
 .block-after { margin-bottom: var(--s4); }
+.block-note { margin: var(--s2) 0 0; }
 .deploy-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); gap: var(--s4); }
 .deploy-ways > * { min-width: 0; }
 .deploy-ways select { min-width: 0; max-width: 100%; }

@@ -24,6 +24,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/driver/native"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/shim"
@@ -61,6 +62,8 @@ type Options struct {
 	Containers *container.Driver
 	// Events hears of instances that exit, sicken and recover.
 	Events *events.Bus
+	// Isolation says how apps are kept from one another.
+	Isolation *isolate.Policy
 }
 
 // runner is what the manager asks of a driver about an instance it runs.
@@ -116,6 +119,9 @@ type instance struct {
 	backend   *ingress.Backend // nil for a process that does not listen
 	run       runner           // the driver that runs it
 	container bool             // whether that is the container driver
+
+	// softLimit is the memory it may use, to watch where the kernel will not enforce it.
+	softLimit int64
 
 	stopHealth context.CancelFunc
 }
@@ -257,6 +263,9 @@ func (m *Manager) Adopt(ctx context.Context) error {
 			buildID: li.Build.ID, port: li.Port, proc: plan.Processes[li.Process],
 			logFile: m.logFile(li.App, li.Env, li.Process, li.Index, li.ID), tmpDir: m.tmpDir(li.ID),
 			run: m.driver,
+		}
+		if kind, err := m.db.EnvKind(ctx, li.App, li.Env); err == nil {
+			in.softLimit = m.softLimitOf(plan.ForEnv(li.Env, kind))
 		}
 		var st shim.State
 		if li.Driver == driverContainer {
@@ -527,6 +536,45 @@ func (m *Manager) logFile(app, env, process string, index int, id string) string
 	return filepath.Join(LogDir(m.opts.DataDir, app, env), fmt.Sprintf("%s.%d.%s.log", process, index, id))
 }
 
+// Isolation says what is in effect on this server.
+func (m *Manager) Isolation() isolate.Status {
+	if m.opts.Isolation == nil {
+		return isolate.Status{Asked: isolate.None, Level: isolate.None}
+	}
+	return m.opts.Isolation.Status
+}
+
+// softLimitOf is the memory to watch, where the kernel will not enforce the limit itself.
+func (m *Manager) softLimitOf(plan manifest.Plan) int64 {
+	if plan.Resources == nil || m.Isolation().Enforced() {
+		return 0
+	}
+	return plan.Resources.Memory
+}
+
+// OverMemory restarts an instance that has gone over its limit where nothing else would stop it.
+func (m *Manager) OverMemory(id string, used, limit int64) {
+	m.mu.Lock()
+	var found *instance
+	var where *envState
+	for _, es := range m.envs {
+		for _, in := range es.list() {
+			if in.id == id {
+				found, where = in, es
+			}
+		}
+	}
+	m.mu.Unlock()
+	if found == nil {
+		return
+	}
+	m.log.Warn("instance over its memory limit; restarting it", "app", where.app, "instance", id, "used", used, "limit", limit)
+	m.emit(where, found, events.InstanceExited, map[string]any{"code": -1, "signal": "OOM"})
+	if err := found.run.Restart(id); err != nil {
+		m.log.Warn("restart an instance", "app", where.app, "instance", id, "err", err)
+	}
+}
+
 // LogDir is the directory of an environment's app logs.
 func LogDir(dataDir, app, env string) string {
 	return filepath.Join(dataDir, "logs", "apps", app, env)
@@ -596,7 +644,7 @@ func (m *Manager) MetricsInstances(ctx context.Context) []metrics.Instance {
 			if err != nil || st.Status != shim.Running {
 				continue
 			}
-			out = append(out, metrics.Instance{EnvID: r.EnvID, ID: in.id, Part: fmt.Sprintf("%s.%d", in.process, in.index), PID: st.AppPID})
+			out = append(out, metrics.Instance{SoftLimit: in.softLimit, EnvID: r.EnvID, ID: in.id, Part: fmt.Sprintf("%s.%d", in.process, in.index), PID: st.AppPID})
 		}
 	}
 	return out

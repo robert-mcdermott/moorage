@@ -130,6 +130,9 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 	r.plan.Steps = preset
 	m.ApplyEnvironments(&r.plan)
 	r.plan.StripPrefix = m.App.StripPrefix
+	if res := m.Resources; res != nil && r.plan.Container == nil {
+		r.plan.Resources = &manifest.ResourcePlan{Memory: int64(res.Memory), CPU: res.CPU, PIDs: res.PIDs}
+	}
 	for _, c := range m.Cron {
 		r.plan.Cron = append(r.plan.Cron, manifest.CronPlan{Name: c.Name, Schedule: c.Schedule, Command: c.Command, Timezone: c.Timezone, Timeout: c.Timeout, Overlap: c.Overlap, Environments: c.Environments})
 	}

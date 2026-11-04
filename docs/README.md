@@ -35,6 +35,8 @@ how it works inside and where it is going.
 - [Metrics](metrics.md): charts in the console, and for Prometheus
 - [Notifications](notifications.md): told when something goes wrong, in the console,
   by webhook, in chat and by email
+- [How apps are kept apart](isolation.md): a user of its own for each app, limits and a
+  sandbox
 - [Who can reach an app](access.md): passwords, signing in, share links and lists
   of addresses
 - [Your own domains, and paths](domains.md): hostnames of your own, several apps on one

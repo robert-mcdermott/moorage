@@ -162,6 +162,19 @@ production = {{q .Access.Production}}
 named      = {{q .Access.Named}}
 preview    = {{q .Access.Preview}}
 
+[isolation]
+# How apps are kept from one another: "auto" is "user" where the server runs as root on
+# Linux and "none" elsewhere. "user" gives each app an operating system user of its own, and
+# "sandbox" also confines it to its own files with Landlock.
+{{- if .Isolation.Level}}
+level = {{q .Isolation.Level}}
+{{- else}}
+# level = "auto"
+{{- end}}
+{{- if .Isolation.UIDBase}}
+uid_base = {{.Isolation.UIDBase}}
+{{- end}}
+
 [notifications]
 # What webhooks and mail servers may be at, though they would be refused as this machine,
 # a link-local address or a cloud's metadata service.

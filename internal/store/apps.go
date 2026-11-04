@@ -514,3 +514,33 @@ func nullString(s string) any {
 	}
 	return s
 }
+
+// AppUID says which user an app runs as, choosing one the first time: every other one from base, as
+// the one after each is for its builds.
+func (db *DB) AppUID(ctx context.Context, app string, base uint32) (uint32, error) {
+	var uid uint32
+	err := db.write(ctx, func(tx *sql.Tx) error {
+		var appID string
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM apps WHERE name = ?`, app).Scan(&appID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("no app %q: %w", app, ErrNotFound)
+			}
+			return err
+		}
+		err := tx.QueryRowContext(ctx, `SELECT uid FROM app_users WHERE app_id = ?`, appID).Scan(&uid)
+		if err == nil || !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var highest sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT MAX(uid) FROM app_users`).Scan(&highest); err != nil {
+			return err
+		}
+		uid = base
+		if highest.Valid && uint32(highest.Int64) >= base {
+			uid = uint32(highest.Int64) + 2
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO app_users (app_id, uid) VALUES (?, ?)`, appID, uid)
+		return err
+	})
+	return uid, err
+}
