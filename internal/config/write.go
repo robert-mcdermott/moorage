@@ -192,6 +192,12 @@ allow = {{list .Notifications.Allow}}
 {{- else}}
 # allow = ["127.0.0.1/32"]
 {{- end}}
+# How full the data volume may get before someone is told, in percent.
+{{- if .Notifications.DiskPercent}}
+disk_percent = {{.Notifications.DiskPercent}}
+{{- else}}
+# disk_percent = 90
+{{- end}}
 
 [listen]
 http  = {{q .Listen.HTTP}}

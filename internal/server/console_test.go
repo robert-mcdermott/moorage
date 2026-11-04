@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -73,6 +74,30 @@ func (b *consoleUser) post(path string, form url.Values) (*http.Response, string
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return b.do(req)
+}
+
+// postRaw is post, with a body of its own.
+func (b *consoleUser) postRaw(path, contentType string, body []byte) (*http.Response, string) {
+	b.t.Helper()
+	req, err := http.NewRequest(http.MethodPost, "http://"+b.addr.String()+path, bytes.NewReader(body))
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	return b.do(req)
+}
+
+// postJSON is post, as a script on a page does it, reading the answer.
+func (b *consoleUser) postJSON(path string, form url.Values, out any) error {
+	b.t.Helper()
+	req, err := http.NewRequest(http.MethodPost, "http://"+b.addr.String()+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	_, body := b.do(req)
+	return json.Unmarshal([]byte(body), out)
 }
 
 var formToken = regexp.MustCompile(`name="csrf" value="([^"]+)"`)

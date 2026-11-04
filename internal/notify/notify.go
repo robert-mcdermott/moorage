@@ -20,6 +20,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
+	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -48,6 +49,7 @@ var RuleEvents = []RuleEvent{
 	{CrashLoop, "An app keeps crashing", true},
 	{events.CronFailed, "A cron job fails", true},
 	{events.DiskLow, "The server's disk is nearly full", true},
+	{events.ThresholdCrossed, "A threshold is crossed", true},
 	{events.BackupFailed, "A backup fails", true},
 	{events.InstanceUnhealthy, "An instance is unhealthy", false},
 	{events.DeploymentLive, "A deployment goes live", false},
@@ -71,7 +73,7 @@ func Level(kind string) string {
 	switch kind {
 	case Recovered, events.DeploymentLive:
 		return "ok"
-	case events.DiskLow, events.InstanceUnhealthy:
+	case events.DiskLow, events.InstanceUnhealthy, events.ThresholdCrossed:
 		return "warn"
 	}
 	return "fail"
@@ -94,7 +96,6 @@ const (
 	retries       = 3
 	keepInbox     = 90 * 24 * time.Hour
 	diskLowAt     = 90.0
-	diskOKAt      = 85.0
 	maxNameLength = 64
 )
 
@@ -114,8 +115,19 @@ type Service struct {
 	RetryAfter time.Duration
 	// Window, if set, overrides how long alerts of a kind are held back after one that went (tests).
 	Window time.Duration
+	// DiskPercent is how full the data volume may get before someone is told. Nothing means 90.
+	DiskPercent float64
+	// Metrics has what environments have been doing, and Instances what is running, for thresholds.
+	Metrics   *metrics.Store
+	Instances func(ctx context.Context) []metrics.Instance
+	// ThresholdTick and ThresholdMinute, if set, override how often thresholds are looked at and how long a minute is
+	// for them (tests).
+	ThresholdTick, ThresholdMinute time.Duration
 	// DiskUsage, if set, overrides how the data volume's use is read, as a percentage (tests).
 	DiskUsage func() (float64, error)
+
+	thresholdMu     sync.Mutex
+	thresholdStates map[string]*thresholdState
 
 	mu sync.Mutex
 	// recent is what went lately, by what would be held back.
@@ -154,6 +166,11 @@ func (s *Service) Run(ctx context.Context) {
 	go func() {
 		defer s.sending.Done()
 		s.watch(ctx)
+	}()
+	s.sending.Add(1)
+	go func() {
+		defer s.sending.Done()
+		s.watchThresholds(ctx)
 	}()
 	for ctx.Err() == nil {
 		sub := s.Bus.Subscribe()
@@ -227,7 +244,11 @@ func (s *Service) checkDisk(ctx context.Context) {
 	}
 	s.mu.Lock()
 	was := s.diskLow
-	s.diskLow = used >= diskLowAt || was && used >= diskOKAt
+	limit := s.DiskPercent
+	if limit <= 0 {
+		limit = diskLowAt
+	}
+	s.diskLow = used >= limit || was && used >= limit-5
 	now := s.diskLow
 	s.mu.Unlock()
 	switch {
@@ -311,6 +332,15 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 			delete(s.failing, backupKey)
 			recovered = append(recovered, recovery{kind: events.BackupFailed, summary: "A backup worked after one that failed"})
 		}
+	case events.ThresholdCrossed:
+		id, _ := e.Data["threshold"].(string)
+		s.failing[thresholdKey+id] = true
+		alerts = append(alerts, events.ThresholdCrossed)
+	case events.ThresholdOK:
+		// It is only told of when it has been crossed, across a restart too.
+		id, _ := e.Data["threshold"].(string)
+		delete(s.failing, thresholdKey+id)
+		recovered = append(recovered, recovery{kind: events.ThresholdCrossed, summary: events.Summary(e)})
 	case events.DiskOK:
 		if s.failing[diskKey] {
 			delete(s.failing, diskKey)
@@ -321,8 +351,9 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 }
 
 const (
-	diskKey   = "disk"
-	backupKey = "backup"
+	diskKey      = "disk"
+	backupKey    = "backup"
+	thresholdKey = "threshold/"
 )
 
 func (s *Service) anyUnhealthy(where string) bool {
@@ -454,9 +485,14 @@ func (s *Service) dispatch(ctx context.Context, e store.Event, kind string, m Me
 	if job, _ := e.Data["job"].(string); job != "" {
 		key += "/" + job
 	}
+	if threshold, _ := e.Data["threshold"].(string); threshold != "" {
+		key += "/" + threshold
+	}
 	if repeats(kind) {
 		if m.Kind == Recovered {
-			if _, ok := s.admit("recovered/"+key, e.At); !ok {
+			// A threshold has to go on for a while to be crossed, so that one going back and forth is not many messages, and
+			// holding this back would leave what was last said as that it is crossed.
+			if _, ok := s.admit("recovered/"+key, e.At); !ok && kind != events.ThresholdCrossed {
 				return
 			}
 			s.mu.Lock()

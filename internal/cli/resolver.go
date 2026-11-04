@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -14,14 +15,40 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/localdns"
+	"github.com/robert-mcdermott/moorage/internal/server"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
-// Where macOS looks for a resolver rule per domain, and which system this is;
+// Where macOS looks for a resolver rule per domain, where Windows keeps its hosts file, and which system this is;
 // tests change them.
 var (
 	resolverDir  = "/etc/resolver"
+	hostsFile    = filepath.Join(os.Getenv("SystemRoot"), "System32", "drivers", "etc", "hosts")
 	resolverGOOS = runtime.GOOS
 )
+
+// hostNames lists the names of what a local server serves: a hosts file has no way of saying all of them at once.
+func hostNames(ctx context.Context, cfg config.Config) ([]string, error) {
+	names := []string{cfg.ConsoleHost}
+	database := server.NewLayout(cfg.DataDir).Database
+	if _, err := os.Stat(database); err != nil {
+		return names, nil
+	}
+	db, err := store.Open(ctx, database)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	routes, err := db.Routes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range routes {
+		names = append(names, cfg.EnvHost(r.App, r.Env))
+	}
+	return names, nil
+}
 
 // defaultDNSAddr needs no privileges to listen on.
 const defaultDNSAddr = "127.0.0.1:15353"
@@ -36,7 +63,8 @@ your own computer. Chromium- and Firefox-based browsers manage that on their own
 as does systemd-resolved on Linux, and some versions of macOS. Where macOS does
 not, for Safari and command-line tools, moor server resolver install adds a rule
 for it, pointing at a small DNS responder of the server's, which answers only on
-loopback and only for that domain.`,
+loopback and only for that domain. On Windows, it adds a block to the hosts file,
+which has the names of the apps that are deployed now.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, cfg, err := loadServerConfig(cfgFlag)
@@ -60,6 +88,13 @@ loopback and only for that domain.`,
 					fmt.Fprintln(out, "No rule is in place; moor server resolver install adds one.")
 				}
 			}
+			if resolverGOOS == "windows" {
+				if localdns.HasHostsBlock(hostsFile) {
+					fmt.Fprintf(out, "The block in %s is in place; moor server resolver remove takes it out.\n", hostsFile)
+				} else {
+					fmt.Fprintln(out, "No block is in place; moor server resolver install adds one.")
+				}
+			}
 			if cfg.Listen.DNS != "" {
 				fmt.Fprintf(out, "The server answers DNS queries on %s.\n", cfg.Listen.DNS)
 			}
@@ -75,10 +110,12 @@ func newResolverInstallCmd() *cobra.Command {
 	var cfgFlag string
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Make this machine resolve the addresses of a local server's apps (macOS)",
-		Long: `Make this machine resolve <app>.localhost for every program, by adding a rule to
-/etc/resolver, for which it uses sudo, and turning on the server's DNS responder
-(listen.dns in server.toml). The server needs restarting to take that up.`,
+		Short: "Make this machine resolve the addresses of a local server's apps (macOS, Windows)",
+		Long: `Make this machine resolve <app>.localhost for every program. On macOS, that adds a rule to
+/etc/resolver, for which it uses sudo, and turns on the server's DNS responder (listen.dns in
+server.toml), which the server needs restarting to take up. On Windows, it adds a block to the hosts
+file, for which it takes an elevated terminal, with the names of what is deployed now: a server that
+may write to that file keeps it up to date, and otherwise, run this again after adding an app.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, cfg, err := loadServerConfig(cfgFlag)
@@ -88,6 +125,22 @@ func newResolverInstallCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 			switch resolverGOOS {
 			case "darwin":
+			case "windows":
+				if cfg.Domain != "localhost" {
+					return fmt.Errorf("this server's domain is %s: that takes a real DNS record, *.%s, not a change on one machine", cfg.Domain, cfg.Domain)
+				}
+				names, err := hostNames(cmd.Context(), cfg)
+				if err != nil {
+					return err
+				}
+				if _, err := localdns.WriteHostsBlock(hostsFile, names); err != nil {
+					if errors.Is(err, fs.ErrPermission) {
+						return fmt.Errorf("this takes an elevated terminal: run it as an administrator (%w)", err)
+					}
+					return err
+				}
+				fmt.Fprintf(out, "%s now has %d names, in a block of its own.\n", hostsFile, len(names))
+				return nil
 			case "linux":
 				fmt.Fprintln(out, "Nothing to install on Linux: systemd-resolved and nss-myhostname resolve *.localhost. On a system with neither, list your apps in /etc/hosts.")
 				return nil
@@ -143,6 +196,15 @@ func newResolverRemoveCmd() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			if resolverGOOS == "windows" {
+				if err := localdns.RemoveHostsBlock(hostsFile); err != nil {
+					if errors.Is(err, fs.ErrPermission) {
+						return fmt.Errorf("this takes an elevated terminal: run it as an administrator (%w)", err)
+					}
+					return err
+				}
+				fmt.Fprintf(out, "Took the block out of %s.\n", hostsFile)
+			}
 			rule := filepath.Join(resolverDir, cfg.Domain)
 			if resolverGOOS == "darwin" {
 				if err := removeSystemFile(rule); err != nil {

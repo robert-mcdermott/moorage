@@ -59,10 +59,16 @@ notifications can react to them.
   scan the bounded range — fast enough for development volumes without a
   full-text index.
 
-### Forwarding (Phase 3)
+### Forwarding
 
 Optional per-server or per-app forwarding to syslog (RFC 5424), an
 OpenTelemetry (OTLP) logs endpoint, or a generic HTTP endpoint (JSON batches).
+
+The files are read rather than the lines being passed along as they are written, as an app's output goes to its shim, which
+outlives the server: so what apps say while the server is away is there to catch up on. A cursor of how far it has read is kept across
+restarts, and what is older than that is skipped. Each sink has a queue of its own, of 20,000 lines, so that one that is down holds
+up nothing else, and backs off to a minute. This is at most once for what was queued as the server stopped: the logs here are the
+record. It goes through OTLP's JSON encoding, which needs no generated code.
 
 ## Metrics
 
@@ -109,7 +115,7 @@ releases.
 - A Prometheus-compatible `/metrics` endpoint on the console host, with a token
   that can read, labelled by app, environment, process and instance. It says only
   what the token's holder could see, and of the server itself only to administrators.
-- OTLP metrics push (Phase 3).
+- OTLP metrics push, once a minute: what `/metrics` has, with counts cumulative from when the server started.
 - *Planned (Phase 4):* app-provided metrics — an app declares a metrics path,
   Moorage scrapes it and shows custom charts.
 
@@ -155,10 +161,10 @@ can read.
   the time, a dot and the body, with a secret made for that channel and shown once.
 - Channels are sealed with the master key. Sending is tried three times, and
   does not outlive the server: this is not a queue, and the events are the record.
-- **Threshold alerts** *(Phase 3)*: simple per-environment rules on the
-  collected metrics — error rate above X % for Y minutes, p95 latency above
-  T, memory above 90 % of its limit, disk above a threshold — routed through
-  the same channels.
+- **Threshold alerts:** simple per-environment rules on the collected metrics — error rate above X % for Y minutes, p95 latency above
+  T, memory above a percentage of its limit, CPU above a percentage of one core — routed through the same channels, with one when it
+  comes right. They are looked at each minute, and a minute with nothing to compare counts for neither, as an app that is not being
+  asked anything has no error rate. How full the server's disk may get is `[notifications] disk_percent`.
 
 ## Server health and diagnostics
 

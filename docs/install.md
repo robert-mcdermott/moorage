@@ -1,9 +1,7 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. Version 0.6.0 runs on Linux and macOS (amd64 and arm64); on Windows,
-`moor` runs as a command line and `moor server run` works, but installing the
-server as a service arrives in a later release.
+to it. It runs on Linux, macOS and Windows, on amd64 and arm64.
 
 ## 1. Get `moor`
 
@@ -52,18 +50,18 @@ sudo sh install-moor.sh
 
 | Variable | `install.sh` | `install.ps1` | |
 |---|---|---|---|
-| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.6.0`. By default, the latest |
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.7.0`. By default, the latest |
 | `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
 | `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
 | `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
 | `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.6.0 sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.7.0 sh
 ```
 
 ```powershell
-$env:MOOR_VERSION = 'v0.6.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+$env:MOOR_VERSION = 'v0.7.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
 
 **On Windows,** `irm … | iex` reads the script into memory and runs it, so the
@@ -132,7 +130,8 @@ CGO_ENABLED=0 go build -trimpath -o moor ./cmd/moor
 `moor server init` writes `server.toml`, the server's configuration, from a
 preset. Run it as root for a server that starts with the machine (the file
 goes to `/etc/moorage/server.toml` on Linux, `/Library/Application
-Support/Moorage/server.toml` on macOS), or as yourself to try Moorage on
+Support/Moorage/server.toml` on macOS), in an elevated terminal on Windows for the same
+(`%ProgramData%\Moorage\server.toml`), or as yourself to try Moorage on
 your own computer: everything then goes in one folder, `~/.moorage`, on macOS and Linux,
 and in `%LocalAppData%\Moorage` on Windows. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` win on
 Linux, if they are set.
@@ -197,6 +196,19 @@ The service runs `moor` from where it was when you installed it, with the
 `PATH` you had then — apps see that `PATH` too. Reinstall after moving
 `moor` or to change the `PATH`.
 
+**On Windows,** run this in an elevated terminal, as an administrator, leaving out the `sudo` here and below:
+
+```bash
+moor server install
+```
+
+That makes a Windows service called Moorage, which starts with the computer. It runs as an account of its own,
+`NT SERVICE\Moorage`, with few rights, and so do your apps, rather than as the system. That account, the system and
+administrators are the only ones who can get at the data directory. A `moor` in your own profile, where the installer
+puts it, is one the service could not read, so that a copy goes in `%ProgramFiles%\Moorage`: use that one for
+`moor server upgrade`. A container engine is usually for one person, so that an app in a container needs an engine that
+this account can reach.
+
 ```bash
 sudo moor server status
 ```
@@ -216,6 +228,9 @@ place.
 The server's log is in the journal on Linux
 (`journalctl -u moorage.service -f`) and in `logs/server/moorage.log` in the
 data directory on every system.
+
+On Windows, a program has to have the extension it runs by: a `go build -o bin/server.exe .` in your manifest, and
+`command = "bin/server.exe"`.
 
 To run the server in the foreground instead, for a try:
 
@@ -351,8 +366,8 @@ and give the installer the version with `MOOR_VERSION`. `moor server upgrade --r
 version it upgraded to, and says so if the installer has been at work since.
 
 On Windows, the server and the supervisors of its apps run from `moor.exe`, and a running program cannot be
-replaced there, so both ways move it aside, where it goes on running. Press Ctrl+C where the server runs, and
-start it again.
+replaced there, so both ways move it aside, where it goes on running. A server run in a terminal needs Ctrl+C and
+starting again.
 
 ### What a release can be checked against
 

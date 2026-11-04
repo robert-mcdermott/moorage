@@ -51,3 +51,14 @@ func RenameDir(from, to string) error {
 	}
 	return err
 }
+
+// TreeLimits say what a command and all it starts are held to, where the system does that for a tree of processes, as
+// Windows does with a Job Object. Elsewhere they are held to limits another way, or not.
+type TreeLimits struct {
+	// Memory is in bytes: what it asks for beyond this is refused.
+	Memory int64
+	// CPU is in whole CPUs.
+	CPU float64
+	// Processes is how many may run at once.
+	Processes int
+}

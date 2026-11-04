@@ -5,6 +5,9 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,5 +116,61 @@ func TestServe(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Error("Serve did not stop")
+	}
+}
+
+func TestHostsBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts")
+	original := "# what someone wrote\n10.0.0.1 printer\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if HasHostsBlock(path) {
+		t.Error("it has no block yet")
+	}
+	changed, err := WriteHostsBlock(path, []string{"shop.localhost", "moorage.localhost"})
+	if err != nil || !changed {
+		t.Fatalf("%v %v", changed, err)
+	}
+	body, _ := os.ReadFile(path)
+	for _, want := range []string{"10.0.0.1 printer", "127.0.0.1 moorage.localhost", "::1 shop.localhost", hostsBegin, hostsEnd} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("%q is not in:\n%s", want, body)
+		}
+	}
+	if !HasHostsBlock(path) {
+		t.Error("it has a block now")
+	}
+	// The same again changes nothing, and fewer names leave only those.
+	if changed, err := WriteHostsBlock(path, []string{"moorage.localhost", "shop.localhost"}); err != nil || changed {
+		t.Errorf("%v %v", changed, err)
+	}
+	if _, err := WriteHostsBlock(path, []string{"moorage.localhost"}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ = os.ReadFile(path)
+	if strings.Contains(string(body), "shop.localhost") || strings.Count(string(body), hostsBegin) != 1 {
+		t.Errorf("%s", body)
+	}
+	if err := RemoveHostsBlock(path); err != nil {
+		t.Fatal(err)
+	}
+	body, _ = os.ReadFile(path)
+	if strings.TrimSpace(string(body)) != strings.TrimSpace(original) {
+		t.Errorf("what was around it changed: %q", body)
+	}
+}
+
+func TestHostsBlockKeepsLineEndings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts")
+	if err := os.WriteFile(path, []byte("10.0.0.1 printer\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteHostsBlock(path, []string{"shop.localhost"}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	if strings.Contains(strings.ReplaceAll(string(body), "\r\n", ""), "\n") {
+		t.Errorf("%q", body)
 	}
 }

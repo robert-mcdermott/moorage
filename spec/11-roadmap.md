@@ -1084,19 +1084,51 @@ directory, supervises it, and serves it on its own hostname.
      administrator's account. The lesson of it: unit tests found few of these, and a person's scenario or an
      attacker's plan found most. The drills on real services found what no test had.
 
-## 0.7.0: Windows, forges and the terminal (planned)
+## 0.7.0: Windows, forges and the terminal (released 2026-11-04)
 
 ### Wave 7
 
 1. **Windows server.** Job Objects, the Windows service, console control;
    the integration suite green on Windows.
+   - Done in slice 1: `moor server install` makes a Windows service, as a virtual account of its own; Job Objects that
+     an app is inside from before it runs, with `[resources]`; a block in the hosts file; a drill on a real service in
+     CI, and the sample apps on Windows.
+   - Found by slice 1: the service should not run as the system, as apps run as it too, and `%ProgramData%` is open to
+     everyone on the computer, master key included, unless told otherwise. A `moor` in someone's profile is one a service
+     account cannot read. Go will not start a program with no extension on Windows, whatever the system would do.
 2. **Forge integration.** Connected repositories, deploy webhooks,
    pull-request previews with status checks and URL comments, approval for
    forks and unknown authors.
+   - Done in slice 2: `moor forge`, an API and a section of an app's settings; webhooks signed the way GitHub, GitLab and
+     Gitea sign them, and for anything else that can sign one; looking every minute for a server no forge can reach;
+     previews named after pull requests, with a check and one comment each; approval of one commit at a time.
+   - Found by slice 2: a pull request's manifest could have named an environment for the branch that it knew it would go by, so
+     it has no say other than turning its preview off. A branch and its pull request would both have had a preview. A
+     token kept through a change of address could have been sent anywhere by whoever changed it, so it goes with its
+     address. The fake forge is all this has been tried against: no real forge has yet sent it an event.
 3. **Interactive access.** `moor run -it`, the line-mode web console,
    `moor exec`, the file browser for data directories.
+   - Done in slice 3: terminals over a WebSocket, with a pseudo-terminal on Unix and a pseudo-console on Windows; pipes with
+     `-i`; `moor exec` in a running container; a Console tab that runs one command at a time; `moor files`, its API, and a Files
+     tab.
+   - Found by slice 3: a browser sends its cookies with a WebSocket to anywhere, from any page, so a terminal takes a token and
+     not a session. What is typed can be a password, so what is said in a terminal is not kept. An app can leave a link or a pipe
+     for a server that may be able to read anything, so its data directory is opened with `os.Root`, and only a plain file
+     is ever sent. Go has no way of giving a process a pseudo-console through `os/exec`, so there it goes through CreateProcess.
 4. **Telemetry export.** Log forwarding, OTLP, threshold alerts.
+   - Done in slice 4: sinks for syslog, OTLP over HTTP and JSON over HTTP, each with a queue of its own; OTLP metrics; thresholds on an
+     environment's error rate, latency, memory and CPU, through notification rules; `[notifications] disk_percent`.
+   - Found by slice 4: a command that ends within a second had gone before anything looked for its log, so a run stays on the list for a
+     minute. A sink added long after the last one was removed must not start from where that one stopped. The fake collector and listeners
+     are all this has been tried against: no real collector or syslog server has yet been sent anything.
 5. **Release 0.7.0.**
+   - Done: three independent reviews by reading the code, and one of what they led to, each of which found what had to be fixed
+     first.
+   - Found: approving a pull request has to name the commit, or the commit that gets built is the one pushed as someone was reading.
+     A failing or slow sink, or a look at a slow forge, is not to hold up anything else, and every queue and retry needs to be asked
+     what it does when the other end refuses everything. On Windows, closing a folder to everyone is only safe for one that is the
+     server's own, and apps that run as the server's account can reach all that it can, which is now said plainly. A connection to
+     a real forge, collector or syslog server has yet to be tried: the fakes are all that any of this has met.
 
 ## 0.8.0: beyond the firewall (planned)
 

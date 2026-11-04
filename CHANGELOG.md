@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.0 (2026-11-04)
+
+Moorage 0.7.0 brings the server to Windows, connects it to where your code is kept, and lets you into what it runs. A push or a pull request on GitHub, GitLab or Gitea can deploy by itself, with a preview for each pull request. `moor run -it` is a terminal in an app, and the console can run commands and show its data directory. Logs and metrics can go to where your team already looks, and thresholds say when to be told.
+
+To upgrade from 0.6.0, run `moor server upgrade`. Running apps are taken over without a restart, and `moor server upgrade --rollback` goes back. Nothing you have set up behaves differently. Some things to know:
+
+- **On Windows, apps run as the server's own account,** as there is nothing there yet to keep them apart. They can read its database and master key, so anyone who can deploy to a server on Windows can reach every secret on it, whichever project they are in. See [How apps are kept apart](docs/isolation.md#on-windows).
+- **`moor server install` on Windows closes the data directory to everyone but the service,** so it refuses the top of a drive, or anyone's profile. A data directory has to be a folder of its own.
+
+Connecting to a real forge, OpenTelemetry collector or syslog server has been tried against stand-ins that follow their published formats, and not against the real thing. If yours disagrees, please say so.
+
+### Added
+
+- **A server on Windows, as a service.** `moor server install`, in an elevated terminal, makes a Windows service that runs as an account of its own with few rights, and apps run as it too. `[resources]` is enforced there by Job Objects, which an app is inside from before it runs. `moor server resolver install` adds a block to the hosts file. See [installing](docs/install.md#3-run-it-as-a-service).
+
+- **Deploying from a forge.** `moor forge connect`, or the Repository section of an app's settings, connects an app to a repository on GitHub, GitLab or Gitea, or anything else that can sign a webhook. A push to the default branch deploys to production. Each pull request gets a preview, with a check on its commit and one comment that says where it is, and it goes when the pull request closes. What is deployed is what is fetched from the repository, whatever an event says, and a pull request's manifest cannot send it anywhere but its own preview. A pull request from a fork or from someone the forge does not vouch for is not fetched or built until a maintainer approves that commit, and another commit waits again. A server that a forge cannot reach can look every minute instead, with `--poll`. See [Deploying from a forge](docs/forges.md).
+
+- **A terminal.** `moor run -it -- /bin/sh` gives you a terminal in a one-off instance of the current release, on Linux, macOS and Windows, as the app's user and within its limits. `moor exec INSTANCE -it` does it in a running container. Losing the connection stops what was running, a token that may no longer do this ends it, and what is said in one is not kept. See [Getting into an app](docs/interactive.md).
+- **A console in the browser.** An app's Console tab runs one command at a time, and shows what it says as it says it.
+- **The data directory.** An app's Files tab and `moor files` list, download, upload and remove what is in an environment's data directory. What an app has left there cannot lead the server out of it: a link out is not followed, nor is a pipe opened, and a file is only ever sent as a download.
+
+- **Telemetry elsewhere.** `moor server telemetry`, or Settings then Telemetry, sends what apps say to syslog (RFC 5424, over UDP, TCP or TLS), an OpenTelemetry collector or any HTTP endpoint, and what they do to an OpenTelemetry collector. A sink that is down costs nothing but its own place in a queue, and what apps say while the server restarts is sent when it is back. See [Sending telemetry elsewhere](docs/telemetry.md).
+- **Thresholds.** `moor alerts`, or an app's Metrics tab, says when to be told about an environment's error rate, latency, memory or CPU, through the channels that notifications already go to. `[notifications] disk_percent` says how full the server's data volume may get.
+
+### Fixed
+
+- A backup could fail, rarely, if an app swapped a file between a link and a plain file as it was being read, and back again. It now notes that the file changed, as it does for one that is changing.
+
 ## 0.6.0 (2026-11-04)
 
 Moorage 0.6.0 is about a server you can rely on. On Linux, apps are kept apart from one another. Backups and restoring are built in, and were tried on real services. People can sign in with a second factor, through your identity provider, or through a proxy. A server can upgrade itself, and go back. Moorage is now open source, under the Apache License 2.0.

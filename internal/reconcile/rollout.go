@@ -358,6 +358,7 @@ func (m *Manager) spec(ctx context.Context, es *envState, rel store.Release, bui
 		vars["PORT"] = strconv.Itoa(in.port)
 	}
 	in.softLimit = m.softLimitOf(plan)
+	in.memoryLimit = memoryLimitOf(plan)
 	iso, err := m.isolation(ctx, es.app, in.id, build, vars["MOORAGE_DATA_DIR"], in.tmpDir, plan, in.port)
 	if err != nil {
 		return shim.Spec{}, nil, err
@@ -503,13 +504,22 @@ func (m *Manager) addMoorage(app, env string, rel store.Release, build store.Bui
 // the release command of a deployment. Its output goes to log as log
 // lines, with the values of secrets removed.
 func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer) error {
+	return m.runOnce(ctx, app, env, rel, build, plan, process, command, timeout, log, nil)
+}
+
+// RunSession is RunOnce with someone at the other end of it.
+func (m *Manager) RunSession(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, session *oneoff.Session) error {
+	return m.runOnce(ctx, app, env, rel, build, plan, process, command, timeout, nil, session)
+}
+
+func (m *Manager) runOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer, session *oneoff.Session) error {
 	kind, err := m.db.EnvKind(ctx, app, env)
 	if err != nil {
 		return err
 	}
 	plan = plan.ForEnv(env, kind)
 	if plan.Container != nil {
-		return m.runContainerOnce(ctx, app, env, rel, build, plan, process, command, timeout, log)
+		return m.runContainerOnce(ctx, app, env, rel, build, plan, process, command, timeout, log, session)
 	}
 	// Several commands of a release can go at once: the first to end must not take away the others'.
 	id := "run-" + ids.New(ids.Run)
@@ -529,15 +539,19 @@ func (m *Manager) RunOnce(ctx context.Context, app, env string, rel store.Releas
 		vars[k] = v
 		values = append(values, v)
 	}
-	out := logs.NewWriter(log, logs.Stdout).Redact(values...)
-	errw := logs.NewWriter(log, logs.Stderr).Redact(values...)
-	defer out.Flush()
-	defer errw.Flush()
-	return oneoff.Run(ctx, oneoff.Command{
+	run := oneoff.Command{
 		Command: command, Env: oneoff.List(vars), Dir: m.appDir(build),
 		Shell: m.opts.Shell, ShellEnv: m.opts.ShellEnv,
-		Stdout: out, Stderr: errw, Timeout: timeout, Isolate: iso,
-	})
+		Timeout: timeout, Isolate: iso, Session: session,
+	}
+	if session == nil {
+		out := logs.NewWriter(log, logs.Stdout).Redact(values...)
+		errw := logs.NewWriter(log, logs.Stderr).Redact(values...)
+		defer out.Flush()
+		defer errw.Flush()
+		run.Stdout, run.Stderr = out, errw
+	}
+	return oneoff.Run(ctx, run)
 }
 
 // awaitReady waits until a new instance is healthy: an exposed process

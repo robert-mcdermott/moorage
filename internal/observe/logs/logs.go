@@ -8,14 +8,18 @@ package logs
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/robert-mcdermott/moorage/internal/platform"
 )
 
 // Streams of an app log line.
@@ -103,14 +107,27 @@ func (lf *File) rotate() error {
 	for i := lf.Keep - 1; i >= 1; i-- {
 		os.Rename(fmt.Sprintf("%s.%d", lf.Path, i), fmt.Sprintf("%s.%d", lf.Path, i+1))
 	}
+	// If it cannot be moved aside, which another program holding it open can bring about on Windows, it goes on being
+	// written to, as what an app says matters more than the size of a file. The next write tries again.
+	var err error
 	if lf.Keep > 0 {
-		if err := os.Rename(lf.Path, lf.Path+".1"); err != nil {
-			return err
-		}
-	} else if err := os.Remove(lf.Path); err != nil {
+		err = os.Rename(lf.Path, lf.Path+".1")
+	} else {
+		err = os.Remove(lf.Path)
+	}
+	if opened := lf.open(); opened != nil {
+		return opened
+	}
+	if err != nil && !errors.Is(err, fs.ErrPermission) && !isBusy(err) {
 		return err
 	}
-	return lf.open()
+	return nil
+}
+
+// isBusy says that a file could not be moved for someone having it open, as Windows says it.
+func isBusy(err error) bool {
+	var link *os.LinkError
+	return errors.As(err, &link) && strings.Contains(strings.ToLower(link.Err.Error()), "used by another process")
 }
 
 // Close closes the file.
@@ -272,7 +289,7 @@ func Files(path string) []string {
 func ReadAll(path string) ([]Line, error) { return readLines(path) }
 
 func readLines(path string) ([]Line, error) {
-	f, err := os.Open(path)
+	f, err := platform.OpenForReading(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -289,12 +306,15 @@ func readLines(path string) ([]Line, error) {
 	return out, sc.Err()
 }
 
-// Follower reads lines appended to a log file after a position, and keeps up
-// with rotation (a file that became shorter is read again from its start).
+// Follower reads lines appended to a log file after a position, and keeps up with rotation: what was added to a file
+// before it was moved aside is read from where it went.
 type Follower struct {
 	Path    string
 	offset  int64
 	partial string
+	info    os.FileInfo
+	// older lists files of the log to read all of first.
+	older []string
 }
 
 // NewFollower starts following path from its current end.
@@ -306,34 +326,7 @@ func NewFollower(path string) *Follower {
 	return f
 }
 
-// Read returns the complete lines appended since the last call.
-func (f *Follower) Read() ([]Line, error) {
-	file, err := os.Open(f.Path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	fi, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if fi.Size() < f.offset {
-		f.offset, f.partial = 0, "" // rotated
-	}
-	if fi.Size() == f.offset {
-		return nil, nil
-	}
-	if _, err := file.Seek(f.offset, io.SeekStart); err != nil {
-		return nil, err
-	}
-	data, err := io.ReadAll(io.LimitReader(file, fi.Size()-f.offset))
-	if err != nil {
-		return nil, err
-	}
-	f.offset += int64(len(data))
+func (f *Follower) take(data []byte) []Line {
 	text := f.partial + string(data)
 	parts := strings.Split(text, "\n")
 	f.partial = parts[len(parts)-1]
@@ -341,7 +334,86 @@ func (f *Follower) Read() ([]Line, error) {
 	for _, p := range parts[:len(parts)-1] {
 		out = append(out, Parse(p))
 	}
-	return out, nil
+	return out
+}
+
+// restOf reads what a file that was moved aside has past a position, if it is the one that was being read.
+func (f *Follower) restOf(path string, offset int64) []byte {
+	file, err := platform.OpenForReading(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	if fi, err := file.Stat(); err != nil || (f.info != nil && !os.SameFile(f.info, fi)) || fi.Size() <= offset {
+		return nil
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return nil
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// Read returns the complete lines appended since the last call.
+func (f *Follower) Read() ([]Line, error) {
+	var out []Line
+	for len(f.older) > 0 {
+		data := f.restOf(f.older[0], 0)
+		f.older = f.older[1:]
+		f.partial = ""
+		out = append(out, f.take(data)...)
+		f.partial = ""
+	}
+	file, err := platform.OpenForReading(f.Path)
+	if os.IsNotExist(err) {
+		return out, nil
+	}
+	if err != nil {
+		return out, err
+	}
+	defer file.Close()
+	fi, err := file.Stat()
+	if err != nil {
+		return out, err
+	}
+	if (f.info != nil && !os.SameFile(f.info, fi)) || fi.Size() < f.offset {
+		// Rotated: what came after the last look is in the file that it went to.
+		if rest := f.restOf(f.Path+".1", f.offset); len(rest) > 0 {
+			out = append(out, f.take(rest)...)
+		}
+		f.offset, f.partial = 0, ""
+	}
+	f.info = fi
+	if fi.Size() == f.offset {
+		return out, nil
+	}
+	if _, err := file.Seek(f.offset, io.SeekStart); err != nil {
+		return out, err
+	}
+	data, err := io.ReadAll(io.LimitReader(file, fi.Size()-f.offset))
+	if err != nil {
+		return out, err
+	}
+	f.offset += int64(len(data))
+	return append(out, f.take(data)...), nil
+}
+
+// FollowSince follows path from its beginning, and starts with those of its older files that have been written to since a
+// moment ago, as a log can rotate with no one following it. Lines from before that moment are for the reader to skip.
+func FollowSince(path string, since time.Time) *Follower {
+	f := &Follower{Path: path}
+	for _, file := range Files(path) {
+		if file == path {
+			continue
+		}
+		if fi, err := os.Stat(file); err == nil && fi.ModTime().After(since) {
+			f.older = append(f.older, file)
+		}
+	}
+	return f
 }
 
 // FollowFromStart follows path from its beginning.

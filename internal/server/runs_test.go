@@ -732,6 +732,9 @@ func TestStreamsEndWithAccess(t *testing.T) {
 // TestMemoryLimitWithoutTheKernel restarts an instance that stays over its limit, where nothing in the
 // kernel would, and says that it ran out of memory.
 func TestMemoryLimitWithoutTheKernel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Job Object holds it to its memory there: see TestLimitsOnWindows")
+	}
 	cfg := testConfig(t)
 	addrs, _ := start(t, cfg)
 	c := apiClient(t, cfg, addrs)
@@ -772,6 +775,30 @@ cpu = 0.5
 		t.Errorf("%+v %v", env.Isolation, err)
 	}
 	if _, page := b.get("/apps/shop"); !strings.Contains(page, "this server cannot enforce") {
+		t.Errorf("the app's page does not say so:\n%s", page)
+	}
+}
+
+// TestLimitsOnWindows has a Job Object hold an instance to what it says, and the page says so.
+func TestLimitsOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Job Objects are Windows' own")
+	}
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	b := signIn(t, cfg, addrs)
+	deployedSource(t, c, "shop", appManifest(`
+[resources]
+memory = "256MiB"
+cpu = 0.5
+pids = 32
+`))
+	env, err := c.Environment(context.Background(), "shop", "production")
+	if err != nil || env.Isolation == nil || !env.Isolation.Enforced || env.Isolation.Memory != 256<<20 {
+		t.Errorf("%+v %v", env.Isolation, err)
+	}
+	if _, page := b.get("/apps/shop"); !strings.Contains(page, "is refused") {
 		t.Errorf("the app's page does not say so:\n%s", page)
 	}
 }

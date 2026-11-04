@@ -42,6 +42,14 @@ type Limits struct {
 	CPUWeight int `json:"cpu_weight,omitempty"`
 }
 
+// TreeLimits says what a process and all it starts are held to, where the system does that itself.
+func (s *Spec) TreeLimits() platform.TreeLimits {
+	if s == nil {
+		return platform.TreeLimits{}
+	}
+	return platform.TreeLimits{Memory: s.Limits.Memory, CPU: s.Limits.CPU, Processes: s.Limits.PIDs}
+}
+
 // Any says whether it limits anything.
 func (l Limits) Any() bool { return l.Memory > 0 || l.CPU > 0 || l.PIDs > 0 || l.CPUWeight > 0 }
 
@@ -61,6 +69,15 @@ type Spec struct {
 	Limits Limits `json:"limits,omitempty"`
 }
 
+// GiveTerminal gives a terminal to the user who will run in it, as what it runs may open it again: to ask for a password,
+// say, and not have that seen.
+func GiveTerminal(tty string, s *Spec) error {
+	if s == nil || !s.Drop {
+		return nil
+	}
+	return os.Chown(tty, int(s.UID), int(s.GID))
+}
+
 // Status says what a server asked for, and what it has.
 type Status struct {
 	// Asked is what its configuration asks for, and Level what is in effect.
@@ -69,12 +86,14 @@ type Status struct {
 	CgroupRoot string
 	// Landlock is the version of Landlock this kernel has: 0 is none.
 	Landlock int
+	// JobLimits says that limits are held to with Job Objects, as on Windows.
+	JobLimits bool
 	// Notes say what is missing, and why.
 	Notes []string
 }
 
 // Enforced says whether limits on memory, CPU and processes are enforced by the kernel.
-func (s Status) Enforced() bool { return s.CgroupRoot != "" }
+func (s Status) Enforced() bool { return s.CgroupRoot != "" || s.JobLimits }
 
 // Describe says the level in words.
 func (s Status) Describe() string {
@@ -342,8 +361,12 @@ func (p *Policy) Instance(ctx context.Context, app, id string, dirs Dirs, limits
 		s.ReadOnly = append(p.commonRead(), dirs.App)
 		s.ReadWrite = append(append([]string{}, systemWrite...), dirs.Data, dirs.Tmp)
 	}
-	if p.Enforced() && (limits.Any() || p.Isolating()) {
+	if p.CgroupRoot != "" && (limits.Any() || p.Isolating()) {
 		s.Cgroup, s.Limits = filepath.Join(p.CgroupRoot, "apps", id), limits
+	}
+	if p.JobLimits && limits.Any() {
+		s.Limits = limits
+		return s, nil
 	}
 	if !s.Drop && s.Cgroup == "" {
 		return nil, nil
@@ -396,7 +419,7 @@ func (p *Policy) Build(ctx context.Context, app, id, dir, tmp string) (*Spec, er
 		s.ReadOnly = p.commonRead()
 		s.ReadWrite = append(append([]string{}, systemWrite...), dir, tmp, cache)
 	}
-	if p.Enforced() {
+	if p.CgroupRoot != "" {
 		s.Cgroup, s.Limits = filepath.Join(p.CgroupRoot, "builds", id), Limits{CPUWeight: 50}
 	}
 	return s, nil
@@ -433,7 +456,12 @@ func ownTree(dir string, uid, gid uint32, mode fs.FileMode) error {
 		if err != nil {
 			return err
 		}
-		if owner, group, _, ok := statOf(info); ok && owner == uid && group == gid {
+		owner, group, links, ok := statOf(info)
+		if ok && owner == uid && group == gid {
+			return nil
+		}
+		// A file with another name may be something that an app has linked here to be given, where the system allows that.
+		if ok && links > 1 && info.Mode().IsRegular() {
 			return nil
 		}
 		if err := at.Lchown(name, int(uid), int(gid)); err != nil && name == "." {

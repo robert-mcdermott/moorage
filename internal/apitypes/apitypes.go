@@ -922,6 +922,7 @@ type ServerConfig struct {
 	Registries []ConfigRegistry `json:"registries,omitempty" toml:"registry,omitempty"`
 	Channels   []ConfigChannel  `json:"channels,omitempty" toml:"channel,omitempty"`
 	Rules      []ConfigRule     `json:"rules,omitempty" toml:"rule,omitempty"`
+	Sinks      []ConfigSink     `json:"sinks,omitempty" toml:"sink,omitempty"`
 	Backups    *ConfigBackups   `json:"backups,omitempty" toml:"backups,omitempty"`
 	SignIn     *ConfigSignIn    `json:"sign_in,omitempty" toml:"sign_in,omitempty"`
 }
@@ -949,6 +950,18 @@ type ConfigRegistry struct {
 	Host     string `json:"host" toml:"host"`
 	Username string `json:"username" toml:"username"`
 	Password string `json:"password,omitempty" toml:"password,omitempty"`
+}
+
+// ConfigSink is somewhere that what apps say and do is sent.
+type ConfigSink struct {
+	Name    string `json:"name" toml:"name"`
+	Kind    string `json:"kind" toml:"kind"`
+	Address string `json:"address" toml:"address"`
+	// Headers are sent with what it sends, and name variables of the environment here.
+	Headers map[string]string `json:"headers,omitempty" toml:"headers,omitempty"`
+	Logs    bool              `json:"logs,omitempty" toml:"logs,omitempty"`
+	Metrics bool              `json:"metrics,omitempty" toml:"metrics,omitempty"`
+	App     string            `json:"app,omitempty" toml:"app,omitempty"`
 }
 
 // ConfigChannel is somewhere notifications go.
@@ -1020,4 +1033,158 @@ type ConfigItem struct {
 type ConfigReport struct {
 	DryRun bool         `json:"dry_run"`
 	Items  []ConfigItem `json:"items"`
+}
+
+// ForgeConnect connects an app to a repository on a forge.
+type ForgeConnect struct {
+	// URL is the repository's https address.
+	URL string `json:"url"`
+	// Kind is github, gitlab, gitea or generic. github.com and gitlab.com need not say.
+	Kind string `json:"kind,omitempty"`
+	// APIURL is where the forge's API is, if not where it usually is.
+	APIURL string `json:"api_url,omitempty"`
+	// Token reads a private repository, and reports back. It is not shown again.
+	Token string `json:"token,omitempty"`
+	// DefaultBranch is its production branch. The repository says, if it can be read.
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// NoPreviews leaves pull requests alone.
+	NoPreviews bool `json:"no_previews,omitempty"`
+	// Poll looks at the repository every minute, for a server that a forge cannot reach.
+	Poll bool `json:"poll,omitempty"`
+}
+
+// ForgeConnection is where an app's code is kept.
+type ForgeConnection struct {
+	App           string `json:"app"`
+	Kind          string `json:"kind"`
+	URL           string `json:"url"`
+	APIURL        string `json:"api_url,omitempty"`
+	DefaultBranch string `json:"default_branch"`
+	// HookURL is where the forge sends what happens.
+	HookURL string `json:"hook_url"`
+	// Secret signs what it sends. Only connecting shows it.
+	Secret      string    `json:"secret,omitempty"`
+	HasToken    bool      `json:"has_token"`
+	Previews    bool      `json:"previews"`
+	Poll        bool      `json:"poll"`
+	LastEventAt time.Time `json:"last_event_at,omitzero"`
+	// LastError says what went wrong with the last thing it told of.
+	LastError string    `json:"last_error,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ForgeApproval says what someone looked at, in having a pull request built.
+type ForgeApproval struct {
+	// Commit is the commit that they are answering for, by at least its first eight characters.
+	Commit string `json:"commit"`
+}
+
+// ForgePull is a pull request that a forge has told of.
+type ForgePull struct {
+	Number   int    `json:"number"`
+	Title    string `json:"title,omitempty"`
+	Author   string `json:"author,omitempty"`
+	FromFork bool   `json:"from_fork,omitempty"`
+	Commit   string `json:"commit"`
+	// State is waiting (for someone to approve it), building, live, failed, skipped or closed.
+	State string `json:"state"`
+	Env   string `json:"env,omitempty"`
+	// URL is its preview.
+	URL string `json:"url,omitempty"`
+	// Error says why it failed, or why it has no preview.
+	Error      string    `json:"error,omitempty"`
+	ApprovedBy string    `json:"approved_by,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// TerminalMessage is said in a text message on a terminal's WebSocket, where binary messages are what is typed and shown.
+type TerminalMessage struct {
+	// Rows and Cols, from whoever is typing, say that the terminal is that size now.
+	Rows int `json:"rows,omitempty"`
+	Cols int `json:"cols,omitempty"`
+	// EOF, from whoever is typing, says that there is no more to type.
+	EOF bool `json:"eof,omitempty"`
+	// Run, from the server, is the run that this is.
+	Run string `json:"run,omitempty"`
+	// Ended, from the server, says that it is over, and how. ExitCode is there if it exited of its own accord.
+	Ended    bool   `json:"ended,omitempty"`
+	ExitCode *int   `json:"exit_code,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// DataFile is something in an environment's data directory.
+type DataFile struct {
+	Name string `json:"name"`
+	// Kind is file, directory, link or other. A link can also be a directory, which it then says it is.
+	Kind     string    `json:"kind"`
+	Link     bool      `json:"link,omitempty"`
+	Size     int64     `json:"size"`
+	Modified time.Time `json:"modified"`
+}
+
+// DataListing is what is in a directory within a data directory.
+type DataListing struct {
+	Path  string     `json:"path"`
+	Files []DataFile `json:"files"`
+	// More says that there is more than this.
+	More bool `json:"more,omitempty"`
+}
+
+// NewTelemetrySink says where to send what apps say and do. Saving one of the same name changes it.
+type NewTelemetrySink struct {
+	Name string `json:"name"`
+	// Kind is syslog, otlp or http.
+	Kind string `json:"kind"`
+	// Address is udp://host:514, tcp://host:601 or tls://host:6514 for syslog, and an http or https address otherwise: for
+	// OTLP, what comes before /v1/logs.
+	Address string `json:"address"`
+	// Headers are sent with each request, sealed here and not shown again. Leaving them out keeps those it has.
+	Headers map[string]string `json:"headers,omitempty"`
+	Logs    bool              `json:"logs"`
+	Metrics bool              `json:"metrics"`
+	// App is the one app it is for. Leaving it out sends all of them.
+	App string `json:"app,omitempty"`
+}
+
+// TelemetrySink is somewhere that what apps say and do is sent.
+type TelemetrySink struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Address    string `json:"address"`
+	HasHeaders bool   `json:"has_headers"`
+	Logs       bool   `json:"logs"`
+	Metrics    bool   `json:"metrics"`
+	App        string `json:"app,omitempty"`
+	// LastSentAt is when something last got there, and LastError why the last try did not.
+	LastSentAt time.Time `json:"last_sent_at,omitzero"`
+	LastError  string    `json:"last_error,omitempty"`
+	// Dropped is how many lines it fell so far behind that they were let go.
+	Dropped   int64     `json:"dropped"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// NewThreshold says when to tell someone about how an environment is doing.
+type NewThreshold struct {
+	// Metric is error-rate, latency-p95, memory or cpu.
+	Metric string `json:"metric"`
+	// Above is a percentage of answers, milliseconds, a percentage of its limit, or a percentage of one core.
+	Above float64 `json:"above"`
+	// Minutes is how long it has to go on for. Nothing means 5.
+	Minutes int `json:"minutes,omitempty"`
+}
+
+// Threshold says when someone is told about how an environment is doing.
+type Threshold struct {
+	ID      string  `json:"id"`
+	Metric  string  `json:"metric"`
+	Label   string  `json:"label"`
+	Above   float64 `json:"above"`
+	Minutes int     `json:"minutes"`
+	// Firing says that it has been crossed, and Value is what it was last compared with, if there was anything to compare.
+	Firing    bool      `json:"firing"`
+	Value     *float64  `json:"value,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
 }

@@ -289,12 +289,29 @@ main { flex: 1; width: 100%; max-width: 68rem; padding: var(--s5) var(--s6) var(
 .block { margin-top: var(--s5); }
 .small { font-size: .82rem; }
 .nowrap { white-space: nowrap; }
+.repository h3 { margin: var(--s6) 0 var(--s2); font-size: 1rem; }
+.repository > .muted + form { margin-top: var(--s4); }
+.pull-title { min-width: 15rem; width: 38%; }
+.threshold-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s4); margin-top: var(--s3); }
+.threshold-form .field { flex: 1 1 10rem; margin: 0; }
+.threshold-form .actions { margin: 0; }
+.line-console .transcript { margin: var(--s4) 0 0; max-height: 28rem; }
+.line-console .prompt { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s4); }
+.line-console .prompt input[name="command"] { flex: 1 1 14rem; min-width: 0; margin: 0; font-family: var(--mono); }
+.prompt-mark { font-family: var(--mono); color: var(--muted); }
+.transcript-entry + .transcript-entry { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.transcript-command { font-weight: 600; }
+.transcript-end { margin-top: var(--s1); font-family: var(--sans, inherit); }
+.path-crumbs { margin-bottom: var(--s3); }
+.path-crumbs ol { list-style: none; padding: 0; overflow-wrap: anywhere; }
+.files .file-name { min-width: 12rem; overflow-wrap: anywhere; }
+form.inline { display: inline; }
 .clip { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clip-cell { max-width: 26rem; overflow-wrap: anywhere; }
 .table-scroll { overflow-x: auto; }
 a.plain { text-decoration: none; }
 a.badge { text-decoration: none; }
-.notice { padding: var(--s3) var(--s4); margin-bottom: var(--s4); border: 1px solid transparent; border-radius: var(--radius-small); }
+.notice { overflow-wrap: anywhere; padding: var(--s3) var(--s4); margin-bottom: var(--s4); border: 1px solid transparent; border-radius: var(--radius-small); }
 .notice.ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok); }
 .notice.fail { color: var(--fail); background: var(--fail-soft); border-color: var(--fail); }
 .output { margin-top: var(--s2); max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .82rem; }

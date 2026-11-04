@@ -23,9 +23,6 @@ func TestSampleApps(t *testing.T) {
 	if os.Getenv("MOORAGE_TEST_BUILDS") == "" {
 		t.Skip("set MOORAGE_TEST_BUILDS=1 to build the sample apps (it downloads toolchains)")
 	}
-	if runtime.GOOS == "windows" {
-		t.Skip("the sample apps are built on Linux and macOS")
-	}
 	cfg := testConfig(t)
 	if keep := os.Getenv("MOORAGE_TEST_TOOLCHAINS"); keep != "" {
 		for _, d := range []string{"toolchains", "cache"} {
@@ -55,6 +52,9 @@ func TestSampleApps(t *testing.T) {
 		{"static", "from a static site"},
 	} {
 		t.Run(s.dir, func(t *testing.T) {
+			if s.dir == "binary" && runtime.GOOS == "windows" {
+				t.Skip("it is a script that says what runs it on its first line, which Windows has no way of reading")
+			}
 			app := "sample-" + s.dir
 			src := copyTree(t, filepath.Join("..", "..", "testdata", "apps", s.dir))
 			if s.dir == "binary" {

@@ -164,6 +164,9 @@ func (l *Launchd) Uninstall() error {
 	return nil
 }
 
+// Definition reads the job's property list.
+func (l *Launchd) Definition() ([]byte, error) { return os.ReadFile(l.File()) }
+
 // Start loads the job if needed and starts the server.
 func (l *Launchd) Start() error {
 	if !l.loaded() {

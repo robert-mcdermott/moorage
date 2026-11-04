@@ -1,6 +1,7 @@
 package console
 
 import (
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 // metricsView is an environment's Metrics page.
@@ -81,6 +83,13 @@ func (c *Console) showMetrics(w http.ResponseWriter, r *http.Request, p auth.Pri
 		}
 	}
 	d.Metrics = view
+	if thresholds, err := c.thresholdData(r, app, env); err == nil {
+		d.Thresholds = thresholds
+	} else if !errors.Is(err, store.ErrNotFound) {
+		c.internal(w, err)
+		return
+	}
+	d.ThresholdFailure = r.URL.Query().Get("threshold")
 	d.Poll = view.Live
 	c.render(w, http.StatusOK, "app-metrics", d)
 }

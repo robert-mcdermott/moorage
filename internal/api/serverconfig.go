@@ -10,7 +10,7 @@ import (
 
 func (s *Server) serverSettings() *serverconfig.Service {
 	keys, _ := s.keyring.(serverconfig.Keys)
-	return &serverconfig.Service{DB: s.db, Auth: s.auth, Keyring: keys, Notifier: s.notifier, Backups: s.backupsService, SSO: s.signIn}
+	return &serverconfig.Service{DB: s.db, Auth: s.auth, Keyring: keys, Notifier: s.notifier, Sinks: s.telemetry, Backups: s.backupsService, SSO: s.signIn}
 }
 
 func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {

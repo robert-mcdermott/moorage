@@ -10,6 +10,8 @@
   <a href="/apps/{{.App.Name}}/deploy{{envq .Env}}"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
   <a href="/apps/{{.App.Name}}/metrics{{envq .Env}}"{{if eq .Tab "metrics"}} aria-current="page"{{end}}>Metrics</a>
   <a href="/apps/{{.App.Name}}/cron{{envq .Env}}"{{if eq .Tab "cron"}} aria-current="page"{{end}}>Cron</a>
+  {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/console{{envq .Env}}"{{if eq .Tab "console"}} aria-current="page"{{end}}>Console</a>
+  <a href="/apps/{{.App.Name}}/files{{envq .Env}}"{{if eq .Tab "files"}} aria-current="page"{{end}}>Files</a>{{end}}
   <a href="/apps/{{.App.Name}}/environments"{{if eq .Tab "environments"}} aria-current="page"{{end}}>Environments</a>
   <a href="/apps/{{.App.Name}}/access{{envq .Env}}"{{if eq .Tab "access"}} aria-current="page"{{end}}>Domains and access</a>
   {{if .Access.Manage}}<a href="/apps/{{.App.Name}}/settings"{{if eq .Tab "settings"}} aria-current="page"{{end}}>Settings</a>{{end}}
@@ -496,6 +498,7 @@
     </form>
   </section>
 </div>
+{{with .Forge}}{{template "app-repository" dict "Forge" . "App" $app "CSRF" $csrf}}{{end}}
 <section class="block panel panel-pad danger-zone">
   <h2>Delete this app</h2>
   <p>This stops its instances and removes its variables, releases and everything below. It cannot be undone.</p>
@@ -512,6 +515,201 @@
     <div class="actions"><button class="danger-solid" type="submit">Delete {{$app}}</button></div>
   </form>
 </section>
+{{end}}
+
+{{define "app-repository"}}
+{{$app := .App}}{{$csrf := .CSRF}}{{$f := .Forge}}
+{{if $f.NewSecret}}
+<section class="block panel panel-pad secret-once" role="status" id="repository-secret">
+  <h2>Give your forge this webhook</h2>
+  <p class="muted small">In the repository's webhook settings, for pushes and pull requests, sending JSON. The secret is not shown again.</p>
+  <p class="small">Address</p>
+  {{template "command" $f.HookURL}}
+  <p class="small">Secret</p>
+  {{template "command" $f.NewSecret}}
+</section>
+{{end}}
+<section class="block panel panel-pad repository" id="repository">
+  <h2>Repository</h2>
+  {{if $f.Connected}}
+  {{if $f.Conn.LastError}}<p class="notice fail" role="alert">{{$f.Conn.LastError}}</p>{{end}}
+  <dl class="facts">
+    <dt>Deploys from</dt><dd><code>{{$f.Conn.URL}}</code></dd>
+    <dt>Default branch</dt><dd><code>{{$f.Conn.DefaultBranch}}</code>, to production</dd>
+    <dt>Changes</dt><dd>{{if $f.Conn.Poll}}It looks every minute{{else}}The forge tells it, at <code>{{$f.HookURL}}</code>{{end}}</dd>
+    <dt>Pull requests</dt><dd>{{if $f.Conn.Previews}}{{if $f.Conn.Poll}}It cannot hear of them when it only looks: a branch gets a preview instead{{else}}Each gets a preview{{end}}{{else}}Left alone{{end}}</dd>
+    <dt>Token</dt><dd>{{if $f.HasToken}}Kept, for reading it and reporting back{{else}}None: it can only read a public repository, and cannot report back{{end}}</dd>
+    {{if not $f.Conn.LastEventAt.IsZero}}<dt>Last heard</dt><dd><time datetime="{{iso $f.Conn.LastEventAt}}">{{ago $f.Conn.LastEventAt}}</time></dd>{{end}}
+  </dl>
+  <div class="actions">
+    <form method="post" action="/apps/{{$app}}/settings/forge/sync" data-busy="Looking…"><input type="hidden" name="csrf" value="{{$csrf}}"><button type="submit">Look now</button></form>
+    <form method="post" action="/apps/{{$app}}/settings/forge/disconnect" data-busy="Letting go…" data-confirm="Stop deploying {{$app}} from this repository? What it deployed stays."><input type="hidden" name="csrf" value="{{$csrf}}"><button class="quiet" type="submit">Disconnect</button></form>
+  </div>
+  {{if $f.Pulls}}
+  <h3>Pull requests</h3>
+  <div class="table-scroll">
+    <table class="apps">
+      <thead><tr><th>Pull request</th><th>State</th><th>Commit</th><th>Preview</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range $f.Pulls}}
+      <tr>
+        <td class="pull-title"><strong>#{{.Number}}</strong> {{.Title}}<div class="muted small">{{.Author}}{{if .FromFork}}, from a fork{{end}}</div></td>
+        <td class="nowrap">{{template "status" .Status}}{{if .ApprovedBy}}<div class="muted small">approved by {{.ApprovedBy}}</div>{{end}}</td>
+        <td class="nowrap"><code>{{.Short}}</code></td>
+        <td>{{if .PreviewURL}}<a href="{{.PreviewURL}}">{{bareURL .PreviewURL}}</a>{{else if .Error}}<span class="muted small">{{.Error}}</span>{{end}}</td>
+        <td class="nowrap">{{if .Approvable}}<form method="post" action="/apps/{{$app}}/settings/forge/pulls/{{.Number}}/approve" data-busy="Starting…" data-confirm="Build commit {{.Short}} of pull request #{{.Number}}? This runs its code on this server, and its preview has the app's preview variables."><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="commit" value="{{.HeadSHA}}"><button class="quiet" type="submit">{{.Action}}</button></form>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else if and $f.Conn.Previews (not $f.Conn.Poll)}}<p class="muted">No open pull requests that it has heard of.</p>{{end}}
+  {{else}}
+  <p class="muted">Deploy from GitHub, GitLab or Gitea: a push to the default branch deploys to production, and each pull request gets a preview. Code from someone who cannot push there waits for you to approve it.</p>
+  <form method="post" action="/apps/{{$app}}/settings/forge/connect" data-busy="Connecting…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="forge-url">Repository address</label><input id="forge-url" name="url" type="url" required value="{{$f.Form.URL}}" placeholder="https://github.com/acme/shop.git" autocomplete="off" spellcheck="false"></div>
+    <div class="field"><label for="forge-kind">Kind of forge</label>
+      <select id="forge-kind" name="kind"><option value="">Say from the address</option><option value="github"{{if eq $f.Form.Kind "github"}} selected{{end}}>GitHub</option><option value="gitlab"{{if eq $f.Form.Kind "gitlab"}} selected{{end}}>GitLab</option><option value="gitea"{{if eq $f.Form.Kind "gitea"}} selected{{end}}>Gitea</option><option value="generic"{{if eq $f.Form.Kind "generic"}} selected{{end}}>Generic</option></select>
+      <p class="hint">github.com and gitlab.com need not say. Generic is any other git server that can sign a webhook, and it cannot report back.</p>
+    </div>
+    <div class="field"><label for="forge-token">Token <span class="muted">(optional)</span></label><input id="forge-token" name="token" type="password" autocomplete="off" spellcheck="false">
+      <p class="hint">It reads a private repository, and sets the checks and comments on pull requests. It is kept sealed.</p>
+    </div>
+    <label class="check"><input type="checkbox" name="previews" value="1" checked> A preview for each pull request</label>
+    <label class="check"><input type="checkbox" name="poll" value="1"{{if $f.Form.Poll}} checked{{end}}> Look every minute, as the forge cannot reach this server</label>
+    <div class="actions"><button type="submit">Connect</button></div>
+  </form>
+  {{end}}
+</section>
+{{end}}
+
+{{define "app-console"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{with .LineConsole}}
+<section class="panel panel-pad line-console" data-line-console data-history="{{json .History}}">
+  <h2>Run a command</h2>
+  <p class="muted">Each command runs by itself, as a one-off instance of the current release, with its variables and its data. Nothing carries over from one to the next, and it cannot ask you anything. For a shell, there is <code>moor run -it -- /bin/sh</code>. What it says is kept, with secrets taken out, and who ran it is on record.</p>
+  <div class="log transcript" data-transcript role="log" aria-label="What has been run" tabindex="0" hidden></div>
+  <form class="prompt" method="post" action="/apps/{{$app}}/console/run{{envq $.Env}}" data-line-form>
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="visually-hidden" for="console-command">Command</label>
+    <span class="prompt-mark" aria-hidden="true">$</span>
+    <input id="console-command" name="command" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ls -la" data-line-input>
+    <button type="submit" data-line-run>Run</button>
+    <button class="quiet" type="button" data-line-stop hidden>Stop it</button>
+  </form>
+</section>
+{{if .Recent}}
+<section class="block">
+  <h2>Earlier commands</h2>
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th>Command</th><th>How it went</th><th>When</th><th>Who</th></tr></thead>
+      <tbody>
+      {{range .Recent}}
+      <tr>
+        <td><a href="/apps/{{$app}}/runs/{{.ID}}"><code>{{.Command}}</code></a></td>
+        <td class="nowrap"><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span></td>
+        <td class="muted nowrap"><time datetime="{{iso .At}}">{{ago .At}}</time></td>
+        <td class="muted">{{.By}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "app-files"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{$envq := envq .Env}}
+{{with .Files}}
+<nav class="crumbs path-crumbs" aria-label="Where this is in the data directory">
+  <ol>
+    <li><a href="{{.Top}}">Data directory</a></li>
+    {{range .Crumbs}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}
+  </ol>
+</nav>
+{{with .File}}
+<section class="panel panel-pad">
+  <h2>{{.Name}}</h2>
+  <p class="muted">{{size .Size}}, changed <time datetime="{{iso .Modified}}">{{ago .Modified}}</time></p>
+  <div class="actions">
+    <a class="button" href="{{$.Files.Download}}">Download</a>
+    <form method="post" action="/apps/{{$app}}/files/remove{{$envq}}" data-busy="Removing…" data-confirm="Remove {{.Name}}? There is no way back but a backup.">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="path" value="{{$.Files.Path}}">
+      <button class="quiet" type="submit">Remove it</button>
+    </form>
+  </div>
+</section>
+{{if .HasPreview}}
+<section class="block"><h2 class="visually-hidden">What is in it</h2><pre class="log" tabindex="0">{{.Preview}}</pre></section>
+{{else}}
+<p class="muted block">It is too long to show here, or it is not text.</p>
+{{end}}
+{{else}}
+<div class="panel table-scroll">
+  {{if .Rows}}
+  <table class="apps files">
+    <thead><tr><th>Name</th><th>Size</th><th>Changed</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .Rows}}
+    <tr>
+      <td class="file-name">{{if or .Dir (not .Other)}}<a href="{{.Href}}">{{.Name}}{{if .Dir}}/{{end}}</a>{{else}}{{.Name}}{{end}}{{if .Link}} <span class="muted small">a link</span>{{end}}{{if .Other}} <span class="muted small">not a file</span>{{end}}</td>
+      <td class="muted nowrap">{{if .Download}}{{size .Size}}{{end}}</td>
+      <td class="muted nowrap"><time datetime="{{iso .Modified}}">{{ago .Modified}}</time></td>
+      <td class="row-end nowrap">
+        {{if .Download}}<a class="button quiet small" href="{{.Download}}" aria-label="Download {{.Name}}">Download</a>{{end}}
+        <form class="inline" method="post" action="/apps/{{$app}}/files/remove{{$envq}}" data-busy="Removing…" data-confirm="Remove {{.Name}}{{if .Dir}}, and all that is in it{{end}}? There is no way back but a backup.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="path" value="{{.Path}}">
+          {{if and .Dir (not .Link)}}<input type="hidden" name="everything" value="1">{{end}}
+          <button class="quiet small" type="submit" aria-label="Remove {{.Name}}">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="panel-pad muted">There is nothing here. This is where the app keeps what it means to keep: it finds it as <code>MOORAGE_DATA_DIR</code>.</p>
+  {{end}}
+</div>
+{{if .More}}<p class="muted small">There is more here than this shows.</p>{{end}}
+<div class="deploy-ways block">
+  <section class="panel panel-pad">
+    <h2>Put a file here</h2>
+    <p class="muted">Up to 1 GB. It belongs to the app, and appears all at once.</p>
+    <form method="post" action="/apps/{{$app}}/files/upload{{$envq}}" enctype="multipart/form-data" data-busy="Uploading…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="path" value="{{.Path}}">
+      <div class="field"><label for="upload-file">File</label><input id="upload-file" name="file" type="file" required></div>
+      <label class="check"><input type="checkbox" name="replace" value="1"> Take the place of one of the same name</label>
+      <div class="actions"><button class="quiet" type="submit">Put it here</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>Make a directory</h2>
+    <form method="post" action="/apps/{{$app}}/files/folder{{$envq}}" data-busy="Making…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="path" value="{{.Path}}">
+      <div class="field"><label for="folder-name">Name</label><input id="folder-name" name="name" required autocomplete="off" spellcheck="false"></div>
+      <div class="actions"><button class="quiet" type="submit">Make it</button></div>
+    </form>
+  </section>
+</div>
+{{end}}
+{{end}}
 {{end}}
 
 {{define "app-environments"}}
@@ -909,5 +1107,42 @@
   {{end}}
 </div>
 {{end}}
+{{end}}
+{{with .Thresholds}}
+{{$csrf := $.CSRF}}
+{{$app := $.App.Name}}
+<section class="block" id="thresholds">
+  <div class="section-heading"><h2>When to tell someone</h2></div>
+  {{with $.ThresholdFailure}}<p class="notice fail" role="alert">{{.}}</p>{{end}}
+  {{if .Rows}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">What</th><th scope="col">Above</th><th scope="col">For</th><th scope="col">Now</th>{{if $.Access.Manage}}<th scope="col"><span class="visually-hidden">Actions</span></th>{{end}}</tr></thead>
+      <tbody>
+      {{range .Rows}}
+      <tr>
+        <td class="app-name">{{.Label}}</td>
+        <td data-label="Above" class="nowrap">{{.Above}} {{.Unit}}</td>
+        <td data-label="For" class="nowrap">{{.Minutes}} min</td>
+        <td data-label="Now">{{if .Firing}}<span class="badge warn">Crossed</span> {{end}}<span class="muted">{{.Now}}</span></td>
+        {{if $.Access.Manage}}<td class="row-end"><form method="post" action="/apps/{{$app}}/metrics/thresholds/remove{{envq $.Env}}" data-confirm="Remove this threshold?"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="id" value="{{.ID}}"><button class="quiet small danger" type="submit">Remove</button></form></td>{{end}}
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="panel panel-pad muted">No thresholds. Past one for as long as it says, a notification goes to whoever a rule sends <q>A threshold is crossed</q> to, and another when it comes right.</p>
+  {{end}}
+  {{if $.Access.Manage}}
+  <form class="panel panel-pad threshold-form" method="post" action="/apps/{{$app}}/metrics/thresholds{{envq $.Env}}" data-busy="Adding…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="threshold-metric">What</label><select id="threshold-metric" name="metric">{{range .Kinds}}<option value="{{.Metric}}">{{.Label}}, in {{.Unit}}</option>{{end}}</select></div>
+    <div class="field"><label for="threshold-above">Above</label><input id="threshold-above" name="above" type="number" min="0" step="any" required></div>
+    <div class="field"><label for="threshold-minutes">For, in minutes</label><input id="threshold-minutes" name="minutes" type="number" min="1" max="1440" value="5" required></div>
+    <div class="actions"><button class="quiet" type="submit">Add a threshold</button></div>
+  </form>
+  {{end}}
+</section>
 {{end}}
 {{end}}

@@ -177,7 +177,7 @@ example: previews 512 MiB / 0.5 CPU).
 |---|---|---|---|---|
 | Linux (native) | cgroup v2 subtree delegated to the service (see [Architecture → Linux](02-architecture.md#linux-service-unit-and-cgroup-layout)): one cgroup per instance and per build, processes placed directly into it at spawn | `memory.max` (+ `memory.high` at 90 %), OOM kills the whole instance tree | `cpu.max` | `pids.max` |
 | macOS (native) | `setrlimit` + **soft enforcement** (sampled RSS above the limit → graceful restart with an explicit event) | soft | — | `RLIMIT_NPROC` |
-| Windows (native) | Job Object per instance | commit limit — allocations beyond it fail (the app is not killed), plus soft enforcement | CPU-rate hard cap | active-process limit |
+| Windows (native) | Job Object per instance | commit limit — allocations beyond it fail (the app is not killed) | CPU-rate hard cap | active-process limit |
 | Containers | Engine flags | `--memory` | `--cpus` | `--pids-limit` |
 
 Soft enforcement is also used on Linux when cgroup delegation is unavailable,
@@ -253,10 +253,24 @@ it), so the console reports the protection that is actually in effect.
   down waits for its next time: a job running late may be worse than one not
   running. A job runs in an environment that is asleep without waking the rest.
 - `moor run -- <command>` starts a one-off instance and streams its output,
-  returning its exit code; interrupting it stops the command. Interactive sessions over a PTY through
-  the API's WebSocket (`moor run -it -- bash`, and a web terminal in the
-  console) arrive in Phase 3. For containers, `moor exec <instance>` attaches
-  to a running container.
+  returning its exit code; interrupting it stops the command.
+- `moor run -it -- <command>` has someone at the other end of it, over the API's
+  WebSocket (`GET .../terminal`): binary messages are what is typed and shown, and text
+  messages say the rest. It runs in a pseudo-terminal, or a pseudo-console on Windows, as
+  the leader of a session whose every process goes with it, and in the app's user, cgroup and
+  sandbox as any one-off instance is. Its `Run` is on record, and what is said in it is not,
+  as it can include a password. Its connection ending stops it, and access is looked at again
+  while it goes on. The route takes a token and refuses a session, as a browser would send
+  a session's cookie for any page's WebSocket. `moor exec <instance>` does the same through the
+  engine, for a running container.
+- A line-mode console in the browser runs one command at a time as an ordinary run, with its
+  output followed over the API's log route. Nothing is typed at a command, and there is no state
+  from one to the next.
+- A data directory is reached only through `os.Root`, as anything in it was written by an app and
+  the server may be able to read everything: a link out of it is not followed. A file to be read
+  is opened non-blocking, as a pipe would wait for ever, and only a plain file is read. A file
+  written from outside appears by a rename, and belongs to the directory's owner. It is
+  only ever served as `attachment`, `application/octet-stream`, `nosniff`.
 
 ## Container driver details
 
@@ -319,11 +333,10 @@ it), so the console reports the protection that is actually in effect.
 
 ## Platform notes
 
-**Windows.** Native apps run under the service account (or a configured
-account). Each shim owns a windowless console and creates its app in a new
-process group on that console, **directly inside a Job Object** (using the
-job-list process-creation attribute, so no child process can start before the
-job applies). Graceful stop sends
+**Windows.** Native apps run under the service's account, `NT SERVICE\Moorage`. Each shim owns a windowless console and creates its app in a new
+process group on that console, suspended, and lets it go only once it is
+inside its Job Object, so no child process can start before the job applies.
+Graceful stop sends
 `CTRL_BREAK_EVENT` to the app's process group (possible precisely because the
 shim shares the app's console, which a console-less service could not do
 directly); after the stop timeout the Job Object is terminated. The job's

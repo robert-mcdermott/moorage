@@ -2,14 +2,18 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/client"
@@ -50,25 +54,143 @@ func followRun(cmd *cobra.Command, c *client.Client, app, id string) error {
 	return fmt.Errorf("the run %s %s: %s", run.ID, run.Status, run.Error)
 }
 
+// joinTerminal joins someone's terminal to a command's, and ends as it ends. In a terminal, every key goes to the command,
+// Ctrl-C included, so going away takes the command ending, or the connection doing so.
+func joinTerminal(cmd *cobra.Command, c *client.Client, app, env string, o client.TerminalOptions, interactive bool) error {
+	fd := int(os.Stdin.Fd())
+	raw := o.TTY && interactive
+	if o.TTY {
+		if !term.IsTerminal(fd) {
+			return errors.New("standard input is not a terminal, so there is none to join: leave out -t")
+		}
+		cols, rows, err := term.GetSize(fd)
+		if err != nil {
+			return fmt.Errorf("the size of this terminal: %w", err)
+		}
+		o.Rows, o.Cols, o.Term = rows, cols, os.Getenv("TERM")
+	}
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+	t, err := c.Terminal(ctx, app, env, o)
+	if err != nil {
+		return err
+	}
+	defer t.Close()
+	restored := func() {}
+	if raw {
+		restoreOutput := prepareTerminalOutput()
+		before, err := term.MakeRaw(fd)
+		if err != nil {
+			restoreOutput()
+			return fmt.Errorf("take over this terminal: %w", err)
+		}
+		var once sync.Once
+		restored = func() {
+			once.Do(func() {
+				term.Restore(fd, before)
+				restoreOutput()
+			})
+		}
+		defer restored()
+		go watchTerminalSize(ctx, fd, func(rows, cols int) { t.Resize(rows, cols) })
+	}
+	if interactive {
+		go func() {
+			if raw {
+				copyKeys(t, os.Stdin)
+				return
+			}
+			io.Copy(t, cmd.InOrStdin())
+			if !o.TTY {
+				t.CloseInput()
+			}
+		}()
+	} else {
+		t.CloseInput()
+	}
+	_, err = io.Copy(cmd.OutOrStdout(), t)
+	restored()
+	code, problem, over := t.Ended()
+	switch {
+	case !over && ctx.Err() != nil:
+		return exitStatus{130}
+	case !over && err != nil:
+		return fmt.Errorf("the connection ended: %w", err)
+	case !over:
+		return errors.New("the connection ended")
+	case code != nil && *code == 0:
+		return nil
+	case code != nil:
+		return exitStatus{*code}
+	}
+	return errors.New(problem)
+}
+
+func newExecCmd() *cobra.Command {
+	var f appFlags
+	var env, timeout string
+	var interactive, tty bool
+	cmd := &cobra.Command{
+		Use:   "exec INSTANCE [flags] -- COMMAND [ARG...]",
+		Short: "Run a command in a running container",
+		Long: `Run a command in a container that is running, as seen in moor ps, in among what it has
+open and has written, which a new one-off instance would not be. moor ends with the
+command's own exit status. What is said in it is not kept.
+
+An app that is not in a container has nothing of its own to go into, as a process
+sees the same files from anywhere: moor run has them, with its variables and its user.`,
+		Example: `  moor exec ins_01J… -it -- /bin/sh
+  moor exec ins_01J… -- ps aux`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, c, err := f.open()
+			if err != nil {
+				return err
+			}
+			return joinTerminal(cmd, c, app, env, client.TerminalOptions{Instance: args[0], Command: strings.Join(args[1:], " "), Timeout: timeout, TTY: tty}, interactive)
+		},
+	}
+	f.add(cmd)
+	cmd.Flags().StringVar(&env, "env", names.Production, "environment")
+	cmd.Flags().StringVar(&timeout, "timeout", "", "how long it may take, such as 10m (default 1h)")
+	cmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "send what is typed, or standard input, to it")
+	cmd.Flags().BoolVarP(&tty, "tty", "t", false, "give it a terminal")
+	return cmd
+}
+
 func newRunCmd() *cobra.Command {
 	var f appFlags
 	var env, timeout string
-	var detach bool
+	var detach, interactive, tty bool
 	cmd := &cobra.Command{
 		Use:   "run [flags] -- COMMAND [ARG...]",
 		Short: "Run a command in an environment's current release",
 		Long: `Run a command as a one-off instance of an environment's current release, with its
 variables and data directory, and show what it says. moor ends with the command's own
 exit status, and interrupting moor stops it. It takes an hour at the most, unless
---timeout says otherwise, up to a day.`,
+--timeout says otherwise, up to a day.
+
+With -it, it has a terminal of its own that you are at, for a shell or anything else
+that asks you things. All the keys go to it, Ctrl-C too, and leaving stops it. What is said
+in one is not kept, since a password can be typed into it, and what it says is not
+kept from you either: its secrets are there to be seen. With -i and no -t, it has standard
+input, without a terminal.`,
 		Example: `  moor run -- python manage.py migrate
   moor run --env staging --timeout 10m -- ./seed.sh
-  moor run --detach -- ./rebuild-index`,
+  moor run --detach -- ./rebuild-index
+  moor run -it -- /bin/sh
+  moor run -i -- ./import.sh < data.csv`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, c, err := f.open()
 			if err != nil {
 				return err
+			}
+			if interactive || tty {
+				if detach {
+					return errors.New("there is no one to be at it, if it is detached: leave out --detach, or -i and -t")
+				}
+				return joinTerminal(cmd, c, app, env, client.TerminalOptions{Command: strings.Join(args, " "), Timeout: timeout, TTY: tty}, interactive)
 			}
 			run, err := c.StartRun(cmd.Context(), app, env, apitypes.NewRun{Command: strings.Join(args, " "), Timeout: timeout})
 			if err != nil {
@@ -85,6 +207,8 @@ exit status, and interrupting moor stops it. It takes an hour at the most, unles
 	cmd.Flags().StringVar(&env, "env", names.Production, "environment")
 	cmd.Flags().StringVar(&timeout, "timeout", "", "how long it may take, such as 10m (default 1h)")
 	cmd.Flags().BoolVar(&detach, "detach", false, "start it and return")
+	cmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "send what is typed, or standard input, to it")
+	cmd.Flags().BoolVarP(&tty, "tty", "t", false, "give it a terminal")
 	return cmd
 }
 

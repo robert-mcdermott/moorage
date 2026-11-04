@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,7 +25,7 @@ func newServerCmd() *cobra.Command {
 		Use:   "server",
 		Short: "Set up and run a Moorage server",
 	}
-	cmd.AddCommand(newServerUsersCmd(), newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
+	cmd.AddCommand(newServerUsersCmd(), newTelemetryCmd(), newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
 		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd(), newServerDoctorCmd(),
 		newServerProxyConfigCmd(), newServerResolverCmd(), newServerBackupCmd(), newServerRestoreCmd(), newServerSSOCmd(), newServerUpgradeCmd(), newServerConfigCmd())
 	return cmd
@@ -207,7 +208,13 @@ location used by 'moor server init'.`,
 					return fmt.Errorf("--dev reads the console from the source tree: run it at the top of a checkout (%w)", err)
 				}
 			}
-			return server.Run(ctx, cfg, newLogger(cmd.ErrOrStderr(), cfg.Log, logFile), opts)
+			run := func(ctx context.Context) error {
+				return server.Run(ctx, cfg, newLogger(cmd.ErrOrStderr(), cfg.Log, logFile), opts)
+			}
+			if handled, err := runUnderServiceManager(ctx, run); handled || err != nil {
+				return err
+			}
+			return run(ctx)
 		},
 	}
 	f := cmd.Flags()

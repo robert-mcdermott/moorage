@@ -52,8 +52,8 @@ deployments change as they do. From here:
 When an app has more than one environment, its pages have a choice of which one at the top,
 and everything on them is about that one.
 
-An app's **Settings** are for maintainers: moving it to another project, renaming it, and
-deleting it.
+An app's **Settings** are for maintainers: moving it to another project, renaming it, deleting
+it, and [connecting a repository](forges.md), which shows its pull requests and approves them.
 
 - **Renaming** changes its address and git remote. Its instances stop and start again under
   the new name, so there is a moment of downtime. Change `[app].name` in its `moorage.toml` and

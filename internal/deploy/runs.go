@@ -46,8 +46,18 @@ func (e *NotRunnableError) Error() string { return e.Msg }
 type runBook struct {
 	mu      sync.Mutex
 	running map[string]*activeRun
-	next    map[string]cronState
+	// ended is what finished a moment ago, so that what follows the logs of what is going on gets what a short one said.
+	ended map[string]endedRun
+	next  map[string]cronState
 }
+
+type endedRun struct {
+	source RunLogSource
+	at     time.Time
+}
+
+// endedRunStays is how long a run that has ended goes on being listed.
+const endedRunStays = time.Minute
 
 type activeRun struct {
 	app, env, job string
@@ -70,10 +80,29 @@ func (b *runBook) add(id string, a *activeRun) {
 	b.running[id] = a
 }
 
-func (b *runBook) remove(id string) {
+func (b *runBook) remove(id, path string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if a := b.running[id]; a != nil {
+		if b.ended == nil {
+			b.ended = map[string]endedRun{}
+		}
+		for old, e := range b.ended {
+			if time.Since(e.at) > endedRunStays {
+				delete(b.ended, old)
+			}
+		}
+		b.ended[id] = endedRun{a.source(id, path), time.Now()}
+	}
 	delete(b.running, id)
+}
+
+func (a *activeRun) source(id, path string) RunLogSource {
+	process := "run"
+	if a.job != "" {
+		process = "cron-" + a.job
+	}
+	return RunLogSource{App: a.app, Env: a.env, Process: process, Instance: id, Path: path}
 }
 
 // ofJob returns the runs of a job going on now.
@@ -85,6 +114,28 @@ func (b *runBook) ofJob(app, env, job string) []*activeRun {
 		if a.app == app && a.env == env && a.job == job {
 			out = append(out, a)
 		}
+	}
+	return out
+}
+
+// RunLogSource is the log file of a command going on now.
+type RunLogSource struct{ App, Env, Process, Instance, Path string }
+
+// RunLogSources lists the log files of the commands going on now, or that ended a moment ago. One with someone at the other
+// end of it says only that what was said is not kept.
+func (d *Deployer) RunLogSources() []RunLogSource {
+	d.runs.mu.Lock()
+	defer d.runs.mu.Unlock()
+	out := make([]RunLogSource, 0, len(d.runs.running)+len(d.runs.ended))
+	for id, a := range d.runs.running {
+		out = append(out, a.source(id, LogPath(d.opts.DataDir, a.app, id)))
+	}
+	for id, e := range d.runs.ended {
+		if time.Since(e.at) > endedRunStays {
+			delete(d.runs.ended, id)
+			continue
+		}
+		out = append(out, e.source)
 	}
 	return out
 }
@@ -115,7 +166,14 @@ type RunRequest struct {
 	Job, Trigger string
 	Command      string
 	Timeout      time.Duration
+	// Session has someone at the other end of it, and what is said is not kept.
+	Session *oneoff.Session
+	// Instance is a running container to run it in, rather than a new one-off instance.
+	Instance string
 }
+
+// sessionNote is what stays of a session in place of what was said, which can have a password in it.
+const sessionNote = "This was an interactive session. What was said in it is not kept.\n"
 
 // StartRun starts a command, as a one-off instance of an environment's current release, with its
 // variables and data directory. It returns at once; FollowRun has what it says.
@@ -147,6 +205,11 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 	if req.Trigger == "" {
 		req.Trigger = "manual"
 	}
+	if req.Instance != "" {
+		if err := d.opts.Runtime.CanExec(req.App, req.Env, req.Instance); err != nil {
+			return store.Run{}, &NotRunnableError{err.Error()}
+		}
+	}
 	run := store.Run{
 		ID: ids.New(ids.Run), App: req.App, Env: req.Env, Job: req.Job, Command: req.Command, Trigger: req.Trigger, CreatedBy: req.By,
 		Version: rel.Version, Status: store.RunRunning, StartedAt: time.Now().UTC(),
@@ -162,7 +225,7 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 		defer d.wg.Done()
 		defer cancel()
 		defer close(active.done)
-		defer d.runs.remove(run.ID)
+		defer d.runs.remove(run.ID, LogPath(d.opts.DataDir, req.App, run.ID))
 		process := "run"
 		if req.Job != "" {
 			process = "cron-" + req.Job
@@ -170,7 +233,19 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 		logFile, err := logs.Open(LogPath(d.opts.DataDir, req.App, run.ID), RunLogSize, 1)
 		if err == nil {
 			defer logFile.Close()
-			err = d.opts.Runtime.RunOnce(runCtx, req.App, req.Env, rel, b, plan, process, req.Command, req.Timeout, logFile)
+			switch {
+			case req.Session == nil:
+				err = d.opts.Runtime.RunOnce(runCtx, req.App, req.Env, rel, b, plan, process, req.Command, req.Timeout, logFile)
+			case req.Instance != "":
+				err = d.opts.Runtime.ExecSession(runCtx, req.App, req.Env, req.Instance, req.Command, req.Timeout, req.Session)
+			default:
+				err = d.opts.Runtime.RunSession(runCtx, req.App, req.Env, rel, b, plan, process, req.Command, req.Timeout, req.Session)
+			}
+			if req.Session != nil {
+				writer := logs.NewWriter(logFile, logs.Stdout)
+				io.WriteString(writer, sessionNote)
+				writer.Flush()
+			}
 		}
 		d.finishRun(run, err, runCtx)
 	}()

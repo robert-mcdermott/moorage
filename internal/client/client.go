@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/archive"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -683,16 +685,24 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 		}
 		return nil, err
 	}
-	if res.StatusCode >= 400 {
-		defer res.Body.Close()
-		apiErr := &APIError{Status: res.StatusCode}
-		data, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
-		if json.Unmarshal(data, &apiErr.Problem) != nil || apiErr.Detail == "" {
-			apiErr.Detail = strings.TrimSpace(string(data))
-		}
-		return nil, apiErr
+	if failed := problemOf(res); failed != nil {
+		return nil, failed
 	}
 	return res, nil
+}
+
+// problemOf turns a response that says something went wrong into an error.
+func problemOf(res *http.Response) error {
+	if res.StatusCode < 400 {
+		return nil
+	}
+	defer res.Body.Close()
+	apiErr := &APIError{Status: res.StatusCode}
+	data, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+	if json.Unmarshal(data, &apiErr.Problem) != nil || apiErr.Detail == "" {
+		apiErr.Detail = strings.TrimSpace(string(data))
+	}
+	return apiErr
 }
 
 // Environment says how an environment stands.
@@ -1068,4 +1078,258 @@ func (c *Client) DeleteApp(ctx context.Context, name string, keepData bool) erro
 		path += "?keep_data=true"
 	}
 	return c.do(ctx, http.MethodDelete, path, nil, "", nil)
+}
+
+// Forge says where an app's code is kept.
+func (c *Client) Forge(ctx context.Context, app string) (apitypes.ForgeConnection, error) {
+	var out apitypes.ForgeConnection
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/forge", nil, "", &out)
+	return out, err
+}
+
+// ConnectForge connects an app to a repository on a forge.
+func (c *Client) ConnectForge(ctx context.Context, app string, in apitypes.ForgeConnect) (apitypes.ForgeConnection, error) {
+	var out apitypes.ForgeConnection
+	err := c.post(ctx, http.MethodPut, "/api/v1/apps/"+url.PathEscape(app)+"/forge", in, &out)
+	return out, err
+}
+
+// DisconnectForge lets go of an app's repository.
+func (c *Client) DisconnectForge(ctx context.Context, app string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(app)+"/forge", nil, "", nil)
+}
+
+// ForgePulls lists an app's open pull requests.
+func (c *Client) ForgePulls(ctx context.Context, app string) ([]apitypes.ForgePull, error) {
+	var out []apitypes.ForgePull
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/forge/pulls", nil, "", &out)
+	return out, err
+}
+
+// ApproveForgePull has a pull request built, at the commit that someone looked at.
+func (c *Client) ApproveForgePull(ctx context.Context, app string, number int, commit string) (apitypes.ForgePull, error) {
+	var out apitypes.ForgePull
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/forge/pulls/"+strconv.Itoa(number)+"/approve", apitypes.ForgeApproval{Commit: commit}, &out)
+	return out, err
+}
+
+// SyncForge has the server look at an app's repository now.
+func (c *Client) SyncForge(ctx context.Context, app string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/forge/sync", nil, "", nil)
+}
+
+// TerminalOptions say what a terminal is for.
+type TerminalOptions struct {
+	Command string
+	// Instance is a running container to run it in, rather than a new one-off instance.
+	Instance string
+	Timeout  string
+	// TTY gives it a terminal of Rows and Cols, of the kind Term. Without one, it has pipes.
+	TTY        bool
+	Rows, Cols int
+	Term       string
+}
+
+// Terminal is a command with someone at the other end of it: Read has what it shows, and Write types at it.
+type Terminal struct {
+	conn *websocket.Conn
+	ctx  context.Context
+	left []byte
+	// Run is the run that this is.
+	Run string
+	end *apitypes.TerminalMessage
+}
+
+// Terminal runs a command in an environment, for someone to type at.
+func (c *Client) Terminal(ctx context.Context, app, env string, o TerminalOptions) (*Terminal, error) {
+	q := url.Values{"command": {o.Command}}
+	if o.Instance != "" {
+		q.Set("instance", o.Instance)
+	}
+	if o.Timeout != "" {
+		q.Set("timeout", o.Timeout)
+	}
+	if o.TTY {
+		q.Set("tty", "1")
+		q.Set("rows", strconv.Itoa(o.Rows))
+		q.Set("cols", strconv.Itoa(o.Cols))
+		q.Set("term", o.Term)
+	}
+	header := http.Header{}
+	if c.token != "" {
+		header.Set("Authorization", "Bearer "+c.token)
+	}
+	conn, res, err := websocket.Dial(ctx, c.base.String()+envPath(app, env, "terminal")+"?"+q.Encode(), &websocket.DialOptions{HTTPClient: c.http, HTTPHeader: header, CompressionMode: websocket.CompressionDisabled})
+	if err != nil {
+		if res != nil && res.StatusCode != http.StatusSwitchingProtocols {
+			if failed := problemOf(res); failed != nil {
+				return nil, failed
+			}
+		}
+		return nil, err
+	}
+	conn.SetReadLimit(1 << 20)
+	return &Terminal{conn: conn, ctx: ctx}, nil
+}
+
+// Read reads what the command shows, until it is over.
+func (t *Terminal) Read(p []byte) (int, error) {
+	for len(t.left) == 0 {
+		kind, data, err := t.conn.Read(t.ctx)
+		if err != nil {
+			if t.end != nil {
+				return 0, io.EOF
+			}
+			return 0, err
+		}
+		if kind == websocket.MessageBinary {
+			t.left = data
+			continue
+		}
+		var said apitypes.TerminalMessage
+		if json.Unmarshal(data, &said) != nil {
+			continue
+		}
+		if said.Run != "" {
+			t.Run = said.Run
+		}
+		if said.Ended {
+			t.end = &said
+			return 0, io.EOF
+		}
+	}
+	n := copy(p, t.left)
+	t.left = t.left[n:]
+	return n, nil
+}
+
+// Write types at the command.
+func (t *Terminal) Write(p []byte) (int, error) {
+	if err := t.conn.Write(t.ctx, websocket.MessageBinary, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (t *Terminal) say(m apitypes.TerminalMessage) error {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return t.conn.Write(t.ctx, websocket.MessageText, data)
+}
+
+// Resize says that the terminal is another size now.
+func (t *Terminal) Resize(rows, cols int) error {
+	return t.say(apitypes.TerminalMessage{Rows: rows, Cols: cols})
+}
+
+// CloseInput says that there is no more to type.
+func (t *Terminal) CloseInput() error { return t.say(apitypes.TerminalMessage{EOF: true}) }
+
+// Ended says how it ended, once Read has said that it is over.
+func (t *Terminal) Ended() (code *int, problem string, over bool) {
+	if t.end == nil {
+		return nil, "", false
+	}
+	return t.end.ExitCode, t.end.Error, true
+}
+
+// Close goes away, which stops the command if it is still going.
+func (t *Terminal) Close() error { return t.conn.CloseNow() }
+
+func dataPath(app, env, more, at string, extra url.Values) string {
+	q := url.Values{"path": {at}}
+	for k, v := range extra {
+		q[k] = v
+	}
+	return envPath(app, env, "files"+more) + "?" + q.Encode()
+}
+
+// DataFiles lists a directory within an environment's data directory.
+func (c *Client) DataFiles(ctx context.Context, app, env, at string) (apitypes.DataListing, error) {
+	var out apitypes.DataListing
+	err := c.do(ctx, http.MethodGet, dataPath(app, env, "", at, nil), nil, "", &out)
+	return out, err
+}
+
+// GetDataFile reads a file within an environment's data directory. Whoever asks closes what it answers with.
+func (c *Client) GetDataFile(ctx context.Context, app, env, at string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+dataPath(app, env, "/content", at, nil), nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return nil, err
+	}
+	return res.Body, nil
+}
+
+// PutDataFile writes a file within an environment's data directory.
+func (c *Client) PutDataFile(ctx context.Context, app, env, at string, from io.Reader, replace bool) (apitypes.DataFile, error) {
+	var out apitypes.DataFile
+	extra := url.Values{}
+	if replace {
+		extra.Set("replace", "true")
+	}
+	err := c.do(ctx, http.MethodPut, dataPath(app, env, "/content", at, extra), from, "application/octet-stream", &out)
+	return out, err
+}
+
+// MakeDataDir makes a directory within an environment's data directory.
+func (c *Client) MakeDataDir(ctx context.Context, app, env, at string) error {
+	return c.do(ctx, http.MethodPost, dataPath(app, env, "/directory", at, nil), nil, "", nil)
+}
+
+// RemoveData removes something within an environment's data directory.
+func (c *Client) RemoveData(ctx context.Context, app, env, at string, recursive bool) error {
+	extra := url.Values{}
+	if recursive {
+		extra.Set("recursive", "true")
+	}
+	return c.do(ctx, http.MethodDelete, dataPath(app, env, "", at, extra), nil, "", nil)
+}
+
+// TelemetrySinks lists where what apps say and do is sent.
+func (c *Client) TelemetrySinks(ctx context.Context) ([]apitypes.TelemetrySink, error) {
+	var out []apitypes.TelemetrySink
+	err := c.do(ctx, http.MethodGet, "/api/v1/server/telemetry", nil, "", &out)
+	return out, err
+}
+
+// SetTelemetrySink keeps a sink, by its name.
+func (c *Client) SetTelemetrySink(ctx context.Context, in apitypes.NewTelemetrySink) (apitypes.TelemetrySink, error) {
+	var out apitypes.TelemetrySink
+	err := c.post(ctx, http.MethodPost, "/api/v1/server/telemetry", in, &out)
+	return out, err
+}
+
+// RemoveTelemetrySink lets go of a sink.
+func (c *Client) RemoveTelemetrySink(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/server/telemetry/"+url.PathEscape(name), nil, "", nil)
+}
+
+// TestTelemetrySink sends a line to a sink now.
+func (c *Client) TestTelemetrySink(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/server/telemetry/"+url.PathEscape(name)+"/test", nil, "", nil)
+}
+
+// Thresholds lists when someone is told about how an environment is doing.
+func (c *Client) Thresholds(ctx context.Context, app, env string) ([]apitypes.Threshold, error) {
+	var out []apitypes.Threshold
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "thresholds"), nil, "", &out)
+	return out, err
+}
+
+// AddThreshold says when to tell someone about how an environment is doing.
+func (c *Client) AddThreshold(ctx context.Context, app, env string, in apitypes.NewThreshold) (apitypes.Threshold, error) {
+	var out apitypes.Threshold
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "thresholds"), in, &out)
+	return out, err
+}
+
+// RemoveThreshold lets go of a threshold.
+func (c *Client) RemoveThreshold(ctx context.Context, app, env, id string) error {
+	return c.do(ctx, http.MethodDelete, envPath(app, env, "thresholds/"+url.PathEscape(id)), nil, "", nil)
 }

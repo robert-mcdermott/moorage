@@ -152,7 +152,7 @@ func guardedDialer(allow []netip.Prefix) *net.Dialer {
 				}
 			}
 			if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() || addr.IsInterfaceLocalMulticast() || slices.Contains(metadataAddresses, addr) || isOwnAddress(addr) {
-				return fmt.Errorf("notifications may not reach %s, unless [notifications] allow in server.toml says so", addr)
+				return fmt.Errorf("this server may not reach %s on anyone's say, unless [notifications] allow in server.toml says so", addr)
 			}
 			return nil
 		},
@@ -175,13 +175,48 @@ func isOwnAddress(addr netip.Addr) bool {
 	return false
 }
 
-func (s *Service) httpClient() *http.Client {
-	dialer := guardedDialer(s.Allow)
+// SafeForSecrets says whether something secret may be sent to this address: over https, or to something on the same
+// network, as a service of one's own may have no certificate.
+func SafeForSecrets(address string) bool {
+	u, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	host := strings.ToLower(u.Hostname())
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
+	}
+	if host == "localhost" || !strings.Contains(host, ".") || net.ParseIP(host) != nil {
+		return true
+	}
+	for _, private := range []string{".localhost", ".local", ".lan", ".internal", ".home.arpa", ".test"} {
+		if strings.HasSuffix(host, private) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) httpClient() *http.Client { return GuardedClient(s.Allow, 15*time.Second) }
+
+// GuardedDial connects to what this server may reach on someone's say, and no further.
+func GuardedDial(allow []netip.Prefix) func(ctx context.Context, network, address string) (net.Conn, error) {
+	return guardedDialer(allow).DialContext
+}
+
+// GuardedClient reaches what this server may reach on someone's say, and no further: see guardedDialer. No timeout means
+// that it takes as long as whoever asks allows.
+func GuardedClient(allow []netip.Prefix, timeout time.Duration) *http.Client {
+	dialer := guardedDialer(allow)
 	return &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: timeout,
 		// A redirect could go anywhere, and an answer has nothing more to say to us.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		Transport:     &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: 10 * time.Second, DisableKeepAlives: true},
+		// Something that takes the connection and then never answers is not to hold anyone up.
+		Transport: &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second, DisableKeepAlives: true},
 	}
 }
 

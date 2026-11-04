@@ -164,6 +164,9 @@ func (c *Console) isolationText(app, env string, plan manifest.Plan) string {
 		limits = append(limits, strconv.Itoa(r.PIDs)+" processes")
 	}
 	list := strings.Join(limits, ", ")
+	if st.JobLimits {
+		return text + " Each instance is limited to " + list + ". What it asks for beyond its memory is refused."
+	}
 	if st.Enforced() {
 		return text + " Each instance is limited to " + list + "."
 	}
@@ -969,6 +972,10 @@ func (c *Console) appSettingsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Console) showAppSettings(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure) {
+	c.showAppSettingsWith(w, r, p, app, code, failed, nil)
+}
+
+func (c *Console) showAppSettingsWith(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure, more func(*data)) {
 	d, err := c.appData(r, p, app, "apps", "Settings of "+app)
 	if err != nil {
 		c.internal(w, err)
@@ -999,7 +1006,14 @@ func (c *Console) showAppSettings(w http.ResponseWriter, r *http.Request, p auth
 			d.Projects = append(d.Projects, projectRow{Name: project.Name})
 		}
 	}
-	d.Notice = map[string]string{"moved": "It is in that project now.", "renamed": "It has its new name, and runs under it. Change [app].name in its moorage.toml and its git remote to match."}[r.URL.Query().Get("done")]
+	if err := c.forgeData(r, app, &d); err != nil {
+		c.internal(w, err)
+		return
+	}
+	if more != nil {
+		more(&d)
+	}
+	d.Notice = map[string]string{"disconnected": "It no longer deploys from a repository. What it deployed stays, and its webhook on the forge can go.", "looking": "It is looking at the repository. What has changed deploys, as Deployments will show.", "approved": "That commit is being built.", "moved": "It is in that project now.", "renamed": "It has its new name, and runs under it. Change [app].name in its moorage.toml and its git remote to match."}[r.URL.Query().Get("done")]
 	d.Failure = failed
 	c.render(w, code, "app-settings", d)
 }

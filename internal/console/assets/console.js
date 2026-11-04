@@ -430,6 +430,144 @@
 
   // The log of a deployment under way, as it is written.
 
+  // lineConsole runs commands one at a time, and shows what they say where they were asked for. Without it, the form goes
+  // to the run's own page, which shows the same.
+  function lineConsole() {
+    var box = $('[data-line-console]');
+    if (!box || !window.fetch || !window.TextDecoder || !window.URLSearchParams) { return; }
+    var form = $('[data-line-form]', box);
+    var input = $('[data-line-input]', box);
+    var run = $('[data-line-run]', box);
+    var stop = $('[data-line-stop]', box);
+    var transcript = $('[data-transcript]', box);
+    var csrf = $('input[name="csrf"]', form).value;
+    var history = [];
+    try { history = JSON.parse(box.getAttribute('data-history')) || []; } catch (e) { history = []; }
+    var back = -1;
+    var typing = '';
+    var going = null;
+
+    input.focus();
+    input.addEventListener('keydown', function (event) {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') { return; }
+      if (event.key === 'ArrowUp' && back + 1 < history.length) {
+        if (back === -1) { typing = input.value; }
+        back++;
+      } else if (event.key === 'ArrowDown' && back >= 0) {
+        back--;
+      } else {
+        return;
+      }
+      event.preventDefault();
+      input.value = back === -1 ? typing : history[back];
+    });
+
+    function element(tag, name, text) {
+      var made = document.createElement(tag);
+      if (name) { made.className = name; }
+      if (text) { made.textContent = text; }
+      return made;
+    }
+
+    function atEnd() { transcript.scrollTop = transcript.scrollHeight; }
+
+    function finished(entry, started, status) {
+      going = null;
+      run.disabled = false;
+      stop.hidden = true;
+      input.focus();
+      var end = element('div', 'transcript-end small');
+      var ok = status.status === 'succeeded';
+      end.appendChild(element('span', 'badge ' + (ok ? 'ok' : 'fail'), ok ? 'Done' : status.status === 'canceled' ? 'Stopped' : 'Failed'));
+      if (status.error) { end.appendChild(element('span', 'muted', ' ' + status.error)); }
+      var link = element('a', null, ' See this run');
+      link.href = started.page;
+      end.appendChild(link);
+      entry.appendChild(end);
+      atEnd();
+    }
+
+    function follow(entry, started) {
+      var output = element('div');
+      entry.appendChild(output);
+      return fetch(started.log, { credentials: 'same-origin' }).then(function (res) {
+        if (!res.ok || !res.body) { throw new Error('what it says could not be read'); }
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var rest = '';
+        function pump() {
+          return reader.read().then(function (part) {
+            if (part.done) { return null; }
+            rest += decoder.decode(part.value, { stream: true });
+            var lines = rest.split('\n');
+            rest = lines.pop();
+            lines.forEach(function (text) {
+              if (!text) { return; }
+              var line = JSON.parse(text);
+              output.appendChild(element('span', 'line s-' + line.stream, line.text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '') + '\n'));
+            });
+            atEnd();
+            return pump();
+          });
+        }
+        return pump();
+      }).then(function () {
+        return fetch(started.status, { credentials: 'same-origin' }).then(function (res) { return res.json(); });
+      });
+    }
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (going) { return; }
+      var command = input.value.trim();
+      if (!command) { return; }
+      var body = new URLSearchParams();
+      body.append('csrf', csrf);
+      body.append('command', command);
+      history.unshift(command);
+      back = -1;
+      typing = '';
+      input.value = '';
+      run.disabled = true;
+      transcript.hidden = false;
+      var entry = element('div', 'transcript-entry');
+      entry.appendChild(element('div', 'transcript-command', '$ ' + command));
+      transcript.appendChild(entry);
+      atEnd();
+      function failed(message) {
+        going = null;
+        run.disabled = false;
+        stop.hidden = true;
+        entry.appendChild(element('div', 'transcript-end small', message));
+        input.focus();
+        atEnd();
+      }
+      fetch(form.action, {
+        method: 'POST', credentials: 'same-origin', body: body,
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }
+      }).then(function (res) {
+        return res.json().catch(function () { return { error: 'The server did not take that. Reload the page, and try again.' }; });
+      }).then(function (started) {
+        if (started.error) { failed(started.error); return null; }
+        going = started;
+        stop.hidden = false;
+        return follow(entry, started).then(function (status) { finished(entry, started, status); });
+      }).catch(function () {
+        failed('The connection was lost. What it is doing goes on: see Earlier commands, when the page is next loaded.');
+      });
+    });
+
+    stop.addEventListener('click', function () {
+      if (!going) { return; }
+      var body = new URLSearchParams();
+      body.append('csrf', csrf);
+      fetch(going.stop, {
+        method: 'POST', credentials: 'same-origin', body: body,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+    });
+  }
+
   function followLog() {
     var box = $('[data-log-follow]');
     if (!box || !window.fetch || !window.TextDecoder || !window.AbortController) { return; }
@@ -514,6 +652,7 @@
     if (!document.hidden) { open(); }
   }
   followLog();
+  lineConsole();
 
   // The logs page: the lines that were drawn, then those written since.
 

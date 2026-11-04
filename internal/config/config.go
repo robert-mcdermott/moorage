@@ -75,6 +75,8 @@ type Notifications struct {
 	// Allow lists addresses and prefixes that webhooks and mail servers may be at, though they
 	// would be refused as this machine or a link-local address, which is the cloud's metadata.
 	Allow []string `toml:"allow"`
+	// DiskPercent is how full the data volume may get before someone is told. Nothing means 90.
+	DiskPercent float64 `toml:"disk_percent"`
 }
 
 // accessModes are the gates an environment can have.
@@ -347,6 +349,9 @@ func (c Config) Validate() error {
 	}
 	if c.Isolation.UIDBase != 0 && (c.Isolation.UIDBase < 1000 || c.Isolation.UIDBase > 1<<30) {
 		add("isolation.uid_base %d must be between 1000 and %d", c.Isolation.UIDBase, 1<<30)
+	}
+	if d := c.Notifications.DiskPercent; d != 0 && (d < 10 || d > 100) {
+		add("notifications.disk_percent %v must be between 10 and 100", d)
 	}
 	for _, a := range c.Notifications.Allow {
 		if _, err := ParseTrusted(a); err != nil {

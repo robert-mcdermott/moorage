@@ -27,6 +27,9 @@ func StartTree(cmd *exec.Cmd) (*Tree, error) {
 	return &Tree{cmd: cmd}, nil
 }
 
+// StartTreeLimited is StartTree here, where limits are applied in another way.
+func StartTreeLimited(cmd *exec.Cmd, _ TreeLimits) (*Tree, error) { return StartTree(cmd) }
+
 // Kill kills every process of the tree that is still running.
 func (t *Tree) Kill() {
 	unix.Kill(-t.cmd.Process.Pid, unix.SIGKILL)
@@ -35,3 +38,6 @@ func (t *Tree) Kill() {
 // Close kills what is left of the tree once the command has exited, and
 // releases it.
 func (t *Tree) Close() { t.Kill() }
+
+// Release lets go of the tree, killing nothing: there is nothing to let go of here.
+func (t *Tree) Release() {}

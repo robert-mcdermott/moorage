@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/robert-mcdermott/moorage/internal/platform"
 )
 
 // MasterKeyEnv names a file holding the master key, in place of the one in
@@ -72,6 +74,10 @@ func LoadMasterKey(defaultPath string, getenv func(string) string, create bool) 
 		encoded := base64.StdEncoding.EncodeToString(key) + "\n"
 		if err := os.WriteFile(path, []byte(encoded), 0o600); err != nil {
 			return MasterKey{}, fmt.Errorf("write the master key: %w", err)
+		}
+		if err := platform.MakePrivate(path); err != nil {
+			os.Remove(path)
+			return MasterKey{}, fmt.Errorf("close the master key to others: %w", err)
 		}
 		return MasterKey{Path: path, Created: true, key: key}, nil
 	}
@@ -223,6 +229,23 @@ func (k *Keyring) OpenBackup(sealed []byte) (string, error) {
 	plain, err := open(k.master, sealed, []byte("moorage backup destination"))
 	if err != nil {
 		return "", errors.New("the secret key of where backups go cannot be decrypted")
+	}
+	return string(plain), nil
+}
+
+// forgeAD binds what a connection to a forge keeps to that app, and to what it is.
+func forgeAD(appID, name string) []byte { return []byte("moorage forge\x00" + appID + "\x00" + name) }
+
+// SealForge encrypts what a connection to a forge has to keep, with the master key.
+func (k *Keyring) SealForge(appID, name, value string) []byte {
+	return seal(k.master, []byte(value), forgeAD(appID, name))
+}
+
+// OpenForge decrypts it.
+func (k *Keyring) OpenForge(appID, name string, sealed []byte) (string, error) {
+	plain, err := open(k.master, sealed, forgeAD(appID, name))
+	if err != nil {
+		return "", fmt.Errorf("the forge's %s cannot be decrypted", name)
 	}
 	return string(plain), nil
 }

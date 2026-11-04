@@ -160,7 +160,7 @@ since what has happened since is then lost from it.`,
 
 // runsThis refuses to replace a binary that the server's service does not run, which would change nothing.
 func runsThis(manager service.Manager, paths ...string) error {
-	definition, err := os.ReadFile(manager.File())
+	definition, err := manager.Definition()
 	if err != nil {
 		return err
 	}

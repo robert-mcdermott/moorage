@@ -175,7 +175,7 @@ def is_genuine(secret: str, header: str, body: bytes) -> bool:
 A channel's address could otherwise be used to reach what only the server can. So channels may not
 connect to this machine by any of its addresses, a link-local address or a cloud's metadata service,
 whatever name the address gives. Other addresses on your local network are allowed, since a team's own services are what
-many webhooks are for. To allow more, name them in `server.toml`, and restart the server:
+many webhooks are for. [Forges](forges.md) are held to the same. To allow more, name them in `server.toml`, and restart the server:
 
 ```toml
 [notifications]

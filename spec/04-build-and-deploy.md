@@ -40,10 +40,49 @@ production deploy skips straight to the release phase.
 | **Static upload** | `moor deploy --static ./site`, or drag a folder into the console (which leaves out `.git` and `.env` files, and refuses a folder whose manifest builds or runs) | Docs, reports, SPAs |
 | **Artifact upload** | `moor deploy --artifact [DIR]`: an app ready to run (a compiled binary, a script for an interpreter on the host), run with the manifest's `[processes]` | Binaries built in CI |
 | **Image** | `moor deploy --image registry/app:tag` | Images built in CI |
-| **Remote repository** *(Phase 3)* | Connect a repository URL; deploy on webhook (GitHub, GitLab, Gitea, generic HMAC) or by polling | Code hosted on a forge, PR previews with status checks |
+| **Remote repository** | Connect a repository URL; deploy on webhook (GitHub, GitLab, Gitea, generic HMAC) or by polling | Code hosted on a forge, PR previews with status checks |
 | **API** | `POST /api/v1/apps/{app}/envs/{env}/deployments` | Anything else |
 
 All sources converge on the same pipeline.
+
+## Connected repositories
+
+A connection (`forge_connections`, one per app) holds a repository's address and, sealed with the master key and bound
+to the app, a webhook secret and an optional token. It uses the push path rather than a second one:
+
+1. A webhook arrives at `POST /api/v1/hooks/{hook}`, by a random address that survives a rename, with no account. It is
+   looked up, its body read up to 25 MB, and its signature checked over those bytes, as each kind of forge signs them. The
+   answer is 202: the rest happens afterwards, one thing at a time for each app.
+2. What it names is fetched into `refs/moorage/forge/`, over a client that this server may reach things with on someone's
+   say. **What deploys is what the fetch found, and never a commit named by an event**, so that a replayed event can do no
+   more than have the server look again.
+3. `gitserver.Repos.PushFor` makes a `Push` of that commit, and `deploy.Pushes.Deliver` does what it does with any push: it
+   decides where it goes, honours `[skip deploy]`, `[app].watch` and locks, and follows the deployment. The branch moves when
+   that has worked.
+
+A pull request is the pseudo-branch `pr-N`, so that previews, their names, limits and their end are those of any branch.
+Its `Push` has `Preview = PreviewOnly`, under which its manifest cannot send it anywhere but its own preview: a named
+environment that claims `pr-N`, in a manifest or in the database, is refused. Under a connection that hears of pull requests
+a branch has `PreviewNever`, or both it and its pull request would be built. A real branch called `pr-N` is left alone.
+
+### Who may have code built
+
+Trust is the forge's word on who may push. A pull request from the repository itself, by someone the forge vouches for, is
+built. Anything else is `waiting`: it is not fetched, and it has a check and a comment that say so. A forge that does not say
+where a pull request came from has it counted as a fork. A maintainer's approval (`canManage`, in the audit log) records one
+commit, and after fetching, a head that is not that commit goes back to waiting without being built. The approval is of what
+someone could see, and a push at the wrong moment must not get in behind it.
+
+A check that stays pending can hold a merge up for ever, so at start the server marks what it was part of the way through
+building as failed, and says so on the forge. The server's other limits on a connection: a token is dropped if the address that
+it was given for changes, as whoever may change the address should not be able to have it sent elsewhere; and it is refused
+over plain HTTP, unless to something on the local network.
+
+### Polling
+
+A connection that polls fetches `+refs/heads/*` every minute, and compares the refs under `refs/moorage/forge/heads/` before
+and after. These refs persist, which gives a restart nothing to re-deploy, and no retry loop: a commit that failed is not tried
+again until it changes, or someone asks. The first look deploys only the default branch.
 
 ## Git server
 
@@ -359,8 +398,8 @@ build time and the exact version is recorded in the build.
 Previews are what make Moorage useful for showing work in progress.
 
 - **Creation:** first push of a matching branch, `moor previews create
-  <branch>`, or (Phase 3) a pull/merge request webhook from a connected forge,
-  which also gets a status check and a comment with the URL.
+  <branch>`, or a pull/merge request webhook from a connected forge, which also
+  gets a status check and a comment with the URL (see "Connected repositories").
 - **Naming:** the environment name is a slug of the branch
   (`feature/new-pricing` → `feature-new-pricing`; max 40 characters, with a
   short hash suffix on truncation or collision). The name `preview` is

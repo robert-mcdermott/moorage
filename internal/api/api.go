@@ -21,6 +21,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/forge"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -29,6 +30,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/telemetry"
 )
 
 // Runtime runs process apps.
@@ -50,6 +52,8 @@ type Server struct {
 	notifier       *notify.Service
 	backupsService *backup.Service
 	signIn         *sso.Service
+	forges         *forge.Service
+	telemetry      *telemetry.Service
 	// recheck is how often what stays open looks again at whether it may.
 	recheck time.Duration
 	log     *slog.Logger
@@ -58,8 +62,8 @@ type Server struct {
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, backups *backup.Service, signIn *sso.Service, recheck time.Duration, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, backupsService: backups, signIn: signIn, recheck: recheck, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, backups *backup.Service, signIn *sso.Service, forges *forge.Service, telemetrySinks *telemetry.Service, recheck time.Duration, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, backupsService: backups, signIn: signIn, forges: forges, telemetry: telemetrySinks, recheck: recheck, log: log}
 	s.openapiDoc = sync.OnceValue(func() []byte { return openAPIDocument(s.routes()) })
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {

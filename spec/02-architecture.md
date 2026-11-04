@@ -279,8 +279,7 @@ system resolvers do not, so other clients (Safari, CLI tools, scripts) need
 help: `moor server resolver install` offers — opt-in, because it changes system
 configuration — a resolver rule on macOS (`/etc/resolver/localhost`) pointing
 at a tiny loopback-only DNS responder built into Moorage (`listen.dns`). On
-Windows, a managed block of hosts-file entries comes with the Windows server, in
-wave 7.
+Windows, it adds a managed block of hosts-file entries, for what is deployed then.
 
 A complete bootstrap file is a handful of lines:
 
@@ -375,8 +374,8 @@ by current Go releases); Windows 10 1809+ / Server 2019+ (needed for AF_UNIX
 control sockets and ConPTY).
 
 Linux is the reference server platform; CI runs the full integration suite on
-all three. The CLI works on every platform from Phase 1; running the
-*server* on Windows reaches parity in Phase 3 (see [Roadmap](11-roadmap.md)).
+all three. On Windows, the service runs as a virtual account of its own, `NT SERVICE\Moorage`,
+and apps run as it too.
 
 ## Code organisation
 

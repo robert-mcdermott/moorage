@@ -75,8 +75,10 @@ func Run(name string, args ...string) ([]byte, error) {
 
 // Manager installs and drives the service.
 type Manager interface {
-	// File is where the service's definition is written.
+	// File is where the service's definition is written, or what says where it is, where there is no file.
 	File() string
+	// Definition is what the service manager has been told to run.
+	Definition() ([]byte, error)
 	// Render returns the service's definition.
 	Render(Spec) ([]byte, error)
 	// Install writes the definition and registers the service; with start,

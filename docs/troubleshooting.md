@@ -12,7 +12,7 @@ server's files.
 
 ```text
 ✔ config         /etc/moorage/server.toml
-✔ server         running 0.6.0 on :80
+✔ server         running 0.7.0 on :80
 ✔ listen.http    answering on :80
 ✔ listen.https   answering on :443
 ✔ listen.ssh     answering on :2222
@@ -94,7 +94,9 @@ DNS responder in the server, which answers on loopback only, for that domain onl
 Restart the server to take it up. `moor server resolver` shows where things stand,
 and `moor server resolver remove` undoes it.
 
-Windows has no equivalent yet. There, send the name as the `Host` header:
+On Windows, it takes an elevated terminal, and adds a block with the names of what is deployed to the hosts file, which
+has no way of saying all of them at once. A server in an elevated terminal keeps it up to date, and otherwise, run it
+again after adding an app. Or send the name as the `Host` header:
 
 ```bash
 curl -H "Host: tasks.localhost" http://127.0.0.1:8080/

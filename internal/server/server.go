@@ -11,13 +11,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	stdlog "log"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +37,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/forge"
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
@@ -46,6 +50,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/secrets"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/telemetry"
 	"github.com/robert-mcdermott/moorage/internal/toolchain"
 	"github.com/robert-mcdermott/moorage/internal/truststore"
 )
@@ -117,6 +122,29 @@ func fetchToolchains(life context.Context, toolchains *toolchain.Manager, log *s
 	}
 }
 
+// keepHostsBlock has the block in the hosts file name what is deployed now, if there is one and this server may write
+// to it, as one in an elevated terminal may and the service does not. Nothing else keeps it up to date on Windows.
+func keepHostsBlock(ctx context.Context, cfg config.Config, db *store.DB, log *slog.Logger) {
+	if goruntime.GOOS != "windows" || cfg.Domain != "localhost" {
+		return
+	}
+	path := filepath.Join(os.Getenv("SystemRoot"), "System32", "drivers", "etc", "hosts")
+	if !localdns.HasHostsBlock(path) {
+		return
+	}
+	routes, err := db.Routes(ctx)
+	if err != nil {
+		return
+	}
+	names := []string{cfg.ConsoleHost}
+	for _, r := range routes {
+		names = append(names, cfg.EnvHost(r.App, r.Env))
+	}
+	if _, err := localdns.WriteHostsBlock(path, names); err != nil && !errors.Is(err, fs.ErrPermission) {
+		log.Warn("keep the hosts file up to date", "err", err)
+	}
+}
+
 // trustsThisMachine finds a trusted range that holds an address of this machine.
 func trustsThisMachine(trusted []netip.Prefix) (netip.Prefix, bool) {
 	own := []netip.Addr{netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")}
@@ -173,6 +201,11 @@ type Options struct {
 	MetricsEvery time.Duration
 	// BackupTick, if set, overrides how often the schedule of backups is looked at (tests).
 	BackupTick time.Duration
+	// ForgeTick, if set, overrides how often forges that have to be looked at are (tests).
+	ForgeTick time.Duration
+	// TelemetryTick, TelemetryMetricsEvery and ThresholdTick, if set, override how often log files are read, metrics are
+	// sent and thresholds are looked at (tests).
+	TelemetryTick, TelemetryMetricsEvery, ThresholdTick, ThresholdMinute time.Duration
 	// NotifyRetry, if set, overrides how long a notification waits before trying again (tests).
 	NotifyRetry time.Duration
 	// CronTick, if set, overrides how often cron jobs are looked at (tests).
@@ -385,7 +418,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		DataDir: cfg.DataDir,
 		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
 		Runtime: runtime,
-		Reload:  router.Reload,
+		Reload: func(ctx context.Context) error {
+			err := router.Reload(ctx)
+			keepHostsBlock(ctx, cfg, db, log)
+			return err
+		},
 		URL: func(app, env string) string {
 			return cfg.EnvURL(app, env)
 		},
@@ -420,7 +457,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	if err != nil {
 		return err
 	}
-	notifier := &notify.Service{DB: db, Bus: bus, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), Allow: allowed, DataDir: cfg.DataDir, RetryAfter: opts.NotifyRetry}
+	notifier := &notify.Service{DB: db, Bus: bus, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), Allow: allowed, DataDir: cfg.DataDir, RetryAfter: opts.NotifyRetry,
+		DiskPercent: cfg.Notifications.DiskPercent, Metrics: metricsStore, Instances: runtime.MetricsInstances, ThresholdTick: opts.ThresholdTick, ThresholdMinute: opts.ThresholdMinute}
 	notifyCtx, stopNotifying := context.WithCancel(ctx)
 	go notifier.Run(notifyCtx)
 	defer func() {
@@ -459,14 +497,63 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		stopBackups()
 		backups.Wait()
 	}()
+	forgeCtx, stopForges := context.WithCancel(ctx)
+	forges := &forge.Service{DB: db, Repos: repos, Pushes: &deploy.Pushes{Deployer: deployer}, Keys: keyring, Log: log, Life: forgeCtx, Tick: opts.ForgeTick,
+		Client: notify.GuardedClient(allowed, 20*time.Second), Fetcher: notify.GuardedClient(allowed, 0),
+		EnvURL: cfg.EnvURL,
+		AppURL: func(app string) string { return cfg.PublicURL(cfg.ConsoleHost) + "/apps/" + url.PathEscape(app) },
+		Audit: func(ctx context.Context, by, action, target, result string) {
+			authn.Audit(ctx, store.AuditEntry{Actor: by, Action: action, Target: target, Result: result})
+		},
+	}
+	go forges.Run()
+	defer func() {
+		stopForges()
+		forges.Wait()
+	}()
+	telemetryCtx, stopTelemetry := context.WithCancel(ctx)
+	serverName, _ := os.Hostname()
+	sinks := &telemetry.Service{DB: db, Keys: keyring, Log: log, Life: telemetryCtx, Tick: opts.TelemetryTick, MetricsEvery: opts.TelemetryMetricsEvery,
+		Client: notify.GuardedClient(allowed, 15*time.Second), Dial: notify.GuardedDial(allowed), Server: serverName, Version: buildinfo.Version,
+		Sources: func(ctx context.Context) ([]telemetry.Source, error) {
+			running, err := runtime.LogSources(ctx)
+			if err != nil {
+				return nil, err
+			}
+			var out []telemetry.Source
+			for _, l := range running {
+				out = append(out, telemetry.Source(l))
+			}
+			for _, l := range deployer.RunLogSources() {
+				out = append(out, telemetry.Source(l))
+			}
+			return out, nil
+		},
+		Metrics: func(ctx context.Context) metrics.Export {
+			all, err := db.AllEnvironments(ctx)
+			if err != nil {
+				return metrics.Export{}
+			}
+			envs := make([]metrics.PromEnv, 0, len(all))
+			for _, e := range all {
+				envs = append(envs, metrics.PromEnv{App: e.App, Env: e.Name, EnvID: e.ID})
+			}
+			return metricsStore.ExportAll(envs, true)
+		},
+	}
+	go sinks.Run()
+	defer func() {
+		stopTelemetry()
+		sinks.Wait()
+	}()
 	signIn := &sso.Service{DB: db, Auth: authn, Keyring: keyring, Log: log, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), StateKey: masterKey.Derive("sso state v1")}
 	authn.PasswordsOff = signIn.PasswordsOff
-	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, opts.GateRecheck, log))
+	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, metricsStore, notifier, backups, signIn, forges, sinks, opts.GateRecheck, log))
 	console.Handle("/metrics", api.Prometheus(db, authn, metricsStore))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Notifier: notifier, Backups: backups, Forges: forges, Telemetry: sinks, SSO: signIn, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor, Metrics: metricsStore})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}

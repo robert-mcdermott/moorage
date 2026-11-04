@@ -69,6 +69,8 @@ type route struct {
 	status int
 	// stream, if set, is a prototype of the lines of an NDJSON response.
 	stream any
+	// socket says that it becomes a WebSocket, and stays open.
+	socket bool
 	// sse, if set, is a prototype of the events of a server-sent event stream.
 	sse any
 	// multipart marks a deploy's multipart/form-data request.
@@ -210,9 +212,30 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/apps/{app}/envs/{env}/cron/{job}/run", perm: canDeploy, handler: s.runCronJob, status: http.StatusAccepted, summary: "Run a cron job now", response: apitypes.Run{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/runs", perm: canRead, handler: s.runs, summary: "List an environment's runs, newest first; job= is those of a cron job", response: []apitypes.Run{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/runs", perm: canDeploy, handler: s.startRun, status: http.StatusAccepted, summary: "Run a command in the current release, with its variables and data", request: apitypes.NewRun{}, response: apitypes.Run{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/files", perm: canDeploy, handler: s.dataFiles, summary: "List a directory within an environment's data directory", query: map[string]string{"path": "Where, from the top of it."}, response: apitypes.DataListing{}},
+		{method: "DELETE", path: "/apps/{app}/envs/{env}/files", perm: canDeploy, handler: s.removeData, status: http.StatusNoContent, summary: "Remove something from a data directory", query: map[string]string{"path": "What.", "recursive": "true takes a directory with all that is in it."}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/files/content", perm: canDeploy, handler: s.dataFileContent, summary: "Read a file in a data directory", query: map[string]string{"path": "Which."}},
+		{method: "PUT", path: "/apps/{app}/envs/{env}/files/content", perm: canDeploy, handler: s.putDataFile, status: http.StatusCreated, summary: "Write a file in a data directory, up to 1 GB: it appears all at once", query: map[string]string{"path": "Where.", "replace": "true takes the place of what is there."}, response: apitypes.DataFile{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/files/directory", perm: canDeploy, handler: s.makeDataDir, status: http.StatusCreated, summary: "Make a directory in a data directory", query: map[string]string{"path": "Where."}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/thresholds", perm: canRead, handler: s.thresholds, summary: "List when someone is told about how an environment is doing", response: []apitypes.Threshold{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/thresholds", perm: canManage, handler: s.addThreshold, status: http.StatusCreated, summary: "Say when to tell someone about how an environment is doing", request: apitypes.NewThreshold{}, response: apitypes.Threshold{}},
+		{method: "DELETE", path: "/apps/{app}/envs/{env}/thresholds/{id}", perm: canManage, handler: s.removeThreshold, status: http.StatusNoContent, summary: "Remove a threshold"},
+		{method: "GET", path: "/server/telemetry", perm: serverAdmin, handler: s.telemetrySinks, summary: "List where what apps say and do is sent", response: []apitypes.TelemetrySink{}},
+		{method: "POST", path: "/server/telemetry", perm: serverAdmin, handler: s.setTelemetrySink, summary: "Add somewhere to send what apps say and do, or change the one of that name", request: apitypes.NewTelemetrySink{}, response: apitypes.TelemetrySink{}},
+		{method: "DELETE", path: "/server/telemetry/{name}", perm: serverAdmin, handler: s.removeTelemetrySink, status: http.StatusNoContent, summary: "Stop sending to a sink"},
+		{method: "POST", path: "/server/telemetry/{name}/test", perm: serverAdmin, handler: s.testTelemetrySink, status: http.StatusNoContent, summary: "Send something to a sink now, and say how that went"},
+		{method: "GET", path: "/apps/{app}/envs/{env}/terminal", perm: canDeploy, handler: s.terminal, socket: true, summary: "Run a command with someone at the other end of it, as moor run -it does. It becomes a WebSocket, with what is typed and shown in binary messages, and TerminalMessage in text ones. This takes a token, and not a session",
+			query: map[string]string{"command": "What to run.", "instance": "A running container to run it in, rather than a new one-off instance.", "timeout": "How long it may take, such as 10m.", "tty": "1 gives it a terminal. Otherwise it has pipes.", "rows": "How tall the terminal is.", "cols": "How wide the terminal is.", "term": "The kind of terminal it is."}},
 		{method: "GET", path: "/apps/{app}/runs/{id}", perm: canRead, handler: s.run, summary: "How a run went", response: apitypes.Run{}},
 		{method: "POST", path: "/apps/{app}/runs/{id}/stop", perm: canDeploy, handler: s.stopRun, summary: "Stop a run that is going on", response: apitypes.Run{}},
 		{method: "GET", path: "/apps/{app}/runs/{id}/log", perm: canReadLogs, handler: s.runLog, summary: "What a run says, as NDJSON; follow=true stays open until it ends", stream: apitypes.LogLine{}},
+		{method: "GET", path: "/apps/{app}/forge", perm: canRead, handler: s.getForge, summary: "Say where an app's code is kept, on a forge", response: apitypes.ForgeConnection{}},
+		{method: "PUT", path: "/apps/{app}/forge", perm: canManage, handler: s.connectForge, summary: "Connect an app to a repository on a forge: the answer alone has the secret that its webhook signs with", request: apitypes.ForgeConnect{}, response: apitypes.ForgeConnection{}},
+		{method: "DELETE", path: "/apps/{app}/forge", perm: canManage, handler: s.disconnectForge, status: http.StatusNoContent, summary: "Let go of an app's repository: what it deployed stays"},
+		{method: "GET", path: "/apps/{app}/forge/pulls", perm: canRead, handler: s.forgePulls, summary: "List an app's open pull requests", response: []apitypes.ForgePull{}},
+		{method: "POST", path: "/apps/{app}/forge/pulls/{number}/approve", perm: canManage, handler: s.approveForgePull, status: http.StatusAccepted, summary: "Have a pull request built at the commit that someone looked at, which runs its code: this is for that one commit", request: apitypes.ForgeApproval{}, response: apitypes.ForgePull{}},
+		{method: "POST", path: "/apps/{app}/forge/sync", perm: canDeploy, handler: s.syncForge, status: http.StatusAccepted, summary: "Look at an app's repository now, and deploy what has changed"},
+		{method: "POST", path: "/hooks/{hook}", perm: public, handler: s.forgeHook, status: http.StatusAccepted, summary: "Where a forge sends what happens, signed with the hook's secret"},
 		{method: "GET", path: "/apps/{app}/envs/{env}/domains", perm: canRead, handler: s.domains, summary: "List an environment's domains", response: []apitypes.Domain{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/domains", perm: canManage, handler: s.addDomain, status: http.StatusCreated, summary: "Attach a domain, which serves once its DNS points here", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/domains/verify", perm: canManage, handler: s.verifyDomain, summary: "Look now at where a domain points", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
@@ -318,7 +341,7 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 			}
 		}
 		ctx := context.WithValue(r.Context(), principalKey{}, p)
-		if rt.stream != nil || rt.sse != nil {
+		if rt.stream != nil || rt.sse != nil || rt.socket {
 			// What stays open must end when whoever opened it may no longer see it.
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithCancel(ctx)

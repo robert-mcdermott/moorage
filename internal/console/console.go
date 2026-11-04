@@ -7,6 +7,7 @@ package console
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -25,11 +26,13 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
+	"github.com/robert-mcdermott/moorage/internal/forge"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/telemetry"
 )
 
 //go:embed templates assets
@@ -44,7 +47,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"login-code", "apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
+		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics", "app-console", "app-files", "settings-telemetry"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -57,6 +60,10 @@ func parseTemplates(source fs.FS, asset func(string) string) (map[string]*templa
 		"asset": asset, "ago": ago, "iso": iso, "clock": clock, "date": func(t time.Time) string { return t.Format("2 Jan 2006") },
 		"mask": func() string { return secretMask }, "countText": countText, "size": humanSizeOf, "envq": envQuery, "agoOrDash": agoOrDash, "untilText": untilText, "bareURL": bareURL,
 		"orDash": orNone,
+		"json": func(v any) (string, error) {
+			encoded, err := json.Marshal(v)
+			return string(encoded), err
+		},
 		"orNobody": func(s string) string {
 			if s == "" {
 				return "Nobody"
@@ -111,6 +118,10 @@ type Options struct {
 	Notifier *notify.Service
 	// Backups makes backups.
 	Backups *backup.Service
+	// Forges connects apps to repositories.
+	Forges *forge.Service
+	// Telemetry sends what apps say and do elsewhere.
+	Telemetry *telemetry.Service
 	// SSO signs people in through a provider.
 	SSO *sso.Service
 }
@@ -126,10 +137,12 @@ type Console struct {
 	assets map[string]asset
 	pages  map[string]*template.Template
 
-	deployer *deploy.Deployer
-	runtime  Runtime
-	keyring  Keyring
-	started  time.Time
+	deployer  *deploy.Deployer
+	forges    *forge.Service
+	telemetry *telemetry.Service
+	runtime   Runtime
+	keyring   Keyring
+	started   time.Time
 	// gateRoute says what a hostname and a path serve, for the sign-in gates.
 	gateRoute func(host, path string) (ingress.RouteInfo, bool)
 	metrics   *metrics.Store
@@ -140,7 +153,7 @@ type Console struct {
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
+	c := &Console{forges: o.Forges, telemetry: o.Telemetry, notifier: o.Notifier, backups: o.Backups, sso: o.SSO, auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -181,6 +194,13 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /apps/{app}/metrics", c.metricsPage)
 	mux.HandleFunc("GET /apps/{app}/cron", c.cronPage)
 	mux.HandleFunc("GET /apps/{app}/runs/{id}", c.runPage)
+	mux.HandleFunc("GET /apps/{app}/console", c.consolePage)
+	mux.HandleFunc("POST /apps/{app}/console/run", c.actionWith(auth.ScopeDeploy, maxForm, c.consoleRun))
+	mux.HandleFunc("GET /apps/{app}/files", c.filesPage)
+	mux.HandleFunc("GET /apps/{app}/files/download", c.downloadFile)
+	mux.HandleFunc("POST /apps/{app}/files/upload", c.uploadAction(deploy.MaxDataFile+1<<20, c.uploadFile))
+	mux.HandleFunc("POST /apps/{app}/files/folder", c.actionWith(auth.ScopeDeploy, maxForm, c.makeDirectory))
+	mux.HandleFunc("POST /apps/{app}/files/remove", c.actionWith(auth.ScopeDeploy, maxForm, c.removeFile))
 	mux.HandleFunc("POST /apps/{app}/runs", c.action(c.startRun))
 	mux.HandleFunc("POST /apps/{app}/runs/{id}/stop", c.action(c.stopRun))
 	mux.HandleFunc("POST /apps/{app}/cron/{job}/run", c.action(c.runCronJob))
@@ -205,6 +225,10 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/environments/{env}/promote", c.environmentAction(c.promoteEnvironment))
 	mux.HandleFunc("GET /apps/{app}/settings", c.appSettingsPage)
 	mux.HandleFunc("POST /apps/{app}/settings/move", c.actionWith(auth.ScopeAdmin, maxForm, c.moveApp))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/connect", c.actionWith(auth.ScopeAdmin, maxForm, c.connectForge))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/disconnect", c.actionWith(auth.ScopeAdmin, maxForm, c.disconnectForge))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/sync", c.actionWith(auth.ScopeAdmin, maxForm, c.syncForge))
+	mux.HandleFunc("POST /apps/{app}/settings/forge/pulls/{number}/approve", c.actionWith(auth.ScopeAdmin, maxForm, c.approveForgePull))
 	mux.HandleFunc("POST /apps/{app}/settings/rename", c.actionWith(auth.ScopeAdmin, maxForm, c.renameApp))
 	mux.HandleFunc("POST /apps/{app}/settings/delete", c.actionWith(auth.ScopeAdmin, maxForm, c.deleteApp))
 	mux.HandleFunc("GET /apps/{app}/logs", c.logsPage)
@@ -230,6 +254,12 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /settings/users", c.usersPage)
 	mux.HandleFunc("GET /settings/registries", c.registriesPage)
 	mux.HandleFunc("GET /settings/notifications", c.notificationSettings)
+	mux.HandleFunc("GET /settings/telemetry", c.telemetrySettings)
+	mux.HandleFunc("POST /settings/telemetry", c.adminAction(c.addSink))
+	mux.HandleFunc("POST /settings/telemetry/test", c.adminAction(c.testSink))
+	mux.HandleFunc("POST /settings/telemetry/remove", c.adminAction(c.removeSink))
+	mux.HandleFunc("POST /apps/{app}/metrics/thresholds", c.actionWith(auth.ScopeAdmin, maxForm, c.addThreshold))
+	mux.HandleFunc("POST /apps/{app}/metrics/thresholds/remove", c.actionWith(auth.ScopeAdmin, maxForm, c.removeThreshold))
 	mux.HandleFunc("POST /settings/notifications/channels", c.adminAction(c.addChannel))
 	mux.HandleFunc("POST /settings/notifications/channels/test", c.adminAction(c.testChannel))
 	mux.HandleFunc("POST /settings/notifications/channels/remove", c.adminAction(c.removeChannel))
@@ -362,6 +392,16 @@ type data struct {
 	Run  *runView
 	// Usage says how much room it takes.
 	Usage deploy.AppUsage
+	// Forge is the repository it deploys from, if the server does that.
+	Forge *forgeView
+	// Files is what is in its data directory, and LineConsole where commands are run.
+	Files       *filesView
+	LineConsole *lineConsoleView
+	// Telemetry is where things are sent, and Thresholds when someone is told.
+	Telemetry  *telemetryView
+	Thresholds *thresholdsView
+	// ThresholdFailure says what was wrong with one just asked for.
+	ThresholdFailure string
 
 	// Deploying an app.
 	Image                 string

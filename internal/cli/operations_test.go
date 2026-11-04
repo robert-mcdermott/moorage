@@ -253,8 +253,8 @@ func TestResolverElsewhere(t *testing.T) {
 	if code, out, _ := run(t, "server", "resolver", "install"); code != 0 || !strings.Contains(out, "Nothing to install on Linux") {
 		t.Errorf("%d %s", code, out)
 	}
-	setResolver(t, "windows")
-	if code, _, errOut := run(t, "server", "resolver", "install"); code == 0 || !strings.Contains(errOut, "not available on windows") {
+	setResolver(t, "plan9")
+	if code, _, errOut := run(t, "server", "resolver", "install"); code == 0 || !strings.Contains(errOut, "not available on plan9") {
 		t.Errorf("%d %s", code, errOut)
 	}
 }
@@ -266,6 +266,8 @@ type fakeManager struct {
 }
 
 func (m fakeManager) File() string { return m.file }
+
+func (m fakeManager) Definition() ([]byte, error) { return os.ReadFile(m.file) }
 
 func TestStopLeavesAnotherServersService(t *testing.T) {
 	unit := filepath.Join(t.TempDir(), "moorage.service")

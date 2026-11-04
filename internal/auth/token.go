@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -94,6 +95,9 @@ func writeSecret(file, content string) error {
 		return err
 	}
 	if err := os.Chmod(tmp, 0o600); err != nil {
+		return err
+	}
+	if err := platform.MakePrivate(tmp); err != nil {
 		return err
 	}
 	return os.Rename(tmp, file)

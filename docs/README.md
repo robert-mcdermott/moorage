@@ -1,7 +1,7 @@
 # Moorage documentation
 
 How to install Moorage, run it, and deploy apps to it. This documentation
-describes Moorage 0.6.0; the [design documents](../spec/README.md) describe
+describes Moorage 0.7.0; the [design documents](../spec/README.md) describe
 how it works inside and where it is going.
 
 ## Start here
@@ -25,6 +25,8 @@ how it works inside and where it is going.
 
 - [With git push](git.md): the production branch deploys, and the push
   shows the build
+- [From a forge](forges.md): connect a repository on GitHub, GitLab or Gitea, with a preview
+  for each pull request
 - [Go](go.md)
 - [Python](python.md), with uv
 - [Node.js](node.md), with npm
@@ -36,7 +38,9 @@ how it works inside and where it is going.
 - [Previews and environments](previews.md): a place of its own for every branch,
   staging, promoting, locks and sleeping
 - [Cron jobs and one-off commands](cron.md)
+- [Getting into an app](interactive.md): a terminal, a console in the browser, and the data directory
 - [Metrics](metrics.md): charts in the console, and for Prometheus
+- [Sending telemetry elsewhere](telemetry.md): logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds
 - [Notifications](notifications.md): told when something goes wrong, in the console,
   by webhook, in chat and by email
 - [How apps are kept apart](isolation.md): a user of its own for each app, limits and a
@@ -79,6 +83,8 @@ how it works inside and where it is going.
 | `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |
 | `moor restart [PROCESS]` | Replaces the instances without downtime |
 | `moor run -- COMMAND` | Runs a command in the current release, and ends with its exit status |
+| `moor run -it -- /bin/sh` | A terminal in the current release |
+| `moor files` | What is in the data directory |
 | `moor metrics` | Shows requests, response times, CPU and memory over a range |
 | `moor cron` | Lists the cron jobs; `run` one now, `runs` and `log` show how they went |
 | `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |

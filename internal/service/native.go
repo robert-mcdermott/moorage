@@ -10,6 +10,8 @@ func For(system bool) (Manager, error) {
 		return &Systemd{System: system, Run: Run}, nil
 	case "darwin":
 		return &Launchd{System: system, Run: Run}, nil
+	case "windows":
+		return forWindows(system)
 	}
 	return nil, ErrUnsupported
 }

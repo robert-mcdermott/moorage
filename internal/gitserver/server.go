@@ -41,6 +41,16 @@ type Receiver interface {
 }
 
 // A Push is a push's proposed ref updates.
+// How a push may come to a preview.
+const (
+	// PreviewAsManifest is what a push here gets: its manifest decides.
+	PreviewAsManifest = ""
+	// PreviewOnly is a pull request's: it goes to its own preview, or nowhere, whatever its manifest says of the rest.
+	PreviewOnly = "only"
+	// PreviewNever is for a branch that deploys to its environment if it has one, and otherwise stays as it is.
+	PreviewNever = "never"
+)
+
 type Push struct {
 	App string
 	// By is who pushed: what authentication said.
@@ -53,6 +63,10 @@ type Push struct {
 	Updates       []Update
 	// Options are the push options (git push -o …).
 	Options []string
+	// Preview says what a branch's own manifest has to say about where it goes.
+	Preview string
+	// Started is told when a deployment has been asked for, if it is not nil.
+	Started func()
 	// Progress writes lines that the client shows as "remote: …". Writes
 	// fail once the client has gone; the push goes on.
 	Progress io.Writer
