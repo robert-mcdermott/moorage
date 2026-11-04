@@ -38,6 +38,10 @@ type settingsView struct {
 	Registries []store.Registry
 	// What the form said, when it was refused.
 	FormEmail, FormName, FormRole, FormHost, FormUser string
+	// Who did what.
+	Audit                             []store.AuditEntry
+	AuditExport                       string
+	FormActor, FormAction, FormTarget string
 	// The system.
 	Checks            []doctor.Check
 	Fails, Warns, Oks int
@@ -100,7 +104,7 @@ func (c *Console) adminAction(next func(http.ResponseWriter, *http.Request, auth
 			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "This is for administrators", Message: "Ask one of them, if it needs changing.", Link: "/", LinkText: "Back to the start"})
 			return
 		}
-		next(w, r, p)
+		c.audited(w, r, p, func(w http.ResponseWriter) { next(w, r, p) })
 	})
 }
 
@@ -151,6 +155,11 @@ func (c *Console) settingsPage(w http.ResponseWriter, r *http.Request) {
 				{"TLS", tls},
 				{"Browsers see", cfg.Proxy.ExternalScheme},
 				{"Trusted proxies", orNone(strings.Join(cfg.Proxy.Trusted, ", "))},
+			}},
+			{"Who may reach what, unless the manifest or a maintainer says otherwise", []setting{
+				{"Production", gateLabels[cfg.Access.Production]},
+				{"Named environments", gateLabels[cfg.Access.Named]},
+				{"Previews", gateLabels[cfg.Access.Preview]},
 			}},
 			{"Running apps", []setting{
 				{"Container engine", cfg.Containers.Engine},

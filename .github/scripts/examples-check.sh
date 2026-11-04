@@ -10,7 +10,9 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 port=${MOORAGE_EXAMPLES_PORT:-8080}
-work=$(mktemp -d)
+# A space in the path, as the system-wide location on macOS has: builds run under it.
+work="$(mktemp -d)/with a space"
+mkdir -p "$work"
 moor=$work/moor
 (cd "$root" && go build -o "$moor" ./cmd/moor)
 

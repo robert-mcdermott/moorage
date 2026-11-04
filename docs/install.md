@@ -1,7 +1,7 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. Version 0.3.0 runs on Linux and macOS (amd64 and arm64); on Windows,
+to it. Version 0.4.0 runs on Linux and macOS (amd64 and arm64); on Windows,
 `moor` runs as a command line and `moor server run` works, but installing the
 server as a service arrives in a later release.
 
@@ -52,18 +52,18 @@ sudo sh install-moor.sh
 
 | Variable | `install.sh` | `install.ps1` | |
 |---|---|---|---|
-| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.3.0`. By default, the latest |
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.4.0`. By default, the latest |
 | `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
 | `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
 | `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
 | `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.3.0 sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.4.0 sh
 ```
 
 ```powershell
-$env:MOOR_VERSION = 'v0.3.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+$env:MOOR_VERSION = 'v0.4.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
 
 **On Windows,** `irm … | iex` reads the script into memory and runs it, so the
@@ -133,7 +133,12 @@ CGO_ENABLED=0 go build -trimpath -o moor ./cmd/moor
 preset. Run it as root for a server that starts with the machine (the file
 goes to `/etc/moorage/server.toml` on Linux, `/Library/Application
 Support/Moorage/server.toml` on macOS), or as yourself to try Moorage on
-your own computer (the file goes to your user's configuration directory).
+your own computer: everything then goes in one folder, `~/.moorage`, on macOS and Linux,
+and in `%LocalAppData%\Moorage` on Windows. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` win on
+Linux, if they are set.
+
+A server set up as yourself by an earlier version stays where it is, and `moor` finds it.
+To move one, stop it, move the folder, change `data_dir` in `server.toml`, and start it again.
 
 **On your own computer** — apps at `http://<app>.localhost:8080`:
 

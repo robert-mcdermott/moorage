@@ -24,6 +24,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
+	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -39,7 +40,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -50,8 +51,14 @@ func pageNames() []string {
 func parseTemplates(source fs.FS, asset func(string) string) (map[string]*template.Template, error) {
 	base, err := template.New("pages").Funcs(template.FuncMap{
 		"asset": asset, "ago": ago, "iso": iso, "clock": clock, "date": func(t time.Time) string { return t.Format("2 Jan 2006") },
-		"mask": func() string { return secretMask }, "countText": countText,
+		"mask": func() string { return secretMask }, "countText": countText, "size": humanSizeOf, "envq": envQuery, "agoOrDash": agoOrDash, "untilText": untilText, "bareURL": bareURL,
 		"orDash": orNone,
+		"orNobody": func(s string) string {
+			if s == "" {
+				return "Nobody"
+			}
+			return s
+		},
 		"dict": func(pairs ...any) map[string]any {
 			out := map[string]any{}
 			for i := 0; i+1 < len(pairs); i += 2 {
@@ -92,6 +99,8 @@ type Options struct {
 	Runtime  Runtime
 	// Keyring seals what the settings pages are given to keep.
 	Keyring Keyring
+	// GateRoute says what a hostname and a path serve, for the sign-in gates.
+	GateRoute func(host, path string) (ingress.RouteInfo, bool)
 }
 
 // Console serves the pages.
@@ -109,11 +118,13 @@ type Console struct {
 	runtime  Runtime
 	keyring  Keyring
 	started  time.Time
+	// gateRoute says what a hostname and a path serve, for the sign-in gates.
+	gateRoute func(host, path string) (ingress.RouteInfo, bool)
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now()}
+	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -129,7 +140,17 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /assets/{file}", c.serveAsset)
 	mux.HandleFunc("GET /activity", c.activity)
 	mux.HandleFunc("GET /welcome", c.welcome)
-	mux.HandleFunc("GET /new", c.newApp)
+	mux.HandleFunc("GET /new", c.newAppPage)
+	mux.HandleFunc("POST /new", c.accountAction(c.createApp))
+	mux.HandleFunc("GET /projects", c.projectsPage)
+	mux.HandleFunc("POST /projects", c.adminAction(c.createProject))
+	mux.HandleFunc("GET /projects/{project}", c.projectPage)
+	mux.HandleFunc("POST /projects/{project}/settings", c.projectAction(c.changeProjectSettings))
+	mux.HandleFunc("POST /projects/{project}/members/set", c.projectAction(c.setProjectMember))
+	mux.HandleFunc("POST /projects/{project}/members/remove", c.projectAction(c.removeProjectMember))
+	mux.HandleFunc("POST /projects/{project}/delete", c.projectAction(c.deleteProject))
+	mux.HandleFunc("GET /settings/audit", c.auditPage)
+	mux.HandleFunc("POST /apps/{app}/variables/reveal", c.actionWith(auth.ScopeAdmin, maxForm, c.revealVariable))
 	mux.HandleFunc("GET /apps/{app}", c.appPage)
 	mux.HandleFunc("GET /apps/{app}/deployments", c.deploymentsList)
 	mux.HandleFunc("GET /apps/{app}/deploy", c.deployPage)
@@ -140,6 +161,29 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("GET /auth/gate", c.gateSignIn)
+	mux.HandleFunc("GET /apps/{app}/access", c.accessPage)
+	mux.HandleFunc("POST /apps/{app}/access", c.actionWith(auth.ScopeAdmin, maxForm, c.setAccess))
+	mux.HandleFunc("POST /apps/{app}/domains", c.actionWith(auth.ScopeAdmin, maxForm, c.addDomain))
+	mux.HandleFunc("POST /apps/{app}/domains/verify", c.actionWith(auth.ScopeAdmin, maxForm, c.verifyDomain))
+	mux.HandleFunc("POST /apps/{app}/domains/remove", c.actionWith(auth.ScopeAdmin, maxForm, c.removeDomain))
+	mux.HandleFunc("POST /apps/{app}/share-links", c.action(c.createShareLink))
+	mux.HandleFunc("POST /apps/{app}/share-links/{id}/revoke", c.action(c.revokeShareLink))
+	mux.HandleFunc("POST /apps/{app}/sleep", c.action(c.sleepApp))
+	mux.HandleFunc("POST /apps/{app}/wake", c.action(c.wakeApp))
+	mux.HandleFunc("GET /previews", c.previewsPage)
+	mux.HandleFunc("GET /apps/{app}/environments", c.environmentsPage)
+	mux.HandleFunc("POST /apps/{app}/environments", c.action(c.createEnvironment))
+	mux.HandleFunc("POST /apps/{app}/previews", c.action(c.createPreview))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/delete", c.environmentAction(c.deleteEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/lock", c.environmentAction(c.lockEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/unlock", c.environmentAction(c.unlockEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/pin", c.environmentAction(c.pinEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/promote", c.environmentAction(c.promoteEnvironment))
+	mux.HandleFunc("GET /apps/{app}/settings", c.appSettingsPage)
+	mux.HandleFunc("POST /apps/{app}/settings/move", c.actionWith(auth.ScopeAdmin, maxForm, c.moveApp))
+	mux.HandleFunc("POST /apps/{app}/settings/rename", c.actionWith(auth.ScopeAdmin, maxForm, c.renameApp))
+	mux.HandleFunc("POST /apps/{app}/settings/delete", c.actionWith(auth.ScopeAdmin, maxForm, c.deleteApp))
 	mux.HandleFunc("GET /apps/{app}/logs", c.logsPage)
 	mux.HandleFunc("GET /apps/{app}/variables", c.variablesPage)
 	mux.HandleFunc("GET /apps/{app}/variables/edit", c.editVariablesPage)
@@ -235,9 +279,24 @@ type data struct {
 	TimeRanges []struct{ Value, Label string }
 	Variables  varsView
 
-	// One's own account, and the administrator's pages.
+	// One's own account, the administrator's pages, and projects.
 	Account  accountView
 	Settings settingsView
+	Projects []projectRow
+	Project  projectView
+
+	// Access says what the viewer may do with the app the page is about. Env is the
+	// environment in its addresses, empty for production; EnvNames are the app's
+	// environments, EnvInfo that one, and EnvRows a list of them.
+	Access   auth.Access
+	Env      string
+	EnvNames []string
+	EnvInfo  store.Environment
+	EnvRows  []environmentRow
+	// Gate says who may reach it, on its Access page.
+	Gate *accessView
+	// Usage says how much room it takes.
+	Usage deploy.AppUsage
 
 	// Deploying an app.
 	Image                 string
@@ -464,7 +523,7 @@ func (c *Console) setup(w http.ResponseWriter, r *http.Request) {
 
 // safeNext keeps a redirect after signing in on this site.
 func safeNext(next string) string {
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, `/\`) || strings.ContainsAny(next, "\r\n") {
+	if !ingress.SafeLocalPath(next) {
 		return "/"
 	}
 	return next

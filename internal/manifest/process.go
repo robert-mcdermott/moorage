@@ -53,8 +53,9 @@ type Process struct {
 	StopSignal  string   `toml:"stop_signal" json:"stop_signal,omitempty"`
 	StopTimeout Duration `toml:"stop_timeout" json:"stop_timeout,omitempty"`
 	Restart     string   `toml:"restart" json:"restart,omitempty"`
-	// Sleep and Protocol configure features of later releases.
-	Sleep    *bool  `toml:"sleep" json:"sleep,omitempty"`
+	// Sleep, if false, keeps it running while its environment sleeps.
+	Sleep *bool `toml:"sleep" json:"sleep,omitempty"`
+	// Protocol configures a feature of a later release.
 	Protocol string `toml:"protocol" json:"protocol,omitempty"`
 }
 

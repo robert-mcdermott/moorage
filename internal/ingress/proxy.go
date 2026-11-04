@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"errors"
+	"github.com/robert-mcdermott/moorage/internal/auth"
 	"log/slog"
 	"math/rand/v2"
 	"net"
@@ -140,6 +141,7 @@ func (p *Pool) rewrite(pr *httputil.ProxyRequest) {
 	pr.SetURL(&url.URL{Scheme: "http", Host: b.Addr})
 	pr.Out.Host = pr.In.Host // apps see the hostname they are served at
 	setForwarded(pr, p.trusted)
+	identityHeaders(pr.Out.Header, pr.In)
 }
 
 func (p *Pool) proxyError(w http.ResponseWriter, r *http.Request, err error) {
@@ -194,18 +196,35 @@ func isDialError(err error) bool {
 // setForwarded sets the X-Forwarded-* family on a proxied request. Headers
 // a client sent are kept only when it is a trusted proxy; anything else
 // could be forged. X-Moorage-* headers from clients are always removed.
+// platformHeader says whether a client's header is one that only Moorage may send, as an app would
+// read it: some ways of serving apps take an underscore for a dash, and would hear X_Moorage_User
+// as X-Moorage-User.
+func platformHeader(name string) bool {
+	norm := strings.ToLower(strings.ReplaceAll(name, "_", "-"))
+	if strings.HasPrefix(norm, "x-moorage-") {
+		return true
+	}
+	if !strings.Contains(name, "_") {
+		return false
+	}
+	switch norm {
+	case "x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-forwarded-prefix", "x-real-ip", "x-request-id", "forwarded":
+		return true
+	}
+	return false
+}
+
 func setForwarded(pr *httputil.ProxyRequest, trusted []netip.Prefix) {
 	in, out := pr.In, pr.Out
 	client := remoteIP(in.RemoteAddr)
 	fromProxy := isTrusted(client, trusted)
-	xff, proto, host, realIP := client, "http", in.Host, client
+	xff, proto, host, realIP := client, "http", in.Host, auth.ClientIP(in, trusted)
 	if in.TLS != nil {
 		proto = "https"
 	}
 	if fromProxy {
 		if prior := strings.Join(in.Header.Values("X-Forwarded-For"), ", "); prior != "" {
 			xff = prior + ", " + client
-			realIP = strings.TrimSpace(strings.Split(prior, ",")[0])
 		}
 		if v := in.Header.Get("X-Forwarded-Proto"); v == "http" || v == "https" {
 			proto = v
@@ -215,11 +234,12 @@ func setForwarded(pr *httputil.ProxyRequest, trusted []netip.Prefix) {
 		}
 	}
 	for k := range out.Header {
-		if strings.HasPrefix(k, "X-Moorage-") {
-			out.Header.Del(k)
+		if platformHeader(k) {
+			delete(out.Header, k)
 		}
 	}
 	out.Header.Del("Forwarded")
+	out.Header.Del("X-Forwarded-Prefix")
 	out.Header.Set("X-Forwarded-For", xff)
 	out.Header.Set("X-Forwarded-Proto", proto)
 	out.Header.Set("X-Forwarded-Host", host)

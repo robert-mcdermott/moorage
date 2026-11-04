@@ -50,11 +50,15 @@ func (m *Manager) Rollout(ctx context.Context, app, env string, rel store.Releas
 	es := m.env(app, env)
 	es.rollout.Lock()
 	defer es.rollout.Unlock()
+	kind, err := m.db.EnvKind(ctx, app, env)
+	if err != nil {
+		return err
+	}
 	formation, err := m.db.Formation(ctx, app, env)
 	if err != nil {
 		return err
 	}
-	plan = plan.WithFormation(formation)
+	plan = plan.ForEnv(env, kind).WithFormation(formation)
 
 	old := es.list()
 	if plan.Deploy.Strategy == "recreate" {
@@ -144,6 +148,11 @@ func (m *Manager) Scale(ctx context.Context, app, env string, change map[string]
 	if plan.Kind != manifest.KindProcess {
 		return nil, &ScaleError{app + " is a static site; it has no processes to scale"}
 	}
+	kind, err := m.db.EnvKind(ctx, app, env)
+	if err != nil {
+		return nil, err
+	}
+	plan = plan.ForEnv(env, kind)
 	for _, name := range sortedKeys(change) {
 		if _, ok := plan.Processes[name]; !ok {
 			return nil, &ScaleError{fmt.Sprintf("%s has no process %s: it has %s", app, name, strings.Join(manifest.SortedProcesses(plan.Processes), ", "))}
@@ -201,6 +210,25 @@ func (m *Manager) Retire(app, env string) {
 	defer es.rollout.Unlock()
 	es.pool.Set(nil)
 	m.retire(es, es.list(), 0)
+}
+
+// Forget lets go of what the manager holds for an app that has been retired: its files
+// are moving or going, and the name may come back as another app.
+func (m *Manager) Forget(app string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key := range m.envs {
+		if strings.HasPrefix(key, app+"/") {
+			delete(m.envs, key)
+		}
+	}
+}
+
+// ForgetEnv lets go of one environment that has been retired.
+func (m *Manager) ForgetEnv(app, env string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.envs, app+"/"+env)
 }
 
 // start creates an instance of a process and starts its shim.
@@ -381,16 +409,27 @@ func (m *Manager) addConfig(ctx context.Context, appID string, cfg []store.Confi
 
 // addMoorage adds the variables Moorage sets, which nothing overrides.
 func (m *Manager) addMoorage(app, env string, rel store.Release, build store.Build, host, dataDir string, vars, secrets map[string]string) {
+	kind, err := m.db.EnvKind(context.Background(), app, env)
+	if err != nil {
+		kind = store.KindProduction
+	}
+	token := ""
+	if m.opts.ProxyToken != nil {
+		if id, err := m.db.EnvID(context.Background(), app, env); err == nil {
+			token = m.opts.ProxyToken(id)
+		}
+	}
 	for k, v := range map[string]string{
-		"HOST":              host,
-		"MOORAGE_APP":       app,
-		"MOORAGE_ENV":       env,
-		"MOORAGE_ENV_KIND":  "production",
-		"MOORAGE_RELEASE":   "v" + strconv.Itoa(rel.Version),
-		"MOORAGE_BUILD_ID":  build.ID,
-		"MOORAGE_URL":       m.cfg.PublicURL(app + "." + m.cfg.Domain),
-		"MOORAGE_BASE_PATH": "",
-		"MOORAGE_DATA_DIR":  dataDir,
+		"MOORAGE_PROXY_TOKEN": token,
+		"HOST":                host,
+		"MOORAGE_APP":         app,
+		"MOORAGE_ENV":         env,
+		"MOORAGE_ENV_KIND":    kind,
+		"MOORAGE_RELEASE":     "v" + strconv.Itoa(rel.Version),
+		"MOORAGE_BUILD_ID":    build.ID,
+		"MOORAGE_URL":         m.cfg.EnvURL(app, env),
+		"MOORAGE_BASE_PATH":   m.cfg.EnvPrefix(app, env),
+		"MOORAGE_DATA_DIR":    dataDir,
 	} {
 		vars[k] = v
 		delete(secrets, k)
@@ -491,7 +530,7 @@ func (m *Manager) probe(es *envState, in *instance) bool {
 	if err != nil {
 		return false
 	}
-	req.Host = es.app + "." + m.cfg.Domain
+	req.Host = m.cfg.EnvHost(es.app, es.env)
 	req.Header.Set("User-Agent", "moorage-health")
 	client := &http.Client{Timeout: h.Timeout.Std(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Do(req)

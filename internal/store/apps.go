@@ -54,6 +54,8 @@ type AppSummary struct {
 	ID        string
 	Name      string
 	CreatedAt time.Time
+	// Project is the name of the project it is in.
+	Project string
 	// Production is the current production release, if any.
 	Production *Release
 }
@@ -65,6 +67,11 @@ type Route struct {
 	Kind    string
 	Version int
 	Build   Build
+	// Asleep says that its instances are stopped until a request wakes it.
+	Asleep bool
+	// EnvID and Access say who may reach it.
+	EnvID  string
+	Access EnvAccess
 }
 
 // EnsureApp creates the app if it does not exist yet, with its production
@@ -90,7 +97,7 @@ func ensureApp(ctx context.Context, tx *sql.Tx, name string, now time.Time) (str
 		return "", false, err
 	}
 	id = ids.New(ids.App)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO apps (id, name, created_at) VALUES (?, ?, ?)`, id, name, now.UnixMilli()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO apps (id, name, project_id, created_at) VALUES (?, ?, ?, ?)`, id, name, defaultProjectID, now.UnixMilli()); err != nil {
 		return "", false, err
 	}
 	if _, err := tx.ExecContext(ctx,
@@ -355,10 +362,11 @@ func (db *DB) Apps(ctx context.Context) ([]AppSummary, error) {
 // AppsAfter lists up to limit apps (no limit if negative) by name, after the
 // name after.
 func (db *DB) AppsAfter(ctx context.Context, after string, limit int) ([]AppSummary, error) {
-	rows, err := db.Reader.QueryContext(ctx, `SELECT a.id, a.name, a.created_at,
+	rows, err := db.Reader.QueryContext(ctx, `SELECT a.id, a.name, a.created_at, coalesce(p.name, '`+DefaultProject+`'),
 			r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, b.files, b.size_bytes
 		FROM apps a
 		JOIN environments e ON e.app_id = a.id AND e.kind = 'production'
+		LEFT JOIN projects p ON p.id = a.project_id
 		LEFT JOIN releases r ON r.id = e.current_release_id
 		LEFT JOIN builds b ON b.id = r.build_id
 		WHERE a.name > ?
@@ -373,7 +381,7 @@ func (db *DB) AppsAfter(ctx context.Context, after string, limit int) ([]AppSumm
 		var created int64
 		var relID, buildID, reason, by sql.NullString
 		var version, relCreated, files, size sql.NullInt64
-		if err := rows.Scan(&a.ID, &a.Name, &created, &relID, &version, &buildID, &reason, &by, &relCreated, &files, &size); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &created, &a.Project, &relID, &version, &buildID, &reason, &by, &relCreated, &files, &size); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.UnixMilli(created).UTC()
@@ -433,7 +441,8 @@ func (db *DB) ReleasesBefore(ctx context.Context, app, env string, before, limit
 
 // Routes lists every environment that serves a release, with its build.
 func (db *DB) Routes(ctx context.Context) ([]Route, error) {
-	rows, err := db.Reader.QueryContext(ctx, `SELECT a.name, e.name, e.kind, r.version,
+	rows, err := db.Reader.QueryContext(ctx, `SELECT a.name, e.name, e.kind, r.version, e.asleep_at IS NOT NULL,
+			e.id, e.access_mode, e.access_password, e.access_allow, e.access_any_user, e.access_generation,
 			b.id, b.app_id, b.source_type, b.artifact_kind, b.artifact_ref, b.plan, b.files, b.size_bytes, b.created_at
 		FROM environments e
 		JOIN apps a ON a.id = e.app_id
@@ -448,11 +457,15 @@ func (db *DB) Routes(ctx context.Context) ([]Route, error) {
 		var rt Route
 		var plan string
 		var created int64
+		var mode, password, allow sql.NullString
+		var anyUser int
 		b := &rt.Build
-		if err := rows.Scan(&rt.App, &rt.Env, &rt.Kind, &rt.Version,
+		if err := rows.Scan(&rt.App, &rt.Env, &rt.Kind, &rt.Version, &rt.Asleep,
+			&rt.EnvID, &mode, &password, &allow, &anyUser, &rt.Access.Generation,
 			&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &created); err != nil {
 			return nil, err
 		}
+		rt.Access.Mode, rt.Access.PasswordHash, rt.Access.Allow, rt.Access.AnyUser = mode.String, password.String, splitAllow(allow.String), anyUser != 0
 		b.Plan = json.RawMessage(plan)
 		b.CreatedAt = time.UnixMilli(created).UTC()
 		out = append(out, rt)

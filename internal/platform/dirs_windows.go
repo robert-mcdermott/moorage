@@ -26,3 +26,16 @@ func DefaultDirs(system bool) (Dirs, error) {
 	dir := filepath.Join(base, "Moorage")
 	return Dirs{ConfigFile: filepath.Join(dir, "server.toml"), DataDir: dir}, nil
 }
+
+// legacyDirs is where a server of an earlier version may have its files: Windows's have
+// not moved.
+func legacyDirs() (Dirs, bool) { return Dirs{}, false }
+
+// ClientConfigFile is where moor keeps its contexts.
+func ClientConfigFile() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "moorage", "config.toml"), nil
+}

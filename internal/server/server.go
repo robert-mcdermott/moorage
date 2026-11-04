@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -79,6 +80,13 @@ type Options struct {
 	// GCMinAge, if set, overrides how old a build must be before garbage
 	// collection may remove it (tests shorten it).
 	GCMinAge time.Duration
+	// GateRecheck, if set, overrides how often gates look again at whom they let in (tests).
+	GateRecheck time.Duration
+	// Resolver, if set, looks up what domains point to, instead of the system's (tests).
+	Resolver deploy.DomainResolver
+	// EnvironmentSweep, if set, overrides how often environments are looked at, to see which
+	// have expired or are idle (tests shorten it).
+	EnvironmentSweep time.Duration
 }
 
 // authorizeGit decides a Smart HTTP request by the API token in its password:
@@ -89,22 +97,60 @@ func authorizeGit(r *http.Request, authn *auth.Service, password, app string, pu
 	if err != nil {
 		return "", gitserver.ErrBadCredentials
 	}
-	scope := auth.ScopeRead
-	if push {
-		scope = auth.ScopeDeploy
-	}
-	if !p.Can(scope) || !p.CanApp(app) {
-		return "", gitserver.ErrForbidden
+	if err := allowGit(r.Context(), authn, p, app, push); err != nil {
+		return "", err
 	}
 	return p.Name, nil
+}
+
+// allowGit says whether someone may reach an app's repository: to read it, or to push,
+// which deploys.
+func allowGit(ctx context.Context, authn *auth.Service, p auth.Principal, app string, push bool) error {
+	access, err := authn.AppAccess(ctx, p, app)
+	if err != nil {
+		return err
+	}
+	if push && !access.Deploy || !push && !access.See {
+		return gitserver.ErrForbidden
+	}
+	return nil
+}
+
+// pruneAudit keeps the audit log to its retention period, until ctx ends.
+func pruneAudit(ctx context.Context, db *store.DB, log *slog.Logger) {
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		if _, err := db.PruneAudit(ctx, time.Now().Add(-auth.AuditRetention)); err != nil && ctx.Err() == nil {
+			log.Warn("prune the audit log", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// auditedPushes keeps a record of every push.
+type auditedPushes struct {
+	gitserver.Receiver
+	auth *auth.Service
+}
+
+func (a auditedPushes) Receive(ctx context.Context, p *gitserver.Push) error {
+	err := a.Receiver.Receive(ctx, p)
+	result := "ok"
+	if err != nil {
+		result = "failed"
+	}
+	a.auth.Audit(ctx, store.AuditEntry{Actor: p.By, Action: "git.push", Target: p.App, Result: result})
+	return err
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully. The
 // configuration must already be validated.
 func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options) error {
-	if cfg.Routing == "path" {
-		return errors.New(`routing = "path" is not available yet (it arrives with path routing in wave 4); use routing = "host"`)
-	}
 	layout := NewLayout(cfg.DataDir)
 	if err := layout.Prepare(); err != nil {
 		return fmt.Errorf("prepare the data directory %s: %w", cfg.DataDir, err)
@@ -184,7 +230,15 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	bus := events.New(db, log)
 	defer bus.Close()
 	go bus.Prune(ctx, 24*time.Hour)
+	proxyKey := masterKey.Derive("proxy tokens v1")
+	proxyToken := func(envID string) string {
+		mac := hmac.New(sha256.New, proxyKey)
+		mac.Write([]byte(envID))
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+	router.SetProxyToken(proxyToken)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
+		ProxyToken:    proxyToken,
 		DataDir:       cfg.DataDir,
 		ShimCmd:       []string{exe, "shim"},
 		ShimEnv:       opts.ShimEnv,
@@ -209,6 +263,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return err
 	}
 	go runtime.Run(ctx)
+	go pruneAudit(ctx, db, log)
 	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
@@ -216,20 +271,33 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Runtime: runtime,
 		Reload:  router.Reload,
 		URL: func(app, env string) string {
-			return cfg.PublicURL(app + "." + cfg.Domain)
+			return cfg.EnvURL(app, env)
 		},
-		GCMinAge: opts.GCMinAge,
-		Secrets:  keyring,
-		Events:   bus,
-		Repos:    repos,
+		GCMinAge:   opts.GCMinAge,
+		Secrets:    keyring,
+		Events:     bus,
+		Repos:      repos,
+		ForgetApp:  router.ForgetApp,
+		LastActive: router.LastActive,
+		Busy:       router.Busy,
+
+		Config:   cfg,
+		Resolver: opts.Resolver,
 	}, log)
+	router.SetSleeper(deployer)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.
 	defer deployer.Shutdown()
+	sweep := opts.EnvironmentSweep
+	if sweep == 0 {
+		sweep = time.Minute
+	}
+	go deployer.Sweep(ctx, sweep)
 	authn := &auth.Service{
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
 	}
+	router.SetGatekeeper(&ingress.Gatekeeper{Auth: authn, DB: db, Key: masterKey.Derive("gate cookies v1"), Secure: authn.Secure, ConsoleURL: cfg.PublicURL(cfg.ConsoleHost), Recheck: opts.GateRecheck})
 	claimCode, err := authn.PrepareClaim(ctx)
 	if err != nil {
 		return fmt.Errorf("prepare the first-run claim: %w", err)
@@ -241,13 +309,13 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 
 	// The git server: Smart HTTP on the console's hostname, SSH on its own
 	// port.
-	git := &gitserver.Server{Repos: repos, Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
+	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
 	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, log))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
 		return authorizeGit(r, authn, password, app, push)
 	}})
-	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir})
+	pages, err := consolepages.New(consolepages.Options{Auth: authn, DB: db, Config: cfg, Log: log, Deployer: deployer, Runtime: runtime, Keyring: keyring, Dir: opts.ConsoleDir, GateRoute: router.RouteFor})
 	if err != nil {
 		return fmt.Errorf("the console: %w", err)
 	}
@@ -324,6 +392,13 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 			Key: func(ctx context.Context, key ssh.PublicKey) (string, bool) {
 				p, _, err := authn.Key(ctx, ssh.FingerprintSHA256(key))
 				return p.Name, err == nil
+			},
+			Authorize: func(ctx context.Context, fingerprint, app string, push bool) error {
+				p, _, err := authn.Key(ctx, fingerprint)
+				if err != nil {
+					return gitserver.ErrForbidden
+				}
+				return allowGit(ctx, authn, p, app, push)
 			},
 			Used: func(fingerprint string) {
 				if k, err := db.SSHKeyByFingerprint(ctx, fingerprint); err == nil {

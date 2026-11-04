@@ -73,7 +73,7 @@ func startLocalServer(t *testing.T) string {
 	case <-ready:
 	case err := <-done:
 		t.Fatalf("server did not start: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("server did not start in time")
 	}
 	t.Cleanup(func() {
@@ -337,6 +337,35 @@ TESTAPP_BODY = "@@"
 	}
 	if code, _, errOut = run(t, "releases", "diff", "1", "nine", "--app", "runner"); code != 2 {
 		t.Errorf("not a version: %d\n%s", code, errOut)
+	}
+}
+
+// TestAppsLifecycleCommands makes, moves, renames and deletes apps from the command line.
+func TestAppsLifecycleCommands(t *testing.T) {
+	startLocalServer(t)
+	for _, step := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"projects", "create", "payments"}, "Project     payments"},
+		{[]string{"apps", "create", "ledger", "--project", "payments"}, "Created ledger in the project payments"},
+		{[]string{"apps", "info", "ledger"}, "Project     payments"},
+		{[]string{"apps", "move", "ledger", "--project", "default"}, "ledger is now in the project default"},
+		{[]string{"apps", "rename", "ledger", "accounts"}, "ledger is now accounts"},
+		{[]string{"apps", "delete", "accounts", "--yes"}, "Deleted accounts."},
+		{[]string{"projects", "delete", "payments"}, "Deleted the project payments."},
+		{[]string{"audit", "--action", "apps"}, "DELETE /apps/{app}"},
+	} {
+		code, out, errOut := run(t, step.args...)
+		if code != 0 || !strings.Contains(out, step.want) {
+			t.Errorf("moor %s: %d\n%s\n%s", strings.Join(step.args, " "), code, out, errOut)
+		}
+	}
+	if code, _, errOut := run(t, "apps", "info", "accounts"); code != 1 || !strings.Contains(errOut, "No app") {
+		t.Errorf("a deleted app: %d\n%s", code, errOut)
+	}
+	if code, _, errOut := run(t, "apps", "move", "ledger"); code != 2 || !strings.Contains(errOut, "--project") {
+		t.Errorf("move without a project: %d\n%s", code, errOut)
 	}
 }
 

@@ -155,6 +155,9 @@ func hostOnly(host string) string {
 func (p *publicChecker) wildcard(ctx context.Context) Check {
 	c := Check{Name: "proxy (apps)"}
 	app := randomLabel() + "." + p.o.Config.Domain
+	if p.o.Config.Routing == "path" {
+		app = p.o.Config.Domain
+	}
 	u := *p.base
 	u.Host = app
 	if port := p.base.Port(); port != "" {

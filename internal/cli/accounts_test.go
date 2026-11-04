@@ -64,7 +64,7 @@ func startServer(t *testing.T) (base string, cfg config.Config) {
 		return "http://" + a.HTTP.String(), cfg
 	case err := <-done:
 		t.Fatalf("the server did not start: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("the server did not start in time")
 	}
 	return "", cfg

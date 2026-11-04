@@ -34,6 +34,9 @@ type SSH struct {
 	Used func(fingerprint string)
 	// Attempts, if set, slows addresses whose handshakes keep failing.
 	Attempts Attempts
+	// Authorize, if set, says whether the key with this fingerprint may reach an app,
+	// to push or to read. It returns ErrForbidden if not.
+	Authorize func(ctx context.Context, fingerprint, app string, push bool) error
 
 	mu    sync.Mutex
 	ln    net.Listener
@@ -192,13 +195,13 @@ func (x *SSH) handle(nc net.Conn, cfg *ssh.ServerConfig) {
 		if err != nil {
 			continue
 		}
-		go x.session(ctx, who, channel, requests)
+		go x.session(ctx, who, conn.Permissions.Extensions[keyExtension], channel, requests)
 	}
 }
 
 // session waits for a session's exec request and runs it. Environment
 // requests set GIT_PROTOCOL; every other request is refused.
-func (x *SSH) session(ctx context.Context, who string, ch ssh.Channel, reqs <-chan *ssh.Request) {
+func (x *SSH) session(ctx context.Context, who, fingerprint string, ch ssh.Channel, reqs <-chan *ssh.Request) {
 	defer ch.Close()
 	protocol := ""
 	for req := range reqs {
@@ -219,7 +222,7 @@ func (x *SSH) session(ctx context.Context, who string, ch ssh.Channel, reqs <-ch
 			}
 			req.Reply(true, nil)
 			go ssh.DiscardRequests(reqs)
-			status := x.exec(ctx, who, cmd.Command, protocol, ch)
+			status := x.exec(ctx, who, fingerprint, cmd.Command, protocol, ch)
 			ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
 			return
 		default: // shell, pty-req, subsystem, x11-req…
@@ -234,17 +237,42 @@ func (x *SSH) session(ctx context.Context, who string, ch ssh.Channel, reqs <-ch
 	}
 }
 
+// awaitClient gives a client a moment to hang up its side before the channel closes: one that
+// is still finishing a request that needed no pack, such as deleting a branch, would be told
+// the channel is gone instead of hearing how its push went.
+func awaitClient(ctx context.Context, ch ssh.Channel) {
+	done := make(chan struct{})
+	go func() {
+		io.Copy(io.Discard, ch)
+		close(done)
+	}()
+	wait := time.NewTimer(time.Second)
+	defer wait.Stop()
+	select {
+	case <-done:
+	case <-wait.C:
+	case <-ctx.Done():
+	}
+}
+
 // exec runs a git command and returns its exit status.
-func (x *SSH) exec(ctx context.Context, who, command, protocol string, ch ssh.Channel) uint32 {
+func (x *SSH) exec(ctx context.Context, who, fingerprint, command, protocol string, ch ssh.Channel) uint32 {
 	service, app, err := parseCommand(command)
 	if err != nil {
 		fmt.Fprintf(ch.Stderr(), "moorage: %v\n", err)
 		return 1
 	}
+	if x.Authorize != nil {
+		if err := x.Authorize(ctx, fingerprint, app, service == "git-receive-pack"); err != nil {
+			fmt.Fprintf(ch.Stderr(), "moorage: you may not do that with %s: pushing takes being a deployer of its project\n", app)
+			return 1
+		}
+	}
 	out := channelWriter{ch}
 	switch service {
 	case "git-receive-pack":
 		err = x.Git.receivePack(ctx, app, who, ch, out, false, false, protocol)
+		awaitClient(ctx, ch)
 	case "git-upload-pack":
 		err = x.Git.uploadPack(ctx, app, io.NopCloser(ch), out, false, false, protocol)
 	}

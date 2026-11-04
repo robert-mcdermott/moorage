@@ -3,7 +3,7 @@
 `moorage.toml`, at the top of an app's directory, says how Moorage builds
 and runs the app. It is optional: without it, Moorage detects the kind of
 app (see [Detection](#detection)), and `moor manifest explain` shows what it
-detected. This page describes the manifest as Moorage 0.3.0 implements it;
+detected. This page describes the manifest as Moorage 0.4.0 implements it;
 the [design](../spec/03-manifest.md) describes what later releases add.
 
 ```bash
@@ -64,6 +64,9 @@ LOG_LEVEL = "info"
 | `name` | — | The app's name, used when `moor deploy` is not given `--app`: 3 to 40 lowercase letters, digits and hyphens, starting with a letter. It is also the first part of the app's hostname. |
 | `runtime` | `"auto"` | `auto` (detect), `go`, `python`, `node`, `static`, `command` (your own build), `binary` (run the files as they are), or [`dockerfile` or `image`](containers.md) (run in a container). |
 | `toolchains` | `[]` | More toolchains on the `PATH` while building and running, as `name@version`: `go`, `node`, `python` and `uv` are installed by Moorage, and `name@system` uses the server's own (`"java@system"`). Versions may be partial (`"24"`, `"3.13"`); the exact version is recorded in the build. |
+
+`strip_prefix`, with [path routing](domains.md#with-no-wildcard-dns-path-routing), takes the path the app is served at away
+from what it hears.
 
 ## `[go]`
 
@@ -133,6 +136,7 @@ An entry is a command (`worker = "python -m tasks.worker"`) or a table:
 | `health` | a TCP check of `$PORT` | See below. |
 | `stop_signal` | `"TERM"` | The signal that asks the process to stop: `TERM`, `INT`, `QUIT`, `HUP`, `USR1` or `USR2`. |
 | `stop_timeout` | `"30s"` | How long the process may take to stop before it is killed. |
+| `sleep` | `true` | Whether it stops while its environment [sleeps](previews.md#sleeping). |
 | `restart` | `"always"` | When an exited process is restarted: `always`, `on-failure` or `never`. Restarts slow down when a process keeps failing. |
 
 `health`:
@@ -240,6 +244,32 @@ Pages get strong ETags and ranges; files whose names carry a content hash
 `.br` and `.gz` files next to a file are served to browsers that accept
 them. See [Static sites](static.md).
 
+## `[previews]`
+
+[Previews](previews.md) are on unless this says otherwise.
+
+| Key | Default | |
+|---|---|---|
+| `enabled` | `true` | A preview for each branch pushed. |
+| `branches` | every branch | Globs of the branches that get one; `!` leaves some out: `["*", "!dependabot/*"]`. |
+| `ttl` | `"7d"` | Destroyed after this long without a deployment or a request. |
+| `sleep_after` | `"30m"` | [Sleeps](previews.md#sleeping) after this long without a request; `"off"` never. |
+| `access` | the server's | [Who can reach them](access.md): `password`, `login` or `share`; `public` only if the server's default is. |
+
+## `[environments.NAME]`
+
+What is different about [an environment](previews.md#named-environments), which deploying the
+manifest makes if it is not there. `NAME` is `production`, a name such as `staging`, or `preview`, which
+applies to every preview.
+
+| Key | |
+|---|---|
+| `branch` | The branch whose pushes deploy to it. |
+| `env` | Variables, over those of `[env]`. |
+| `processes.web.instances` | How many instances of that process run. |
+| `sleep_after` | [Sleeps](previews.md#sleeping) after this long without a request. By default a preview does after 30 minutes, and others never do; `"off"` says never. |
+| `access` | [Who can reach it](access.md): `password`, `login` or `share`; `public` only if the server's default is. |
+
 ## `[env]`
 
 Variables for the app, at build and run time, such as `LOG_LEVEL = "info"`.
@@ -294,6 +324,7 @@ and `moor manifest validate` warns that they have no effect yet:
 | `app.watch`, `app.root` | a later release |
 | `[vars]` | a later release (declared variables) |
 | `[resources]` and `[storage]` outside a container | a later release |
-| `[[cron]]`, `[[routes]]`, `[previews]`, `[environments]`, `[services]`, `processes.*.sleep` | later releases |
+| `[[cron]]`, `[[routes]]`, `[services]` | later releases |
+| `previews.data`, `resources` in `[environments.*]` | later releases |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

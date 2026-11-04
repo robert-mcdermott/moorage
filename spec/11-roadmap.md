@@ -827,26 +827,127 @@ directory, supervises it, and serves it on its own hostname.
      - From here, a release goes through without stopping to ask: pull request, merge once
        CI is green, tag, and publish the draft once its binaries are there.
 
-## 0.4.0: previews and sharing (planned)
+## 0.4.0: previews and sharing (released 2026-11-03)
 
 ### Wave 4
 
-1. **Projects and roles.** Projects; viewer, deployer and maintainer roles
+1. **A home of its own.** `~/.moorage` by default for a server set up as oneself on macOS
+   and Linux, and for `moor`'s configuration; existing servers stay, and are found.
+   - Done in slice 1:
+     - One folder, the same on both, with `XDG_CONFIG_HOME` and `XDG_DATA_HOME` winning on
+       Linux if they are set. `moor` looks where earlier versions put things when
+       `~/.moorage` has no configuration, so nothing moves under anyone.
+     - The examples check now runs under a path with a space, as the system-wide location on
+       macOS has.
+   - Found by slice 1:
+     - Nothing had ever built under a path with a space, which the default on macOS was. With
+       real toolchains, Go, Python with uv, Node.js, a static site and a container all build
+       and run under one, so the system-wide location on macOS can stay. The check keeps
+       the space, so that this stays true.
+2. **Projects and roles.** Projects; viewer, deployer and maintainer roles
    enforced in the API; the audit log in the API, CLI and console.
-2. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
+   - Done in slice 2:
+     - Projects, with members, and viewer, deployer and maintainer roles; a role for everyone
+       else, or none; whether viewers read logs. Every existing app goes in a `default`
+       project where everyone is a maintainer, so that an upgrade changes nothing.
+     - One place decides (`auth.Service.AppAccess`), and the API's guard, the console's forms
+       and pages, and git over SSH and HTTPS all ask it. Those with no role cannot tell an
+       app exists: 404s, and lists, feeds and the palette leave it out. A token's scope still
+       narrows its owner's role.
+     - The audit log: every change through the API or the console, sign-ins, pushes and
+       secrets revealed, kept for a year, searched and exported from the API, `moor audit` and
+       Settings. Nothing of what was sent goes in it. Revealing a secret, which waited for
+       it, is here: `moor env reveal`, the API, and a button for maintainers.
+     - `moor projects`, `moor apps create` and `moor apps move`, with their routes; the
+       Projects pages; New app asks which project.
+     - Verified with someone going through each role in the pages, with real instances, and
+       every route as each kind of caller.
+   - Found by slice 2:
+     - The palette offered links that a role would refuse. It asks now.
+     - A first deployment makes its app in `default`, and with no role there it is refused:
+       an app elsewhere has to be made first, with `moor apps create --project`.
+     - Not yet: limits and quotas per project; moving an app in the console, which comes with
+       its settings in the next slice; two-factor sign-in, and single sign-on.
+3. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
    zone and with `moor apps rename` and `delete`: its instances, builds, logs and
    repository go, and what it keeps in its data directory is said first.
-3. **Previews and environments.** Branch previews (naming, inheritance, TTL,
+   - Done in slice 3:
+     - `moor apps rename`, `delete` and `info`, their routes, and an app's Settings page, with
+       moving it to another project. Renaming moves its builds, data, logs and repository, the
+       paths the store holds and its events, and starts it again under the new name, where a
+       rollback still finds the builds from before. Deleting waits for no deployment, says how
+       much each part takes, and asks for the app's name. A later app of that name starts
+       afresh, with the data directory if it was kept.
+     - Verified with real instances: their processes gone, their files gone, and a new app
+       of the same name owing nothing to the old one.
+   - Found by slice 3:
+     - The router keeps a static site by its build's ID, and a rename moves it: the site then
+       could not read its files. The router now lets go of them.
+     - A rename is not without downtime: an instance's paths are in its environment, so it
+       stops before its files move. The address changes anyway, so the page says so.
+4. **Previews and environments.** Branch previews (naming, inheritance, TTL,
    pinning, limits, destroyed with their branch), named environments,
    `promote`, deploy locks, the Previews page.
-4. **Sleep and wake.** Idle sleep with the waking-up page; per-process
+   - Done in slice 4: a pushed branch gets its own preview at `<app>--<env>`,
+     with production's variables except those marked `--production-only`, its own
+     data, `noindex`, and an end when its branch goes or after `[previews] ttl` of
+     no deployment or request; pinning, a limit of ten; named environments from
+     `[environments.NAME]`, `moor environments create` or `moor deploy --env`;
+     `moor promote`, with a warning if build variables differ; `moor lock`; roles
+     on all of them; an **Environments** tab, a **Previews** page and an
+     environment chosen on every page of an app.
+   - Found by slice 4: a lock refuses deployments, where the design had them
+     built and held until unlocking. Holding needs a further state of a
+     deployment and something to release what is held, and git keeps the commit
+     anyway, so the design now says what was built. A glob's `*` must cross
+     slashes, since branches have them, so `path.Match` would not do. A deployer
+     can destroy a preview by deleting its branch, so the console and the API let
+     them do so directly; removing a named environment still takes a maintainer.
+5. **Sleep and wake.** Idle sleep with the waking-up page; per-process
    opt-out.
-5. **Access gates.** Password, sign-in (with identity headers), share links,
+   - Done in slice 5: an environment idle for `sleep_after` stops its instances,
+     unless a request is going on, and a process with `sleep = false` stays up.
+     A request wakes it and waits: two seconds for a browser, then a page that
+     reloads itself; 30 seconds for anything else, then a `503` with `Retry-After`.
+     `moor sleep`, `moor wake`, buttons and a status in the console. Previews sleep
+     after 30 minutes by default; other environments only when they say so.
+   - Found by slice 5: an environment must keep saying it is asleep until it has
+     finished waking, or a request arriving meanwhile finds no instance, and is told
+     the app is down. A release must wake it without the separate step, since the
+     release holds the environment's lock. Idle time must count from the end of a
+     deployment, not its start, or a slow build is followed at once by sleep. Those
+     waiting are not those who began the wake: it goes on if they leave.
+6. **Access gates.** Password, sign-in (with identity headers), share links,
    IP allow-lists, default gates per environment kind, `noindex` outside
    production; an independent review of the gate, cookie and CSRF design.
-6. **Paths and domains.** Path prefixes and path mode; custom domains with
+   - Done in slice 6: every gate, `moor access`, `moor share`, an **Access** tab,
+     `access` in the manifest and `[access]` in `server.toml`, with previews behind
+     a sign-in by default. Those turned away neither wake an environment nor count
+     as using it.
+   - Found by the independent review of slice 6, each with a test now. A list of
+     addresses believed the leftmost `X-Forwarded-For`, which a client writes. Other
+     apps can reach an instance over loopback, past the gate, and say who they like: so
+     apps that do not trust their neighbours check `X-Moorage-Proxy-Token`. Parallel
+     guesses all ran before the first failure counted, so a burst is now turned away. Bad
+     links could lock out everyone by the limit for the whole environment, which now counts
+     only passwords. A tab in `next` made the sign-in redirect leave the site. `X_Moorage_User`
+     reached apps that read an underscore as a dash. A gate cookie outlived the console
+     session that opened it. A Moorage token sent to any app reached it. Opening a link could
+     replace who someone was. A stream outlived its way in. A deployer's manifest could
+     open a gate that an administrator had closed, so that a manifest now only tightens. A
+     change of the gate could silently clear its list of addresses. A gate's hashed assets
+     were marked for shared caches. Without HTTPS, one app can still set another hostname's
+     cookies and so sign someone in as someone else, which is documented, not solved.
+7. **Paths and domains.** Path prefixes and path mode; custom domains with
    DNS verification.
-7. **Release 0.4.0.**
+   - Done in slice 7: `moor domains`, verified by a CNAME or the server's address, with
+     paths on them, so that several apps share a hostname; `routing = "path"`, with redirects
+     and cookies fitted to the path, `X-Forwarded-Prefix` and `$MOORAGE_BASE_PATH`.
+   - Found by slice 7: path mode as first designed put apps on the console's own origin,
+     where a script in any of them could act as whoever is signed in. It now needs a
+     separate console hostname. The internal CA is name-constrained to the server's domain,
+     so that HTTPS at another hostname needs a certificate from elsewhere until ACME.
+8. **Release 0.4.0.**
 
 ## 0.5.0: real apps, observed (planned)
 

@@ -85,6 +85,20 @@ func (p *Push) Export(commit, dir string) (Exported, error) {
 	return export(p.st, plumbing.NewHash(commit), dir, DefaultExportLimits)
 }
 
+// ReadFile reads a file of a commit: its manifest, say, before deciding where it deploys.
+func (p *Push) ReadFile(commit, name string) ([]byte, error) {
+	c, err := object.GetCommit(p.st, plumbing.NewHash(commit))
+	if err != nil {
+		return nil, err
+	}
+	file, err := c.File(name)
+	if err != nil {
+		return nil, err
+	}
+	text, err := file.Contents()
+	return []byte(text), err
+}
+
 // Option returns a push option's value ("env=staging" gives "staging"), and
 // whether it was given (an option without a value, such as "detach", gives
 // "").
@@ -113,6 +127,7 @@ func (s *Server) receivePack(ctx context.Context, app, by string, r io.Reader, w
 		w.Close()
 		return err
 	}
+	defer closeStore(st)
 	req := &transport.ReceivePackRequest{AdvertiseRefs: advertise, StatelessRPC: stateless, GitProtocol: protocol}
 	if advertise {
 		return transport.ReceivePack(ctx, st, nil, w, req)
@@ -227,6 +242,7 @@ func (s *Server) uploadPack(ctx context.Context, app string, r io.ReadCloser, w 
 		w.Close()
 		return err
 	}
+	defer closeStore(st)
 	return transport.UploadPack(ctx, st, r, w, &transport.UploadPackRequest{
 		AdvertiseRefs: advertise, StatelessRPC: stateless, GitProtocol: protocol,
 	})

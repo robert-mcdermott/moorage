@@ -28,14 +28,24 @@ moor env set --secret DATABASE_URL
 
 asks for the value without showing it (or reads it from standard input:
 `moor env set --secret DATABASE_URL < url.txt`), so it stays out of your
-shell's history. A secret is stored encrypted, never shown again by the
-command line or the API, handed to the app without being written to disk,
-and replaced by `[secret]` where the app, its build or its release command
-prints it (for values of six characters or more).
+shell's history. A secret is stored encrypted, listed without its value, handed to the app
+without being written to disk, and replaced by `[secret]` where the app, its build or its
+release command prints it (for values of six characters or more). A maintainer can read one
+back with `moor env reveal NAME`, which is recorded in the [audit log](accounts.md#who-did-what).
 
 The key that encrypts secrets, `keys/master.key` in the data directory, must
 be backed up apart from the database. A server whose secrets were encrypted
 with another key, or without its key, refuses to start.
+
+## In other environments
+
+A variable belongs to one environment, or with `--all-envs` to all of them. [A preview](previews.md)
+also inherits production's, and shows them as inherited; setting one of the same name on the preview
+overrides it. Keep one from previews with `--production-only`:
+
+```bash
+moor env set --secret --production-only STRIPE_KEY
+```
 
 ## More
 

@@ -375,16 +375,19 @@ func TestFailedHandshakesAreSlowed(t *testing.T) {
 	if err := dial(allowed); err != nil {
 		t.Fatalf("a good key: %v", err)
 	}
-	for range 4 {
-		if err := dial(stranger); err == nil {
-			t.Fatal("an unknown key signed in")
-		}
-	}
-	// Failures are counted once the server has seen them.
+	// Failures count once the server has seen them, and the good key's success clears them,
+	// perhaps a moment after the next failure: keep failing until four have counted.
 	waitFor(t, "the failures to count", func() bool {
 		limits.mu.Lock()
-		defer limits.mu.Unlock()
-		return limits.failures >= 4
+		counted := limits.failures
+		limits.mu.Unlock()
+		if counted >= 4 {
+			return true
+		}
+		if err := dial(stranger); err == nil {
+			t.Error("an unknown key signed in")
+		}
+		return false
 	})
 	if err := dial(allowed); err == nil {
 		t.Error("a good key got through during the wait")

@@ -8,6 +8,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 // permission is what a route requires of its caller. Authorisation is enforced
@@ -19,8 +20,10 @@ const (
 	public permission = iota + 1
 	// signedIn routes need valid credentials, of any scope.
 	signedIn
-	// canRead routes need the read scope: seeing apps, deployments and logs.
+	// canRead routes need the read scope: seeing apps and deployments.
 	canRead
+	// canReadLogs routes need the read scope too, and a role that may read logs.
+	canReadLogs
 	// canDeploy routes need the deploy scope: deploying, restarting, rolling
 	// back, and seeing variables.
 	canDeploy
@@ -40,6 +43,8 @@ func (p permission) String() string {
 		return "signed-in"
 	case canRead:
 		return "read"
+	case canReadLogs:
+		return "logs"
 	case canDeploy:
 		return "deploy"
 	case canManage:
@@ -116,6 +121,20 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/users/{user}/invitation", perm: serverAdmin, handler: s.inviteUser, status: http.StatusCreated,
 			summary: "Make a new one-time link for a user to choose a password", response: apitypes.Invitation{}},
 
+		// Projects and who did what.
+		{method: "GET", path: "/projects", perm: canRead, handler: s.projects, summary: "List the projects you have a role in", response: []apitypes.Project{}},
+		{method: "POST", path: "/projects", perm: serverAdmin, handler: s.createProject, status: http.StatusCreated, summary: "Create a project", request: apitypes.NewProject{}, response: apitypes.Project{}},
+		{method: "GET", path: "/projects/{project}", perm: canRead, handler: s.project, summary: "Get a project, with its members", response: apitypes.Project{}},
+		{method: "PATCH", path: "/projects/{project}", perm: canManage, handler: s.changeProject, summary: "Change who may do what in a project without being a member", request: apitypes.ProjectChange{}, response: apitypes.Project{}},
+		{method: "DELETE", path: "/projects/{project}", perm: serverAdmin, handler: s.deleteProject, status: http.StatusNoContent, summary: "Delete a project that has no apps"},
+		{method: "PUT", path: "/projects/{project}/members/{user}", perm: canManage, handler: s.setMember, summary: "Give someone a role in a project, by email address or ID", request: apitypes.MemberChange{}, response: apitypes.Project{}},
+		{method: "DELETE", path: "/projects/{project}/members/{user}", perm: canManage, handler: s.removeMember, summary: "Take someone out of a project", response: apitypes.Project{}},
+		{method: "GET", path: "/audit", perm: serverAdmin, handler: s.auditLog, summary: "List who did what, newest first", response: apitypes.Page[apitypes.AuditEntry]{},
+			query: map[string]string{
+				"limit": "How many, up to 200.", "cursor": "Where the previous page ended.",
+				"actor": "Only what this person did.", "action": "Only actions with this text.", "target": "Only what was done to this.",
+			}},
+
 		// Container registries.
 		{method: "GET", path: "/registries", perm: serverAdmin, handler: s.registries, summary: "List the container registries the server has credentials for", response: []apitypes.Registry{}},
 		{method: "PUT", path: "/registries/{host}", perm: serverAdmin, handler: s.setRegistry, summary: "Store the credentials of a container registry",
@@ -137,13 +156,18 @@ func (s *Server) routes() []route {
 		// The server and its apps.
 		{method: "GET", path: "/server/doctor", perm: serverAdmin, handler: s.serverDoctor, summary: "Check the server and what it depends on, as moor server doctor does", response: []apitypes.Check{}},
 		{method: "GET", path: "/server", perm: signedIn, handler: s.serverInfo, summary: "The server's version and the prefixes of the apps' git remotes", response: apitypes.ServerInfo{}},
+		{method: "POST", path: "/apps", perm: canDeploy, handler: s.createApp, status: http.StatusCreated, summary: "Create an app in a project; deploying also creates one, in the default project", request: apitypes.NewApp{}, response: apitypes.App{}},
+		{method: "GET", path: "/apps/{app}", perm: canRead, handler: s.appInfo, summary: "An app, its project, and how much room it takes", response: apitypes.AppInfo{}},
+		{method: "PATCH", path: "/apps/{app}", perm: canManage, handler: s.changeApp, summary: "Move an app to another project, or rename it, which restarts it", request: apitypes.AppChange{}, response: apitypes.App{}},
+		{method: "DELETE", path: "/apps/{app}", perm: canManage, handler: s.deleteApp, status: http.StatusNoContent, summary: "Delete an app and everything of it; keep_data=true keeps its data directory",
+			query: map[string]string{"keep_data": "true keeps its data directory."}},
 		{method: "GET", path: "/apps", perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},
 		{method: "POST", path: "/apps/{app}/envs/{env}/deployments", perm: canDeploy, handler: s.deploy, status: http.StatusCreated, multipart: true,
 			summary: "Deploy uploaded files, creating the app if it does not exist", response: apitypes.Deployment{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/deployments", perm: canRead, handler: s.deployments, summary: "List an environment's deployments, newest first",
 			response: apitypes.Page[apitypes.Deployment]{}, query: pageQuery},
 		{method: "GET", path: "/deployments/{id}", perm: canRead, handler: s.deployment, summary: "Get a deployment", response: apitypes.Deployment{}},
-		{method: "GET", path: "/deployments/{id}/log", perm: canRead, handler: s.deploymentLog, summary: "Stream a deployment's log", stream: apitypes.LogLine{},
+		{method: "GET", path: "/deployments/{id}/log", perm: canReadLogs, handler: s.deploymentLog, summary: "Stream a deployment's log", stream: apitypes.LogLine{},
 			query: map[string]string{"follow": "true keeps the stream open until the deployment ends.", "skip": "Leave out this many of the first lines."}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/releases", perm: canRead, handler: s.releases, summary: "List an environment's releases, newest first",
 			response: apitypes.Page[apitypes.Release]{}, query: pageQuery},
@@ -154,15 +178,35 @@ func (s *Server) routes() []route {
 			request: apitypes.RollbackRequest{}, response: apitypes.Deployment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/redeploy", perm: canDeploy, handler: s.redeploy, status: http.StatusAccepted,
 			summary: "Build what the current release was built from again, and roll it out", response: apitypes.Deployment{}},
+		{method: "GET", path: "/apps/{app}/envs", perm: canRead, handler: s.environments, summary: "List an app's environments", response: []apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/envs", perm: canDeploy, handler: s.createEnvironment, status: http.StatusCreated, summary: "Make a named environment", request: apitypes.NewEnvironment{}, response: apitypes.Environment{}},
+		{method: "DELETE", path: "/apps/{app}/envs/{env}", perm: canDeploy, handler: s.deleteEnvironment, status: http.StatusNoContent, summary: "Remove an environment that is not production, and everything of it: a preview takes a deployer, and a named environment a maintainer"},
+		{method: "POST", path: "/apps/{app}/envs/{env}/promote", perm: canDeploy, handler: s.promote, summary: "Release the build another environment runs", request: apitypes.Promotion{}, response: apitypes.Deployment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/lock", perm: canDeploy, handler: s.lock, summary: "Stop deployments to an environment", response: apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/unlock", perm: canDeploy, handler: s.unlock, summary: "Let deployments to an environment go on", response: apitypes.Environment{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/domains", perm: canRead, handler: s.domains, summary: "List an environment's domains", response: []apitypes.Domain{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/domains", perm: canManage, handler: s.addDomain, status: http.StatusCreated, summary: "Attach a domain, which serves once its DNS points here", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/domains/verify", perm: canManage, handler: s.verifyDomain, summary: "Look now at where a domain points", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/domains/remove", perm: canManage, handler: s.removeDomain, status: http.StatusNoContent, summary: "Detach a domain", request: apitypes.NewDomain{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/access", perm: canRead, handler: s.access, summary: "Who may reach an environment", response: apitypes.Access{}},
+		{method: "PUT", path: "/apps/{app}/envs/{env}/access", perm: canManage, handler: s.setAccess, summary: "Change who may reach an environment, at once", request: apitypes.AccessChange{}, response: apitypes.Access{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/share-links", perm: canDeploy, handler: s.shareLinks, summary: "List an environment's share links", response: []apitypes.ShareLink{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/share-links", perm: canDeploy, handler: s.createShareLink, status: http.StatusCreated, summary: "Make a link that lets someone reach an environment: the answer alone has its address", request: apitypes.NewShareLink{}, response: apitypes.ShareLink{}},
+		{method: "DELETE", path: "/apps/{app}/envs/{env}/share-links/{id}", perm: canDeploy, handler: s.revokeShareLink, status: http.StatusNoContent, summary: "End a share link, and within a minute everyone it let in"},
+		{method: "POST", path: "/apps/{app}/envs/{env}/sleep", perm: canDeploy, handler: s.sleep, summary: "Stop an environment's instances until a request wakes it", response: apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/wake", perm: canDeploy, handler: s.wake, summary: "Start an environment that is asleep, and answer when it is ready", response: apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/previews", perm: canDeploy, handler: s.createPreview, status: http.StatusAccepted, summary: "Deploy a preview of a branch that was pushed", request: apitypes.NewPreview{}, response: apitypes.Deployment{}},
+		{method: "GET", path: "/previews", perm: canRead, handler: s.previews, summary: "List the previews you can see, of every app", response: []apitypes.Environment{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}", perm: canRead, handler: s.environment, summary: "How an environment stands: its release, formation and instances", response: apitypes.Environment{}},
 		{method: "PATCH", path: "/apps/{app}/envs/{env}", perm: canDeploy, handler: s.changeEnvironment, summary: "Scale an environment: how many instances of which process run",
 			request: apitypes.EnvironmentChange{}, response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/restart", perm: canDeploy, handler: s.restart, summary: "Replace an environment's instances", response: []apitypes.Instance{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/instances", perm: canRead, handler: s.instances, summary: "List an environment's instances", response: []apitypes.Instance{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/vars", perm: canDeploy, handler: s.vars, summary: "List an environment's variables; a secret's value is never shown", response: []apitypes.Var{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/vars/{name}/reveal", perm: canManage, handler: s.revealVar, summary: "Read a secret's value, which is recorded", response: apitypes.RevealedVar{}},
 		{method: "PATCH", path: "/apps/{app}/envs/{env}/vars", perm: canManage, handler: s.changeVars, summary: "Set and unset variables, released at once unless no_restart is set",
 			request: apitypes.VarsChange{}, response: apitypes.VarsResult{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/logs", perm: canRead, handler: s.logs, summary: "Stream an environment's logs", stream: apitypes.LogLine{},
+		{method: "GET", path: "/apps/{app}/envs/{env}/logs", perm: canReadLogs, handler: s.logs, summary: "Stream an environment's logs", stream: apitypes.LogLine{},
 			query: map[string]string{
 				"follow":   "true keeps the stream open.",
 				"tail":     "How many of the latest lines to start with.",
@@ -217,24 +261,102 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 				return
 			}
 		}
-		if msg := refused(rt, p, r.PathValue("app")); msg != "" {
+		mutating := r.Method != http.MethodGet && r.Method != http.MethodHead
+		record := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		if mutating {
+			defer func() { s.audit(r, rt, p, record.status) }()
+			w = record
+		}
+		app := r.PathValue("app")
+		if msg := refused(rt, p, app); msg != "" {
 			problem(w, http.StatusForbidden, "forbidden", msg)
 			return
+		}
+		if app != "" {
+			access, err := s.auth.AppAccess(r.Context(), p, app)
+			if err != nil {
+				s.internal(w, err)
+				return
+			}
+			if !access.See {
+				// Nothing says whether it exists.
+				problem(w, http.StatusNotFound, "not_found", "There is no app "+app+" that you can see.")
+				return
+			}
+			if msg := roleRefused(rt, access); msg != "" {
+				problem(w, http.StatusForbidden, "forbidden", msg)
+				return
+			}
 		}
 		rt.handler(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
 	}
 }
 
+// statusRecorder notes how a request ended, for the audit log.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	wrote  bool
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	if !r.wrote {
+		r.status, r.wrote = status, true
+	}
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// audit keeps a record of a request that changes something, whoever it is from, and
+// whether or not it was allowed. Nothing of its body goes in the record.
+func (s *Server) audit(r *http.Request, rt route, p auth.Principal, status int) {
+	result := "ok"
+	switch {
+	case status == http.StatusForbidden || status == http.StatusUnauthorized || status == http.StatusNotFound:
+		result = "refused"
+	case status >= 400:
+		result = "failed"
+	}
+	s.auth.Audit(r.Context(), store.AuditEntry{
+		Actor: p.Name, IP: s.auth.ClientIP(r), Action: rt.method + " " + rt.path, Target: r.URL.Path, Result: result,
+		Data: map[string]any{"via": "api", "status": status},
+	})
+}
+
+// roleRefused says why someone's role in an app's project does not allow a route, or "".
+func roleRefused(rt route, access auth.Access) string {
+	role := access.Role
+	switch rt.perm {
+	case canReadLogs:
+		if !access.Logs {
+			return "Viewers of the project " + access.Project.Name + " may not read logs."
+		}
+	case canDeploy:
+		if !access.Deploy {
+			return "A " + role + " of the project " + access.Project.Name + " may not do this: it takes a deployer."
+		}
+	case canManage:
+		if !access.Manage {
+			return "A " + role + " of the project " + access.Project.Name + " may not do this: it takes a maintainer."
+		}
+	}
+	return ""
+}
+
 // refused says why a caller may not use a route, or "".
 func refused(rt route, p auth.Principal, app string) string {
 	switch rt.perm {
-	case canRead:
+	case canRead, canReadLogs:
 		if !p.Can(auth.ScopeRead) {
 			return "This token's scope does not allow reading."
 		}
 	case canDeploy:
 		if !p.Can(auth.ScopeDeploy) {
 			return "This token's scope does not allow deploying: it needs the deploy scope."
+		}
+		if p.App != "" && app == "" {
+			return "A token restricted to an app cannot do this."
 		}
 	case canManage, serverAdmin:
 		if !p.Can(auth.ScopeAdmin) {

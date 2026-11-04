@@ -31,6 +31,20 @@ const (
 	ConfigChanged        = "config.changed"
 	ScaleChanged         = "scale.changed"
 	AppRestarted         = "app.restarted"
+	AppRenamed           = "app.renamed"
+	AppDeleted           = "app.deleted"
+	EnvironmentCreated   = "environment.created"
+	EnvironmentDeleted   = "environment.deleted"
+	EnvironmentLocked    = "environment.locked"
+	EnvironmentUnlocked  = "environment.unlocked"
+	EnvironmentSlept     = "environment.slept"
+	EnvironmentWoke      = "environment.woke"
+	AccessChanged        = "access.changed"
+	ShareCreated         = "share.created"
+	ShareRevoked         = "share.revoked"
+	DomainAdded          = "domain.added"
+	DomainVerified       = "domain.verified"
+	DomainRemoved        = "domain.removed"
 	ServerStarted        = "server.started"
 )
 
@@ -157,14 +171,16 @@ func Transient(kind string) bool { return kind == DeploymentStarted }
 // Level says how an event of a type should look: "ok", "info", "warn" or "fail".
 func Level(kind string) string {
 	switch kind {
-	case DeploymentLive, InstanceHealthy:
+	case DeploymentLive, InstanceHealthy, DomainVerified:
 		return "ok"
 	case DeploymentFailed:
 		return "fail"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
-	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted:
+	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked, EnvironmentWoke, AccessChanged, ShareCreated, ShareRevoked, DomainAdded, DomainRemoved:
 		return "info"
+	case AppDeleted, EnvironmentDeleted, EnvironmentLocked:
+		return "warn"
 	}
 	return ""
 }
@@ -225,6 +241,8 @@ func Summary(e store.Event) string {
 		return "Deployment canceled"
 	case ReleaseCreated:
 		switch reason := text(e, "reason"); reason {
+		case "promote":
+			return fmt.Sprintf("Promoted%s: v%d now serves in %s", by, number(e, "version"), e.Env)
 		case "rollback":
 			return fmt.Sprintf("Rolled back%s: v%d now serves", by, number(e, "version"))
 		case "config":
@@ -253,6 +271,43 @@ func Summary(e store.Event) string {
 		return "Scaled to " + text(e, "formation") + by
 	case AppRestarted:
 		return "Restarted" + by
+	case AppRenamed:
+		return "Renamed from " + text(e, "from") + by
+	case AppDeleted:
+		return "Deleted" + by
+	case EnvironmentCreated:
+		if branch := text(e, "branch"); branch != "" {
+			return "Environment " + e.Env + " made, for the branch " + branch
+		}
+		return "Environment " + e.Env + " made"
+	case EnvironmentDeleted:
+		return "Environment " + e.Env + " removed" + by
+	case DomainAdded:
+		return text(e, "domain") + " attached to " + e.Env + by
+	case DomainVerified:
+		return text(e, "domain") + " points here, and serves " + e.Env
+	case DomainRemoved:
+		return text(e, "domain") + " detached from " + e.Env + by
+	case AccessChanged:
+		return e.Env + "'s gate is now " + text(e, "mode") + by
+	case ShareCreated:
+		return "A share link to " + e.Env + " was made" + by
+	case ShareRevoked:
+		return "A share link to " + e.Env + " was revoked" + by
+	case EnvironmentSlept:
+		if e.Actor == "" {
+			return e.Env + " went to sleep: nothing was using it"
+		}
+		return e.Env + " put to sleep" + by
+	case EnvironmentWoke:
+		if e.Actor == "" {
+			return e.Env + " woke for a request"
+		}
+		return e.Env + " woken" + by
+	case EnvironmentLocked:
+		return e.Env + " locked" + by + ": it takes no deployments"
+	case EnvironmentUnlocked:
+		return e.Env + " unlocked" + by
 	case ServerStarted:
 		if v := text(e, "version"); v != "" {
 			return "The server started, version " + v

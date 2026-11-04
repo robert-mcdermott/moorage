@@ -101,10 +101,11 @@ truth. Repository hooks are never executed.
 - A commit message containing `[skip deploy]` is stored but not deployed.
 - `[app].watch` globs restrict deploys to pushes that touch relevant paths
   (monorepos).
-- A **deploy lock** on an environment (`moor lock`, or offered automatically
-  after a rollback) keeps pushes building but stops them from being released
-  until `moor unlock` — so a rollback is not silently overwritten by the next
-  push.
+- A **deploy lock** on an environment (`moor lock`, or offered on the page of
+  a rollback) stops deployments to it until `moor unlock`, so that a rollback
+  is not silently overwritten by the next push. A push to it is kept, not
+  built, and says so; the next deploy or `moor redeploy` after unlocking takes
+  it from there. Rollbacks and changes of variables go on working.
 
 ### Push options
 
@@ -113,7 +114,7 @@ truth. Repository hooks are never executed.
 | Option | Effect |
 |---|---|
 | `skip-deploy` | Store the commit without deploying. |
-| `env=<name>` | Deploy to a specific environment regardless of branch mapping. |
+| `env=<name>` | Deploy to an environment that exists, regardless of branch mapping. |
 | `no-cache` | Build without build caches. |
 | `detach` | Return as soon as the deployment is queued. |
 
@@ -362,7 +363,8 @@ Previews are what make Moorage useful for showing work in progress.
   which also gets a status check and a comment with the URL.
 - **Naming:** the environment name is a slug of the branch
   (`feature/new-pricing` → `feature-new-pricing`; max 40 characters, with a
-  short hash suffix on truncation or collision).
+  short hash suffix on truncation or collision). The name `preview` is
+  reserved, for `[environments.preview]`.
 - **URL:** `https://<app>--<env>.<base-domain>`. The double dash keeps the
   hostname a **single DNS label**, so one wildcard DNS record and one wildcard
   certificate (`*.<base-domain>`) cover every preview of every app.

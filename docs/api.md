@@ -54,7 +54,25 @@ the queued deployment, as a deploy does. `GET …/releases/{version}` has a rele
 resolved manifest, and `GET …/releases/{version}/diff/{other}` what changed between two:
 of variables, their names only.
 
+## Projects
+
+`GET /api/v1/projects` lists those you have a role in, and `/projects/{project}` has one
+with its apps and members. An app that you have no role with answers 404, as if it did not
+exist; one that your role does not allow answers 403, and says which role would. `PUT` and
+`DELETE /projects/{project}/members/{user}` change who is what, by email address or ID.
+`POST /apps` makes an app in a project, `GET /apps/{app}` says how much room it takes,
+`PATCH /apps/{app}` moves or renames it, and `DELETE /apps/{app}` removes it, with
+`?keep_data=true` to keep its data directory. `POST
+…/vars/{name}/reveal` reads a secret, and is recorded, as is everything at `GET /audit`.
+
 ## Logs
+
+`GET /api/v1/apps/{app}/envs` lists its environments, and `GET /api/v1/previews` the previews of
+every app you can see, with when each expires. `POST` to `/envs` makes one, and to `/previews` one of a branch;
+`POST /envs/{env}/promote`, `/lock` and `/unlock` do what they say, and `PATCH` with `pinned` keeps a preview.
+
+`GET` and `PUT /envs/{env}/access` read and change [who can reach it](access.md), and `/envs/{env}/share-links`
+makes, lists and with `DELETE` revokes links.
 
 `GET /api/v1/apps/{app}/envs/{env}/logs` streams an environment's logs as NDJSON, newest last:
 `tail` lines, then with `follow=1` new ones as they come. `source` chooses from `stdout`,

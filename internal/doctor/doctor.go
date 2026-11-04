@@ -225,6 +225,9 @@ func checkDNS(ctx context.Context, o Options) []Check {
 	lookupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	probe := randomLabel() + "." + cfg.Domain
+	if cfg.Routing == "path" {
+		probe = cfg.Domain // every app is at a path of this one name, with no wildcard to look for
+	}
 	if cfg.Domain == "localhost" {
 		addrs, err := o.Lookup(lookupCtx, probe)
 		if err == nil && len(addrs) > 0 {
@@ -249,7 +252,11 @@ func checkDNS(ctx context.Context, o Options) []Check {
 		return addrs
 	}
 	console := lookup("dns (console)", cfg.ConsoleHost, "add a DNS record for "+cfg.ConsoleHost)
-	apps := lookup("dns (apps)", probe, "add a wildcard DNS record, *."+cfg.Domain+", for this server or its proxy")
+	appsFix := "add a wildcard DNS record, *." + cfg.Domain + ", for this server or its proxy"
+	if cfg.Routing == "path" {
+		appsFix = "add a DNS record for " + cfg.Domain + ", for this server or its proxy"
+	}
+	apps := lookup("dns (apps)", probe, appsFix)
 	if console == nil || apps == nil {
 		if console != nil {
 			checks = append(checks, Check{Name: "dns (console)", Status: OK, Detail: cfg.ConsoleHost + " → " + strings.Join(console, ", ")})
@@ -425,7 +432,11 @@ func checkCertFiles(o Options) []Check {
 	covers := func(host string) bool {
 		return slices.ContainsFunc(loaded, func(c *x509.Certificate) bool { return c.VerifyHostname(host) == nil })
 	}
-	for _, host := range []string{cfg.ConsoleHost, "any-app." + cfg.Domain} {
+	appsHost := "any-app." + cfg.Domain
+	if cfg.Routing == "path" {
+		appsHost = cfg.Domain
+	}
+	for _, host := range []string{cfg.ConsoleHost, appsHost} {
 		if !covers(host) && len(loaded) > 0 {
 			checks = append(checks, Check{Name: "tls", Status: Fail, Detail: "no certificate covers " + host, Fix: "use a certificate for " + cfg.ConsoleHost + " and *." + cfg.Domain})
 		}

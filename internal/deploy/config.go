@@ -12,6 +12,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -38,6 +39,8 @@ type VarValue struct {
 	Value  string
 	Secret bool
 	Build  bool
+	// ProductionOnly keeps previews from inheriting it.
+	ProductionOnly bool
 }
 
 // ConfigChange is a change to an environment's variables: those of the
@@ -86,15 +89,36 @@ func ListVars(ctx context.Context, db *store.DB, app, env string) ([]apitypes.Va
 		}
 		out = append(out, doc)
 	}
+	kind, err := db.EnvKind(ctx, app, env)
+	if err != nil {
+		return nil, err
+	}
+	if kind == store.KindPreview {
+		inherited, err := db.Vars(ctx, app, names.Production)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range inherited {
+			if v.AllEnvs || v.ProductionOnly {
+				continue
+			}
+			doc := apitypes.Var{Name: v.Name, Secret: v.Secret, Build: v.Build, Source: "production", UpdatedBy: v.UpdatedBy, UpdatedAt: v.UpdatedAt, Overridden: envNames[v.Name]}
+			if !v.Secret {
+				doc.Value = v.Value
+			}
+			out = append(out, doc)
+			serverNames[v.Name] = true
+		}
+	}
 	if _, build, err := db.CurrentRelease(ctx, app, env); err == nil {
 		var plan manifest.Plan
 		if json.Unmarshal(build.Plan, &plan) == nil {
-			for name, value := range plan.Env {
+			for name, value := range plan.ForEnv(env, kind).Env {
 				out = append(out, apitypes.Var{Name: name, Value: value, Source: "manifest", Overridden: serverNames[name]})
 			}
 		}
 	}
-	order := map[string]int{"env": 0, "app": 1, "manifest": 2}
+	order := map[string]int{"env": 0, "production": 1, "app": 2, "manifest": 3}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Name != out[j].Name {
 			return out[i].Name < out[j].Name
@@ -133,6 +157,38 @@ func (d *Deployer) ReleaseVars(ctx context.Context, app, env, by string) (store.
 		return store.Release{}, store.Deployment{}, err
 	}
 	return d.Publish(ctx, PublishRequest{App: app, Env: env, By: by, Source: "config", Reason: "config", Build: current, Plan: plan})
+}
+
+// NotSecretError says that a variable has nothing sealed to reveal.
+type NotSecretError struct{ Name string }
+
+func (e *NotSecretError) Error() string {
+	return e.Name + " is not a secret: its value is already shown."
+}
+
+// RevealVar reads the value of a secret set for an environment, or for all of them.
+func (d *Deployer) RevealVar(ctx context.Context, app, env, name string) (string, error) {
+	vars, err := d.db.Config(ctx, app, env)
+	if err != nil {
+		return "", err
+	}
+	for _, v := range vars {
+		if v.Name != name {
+			continue
+		}
+		if !v.Secret {
+			return "", &NotSecretError{name}
+		}
+		appID, _, err := d.db.Scope(ctx, app, env)
+		if err != nil {
+			return "", err
+		}
+		if d.opts.Secrets == nil {
+			return "", errors.New("this server cannot open secrets")
+		}
+		return d.opts.Secrets.Open(ctx, appID, v.Scope, v.Name, v.Sealed)
+	}
+	return "", fmt.Errorf("no variable %s: %w", name, store.ErrNotFound)
 }
 
 // ConfigResult says what a configuration change did.
@@ -188,7 +244,7 @@ func (d *Deployer) Configure(ctx context.Context, app, env string, ch ConfigChan
 	}
 	change := store.VarChange{Unset: ch.Unset, AllEnvs: ch.AllEnvs, By: ch.By}
 	for _, v := range ch.Set {
-		sv := store.Var{Name: v.Name, Secret: v.Secret, Build: v.Build}
+		sv := store.Var{Name: v.Name, Secret: v.Secret, Build: v.Build, ProductionOnly: v.ProductionOnly}
 		if v.Secret {
 			if d.opts.Secrets == nil {
 				return res, errors.New("this server cannot encrypt secrets")

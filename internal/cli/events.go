@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
 func newEventsCmd() *cobra.Command {
@@ -90,6 +91,9 @@ func printEvents(out io.Writer, list []apitypes.Event) error {
 		who := e.App
 		if who == "" {
 			who = "-"
+		}
+		if e.Env != "" && e.Env != names.Production {
+			who += " · " + e.Env
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\n", e.At.Local().Format("Jan 02 15:04:05"), who, e.Summary)
 	}

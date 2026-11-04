@@ -14,9 +14,9 @@ and the internal **shim** mode (hidden).
 
 ### Contexts and credentials
 
-- Client configuration lives in the OS config directory
-  (`~/.config/moorage/config.toml`, `~/Library/Application Support/moorage`,
-  `%AppData%\moorage`) as named **contexts** (server URL + user + token), in a
+- Client configuration lives in `~/.moorage/config.toml` on macOS and Linux
+  (`$XDG_CONFIG_HOME/moorage` if that is set) and `%AppData%\moorage` on Windows, as
+  named **contexts** (server URL + user + token), in a
   `0600` file. *(Using the OS keychain, where there is one, is a later addition.)*
 - On the server itself, `sudo moor …` uses the server's local admin token and
   needs no login. `$MOORAGE_CONFIG` names a local server on purpose, and comes

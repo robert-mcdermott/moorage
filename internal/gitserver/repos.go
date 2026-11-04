@@ -3,12 +3,14 @@ package gitserver
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 
 	git "github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/storer"
 	"github.com/go-git/go-git/v6/storage"
 )
@@ -53,11 +55,38 @@ func (rs *Repos) Export(app, commit, dir string) (Exported, error) {
 	if err != nil {
 		return Exported{}, err
 	}
+	defer closeStore(st)
 	return export(st, plumbing.NewHash(commit), dir, DefaultExportLimits)
 }
 
+// BranchHead returns the newest commit of a branch of app's repository, and its message.
+func (rs *Repos) BranchHead(app, branch string) (commit, message string, err error) {
+	st, err := rs.open(app)
+	if err != nil {
+		return "", "", err
+	}
+	defer closeStore(st)
+	ref, err := st.Reference(plumbing.NewBranchReferenceName(branch))
+	if err != nil {
+		return "", "", err
+	}
+	c, err := object.GetCommit(st, ref.Hash())
+	if err != nil {
+		return "", "", err
+	}
+	return ref.Hash().String(), c.Message, nil
+}
+
+// closeStore lets go of a repository's open files: elsewhere they would stop its directory
+// from being moved or removed, as on Windows.
+func closeStore(st storage.Storer) {
+	if c, ok := st.(io.Closer); ok {
+		c.Close()
+	}
+}
+
 // open opens app's repository. It is opened again for every request, so
-// that it sees the objects other pushes have added since.
+// that it sees the objects other pushes have added since. Whoever opens it closes it.
 func (rs *Repos) open(app string) (storage.Storer, error) {
 	if !rs.Exists(app) {
 		return nil, ErrNoRepository

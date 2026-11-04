@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/applogs"
-	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
 // logsPageLines is how many lines the logs page starts with.
@@ -84,15 +83,19 @@ func (c *Console) logsPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d, _, err := c.shellData(r, p, "apps", "Logs of "+app)
+	d, err := c.appData(r, p, app, "apps", "Logs of "+app)
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
+	if !d.Access.Logs {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not read its logs", Message: "Viewers of the project " + d.Access.Project.Name + " may not read logs.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
+		return
+	}
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}
 	d.Tab = "logs"
-	d.App = appView{Name: app, URL: c.appURL(app)}
-	view, err := c.logsView(r.Context(), r.URL.Query(), app)
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, envOf(r))}
+	view, err := c.logsView(r.Context(), r.URL.Query(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -107,11 +110,11 @@ func (c *Console) logsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // logsView reads what the page's address asks for: the page works as a plain form.
-func (c *Console) logsView(ctx context.Context, form url.Values, app string) (logsView, error) {
+func (c *Console) logsView(ctx context.Context, form url.Values, app, env string) (logsView, error) {
 	reader := applogs.Reader{DB: c.db, DataDir: c.cfg.DataDir}
 	view := logsView{Of: form.Get("of"), Grep: strings.TrimSpace(form.Get("q")), Range: form.Get("range"), From: form.Get("from"), To: form.Get("to"), Problems: form.Get("problems") == "1"}
 	seen := map[string]bool{}
-	view.Instances = reader.Instances(app, names.Production)
+	view.Instances = reader.Instances(app, env)
 	for _, name := range view.Instances {
 		process, _, _ := strings.Cut(name, ".")
 		if !seen[process] {
@@ -166,7 +169,7 @@ func (c *Console) logsView(ctx context.Context, form url.Values, app string) (lo
 	}
 	live := q.Until.IsZero()
 
-	entries, more, err := reader.Read(ctx, app, names.Production, q)
+	entries, more, err := reader.Read(ctx, app, env, q)
 	if err != nil {
 		return view, err
 	}
@@ -214,7 +217,7 @@ func (c *Console) logsView(ctx context.Context, form url.Values, app string) (lo
 	if !q.Since.IsZero() {
 		api.Set("since", q.Since.UTC().Format(time.RFC3339Nano))
 	}
-	path := "/api/v1/apps/" + url.PathEscape(app) + "/envs/" + names.Production + "/logs"
+	path := "/api/v1/apps/" + url.PathEscape(app) + "/envs/" + url.PathEscape(env) + "/logs"
 	if live {
 		stream := url.Values{"follow": {"1"}, "tail": {strconv.Itoa(logsFollowLines)}}
 		for name, values := range api {

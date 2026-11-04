@@ -13,6 +13,8 @@ type App struct {
 	URL        string    `json:"url"`
 	CreatedAt  time.Time `json:"created_at"`
 	Production *Release  `json:"production,omitempty"`
+	// Project is the project it is in.
+	Project string `json:"project,omitempty"`
 }
 
 // Release is one numbered release of an environment.
@@ -49,6 +51,8 @@ type Deployment struct {
 	CreatedAt  time.Time `json:"created_at"`
 	StartedAt  time.Time `json:"started_at,omitzero"`
 	FinishedAt time.Time `json:"finished_at,omitzero"`
+	// Warnings are what a promotion may surprise someone with.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Deployment statuses: queued, building, releasing and rolling_out while it
@@ -108,6 +112,8 @@ type VarSet struct {
 	Value  string `json:"value"`
 	Secret bool   `json:"secret,omitempty"`
 	Build  bool   `json:"build,omitempty"`
+	// ProductionOnly keeps previews from inheriting it.
+	ProductionOnly bool `json:"production_only,omitempty"`
 }
 
 // VarsResult says what a change of variables did.
@@ -415,13 +421,117 @@ type Environment struct {
 	// says, unless scaling said otherwise.
 	Formation map[string]int `json:"formation,omitempty"`
 	Instances []Instance     `json:"instances"`
+	// Asleep says that its instances are stopped until a request wakes it.
+	Asleep bool `json:"asleep,omitempty"`
+	// Kind is production, named or preview, and Branch what deploys to it, if a branch does.
+	Kind   string `json:"kind,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	// Pinned keeps a preview from expiring, and ExpiresAt says when it will otherwise.
+	Pinned    bool      `json:"pinned,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+	// LockedBy, if set, is who stopped deployments to it.
+	LockedBy   string    `json:"locked_by,omitempty"`
+	LastActive time.Time `json:"last_active_at,omitzero"`
+}
+
+// Domain is a hostname of your own, or a path on one, attached to an environment.
+type Domain struct {
+	// Address is its hostname and path, as you would write them.
+	Address     string `json:"address"`
+	Hostname    string `json:"hostname"`
+	Prefix      string `json:"prefix,omitempty"`
+	StripPrefix bool   `json:"strip_prefix,omitempty"`
+	// Verified says that its DNS was seen to point here, so that it serves.
+	Verified   bool      `json:"verified"`
+	VerifiedAt time.Time `json:"verified_at,omitzero"`
+	CheckedAt  time.Time `json:"checked_at,omitzero"`
+	// Problem says why it does not point here, and Record what DNS record it needs.
+	Problem string `json:"problem,omitempty"`
+	Record  string `json:"record"`
+}
+
+// NewDomain names a domain.
+type NewDomain struct {
+	Address     string `json:"address"`
+	StripPrefix bool   `json:"strip_prefix,omitempty"`
+}
+
+// Access says who may reach an environment.
+type Access struct {
+	// Mode is the gate it has: public, password, login or share.
+	Mode string `json:"mode"`
+	// Source says where that comes from: setting, manifest or server.
+	Source string `json:"source"`
+	// Setting is the gate set for it, if one is; otherwise it is left to the manifest and the server.
+	Setting string `json:"setting,omitempty"`
+	// AskedInVain says that its manifest asks for no gate, which only a maintainer can allow.
+	AskedInVain bool `json:"asked_in_vain,omitempty"`
+	// PasswordSet says that it has a password, and PasswordMissing that it needs one, and
+	// that nobody can reach it until it has.
+	PasswordSet     bool `json:"password_set,omitempty"`
+	PasswordMissing bool `json:"password_missing,omitempty"`
+	// Allow lists the addresses it can be reached from; none is anywhere.
+	Allow []string `json:"allow"`
+	// AnyUser lets anyone with an account through the login gate, not only those with a role.
+	AnyUser bool `json:"any_user,omitempty"`
+}
+
+// AccessChange changes who may reach an environment.
+type AccessChange struct {
+	// Mode is public, password, login or share; empty leaves it to the manifest and the server.
+	Mode string `json:"mode"`
+	// Password, if not empty, is its new password.
+	Password string `json:"password,omitempty"`
+	// Allow, if present, replaces the list of addresses: an empty one is from anywhere.
+	Allow   *[]string `json:"allow,omitempty"`
+	AnyUser bool      `json:"any_user,omitempty"`
+}
+
+// ShareLink lets whoever holds it reach an environment, whatever its gate.
+type ShareLink struct {
+	ID string `json:"id"`
+	// URL is the link, which only making it shows.
+	URL        string    `json:"url,omitempty"`
+	CreatedBy  string    `json:"created_by"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	MaxUses    int       `json:"max_uses,omitempty"`
+	Uses       int       `json:"uses"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	RevokedAt  time.Time `json:"revoked_at,omitzero"`
+}
+
+// NewShareLink makes a share link.
+type NewShareLink struct {
+	// Expires is how long it lasts, such as 3d or 12h: seven days unless it says.
+	Expires string `json:"expires,omitempty"`
+	// MaxUses is how many times it can be used; 0 is without limit.
+	MaxUses int `json:"max_uses,omitempty"`
+}
+
+// NewEnvironment makes a named environment.
+type NewEnvironment struct {
+	Name   string `json:"name"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// NewPreview makes a preview of a branch that was pushed.
+type NewPreview struct {
+	Branch string `json:"branch"`
+}
+
+// Promotion releases the build another environment runs.
+type Promotion struct {
+	From string `json:"from"`
 }
 
 // EnvironmentChange changes an environment.
 type EnvironmentChange struct {
 	// Formation sets how many instances of the named processes run, over the
 	// manifest's number, for this release and those to come.
-	Formation map[string]int `json:"formation"`
+	Formation map[string]int `json:"formation,omitempty"`
+	// Pinned keeps a preview from expiring.
+	Pinned *bool `json:"pinned,omitempty"`
 }
 
 // ReleaseDetail is a release, with what it runs.
@@ -481,4 +591,82 @@ type Check struct {
 	Status string `json:"status"`
 	Detail string `json:"detail"`
 	Fix    string `json:"fix,omitempty"`
+}
+
+// Project holds apps, whose members have roles in it.
+type Project struct {
+	Name string `json:"name"`
+	// Role is the caller's role in it.
+	Role string `json:"role,omitempty"`
+	// Everyone is the role of those who are not members, if any.
+	Everyone string `json:"everyone,omitempty"`
+	// ViewersSeeLogs says whether viewers may read logs.
+	ViewersSeeLogs bool      `json:"viewers_see_logs"`
+	Apps           []string  `json:"apps,omitempty"`
+	Members        []Member  `json:"members,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// Member is someone's role in a project.
+type Member struct {
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+	Role  string `json:"role"`
+}
+
+// NewProject creates a project.
+type NewProject struct {
+	Name string `json:"name"`
+}
+
+// ProjectChange changes who may do what in a project without being a member of it.
+type ProjectChange struct {
+	// Everyone is a role, or "none". Left out, it stays as it is.
+	Everyone *string `json:"everyone,omitempty"`
+	// ViewersSeeLogs, left out, stays as it is.
+	ViewersSeeLogs *bool `json:"viewers_see_logs,omitempty"`
+}
+
+// MemberChange gives someone a role in a project.
+type MemberChange struct {
+	Role string `json:"role"`
+}
+
+// NewApp creates an app in a project.
+type NewApp struct {
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+}
+
+// AppChange moves an app to another project, or gives it another name.
+type AppChange struct {
+	Project string `json:"project,omitempty"`
+	Name    string `json:"name,omitempty"`
+}
+
+// AppInfo is an app, with how much room it takes, in bytes.
+type AppInfo struct {
+	App
+	Builds     int64 `json:"builds"`
+	Logs       int64 `json:"logs"`
+	Repository int64 `json:"repository"`
+	Data       int64 `json:"data"`
+}
+
+// RevealedVar is a secret's value.
+type RevealedVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// AuditEntry is a record of who did what.
+type AuditEntry struct {
+	ID     string         `json:"id"`
+	At     time.Time      `json:"at"`
+	Actor  string         `json:"actor"`
+	IP     string         `json:"ip,omitempty"`
+	Action string         `json:"action"`
+	Target string         `json:"target,omitempty"`
+	Result string         `json:"result"`
+	Data   map[string]any `json:"data,omitempty"`
 }

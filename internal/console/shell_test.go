@@ -55,7 +55,7 @@ func TestPagesAreStrict(t *testing.T) {
 	f := newFixture(t)
 	f.signedInAdmin()
 	f.db.EnsureApp(f.ctx, "shop")
-	for _, path := range []string{"/", "/activity", "/welcome", "/new", "/apps/shop", "/apps/shop/deployments", "/apps/shop/deploy", "/apps/brand-new/deploy", "/apps/shop/logs", "/apps/shop/variables", "/apps/shop/variables/edit", "/account", "/account/keys", "/account/tokens", "/account/sessions", "/settings", "/settings/users", "/settings/registries", "/settings/system"} {
+	for _, path := range []string{"/", "/activity", "/welcome", "/new", "/apps/shop", "/apps/shop/deployments", "/apps/shop/deploy", "/apps/brand-new/deploy", "/apps/shop/logs", "/apps/shop/variables", "/apps/shop/variables/edit", "/apps/shop/settings", "/account", "/account/keys", "/account/tokens", "/account/sessions", "/settings", "/settings/users", "/settings/registries", "/settings/system", "/settings/audit", "/projects", "/projects/default", "/previews", "/apps/shop/environments", "/apps/shop/access"} {
 		res, body := f.get(path)
 		if res.StatusCode != http.StatusOK {
 			t.Errorf("%s: %d", path, res.StatusCode)
@@ -383,16 +383,24 @@ func TestAppPagesAreGuarded(t *testing.T) {
 func TestNewApp(t *testing.T) {
 	f := newFixture(t)
 	f.signedInAdmin()
-	if res, body := f.get("/new"); res.StatusCode != http.StatusOK || !strings.Contains(body, `name="name"`) {
+	res, body := f.get("/new")
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, `name="name"`) || !strings.Contains(body, `<option value="default"`) {
 		t.Errorf("%d %s", res.StatusCode, body)
 	}
-	res, body := f.get("/new?name=Not_A_Name")
+	token := csrfOf(t, body)
+	res, body = f.post("/new", url.Values{"csrf": {token}, "name": {"Not_A_Name"}, "project": {"default"}})
 	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, `role="alert"`) || !strings.Contains(body, `value="Not_A_Name"`) {
 		t.Errorf("%d %s", res.StatusCode, body)
 	}
-	res, _ = f.get("/new?name=brand-new")
+	if res, _ = f.post("/new", url.Values{"csrf": {token}, "name": {"brand-new"}, "project": {"nothing"}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("no such project: %d", res.StatusCode)
+	}
+	res, _ = f.post("/new", url.Values{"csrf": {token}, "name": {"brand-new"}, "project": {"default"}})
 	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/apps/brand-new/deploy" {
 		t.Errorf("%d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	if res, _ = f.post("/new", url.Values{"csrf": {token}, "name": {"brand-new"}}); res.StatusCode != http.StatusConflict {
+		t.Errorf("the same name: %d", res.StatusCode)
 	}
 	_, body = f.get("/apps/brand-new/deploy")
 	for _, want := range []string{"moor deploy --app brand-new", "moor git remote --app brand-new", "git push moorage main", `data-wait-deployment="brand-new"`} {
@@ -400,7 +408,11 @@ func TestNewApp(t *testing.T) {
 			t.Errorf("no %q in: %s", want, body)
 		}
 	}
-	if res, _ := f.get("/apps/brand-new"); res.StatusCode != http.StatusNotFound {
-		t.Errorf("no deployment has created it yet: %d", res.StatusCode)
+	if res, body := f.get("/apps/brand-new"); res.StatusCode != http.StatusOK || !strings.Contains(body, "Nothing is deployed yet") {
+		t.Errorf("%d", res.StatusCode)
+	}
+	// An app that does not exist yet can still be told how to come about.
+	if res, _ := f.get("/apps/not-yet/deploy"); res.StatusCode != http.StatusOK {
+		t.Errorf("%d", res.StatusCode)
 	}
 }

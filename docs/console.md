@@ -16,7 +16,7 @@ first deployment, and says when it is live.
 ## Apps
 
 Every app: how it stands, its address, its release and its last deployment, changing as
-they do. **New app** asks for a name, and says how to deploy it. Filter the list by
+they do. **New app** asks for a name and a project, and says how to deploy it. Filter the list by
 typing part of a name.
 
 | Status | |
@@ -26,6 +26,7 @@ typing part of a name.
 | **Down** | None is |
 | **Deploying** | A deployment is under way |
 | **Live** | A static site being served |
+| **Sleeping** | Nothing used it for a while, so its instances are stopped, and [the next request wakes it](previews.md#sleeping) |
 | **Scaled to zero** | It was asked to run no instances |
 | **Deploy failed** | Its first deployment failed, so that nothing is served |
 | **Not deployed** | It has never had a release |
@@ -46,6 +47,28 @@ deployments change as they do. From here:
 | **Restart** | Replaces the instances, without downtime. | `moor restart` |
 | **Roll back** | Serves the release before this one again, as a new release, in seconds. A deployment's page rolls back to that one, and can restore the variables it ran with. | `moor rollback` |
 | **Scale** | Says how many instances of each process run. | `moor scale` |
+| **Sleep** and **Wake** | Stops its instances until a request wakes it, and starts them again. | `moor sleep`, `moor wake` |
+
+When an app has more than one environment, its pages have a choice of which one at the top,
+and everything on them is about that one.
+
+An app's **Settings** are for maintainers: moving it to another project, renaming it, and
+deleting it.
+
+- **Renaming** changes its address and git remote. Its instances stop and start again under
+  the new name, so there is a moment of downtime. Change `[app].name` in its `moorage.toml` and
+  its git remote to match: a deploy by the old name makes a new app.
+- **Deleting** stops its instances and removes its variables, releases, builds, logs and
+  repository, and its data directory unless you keep it. The page says how much each takes,
+  and asks you to type its name.
+
+```bash
+moor apps rename shop store
+```
+
+```bash
+moor apps delete shop --keep-data
+```
 
 ### Scaling
 
@@ -58,6 +81,22 @@ had; `0` turns a process off.
 ```bash
 moor scale web=3 worker=1
 ```
+
+## Environments and previews
+
+An app's **Environments** tab lists [where it runs](previews.md): each with its status, address and
+release. From here you make an environment or a preview of a branch, **Promote** what one runs to
+production, **Lock** one against deployments, **Pin** a preview and **Remove** or **Destroy** what you no longer need.
+
+**Previews** in the sidebar has those of every app you can see, with when each was last used and
+when it expires.
+
+## Domains and access
+
+An app's **Domains and access** tab has [hostnames of your own](domains.md) for the chosen environment, with the
+DNS record each needs and whether it points here. It says [who can reach](access.md) the environment, and why, and for
+maintainers changes it: anyone, a password, those signed in, or only share links, and a list of addresses. Below it,
+deployers make and revoke **share links**, each shown only when it is made.
 
 ## A deployment
 
@@ -122,6 +161,19 @@ its next build: **Redeploy** builds it now.
 once. Take a line out and the variable goes; a secret shows as `••••••••`, which keeps its
 value if left. **See what changes** says what it would do before it does it.
 
+Maintainers can **Reveal** a secret, which shows its value once, and is recorded.
+
+```bash
+moor env reveal STRIPE_KEY
+```
+
+## Projects
+
+**Projects** lists those you have a role in. A project's page has its apps and members, and
+for its maintainers who else may do what. The console shows you what your role allows: a
+viewer sees an app without its buttons, and nobody sees what they have no role in. See
+[Projects and roles](accounts.md#projects-and-roles).
+
 ## Your account
 
 Your name at the foot of the sidebar goes to your account: changing your password, which
@@ -142,6 +194,7 @@ For administrators.
 - **Users:** add someone, and send them the link it makes: the server sends no email. Change
   a role, disable an account, or make a new link for someone who has lost their password.
 - **Registries:** the credentials of private container registries, sealed.
+- **Audit log:** [who did what](accounts.md#who-did-what), to search and to download.
 - **System:** what the server runs, and what [`moor server doctor`](troubleshooting.md) finds,
   with how to fix it.
 

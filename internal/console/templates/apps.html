@@ -1,13 +1,29 @@
 {{define "status"}}<span class="badge {{.Kind}}">{{.Label}}</span>{{end}}
 
 {{define "app-tabs"}}
+<div class="app-nav">
 <nav class="tabs" aria-label="This app">
-  <a href="/apps/{{.App.Name}}"{{if eq .Tab "overview"}} aria-current="page"{{end}}>Overview</a>
-  <a href="/apps/{{.App.Name}}/deployments"{{if eq .Tab "deployments"}} aria-current="page"{{end}}>Deployments</a>
-  <a href="/apps/{{.App.Name}}/logs"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>
-  <a href="/apps/{{.App.Name}}/variables"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
-  <a href="/apps/{{.App.Name}}/deploy"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>
+  <a href="/apps/{{.App.Name}}{{envq .Env}}"{{if eq .Tab "overview"}} aria-current="page"{{end}}>Overview</a>
+  <a href="/apps/{{.App.Name}}/deployments{{envq .Env}}"{{if eq .Tab "deployments"}} aria-current="page"{{end}}>Deployments</a>
+  {{if .Access.Logs}}<a href="/apps/{{.App.Name}}/logs{{envq .Env}}"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>{{end}}
+  {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/variables{{envq .Env}}"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
+  <a href="/apps/{{.App.Name}}/deploy{{envq .Env}}"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
+  <a href="/apps/{{.App.Name}}/environments"{{if eq .Tab "environments"}} aria-current="page"{{end}}>Environments</a>
+  <a href="/apps/{{.App.Name}}/access{{envq .Env}}"{{if eq .Tab "access"}} aria-current="page"{{end}}>Domains and access</a>
+  {{if .Access.Manage}}<a href="/apps/{{.App.Name}}/settings"{{if eq .Tab "settings"}} aria-current="page"{{end}}>Settings</a>{{end}}
 </nav>
+{{if and (gt (len .EnvNames) 1) (ne .Tab "environments") (ne .Tab "settings")}}
+<form class="env-switch" method="get">
+  <label for="env-switch">Environment</label>
+  <select id="env-switch" name="env" data-autosubmit>
+    {{$env := .Env}}
+    {{range .EnvNames}}<option value="{{.}}"{{if or (eq . $env) (and (eq . "production") (not $env))}} selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <button class="quiet small" type="submit" data-autosubmit-button>Go</button>
+</form>
+{{end}}
+</div>
+{{with .EnvInfo.LockedBy}}<p class="notice warn" role="status">This environment is locked by {{.}}: it takes no deployments until it is unlocked.</p>{{end}}
 {{end}}
 
 {{define "failure"}}
@@ -22,6 +38,7 @@
 {{end}}
 
 {{define "apps"}}
+{{template "failure" .}}
 <div class="page-actions">
   <input class="filter" type="search" aria-label="Filter the apps" placeholder="Filter the apps" data-filter-apps hidden>
   <a class="button" href="/new">New app</a>
@@ -30,14 +47,15 @@
 {{if .Apps}}
 <div class="panel table-scroll" data-apps{{if .Poll}} data-poll{{end}}>
   <table class="apps">
-    <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
+    <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Project</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
     <tbody>
     {{range .Apps}}
       <tr data-app-row="{{.Name}}">
-        <td><a class="app-name" href="/apps/{{.Name}}">{{.Name}}</a></td>
+        <td><a class="app-name" href="/apps/{{.Name}}">{{.Name}}</a>{{if .OtherEnvs}} <a class="quiet-link muted small nowrap" href="/apps/{{.Name}}/environments" title="Its environments beside production">+{{.OtherEnvs}} env</a>{{end}}</td>
         <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{with .Instances}}<span class="muted small nowrap"> {{.}}</span>{{end}}</td>
         <td><a href="{{.URL}}">{{.URL}}</a></td>
-        <td>{{if .Version}}v{{.Version}}{{else}}—{{end}}</td>
+        <td data-label="Project"><a class="quiet-link" href="/projects/{{.Project}}">{{.Project}}</a></td>
+        <td data-label="Release">{{if .Version}}v{{.Version}}{{else}}—{{end}}</td>
         <td class="muted">
           {{if not .ChangedAt.IsZero}}<time datetime="{{iso .ChangedAt}}">{{ago .ChangedAt}}</time>{{with .ChangedBy}} by {{.}}{{end}}{{else}}—{{end}}
           {{with .Last}}<div class="small clip">{{.}}</div>{{end}}
@@ -62,12 +80,18 @@
 {{template "app-tabs" .}}
 {{template "failure" .}}
 {{$csrf := .CSRF}}
+{{range .EnvRows}}
+<section class="panel panel-pad env-banner">
+  <p>{{if eq .Kind "preview"}}A preview of the branch <code>{{.Branch}}</code>, with production's variables and its own data. {{if .Pinned}}It is pinned, and stays until it is destroyed.{{else}}It goes {{untilText .Expires}} if nothing uses it until then.{{end}}{{else}}An environment with its own variables and data{{with .Branch}}: pushes to <code>{{.}}</code> deploy here{{end}}.{{end}}</p>
+  <div class="env-actions">{{template "env-actions" (dict "Row" . "CSRF" $csrf "From" "app")}}</div>
+</section>
+{{end}}
 {{with .App}}
 <div data-refresh="status"{{if .Deploying}} data-poll{{end}}>
   <section class="panel panel-pad app-head">
     <div class="app-summary">
       <p>{{template "status" .Status}}{{if .LastFailed}} <a class="badge fail" href="/deployments/{{.LastFailed}}">Last deployment failed</a>{{end}}</p>
-      <p><a href="{{.URL}}">{{.URL}}</a></p>
+      <p><a href="{{.URL}}">{{.URL}}</a> <span class="muted small">{{with $.Env}}· {{.}} {{end}}· project <a class="quiet-link" href="/projects/{{$.Access.Project.Name}}">{{$.Access.Project.Name}}</a>, you are {{$.Access.Role}}</span></p>
       {{with .Release}}
       <p class="muted">
         {{if .Deployment}}<a href="/deployments/{{.Deployment}}">v{{.Version}}</a>{{else}}v{{.Version}}{{end}}{{with .Source}}: {{.}}{{end}},
@@ -77,21 +101,33 @@
       <p class="muted">Nothing is deployed yet.</p>
       {{end}}
     </div>
+    {{if $.Access.Deploy}}
     <div class="actions app-actions">
-      <a class="button" href="/apps/{{.Name}}/deploy">Deploy</a>
+      <a class="button" href="/apps/{{.Name}}/deploy{{envq $.Env}}">Deploy</a>
       {{if .Release}}
-      <form method="post" action="/apps/{{.Name}}/redeploy" data-busy="Starting…">
+      <form method="post" action="/apps/{{.Name}}/redeploy{{envq $.Env}}" data-busy="Starting…">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <button class="quiet" type="submit">Redeploy</button>
       </form>
       {{if not .Static}}
-      <form method="post" action="/apps/{{.Name}}/restart" data-busy="Restarting…">
+      <form method="post" action="/apps/{{.Name}}/restart{{envq $.Env}}" data-busy="Restarting…">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <button class="quiet" type="submit">Restart</button>
       </form>
+      {{if .Asleep}}
+      <form method="post" action="/apps/{{.Name}}/wake{{envq $.Env}}" data-busy="Waking…">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="quiet" type="submit">Wake</button>
+      </form>
+      {{else}}
+      <form method="post" action="/apps/{{.Name}}/sleep{{envq $.Env}}" data-busy="Stopping…" data-confirm="Stop {{.Name}} until a request wakes it?">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="quiet" type="submit">Sleep</button>
+      </form>
+      {{end}}
       {{end}}
       {{with .Previous}}
-      <form method="post" action="/apps/{{$.App.Name}}/rollback" data-busy="Rolling back…" data-confirm="Serve v{{.}} of {{$.App.Name}} again?">
+      <form method="post" action="/apps/{{$.App.Name}}/rollback{{envq $.Env}}" data-busy="Rolling back…" data-confirm="Serve v{{.}} of {{$.App.Name}} again?">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <input type="hidden" name="version" value="{{.}}">
         <button class="quiet" type="submit">Roll back to v{{.}}</button>
@@ -99,6 +135,7 @@
       {{end}}
       {{end}}
     </div>
+    {{end}}
   </section>
 </div>
 
@@ -111,6 +148,7 @@
 {{else}}
 <section class="block" data-refresh="instances">
   <div class="section-heading"><h2>Instances</h2></div>
+  {{if .Asleep}}<p class="panel panel-pad muted">It is asleep, and what sleeps is stopped. The next request to it wakes it, and waits for it.</p>{{end}}
   <div class="panel table-scroll">
     <table class="apps instances">
       <thead><tr><th scope="col">Instance</th><th scope="col">Health</th><th scope="col">Release</th><th scope="col">Port</th><th scope="col">PID</th><th scope="col">Restarts</th><th scope="col">Up since</th><th scope="col">Last exit</th></tr></thead>
@@ -118,7 +156,7 @@
       {{range .Processes}}
         {{range .Instances}}
         <tr>
-          <td class="app-name"><a href="/apps/{{$.App.Name}}/logs?of={{.Name}}" title="Its logs">{{.Name}}</a></td>
+          <td class="app-name"><a href="/apps/{{$.App.Name}}/logs?of={{.Name}}{{with $.Env}}&env={{.}}{{end}}" title="Its logs">{{.Name}}</a></td>
           <td>{{template "status" .Status}}</td>
           <td data-label="Release">v{{.Version}}{{if .Replaced}} <span class="muted small">being replaced</span>{{end}}</td>
           <td data-label="Port">{{if .Port}}{{.Port}}{{else}}—{{end}}</td>
@@ -133,9 +171,9 @@
     </table>
   </div>
 </section>
-<section class="block" data-refresh="scale">
+{{if $.Access.Deploy}}<section class="block" data-refresh="scale">
   <div class="section-heading"><h2>Scale</h2></div>
-  <form class="panel panel-pad scale" method="post" action="/apps/{{.Name}}/scale" data-busy="Scaling…">
+  <form class="panel panel-pad scale" method="post" action="/apps/{{.Name}}/scale{{envq $.Env}}" data-busy="Scaling…">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     {{range .Processes}}
     <div class="scale-process">
@@ -146,13 +184,13 @@
     <button class="quiet" type="submit">Scale</button>
     <p class="hint small scale-note">The number stays for the releases to come.</p>
   </form>
-</section>
+</section>{{end}}
 {{end}}
 {{else}}
 <section class="block panel empty">
   <h2>Nothing is deployed yet</h2>
   <p>Deploy it from its directory, with <code>git push</code>, or from an image.</p>
-  <div class="actions"><a class="button" href="/apps/{{.Name}}/deploy">How to deploy it</a></div>
+  {{if $.Access.Deploy}}<div class="actions"><a class="button" href="/apps/{{.Name}}/deploy{{envq $.Env}}">How to deploy it</a></div>{{end}}
 </section>
 {{end}}
 
@@ -164,7 +202,7 @@
 <section class="block">
   <div class="section-heading"><h2>Activity</h2><a href="/activity?app={{.Name}}">All of it</a></div>
   <div class="panel">
-    <ol class="timeline" data-timeline data-app="{{.Name}}">
+    <ol class="timeline" data-timeline data-app="{{.Name}}"{{with $.Env}} data-env="{{.}}"{{end}}>
       {{range .Events}}
       <li data-id="{{.ID}}">
         <span class="dot {{.Level}}" aria-hidden="true"></span>
@@ -206,7 +244,7 @@
 <section class="panel empty">
   <h2>No deployments yet</h2>
   <p>Each one will be here, with its log and what it changed.</p>
-  <div class="actions"><a class="button" href="/apps/{{.App.Name}}/deploy">How to deploy it</a></div>
+  {{if .Access.Deploy}}<div class="actions"><a class="button" href="/apps/{{.App.Name}}/deploy{{envq .Env}}">How to deploy it</a></div>{{end}}
 </section>
 {{end}}
 </div>
@@ -217,6 +255,13 @@
 {{$csrf := .CSRF}}
 {{$app := .App.Name}}
 {{with .Deployment}}
+{{if and .OfferLock $.Access.Deploy}}
+<form class="notice warn lock-offer" method="post" action="/apps/{{$app}}/environments/{{.Env}}/lock" role="status">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <p>The next deployment would replace this rollback. Lock {{.Env}} to keep it until you have looked into what went wrong.</p>
+  <button class="quiet small" type="submit">Lock {{.Env}}</button>
+</form>
+{{end}}
 <div data-refresh="head"{{if .Running}} data-poll{{end}}>
   <section class="panel panel-pad app-head">
     <div class="app-summary">
@@ -225,16 +270,16 @@
       <p class="muted"><time datetime="{{iso .At}}">{{ago .At}}</time>{{with .By}} by {{.}}{{end}}{{with .Took}}, took {{.}}{{end}} <span class="small">· {{.ID}}</span></p>
     </div>
     <div class="actions app-actions">
-      {{if .CanRollBack}}
-      <form class="rollback" method="post" action="/apps/{{$app}}/rollback" data-busy="Rolling back…" data-confirm="Serve v{{.Version}} of {{$app}} again?">
+      {{if and .CanRollBack $.Access.Deploy}}
+      <form class="rollback" method="post" action="/apps/{{$app}}/rollback{{envq $.Env}}" data-busy="Rolling back…" data-confirm="Serve v{{.Version}} of {{$app}} again?">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <input type="hidden" name="version" value="{{.Version}}">
         <button class="quiet" type="submit">Roll back to v{{.Version}}</button>
         <label class="check"><input type="checkbox" name="with_config" value="1"> With the variables it ran with</label>
       </form>
       {{end}}
-      {{if .Redeployable}}
-      <form method="post" action="/apps/{{$app}}/redeploy" data-busy="Starting…">
+      {{if and .Redeployable $.Access.Deploy}}
+      <form method="post" action="/apps/{{$app}}/redeploy{{envq $.Env}}" data-busy="Starting…">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <button class="quiet" type="submit">Redeploy</button>
       </form>
@@ -267,7 +312,9 @@
 
 <section class="block">
   <div class="section-heading"><h2>Log</h2><span class="badge live-status" data-log-status hidden></span></div>
-  {{if or .Log .Running}}
+  {{if not $.Access.Logs}}
+  <p class="panel panel-pad muted">Viewers of this project may not read logs.</p>
+  {{else if or .Log .Running}}
   {{if .Omitted}}<p class="muted small">Showing the last lines: {{.Omitted}} earlier ones are left out. <code>moor deployments follow {{.ID}}</code> prints them all.</p>{{end}}
   <pre class="log" tabindex="0" aria-label="The deployment's log" data-log data-log-id="{{.ID}}" data-log-count="{{.LogCount}}"{{if .Running}} data-log-follow{{end}}>{{range .Log}}<span class="line s-{{.Stream}}" title="{{iso .At}}">{{.Text}}
 </span>{{end}}</pre>
@@ -310,16 +357,26 @@
 {{end}}
 
 {{define "new-app"}}
+{{template "failure" .}}
 <section class="panel panel-pad narrow">
   <h2>What is it called?</h2>
-  <p class="muted">It will be at its own address, under this name. Deploying it is what creates it.</p>
-  {{with .Error}}<p class="alert" role="alert">{{.}}</p>{{end}}
-  <form method="get" action="/new">
+  <p class="muted">It will be at its own address, under this name.</p>
+  {{if .Projects}}
+  <form method="post" action="/new">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
     <label for="name">Name</label>
-    <input id="name" name="name" value="{{.Name}}" required autofocus autocomplete="off" spellcheck="false" pattern="[a-z0-9][a-z0-9-]*">
-    <p class="hint small">Lowercase letters, digits and hyphens.</p>
+    <input id="name" name="name" value="{{.Name}}" required autofocus autocomplete="off" spellcheck="false" pattern="[a-z][a-z0-9\-]{1,38}[a-z0-9]">
+    <p class="hint small">Lowercase letters, digits and hyphens, at least three.</p>
+    <label for="project">Project</label>
+    <select id="project" name="project">
+      {{$chosen := .Image}}
+      {{range .Projects}}<option value="{{.Name}}"{{if eq .Name $chosen}} selected{{end}}>{{.Name}}</option>{{end}}
+    </select>
     <div class="actions"><button type="submit">Next</button></div>
   </form>
+  {{else}}
+  <p class="notice warn">You have no project you may make apps in. A maintainer of one can add you.</p>
+  {{end}}
 </section>
 {{end}}
 
@@ -336,14 +393,14 @@
   </section>
   <section class="panel panel-pad">
     <h2>With <code>git push</code></h2>
-    <p class="muted">Each push to its main branch deploys.</p>
+    <p class="muted">Each push to its main branch deploys, and any other branch gets a <a href="/previews">preview</a> of its own.</p>
     {{range .GitCommands}}{{template "command" .}}{{end}}
   </section>
   <section class="panel panel-pad">
     <h2>Upload its source</h2>
     <p class="muted">A <code>.tar.gz</code> of the directory, up to {{.MaxUpload}}, and it builds here.</p>
     {{template "command" "tar czf app.tar.gz -C DIRECTORY ."}}
-    <form method="post" action="/apps/{{.App.Name}}/deploy/archive" enctype="multipart/form-data" data-busy="Uploading…">
+    <form method="post" action="/apps/{{.App.Name}}/deploy/archive{{envq .Env}}" enctype="multipart/form-data" data-busy="Uploading…">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <label for="archive">Archive</label>
       <input id="archive" type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required>
@@ -354,7 +411,7 @@
     <h2>From an image</h2>
     {{if .App.Engine}}
     <p class="muted">An image from a registry, run in a container.</p>
-    <form method="post" action="/apps/{{.App.Name}}/deploy/image" data-busy="Starting…">
+    <form method="post" action="/apps/{{.App.Name}}/deploy/image{{envq .Env}}" data-busy="Starting…">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <label for="image">Image</label>
       <input id="image" name="image" value="{{.Image}}" placeholder="ghcr.io/acme/shop:1.2" required autocomplete="off" spellcheck="false">
@@ -365,8 +422,301 @@
     {{end}}
   </section>
 </div>
-<div class="waiting block" data-wait-deployment="{{.App.Name}}" role="status" hidden>
+<div class="waiting block" data-wait-deployment="{{.App.Name}}"{{with .Env}} data-env="{{.}}"{{end}} role="status" hidden>
   <span class="badge pulse">Waiting</span>
   <span>The next deployment of {{.App.Name}} will show as soon as it starts.</span>
 </div>
+{{end}}
+
+{{define "app-settings"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{$current := .Access.Project.Name}}
+<div class="deploy-ways">
+  <section class="panel panel-pad">
+    <h2>Project</h2>
+    <p class="muted">Who may do what comes from its project. Moving it takes being a maintainer of both.</p>
+    <form method="post" action="/apps/{{$app}}/settings/move" data-busy="Moving…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="move-project">Project</label>
+        <select id="move-project" name="project">{{range .Projects}}<option value="{{.Name}}"{{if eq .Name $current}} selected{{end}}>{{.Name}}</option>{{end}}</select>
+      </div>
+      <div class="actions"><button class="quiet" type="submit">Move it</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>Name</h2>
+    <p class="muted">Its name is its address and its git remote. Its instances stop and start again under the new one, so there is a moment of downtime, and the old address stops answering.</p>
+    <form method="post" action="/apps/{{$app}}/settings/rename" data-busy="Renaming…" data-confirm="Rename {{$app}}? Its instances restart, and its old address stops answering.">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="rename">New name</label><input id="rename" name="name" value="{{$app}}" required autocomplete="off" spellcheck="false"></div>
+      <div class="actions"><button class="quiet" type="submit">Rename it</button></div>
+    </form>
+  </section>
+</div>
+<section class="block panel panel-pad danger-zone">
+  <h2>Delete this app</h2>
+  <p>This stops its instances and removes its variables, releases and everything below. It cannot be undone.</p>
+  <dl class="facts usage">
+    <dt>Builds</dt><dd>{{size .Usage.Builds}}</dd>
+    <dt>Logs</dt><dd>{{size .Usage.Logs}}</dd>
+    <dt>Repository</dt><dd>{{size .Usage.Repository}}</dd>
+    <dt>Data directory</dt><dd>{{size .Usage.Data}}</dd>
+  </dl>
+  <form method="post" action="/apps/{{$app}}/settings/delete" data-busy="Deleting…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="check"><input type="checkbox" name="keep_data" value="1"> Keep its data directory, for an app of this name later</label>
+    <div class="field narrow-form"><label for="confirm-name">To go on, type <code>{{$app}}</code></label><input id="confirm-name" name="confirm" required autocomplete="off" spellcheck="false"></div>
+    <div class="actions"><button class="danger-solid" type="submit">Delete {{$app}}</button></div>
+  </form>
+</section>
+{{end}}
+
+{{define "app-environments"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+<div class="panel table-scroll">
+  <table class="apps envs">
+    <thead><tr><th scope="col">Environment</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Release</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range $row := .EnvRows}}
+    <tr>
+      <td>
+        <a class="app-name" href="/apps/{{.App}}{{envq .Name}}">{{.Name}}</a>
+        {{if eq .Kind "preview"}}<span class="badge info">Preview</span>{{end}}
+        {{with .LockedBy}}<span class="badge warn" title="Locked by {{.}}">Locked</span>{{end}}
+        {{if .Pinned}}<span class="badge">Pinned</span>{{end}}
+        {{with .Gate}}<a class="badge quiet-link" href="/apps/{{$app}}/access{{envq $row.Name}}" title="Who may reach it">{{.}}</a>{{end}}
+        {{with .Branch}}<div class="muted small">branch {{.}}</div>{{end}}
+      </td>
+      <td>{{template "status" .Status}}</td>
+      <td><a href="{{.URL}}">{{bareURL .URL}}</a></td>
+      <td data-label="Release" class="nowrap">{{if .Version}}v{{.Version}} <span class="muted small"><time datetime="{{iso .ReleasedAt}}">{{ago .ReleasedAt}}</time></span>{{else}}—{{end}}</td>
+      <td class="row-end env-actions">
+        {{template "env-actions" (dict "Row" . "CSRF" $csrf "From" "app")}}
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{if .Access.Deploy}}
+<div class="deploy-ways block">
+  <section class="panel panel-pad">
+    <h2>Make an environment</h2>
+    <p class="muted">A place that stays, such as staging, at its own address. It starts with the app's variables for every environment, and an empty data directory.</p>
+    <form method="post" action="/apps/{{$app}}/environments">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="env-name">Name</label><input id="env-name" name="name" required autocomplete="off" spellcheck="false" placeholder="staging"></div>
+      <div class="field"><label for="env-branch">Branch <span class="hint">(optional: pushes to it deploy here)</span></label><input id="env-branch" name="branch" autocomplete="off" spellcheck="false" placeholder="develop"></div>
+      <div class="actions"><button class="quiet" type="submit">Make it</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>Preview a branch</h2>
+    <p class="muted">Pushing a branch makes its preview by itself. This does it for a branch that is already here. It inherits production's variables, and expires when it goes unused.</p>
+    <form method="post" action="/apps/{{$app}}/previews" data-busy="Starting…">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="preview-branch">Branch</label><input id="preview-branch" name="branch" required autocomplete="off" spellcheck="false" placeholder="feature/new-pricing"></div>
+      <div class="actions"><button class="quiet" type="submit">Preview it</button></div>
+    </form>
+  </section>
+</div>
+{{end}}
+{{end}}
+
+{{define "env-actions"}}
+{{$row := .Row}}{{$csrf := .CSRF}}{{$from := .From}}
+{{if $row.CanAct}}
+  {{if $row.Asleep}}
+  <form method="post" action="/apps/{{$row.App}}/wake{{envq $row.Name}}" data-busy="Waking…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button class="quiet small" type="submit">Wake</button>
+  </form>
+  {{end}}
+  {{if and $row.Version (ne $row.Name "production")}}
+  <form method="post" action="/apps/{{$row.App}}/environments/{{$row.Name}}/promote" data-busy="Promoting…" data-confirm="Release what {{$row.Name}} runs to production, without building it again?" title="Release what it runs to production">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button class="quiet small" type="submit">Promote</button>
+  </form>
+  {{end}}
+  {{if eq $row.Kind "preview"}}
+  <form method="post" action="/apps/{{$row.App}}/environments/{{$row.Name}}/pin">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <input type="hidden" name="from" value="{{$from}}">
+    {{if not $row.Pinned}}<input type="hidden" name="pinned" value="1">{{end}}
+    <button class="quiet small" type="submit">{{if $row.Pinned}}Unpin{{else}}Pin{{end}}</button>
+  </form>
+  {{else}}
+  <form method="post" action="/apps/{{$row.App}}/environments/{{$row.Name}}/{{if $row.LockedBy}}unlock{{else}}lock{{end}}">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <input type="hidden" name="from" value="{{$from}}">
+    <button class="quiet small" type="submit">{{if $row.LockedBy}}Unlock{{else}}Lock{{end}}</button>
+  </form>
+  {{end}}
+{{end}}
+{{if and $row.CanRemove (ne $row.Name "production")}}
+<form method="post" action="/apps/{{$row.App}}/environments/{{$row.Name}}/delete" data-busy="Removing…" data-confirm="Remove {{$row.Name}} of {{$row.App}}, with its data and logs? This cannot be undone.">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <input type="hidden" name="from" value="{{$from}}">
+  <button class="quiet small danger" type="submit">{{if eq $row.Kind "preview"}}Destroy{{else}}Remove{{end}}</button>
+</form>
+{{end}}
+{{end}}
+
+{{define "previews"}}
+{{template "failure" .}}
+<div data-refresh="previews">
+{{if .EnvRows}}
+{{$csrf := .CSRF}}
+<div class="panel table-scroll">
+  <table class="apps envs">
+    <thead><tr><th scope="col">Preview</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Last used</th><th scope="col">Expires</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {{range .EnvRows}}
+    <tr>
+      <td><a class="app-name" href="/apps/{{.App}}{{envq .Name}}">{{.App}} · {{.Name}}</a>{{if .Pinned}} <span class="badge">Pinned</span>{{end}}{{with .Gate}} <span class="badge">{{.}}</span>{{end}}{{with .Branch}}<div class="muted small">branch {{.}}</div>{{end}}</td>
+      <td>{{template "status" .Status}}</td>
+      <td><a href="{{.URL}}">{{bareURL .URL}}</a></td>
+      <td class="muted nowrap" data-label="Last used">{{agoOrDash .Active}}</td>
+      <td class="muted nowrap" data-label="Expires">{{if .Pinned}}Never{{else if .Expires.IsZero}}—{{else}}<time datetime="{{iso .Expires}}">{{untilText .Expires}}</time>{{end}}</td>
+      <td class="row-end env-actions">{{template "env-actions" (dict "Row" . "CSRF" $csrf "From" "previews")}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<section class="panel empty">
+  <h2>No previews yet</h2>
+  <p>Push a branch to an app, and it gets its own preview at its own address, built from that branch, with production's variables and an empty data directory. Deleting the branch destroys it.</p>
+  {{template "command" "git push moorage my-branch"}}
+</section>
+{{end}}
+</div>
+{{end}}
+
+{{define "app-access"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$app := .App.Name}}
+{{$env := .Env}}
+{{with .Gate}}
+{{if .PasswordMissing}}<p class="notice fail" role="alert">Its gate asks for a password nobody has set, so nobody can reach it. Set one below.</p>{{end}}
+{{with .NewLink}}
+<section class="notice ok new-link" role="status">
+  <p>Here is the link. It is shown only now, so copy it before you leave this page.</p>
+  {{template "command" .}}
+</section>
+{{end}}
+<section class="block">
+  <div class="section-heading"><h2>Domains</h2></div>
+  <p class="muted">It is at <a href="{{$.App.URL}}">{{bareURL $.App.URL}}</a>. It can also be at a hostname of your own, or a path on one, once its DNS points here.{{if .NoCertificate}} This server's own CA vouches only for its own domain, so that HTTPS at another hostname needs <code>[tls] mode = "files"</code> with a certificate for it, or a proxy in front.{{end}}</p>
+  {{if .Domains}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Domain</th><th scope="col">State</th><th scope="col">Its DNS</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Domains}}
+      <tr>
+        <td class="app-name">{{.Address}}{{if .StripPrefix}} <span class="muted small">the path is taken away</span>{{end}}</td>
+        <td data-label="State">{{if .Verified}}<span class="badge ok">Serving</span>{{else}}<span class="badge warn">Not pointing here yet</span>{{end}}</td>
+        <td class="muted small" data-label="Its DNS"><code>{{.Record}}</code>{{with .Problem}}<div>{{.}}</div>{{end}}</td>
+        <td class="row-end env-actions">{{if $.Access.Manage}}
+          {{if not .Verified}}
+          <form method="post" action="/apps/{{$app}}/domains/verify{{envq $env}}" data-busy="Looking…">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="address" value="{{.Address}}">
+            <button class="quiet small" type="submit">Look again</button>
+          </form>{{end}}
+          <form method="post" action="/apps/{{$app}}/domains/remove{{envq $env}}" data-confirm="Detach {{.Address}}?">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="address" value="{{.Address}}">
+            <button class="quiet small" type="submit">Detach</button>
+          </form>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  {{if $.Access.Manage}}
+  <form class="panel panel-pad share-form" method="post" action="/apps/{{$app}}/domains{{envq $env}}" data-busy="Looking…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="domain-address">Hostname, and path if any</label><input id="domain-address" name="address" required autocomplete="off" spellcheck="false" placeholder="portal.example.com"></div>
+    <label class="check"><input type="checkbox" name="strip" value="1"> Take a path away from what the app hears</label>
+    <button class="quiet" type="submit">Attach it</button>
+  </form>
+  {{end}}
+</section>
+<div class="section-heading"><h2>Who can reach it</h2></div>
+<section class="panel panel-pad block gate-panel">
+  {{if .AskedInVain}}<p class="notice warn" role="status">Its <code>moorage.toml</code> asks for no gate, which only a maintainer can allow: choose Anyone below to allow it.</p>{{end}}
+  <p><span class="badge{{if eq .Mode "public"}} ok{{else}} info{{end}}">{{.Label}}</span> <span class="muted small">{{.Source}}</span></p>
+  {{if $.Access.Manage}}
+  <form method="post" action="/apps/{{$app}}/access{{envq $env}}" data-busy="Saving…" class="gate-form">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <fieldset>
+      <legend>Its gate</legend>
+      <label class="check"><input type="radio" name="mode" value=""{{if not .Setting}} checked{{end}}> As its manifest and the server say</label>
+      <label class="check"><input type="radio" name="mode" value="public"{{if eq .Setting "public"}} checked{{end}}> Anyone</label>
+      <label class="check"><input type="radio" name="mode" value="password"{{if eq .Setting "password"}} checked{{end}}> A password that you share</label>
+      <label class="check"><input type="radio" name="mode" value="login"{{if eq .Setting "login"}} checked{{end}}> People signed in here: the app hears who they are</label>
+      <label class="check"><input type="radio" name="mode" value="share"{{if eq .Setting "share"}} checked{{end}}> Only people with a share link</label>
+    </fieldset>
+    <div class="field">
+      <label for="gate-password">Password {{if .PasswordSet}}<span class="hint">(it has one: leave this empty to keep it)</span>{{else}}<span class="hint">(for the password gate)</span>{{end}}</label>
+      <input id="gate-password" type="password" name="password" autocomplete="new-password" minlength="8">
+    </div>
+    <label class="check"><input type="checkbox" name="any_user" value="1"{{if .AnyUser}} checked{{end}}> With a sign-in, let in anyone with an account, not only those with a role in its project</label>
+    <div class="field">
+      <label for="gate-allow">Only from these addresses <span class="hint">(optional, one to a line: 10.0.0.0/8 or 192.0.2.7)</span></label>
+      <textarea id="gate-allow" name="allow" rows="3" spellcheck="false">{{.AllowText}}</textarea>
+    </div>
+    <p class="hint small">Changing the gate or its password ends the way in of everyone who is in.</p>
+    <div class="actions"><button class="quiet" type="submit">Save</button></div>
+  </form>
+  {{else if .AllowText}}
+  <p class="muted">Only from: {{.AllowText}}</p>
+  {{end}}
+</section>
+{{if $.Access.Deploy}}
+<section class="block">
+  <div class="section-heading"><h2>Share links</h2></div>
+  <p class="muted">A link lets whoever holds it through any gate, without an account or a password, until it ends.</p>
+  {{if .Links}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Made</th><th scope="col">State</th><th scope="col">Expires</th><th scope="col">Uses</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Links}}
+      <tr>
+        <td><time datetime="{{iso .Created}}">{{ago .Created}}</time> <span class="muted small">by {{.By}}</span></td>
+        <td data-label="State">{{if .Active}}<span class="badge ok">{{.State}}</span>{{else}}<span class="badge">{{.State}}</span>{{end}}</td>
+        <td class="muted" data-label="Expires">{{if .Active}}<time datetime="{{iso .Expires}}">{{untilText .Expires}}</time>{{else}}—{{end}}</td>
+        <td data-label="Uses">{{.Uses}}</td>
+        <td class="row-end">{{if .Active}}
+          <form method="post" action="/apps/{{$app}}/share-links/{{.ID}}/revoke{{envq $env}}" data-confirm="End this link, and the way in of whoever it let in?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <button class="quiet small" type="submit">Revoke</button>
+          </form>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  <form class="panel panel-pad share-form" method="post" action="/apps/{{$app}}/share-links{{envq $env}}" data-busy="Making…">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="share-expires">It lasts</label>
+      <select id="share-expires" name="expires"><option value="1d">A day</option><option value="7d" selected>A week</option><option value="30d">A month</option><option value="90d">Three months</option></select></div>
+    <div class="field"><label for="share-uses">Uses <span class="hint">(optional)</span></label><input id="share-uses" type="number" name="max_uses" min="1" inputmode="numeric" placeholder="No limit"></div>
+    <button class="quiet" type="submit">Make a link</button>
+  </form>
+</section>
+{{end}}
+{{end}}
 {{end}}

@@ -69,7 +69,7 @@ erDiagram
 | `device_codes` | `code_hash`, `user_code`, `client`, `ip`, `approved_by`, `denied`, `last_poll_at`, `expires_at` (CLI browser login) |
 | `invitations` | `code_hash`, `user_id`, `created_by`, `expires_at` (one-time links to choose a password) |
 | `ssh_keys` | `id`, `user_id` (empty: the server's local administrator), `name` (unique per owner), `fingerprint` (unique), `public_key`, `last_used_at` |
-| `projects` | `id`, `name`, `settings` (JSON: log visibility, limits, quotas) |
+| `projects` | `id`, `name`, `everyone_role` (of those who are not members), `viewers_see_logs`, `created_at` |
 | `project_members` | `project_id`, `user_id`, `role` (`viewer`/`deployer`/`maintainer`) |
 
 ### Apps and environments
@@ -109,7 +109,7 @@ share a port.
 | Table | Key columns |
 |---|---|
 | `events` | `id`, `at`, `type`, `app`, `env` (by name: an event outlives what it is about), `actor`, `data` (JSON) — 90-day retention |
-| `audit_log` | `id`, `at`, `actor_type`, `actor_id`, `ip`, `action`, `target`, `result`, `data` — 1-year retention |
+| `audit_log` | `id`, `at`, `actor`, `ip`, `action`, `target`, `result`, `data` — 1-year retention |
 | `metric_series` | `id`, `name`, `labels` (JSON: app, env, process, instance, route), `kind` (`gauge`/`counter`/`histogram`) |
 | `metric_1m` | `series_id`, `hour` (start), `data` (BLOB: 60 packed points of min/avg/max/last or histogram buckets) — primary key `(series_id, hour)` |
 | `metric_1h` | `series_id`, `day`, `data` (BLOB: 24 packed points) |

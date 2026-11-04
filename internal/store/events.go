@@ -22,6 +22,8 @@ type Event struct {
 // EventFilter says which events to list. Before and After are event IDs.
 type EventFilter struct {
 	App, Env string
+	// AndApp adds, to the events of Env, those of the app as a whole.
+	AndApp bool
 	// Before lists older events than this, newest first; After lists newer ones,
 	// oldest first.
 	Before, After string
@@ -51,7 +53,11 @@ func (db *DB) Events(ctx context.Context, f EventFilter) ([]Event, error) {
 		args = append(args, f.App)
 	}
 	if f.Env != "" {
-		where = append(where, "env = ?")
+		if f.AndApp {
+			where = append(where, "(env = ? OR COALESCE(env, '') = '')")
+		} else {
+			where = append(where, "env = ?")
+		}
 		args = append(args, f.Env)
 	}
 	if f.Before != "" {

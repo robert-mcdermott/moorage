@@ -85,9 +85,63 @@ Passwords have at least 12 characters, and the most common ones are refused.
 Moorage keeps only an Argon2id hash. The last enabled admin cannot be demoted or
 disabled.
 
-**Roles.** An *admin* manages users. Until projects arrive in 0.4.0, a *member*
-may do everything with every app; deploying is running code on the server, so
-give accounts to people you would give shell access.
+**Roles.** An *admin* manages the server and its users, and may do everything with every
+app. What a *member* may do depends on [their role in each project](#projects-and-roles).
+
+## Projects and roles
+
+Apps belong to projects, and people have roles in projects:
+
+| | Viewer | Deployer | Maintainer | Admin |
+|---|:-:|:-:|:-:|:-:|
+| See the app, its status and its deployments | ✓ | ✓ | ✓ | ✓ |
+| Read its logs | ✓ | ✓ | ✓ | ✓ |
+| Deploy, restart, roll back and scale; see its variables, but not secrets | | ✓ | ✓ | ✓ |
+| Change its variables, reveal secrets, move it; manage the project's members | | | ✓ | ✓ |
+| Make projects, manage users and the server; read the audit log | | | | ✓ |
+
+Someone with no role in a project cannot tell its apps exist.
+
+Every server starts with one project, `default`, in which everyone is a maintainer: nothing
+changes until you say so. So a team that trusts each other needs do nothing. To keep an
+app apart, make a project for it:
+
+```bash
+moor projects create payments
+```
+
+```bash
+moor projects add-member payments ana@example.com --role deployer
+```
+
+```bash
+moor apps create ledger --project payments
+```
+
+```bash
+moor apps move shop --project payments
+```
+
+`moor projects set NAME --everyone viewer` gives everyone else a role, and `--everyone none`
+takes it away, which you can do to `default` too. `--viewers-see-logs=false` keeps logs from
+viewers, because logs can hold what they should not see. A first deployment makes its app
+in `default`, which takes a role there.
+
+A token can do no more than its owner, and its scope can narrow that further: a token with
+the `read` scope only reads, whatever its owner's role. Deploying is running code on the
+server, so give `deployer` to people you would give shell access.
+
+## Who did what
+
+Every change through the API or the console, every sign-in, every push and every secret
+revealed is kept for a year, with who, from where, what to, and how it went. Nothing of
+what was sent goes in the record. Administrators read it under **Settings**, **Audit log**:
+
+```bash
+moor audit --actor ana@example.com -n 20
+```
+
+The API has it at `GET /api/v1/audit`, and `?format=ndjson` gives all of it, to keep.
 
 ## API tokens
 

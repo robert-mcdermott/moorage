@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.0 (2026-11-03)
+
+Moorage 0.4.0 gives every branch a place of its own, and says who can reach it. Push a branch and it gets its own build, address and data, which sleeps when nobody is using it and goes when its branch does. Staging, promoting what it runs to production, and locks come with it. Each environment can be open, behind a password, for those signed in, or only for people with a share link. Apps can have domains of their own, and belong to projects, in which people have roles, with an audit log of who did what.
+
+Upgrading from 0.3.0 needs no steps of its own: replace `moor` and restart the server, and running apps are taken over without a restart. Three things behave differently:
+
+- **Pushing a branch other than the default now deploys it,** as a preview. `enabled = false` in `[previews]` keeps branches as they were.
+- **Previews are for those signed in with a role in the app's project.** To share them with people who have no account, make a [share link](docs/access.md#share-links), or set `preview = "public"` under `[access]` in `server.toml`.
+- **New servers set up as you keep everything in `~/.moorage`** on macOS and Linux. A server that already exists is found where it is.
+
+### Added
+
+- **Access gates (wave 4, slice 6).** Each environment can be open to anyone, behind a shared password, for those signed in to Moorage, whom the app hears named in `X-Moorage-User` and its fellows, or only for people with a share link, with a list of addresses on top of any of them. `moor access`, `moor share`, an **Access** tab in the console, `access` in the manifest and `[access]` in `server.toml`. Previews are for those signed in with a role, unless you say otherwise: if you share previews with people who have no account, set `preview = "public"` under `[access]` in `server.toml`, or make a share link.
+- **Your own domains, and paths (wave 4, slice 7).** `moor domains add portal.example.com`, which serves once its DNS points here, or `tools.example.com/reports`, so that several apps share a hostname. And `routing = "path"`, for servers with no wildcard DNS: apps at `/<app>/`, with a console on its own hostname.
+- **`X-Moorage-Proxy-Token`,** which an app that does not trust what else runs on its machine can check against `$MOORAGE_PROXY_TOKEN`, to know that a request came through Moorage.
+- **Sleep and wake (wave 4, slice 5).** An environment left idle stops its instances, and the next request starts them and waits: a browser gets a page that says it is waking up, and reloads itself. Previews do it after 30 minutes unless told otherwise, and others with `sleep_after` in `[environments.NAME]`. `sleep = false` keeps a process running, `moor sleep` and `moor wake` do it by hand, and it stays asleep across a restart of the server.
+- **Previews (wave 4, slice 4).** Push a branch, and it gets its own build at its own address, `shop--my-branch.apps.example.com`, with production's variables (except those set `--production-only`), its own empty data directory and `noindex`. Deleting the branch destroys it, and so does going unused for seven days, unless it is pinned. **Previews** in the console and `moor previews` have them all. If you push other branches to a Moorage remote today, note that they will now deploy: `enabled = false` in `[previews]` keeps them as they were.
+- **Named environments.** `[environments.staging]` with a branch, `moor environments create`, or `moor deploy --env staging`: a place that stays, with its own address, variables and data. Every page of an app in the console and every command with `--env` works on them.
+- **`moor promote --from staging`.** Releases the exact build one environment runs to another, in seconds, and warns if it was built with other build variables.
+- **`moor lock` and `moor unlock`.** Stop deployments to an environment, so that the next push does not replace a rollback. A rollback's page offers it.
+- **Renaming and deleting apps (wave 4, slice 3).** `moor apps rename`, `moor apps delete`, and an app's Settings page, which also moves it to another project. Renaming moves everything of it and starts it again under the new name. Deleting says how much room each part takes, asks for its name, and can keep its data directory. `moor apps info` and `GET /api/v1/apps/{app}` say how much room an app takes.
+- **Projects and roles (wave 4, slice 2).** Apps belong to projects, and people have roles in them: viewers see an app and its logs, deployers also deploy, restart, roll back and scale, and maintainers also change its variables and the project's members. Those with no role cannot tell its apps exist. An upgrade changes nothing: every app goes in a `default` project where everyone is a maintainer, until you say otherwise. `moor projects`, `moor apps create --project`, `moor apps move`, and a Projects page; the console shows what your role allows. See [Projects and roles](docs/accounts.md#projects-and-roles).
+- **The audit log.** Every change through the API or the console, every sign-in, push and secret revealed, kept for a year, with who, from where, what to, and how it went. `moor audit`, `GET /api/v1/audit`, and Settings for administrators.
+- **Revealing a secret.** `moor env reveal NAME`, and a button for maintainers. It shows the value once, and is recorded.
+
+### Fixed
+
+- **A tab in the address after signing in could send you to another site.** The `next` of the sign-in page now refuses anything a browser would take away before looking.
+- **`X-Real-IP` said what a client claimed** behind a proxy, rather than what the proxy saw. It now goes by the nearest address that is not a trusted proxy.
+- **Headers such as `X_Moorage_User` reached apps** that read an underscore as a dash. They are now removed.
+
+### Changed
+
+- **`~/.moorage` is the default home (wave 4, slice 1).** Set up as yourself on macOS or Linux, a server keeps `server.toml` and `data/` in `~/.moorage`, and `moor` its `config.toml`: one folder, the same on both, short to type. An existing server stays where it is, and `moor` finds it. `XDG_CONFIG_HOME` and `XDG_DATA_HOME` still win on Linux, if they are set. Servers set up as root and Windows have not moved.
+
 ## 0.3.0 (2026-11-03)
 
 Moorage 0.3.0 has a web console. Everything you run with `moor` you can now see and do at the server's console address: deploy, scale, restart and roll back apps; watch a deployment's stages and log as they happen; follow and search logs; change variables; manage your keys and tokens, and, as an administrator, users and registries. Every page works without scripts, on a phone, and in Chromium, Firefox and WebKit, which CI now drives for real. It also installs in one line, and gains `moor scale`, `moor redeploy` and `moor password`.

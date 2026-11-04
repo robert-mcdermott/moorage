@@ -623,3 +623,247 @@ func envDoc(app, env string) string {
 func (c *Client) ChangePassword(ctx context.Context, current, next string) error {
 	return c.post(ctx, http.MethodPost, "/api/v1/me/password", apitypes.PasswordChange{Current: current, New: next}, nil)
 }
+
+// Projects lists the projects the caller has a role in.
+func (c *Client) Projects(ctx context.Context) ([]apitypes.Project, error) {
+	var out []apitypes.Project
+	err := c.do(ctx, http.MethodGet, "/api/v1/projects", nil, "", &out)
+	return out, err
+}
+
+// Project returns a project, with its apps and members.
+func (c *Client) Project(ctx context.Context, name string) (apitypes.Project, error) {
+	var out apitypes.Project
+	err := c.do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(name), nil, "", &out)
+	return out, err
+}
+
+// CreateProject creates a project.
+func (c *Client) CreateProject(ctx context.Context, name string) (apitypes.Project, error) {
+	var out apitypes.Project
+	err := c.post(ctx, http.MethodPost, "/api/v1/projects", apitypes.NewProject{Name: name}, &out)
+	return out, err
+}
+
+// ChangeProject changes who may do what in a project without being a member.
+func (c *Client) ChangeProject(ctx context.Context, name string, change apitypes.ProjectChange) (apitypes.Project, error) {
+	var out apitypes.Project
+	err := c.post(ctx, http.MethodPatch, "/api/v1/projects/"+url.PathEscape(name), change, &out)
+	return out, err
+}
+
+// Environments lists an app's environments.
+func (c *Client) Environments(ctx context.Context, app string) ([]apitypes.Environment, error) {
+	var out []apitypes.Environment
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/envs", nil, "", &out)
+	return out, err
+}
+
+// Previews lists the previews of every app the caller can see.
+func (c *Client) Previews(ctx context.Context) ([]apitypes.Environment, error) {
+	var out []apitypes.Environment
+	err := c.do(ctx, http.MethodGet, "/api/v1/previews", nil, "", &out)
+	return out, err
+}
+
+// CreateEnvironment makes a named environment.
+func (c *Client) CreateEnvironment(ctx context.Context, app string, req apitypes.NewEnvironment) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs", req, &out)
+	return out, err
+}
+
+// DeleteEnvironment removes an environment, with its data, logs and releases.
+func (c *Client) DeleteEnvironment(ctx context.Context, app, env string) error {
+	return c.do(ctx, http.MethodDelete, envDoc(app, env), nil, "", nil)
+}
+
+// CreatePreview makes a preview of a branch that was pushed.
+func (c *Client) CreatePreview(ctx context.Context, app, branch string) (apitypes.Deployment, error) {
+	var out apitypes.Deployment
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/previews", apitypes.NewPreview{Branch: branch}, &out)
+	return out, err
+}
+
+// PinEnvironment keeps a preview from expiring, or lets it.
+func (c *Client) PinEnvironment(ctx context.Context, app, env string, pinned bool) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPatch, envDoc(app, env), apitypes.EnvironmentChange{Pinned: &pinned}, &out)
+	return out, err
+}
+
+// Promote releases to an environment the build another one runs.
+func (c *Client) Promote(ctx context.Context, app, from, to string) (apitypes.Deployment, error) {
+	var out apitypes.Deployment
+	err := c.post(ctx, http.MethodPost, envPath(app, to, "promote"), apitypes.Promotion{From: from}, &out)
+	return out, err
+}
+
+// LockEnvironment stops deployments to an environment.
+func (c *Client) LockEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "lock"), struct{}{}, &out)
+	return out, err
+}
+
+// UnlockEnvironment lets an environment take deployments again.
+func (c *Client) UnlockEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "unlock"), struct{}{}, &out)
+	return out, err
+}
+
+// SleepEnvironment stops an environment's instances until a request wakes it.
+func (c *Client) SleepEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "sleep"), struct{}{}, &out)
+	return out, err
+}
+
+// WakeEnvironment starts an environment that is asleep, and returns when it is ready.
+func (c *Client) WakeEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "wake"), struct{}{}, &out)
+	return out, err
+}
+
+// Domains lists an environment's domains.
+func (c *Client) Domains(ctx context.Context, app, env string) ([]apitypes.Domain, error) {
+	var out []apitypes.Domain
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "domains"), nil, "", &out)
+	return out, err
+}
+
+// AddDomain attaches a domain to an environment.
+func (c *Client) AddDomain(ctx context.Context, app, env string, req apitypes.NewDomain) (apitypes.Domain, error) {
+	var out apitypes.Domain
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "domains"), req, &out)
+	return out, err
+}
+
+// VerifyDomain looks now at where a domain points.
+func (c *Client) VerifyDomain(ctx context.Context, app, env, address string) (apitypes.Domain, error) {
+	var out apitypes.Domain
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "domains/verify"), apitypes.NewDomain{Address: address}, &out)
+	return out, err
+}
+
+// RemoveDomain detaches a domain.
+func (c *Client) RemoveDomain(ctx context.Context, app, env, address string) error {
+	return c.post(ctx, http.MethodPost, envPath(app, env, "domains/remove"), apitypes.NewDomain{Address: address}, nil)
+}
+
+// Access says who may reach an environment.
+func (c *Client) Access(ctx context.Context, app, env string) (apitypes.Access, error) {
+	var out apitypes.Access
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "access"), nil, "", &out)
+	return out, err
+}
+
+// SetAccess changes who may reach an environment.
+func (c *Client) SetAccess(ctx context.Context, app, env string, change apitypes.AccessChange) (apitypes.Access, error) {
+	var out apitypes.Access
+	err := c.post(ctx, http.MethodPut, envPath(app, env, "access"), change, &out)
+	return out, err
+}
+
+// ShareLinks lists an environment's share links.
+func (c *Client) ShareLinks(ctx context.Context, app, env string) ([]apitypes.ShareLink, error) {
+	var out []apitypes.ShareLink
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "share-links"), nil, "", &out)
+	return out, err
+}
+
+// CreateShareLink makes a link that lets someone reach an environment.
+func (c *Client) CreateShareLink(ctx context.Context, app, env string, req apitypes.NewShareLink) (apitypes.ShareLink, error) {
+	var out apitypes.ShareLink
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "share-links"), req, &out)
+	return out, err
+}
+
+// RevokeShareLink ends a share link.
+func (c *Client) RevokeShareLink(ctx context.Context, app, env, id string) error {
+	return c.do(ctx, http.MethodDelete, envPath(app, env, "share-links/"+url.PathEscape(id)), nil, "", nil)
+}
+
+// DeleteProject deletes a project that has no apps.
+func (c *Client) DeleteProject(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(name), nil, "", nil)
+}
+
+// SetMember gives someone a role in a project.
+func (c *Client) SetMember(ctx context.Context, project, user, role string) (apitypes.Project, error) {
+	var out apitypes.Project
+	err := c.post(ctx, http.MethodPut, "/api/v1/projects/"+url.PathEscape(project)+"/members/"+url.PathEscape(user), apitypes.MemberChange{Role: role}, &out)
+	return out, err
+}
+
+// RemoveMember takes someone out of a project.
+func (c *Client) RemoveMember(ctx context.Context, project, user string) (apitypes.Project, error) {
+	var out apitypes.Project
+	err := c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(project)+"/members/"+url.PathEscape(user), nil, "", &out)
+	return out, err
+}
+
+// CreateApp creates an app in a project.
+func (c *Client) CreateApp(ctx context.Context, name, project string) (apitypes.App, error) {
+	var out apitypes.App
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps", apitypes.NewApp{Name: name, Project: project}, &out)
+	return out, err
+}
+
+// MoveApp puts an app in another project.
+func (c *Client) MoveApp(ctx context.Context, name, project string) (apitypes.App, error) {
+	var out apitypes.App
+	err := c.post(ctx, http.MethodPatch, "/api/v1/apps/"+url.PathEscape(name), apitypes.AppChange{Project: project}, &out)
+	return out, err
+}
+
+// RevealVar reads a secret's value, which is recorded.
+func (c *Client) RevealVar(ctx context.Context, app, env, name string) (apitypes.RevealedVar, error) {
+	var out apitypes.RevealedVar
+	err := c.do(ctx, http.MethodPost, envPath(app, env, "vars/"+url.PathEscape(name)+"/reveal"), nil, "", &out)
+	return out, err
+}
+
+// AuditQuery says which records of who did what to read.
+type AuditQuery struct {
+	Actor, Action, Target string
+	Limit                 int
+}
+
+// Audit lists who did what, newest first.
+func (c *Client) Audit(ctx context.Context, f AuditQuery) ([]apitypes.AuditEntry, error) {
+	q := url.Values{"limit": {strconv.Itoa(f.Limit)}}
+	for name, value := range map[string]string{"actor": f.Actor, "action": f.Action, "target": f.Target} {
+		if value != "" {
+			q.Set(name, value)
+		}
+	}
+	var page apitypes.Page[apitypes.AuditEntry]
+	err := c.do(ctx, http.MethodGet, "/api/v1/audit?"+q.Encode(), nil, "", &page)
+	return page.Items, err
+}
+
+// AppInfo returns an app, its project, and how much room it takes.
+func (c *Client) AppInfo(ctx context.Context, name string) (apitypes.AppInfo, error) {
+	var out apitypes.AppInfo
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(name), nil, "", &out)
+	return out, err
+}
+
+// RenameApp gives an app another name.
+func (c *Client) RenameApp(ctx context.Context, name, to string) (apitypes.App, error) {
+	var out apitypes.App
+	err := c.post(ctx, http.MethodPatch, "/api/v1/apps/"+url.PathEscape(name), apitypes.AppChange{Name: to}, &out)
+	return out, err
+}
+
+// DeleteApp removes an app.
+func (c *Client) DeleteApp(ctx context.Context, name string, keepData bool) error {
+	path := "/api/v1/apps/" + url.PathEscape(name)
+	if keepData {
+		path += "?keep_data=true"
+	}
+	return c.do(ctx, http.MethodDelete, path, nil, "", nil)
+}

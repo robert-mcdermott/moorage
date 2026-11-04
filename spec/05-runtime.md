@@ -217,10 +217,12 @@ it), so the console reports the protection that is actually in effect.
 
 ## Sleep and wake (scale to zero)
 
-- The ingress records the last request time for each environment. When an
-  environment has been idle longer than its `sleep_after` and has no open
-  long-lived connections, the scheduler sets its formation to zero and the
-  status to `sleeping`. Processes can opt out (`sleep = false` on a process).
+- The ingress records the last request time for each environment, and counts
+  those still going on. When an environment has been idle longer than its
+  `sleep_after`, with none going on and no deployment on its way, the scheduler
+  marks it asleep and stops its instances. The formation itself stays, so that
+  waking restores what it was. Processes can opt out (`sleep = false` on a
+  process), and go on running.
 - Defaults: previews sleep after 30 minutes idle; production and named
   environments never sleep unless configured.
 - **Wake:** the next request triggers a wake. Moorage holds the request for up
@@ -228,6 +230,9 @@ it), so the console reports the protection that is actually in effect.
   "waking up" page that reloads itself as soon as the environment is healthy,
   and API clients keep waiting up to `wake_timeout` (default 30 s) before a
   `503` with `Retry-After`.
+- A release, a restart or a change of scale wakes an environment, and being
+  asleep survives a restart of the server. Idle time starts again when the server
+  does, since what happened while it was down is not known.
 - Static apps never sleep — they have no processes.
 
 ## Cron jobs and one-off runs

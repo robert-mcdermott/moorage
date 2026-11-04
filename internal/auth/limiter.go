@@ -30,6 +30,11 @@ func NewLimiter() *Limiter {
 	return &Limiter{entries: map[string]*attempts{}, free: 5, max: 15 * time.Minute, now: time.Now}
 }
 
+// NewLimiterFor returns a limiter with its own number of free failures, and longest wait.
+func NewLimiterFor(free int, longest time.Duration) *Limiter {
+	return &Limiter{entries: map[string]*attempts{}, free: free, max: longest, now: time.Now}
+}
+
 // Wait returns how long key must wait before its next attempt; 0 if it may
 // try now.
 func (l *Limiter) Wait(key string) time.Duration {

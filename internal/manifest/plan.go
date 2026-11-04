@@ -48,6 +48,117 @@ type Plan struct {
 
 	// Notes say what detection found and decided.
 	Notes []string `json:"notes,omitempty"`
+
+	// Environments are the manifest's [environments.<name>]: "preview" applies to every
+	// preview.
+	Environments map[string]EnvPlan `json:"environments,omitempty"`
+	// Previews is the manifest's [previews].
+	Previews *PreviewPlan `json:"previews,omitempty"`
+	// StripPrefix takes away the path it is served at from what it hears, with path routing.
+	StripPrefix bool `json:"strip_prefix,omitempty"`
+}
+
+// EnvPlan is what an environment changes of a plan.
+type EnvPlan struct {
+	Branch string `json:"branch,omitempty"`
+	// SleepAfter is how long it may sit idle: a duration, or off.
+	SleepAfter string            `json:"sleep_after,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
+	Instances  map[string]int    `json:"instances,omitempty"`
+	// Access is the gate it asks for.
+	Access string `json:"access,omitempty"`
+}
+
+// PreviewPlan says what previews an app wants.
+type PreviewPlan struct {
+	Enabled  *bool    `json:"enabled,omitempty"`
+	Branches []string `json:"branches,omitempty"`
+	TTL      Duration `json:"ttl,omitempty"`
+	// SleepAfter is how long one may sit idle: a duration, or off.
+	SleepAfter string `json:"sleep_after,omitempty"`
+	// Access is the gate they ask for.
+	Access string `json:"access,omitempty"`
+}
+
+// AccessFor says what the manifest asks of who may reach an environment, if anything:
+// [environments.NAME], or for a preview [environments.preview] or [previews].
+func (p Plan) AccessFor(name, kind string) string {
+	key := name
+	if kind == "preview" {
+		key = "preview"
+	}
+	if said := p.Environments[key].Access; said != "" {
+		return said
+	}
+	if kind == "preview" && p.Previews != nil {
+		return p.Previews.Access
+	}
+	return ""
+}
+
+// DefaultPreviewSleep is how long a preview may sit idle, unless its manifest says otherwise.
+const DefaultPreviewSleep = 30 * time.Minute
+
+// SleepAfter says how long an environment may sit idle before it sleeps, or 0 if it never
+// does. [environments.NAME] says, or for a preview [environments.preview] or [previews]; a
+// preview sleeps by default, and the others do not.
+func (p Plan) SleepAfter(name, kind string) time.Duration {
+	key := name
+	if kind == "preview" {
+		key = "preview"
+	}
+	said := p.Environments[key].SleepAfter
+	if said == "" && kind == "preview" {
+		if p.Previews != nil {
+			said = p.Previews.SleepAfter
+		}
+		if said == "" {
+			return DefaultPreviewSleep
+		}
+	}
+	if said == "" || said == "off" {
+		return 0
+	}
+	var d Duration
+	if d.UnmarshalText([]byte(said)) != nil {
+		return 0
+	}
+	return d.Std()
+}
+
+// Sleeping returns the plan as an environment runs it asleep: without the processes that sleep.
+func (p Plan) Sleeping() Plan {
+	stopped := map[string]int{}
+	for name, proc := range p.Processes {
+		if proc.Sleep == nil || *proc.Sleep {
+			stopped[name] = 0
+		}
+	}
+	return p.WithFormation(stopped)
+}
+
+// ForEnv returns the plan as an environment runs it, with what the manifest says of that
+// environment. kind is "preview" for a preview, whose overrides are those of "preview".
+func (p Plan) ForEnv(name, kind string) Plan {
+	key := name
+	if kind == "preview" {
+		key = "preview"
+	}
+	over, ok := p.Environments[key]
+	if !ok {
+		return p
+	}
+	if len(over.Env) > 0 {
+		env := make(map[string]string, len(p.Env)+len(over.Env))
+		for k, v := range p.Env {
+			env[k] = v
+		}
+		for k, v := range over.Env {
+			env[k] = v
+		}
+		p.Env = env
+	}
+	return p.WithFormation(over.Instances)
 }
 
 // ContainerPlan says how an app's image is made and how its containers run.

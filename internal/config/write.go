@@ -23,6 +23,10 @@ type PresetOptions struct {
 	// BehindProxy selects plain HTTP on 127.0.0.1:8080 behind a
 	// TLS-terminating proxy on the same machine ("lan" only).
 	BehindProxy bool
+	// Routing is how apps are told apart: host, the default, or path.
+	Routing string
+	// ConsoleHost, if set, is the console's hostname, instead of moorage.<domain>.
+	ConsoleHost string
 }
 
 // Preset returns the configuration a preset starts from:
@@ -66,6 +70,12 @@ func Preset(name string, o PresetOptions) (Config, error) {
 	}
 	c.DataDir = o.DataDir
 	c.Routing = "host"
+	if o.Routing != "" {
+		c.Routing = o.Routing
+	}
+	if o.ConsoleHost != "" {
+		c.ConsoleHost = o.ConsoleHost
+	}
 	c.Log = Log{Level: "info", Format: "text"}
 	c.ApplyDefaults()
 	if err := c.Validate(); err != nil {
@@ -141,8 +151,16 @@ domain = {{q .Domain}}
 console_host = {{q .ConsoleHost}}
 
 # "host": every app on its own hostname (needs the wildcard record).
-# "path": apps under /<app>/ on the console's hostname.
+# "path": apps under /<app>/ on the domain, with no wildcard record: the console
+# needs a hostname of its own, and apps share an origin with one another.
 routing = {{q .Routing}}
+
+# Who may reach each kind of environment, unless its manifest or a maintainer says
+# otherwise: "public", "password", "login" or "share".
+[access]
+production = {{q .Access.Production}}
+named      = {{q .Access.Named}}
+preview    = {{q .Access.Preview}}
 
 [listen]
 http  = {{q .Listen.HTTP}}

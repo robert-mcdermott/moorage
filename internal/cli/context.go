@@ -11,6 +11,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/spf13/cobra"
 )
 
@@ -29,17 +31,12 @@ type clientContext struct {
 	User   string `toml:"user,omitempty"`
 }
 
-// clientConfigPath is $MOOR_CONFIG, or config.toml in the user's configuration
-// directory.
+// clientConfigPath is $MOOR_CONFIG, or moor's place for it on this platform.
 func clientConfigPath() (string, error) {
 	if p := os.Getenv("MOOR_CONFIG"); p != "" {
 		return p, nil
 	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "moorage", "config.toml"), nil
+	return platform.ClientConfigFile()
 }
 
 func loadClientConfig() (*clientConfig, error) {

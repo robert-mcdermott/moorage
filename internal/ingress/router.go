@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,16 @@ import (
 // snapshot replaced atomically by Reload, so a request always sees one
 // consistent table and deploys never interrupt requests in flight.
 type Router struct {
+	// active holds when each environment last had a request, and open how many it has going
+	// on, by "app/env".
+	active sync.Map
+	open   sync.Map
+	// tokenOf is what shows an app that a request came through here.
+	tokenOf func(envID string) string
+	// sleeper says which environments are asleep, and gate lets people through their gates.
+	sleeper atomic.Pointer[Sleeper]
+	gate    atomic.Pointer[Gatekeeper]
+
 	cfg     config.Config
 	db      *store.DB
 	dataDir string
@@ -50,6 +61,12 @@ type Router struct {
 	accessLogs map[string]*logs.File // by "app/env"
 }
 
+// Sleeper says which environments are asleep, and wakes them for requests.
+type Sleeper interface {
+	Asleep(app, env string) bool
+	WakeFor(app, env string) <-chan struct{}
+}
+
 // PoolSource provides the backend pool of an environment of a process app.
 type PoolSource interface {
 	Pool(app, env string) *Pool
@@ -59,6 +76,8 @@ type routeTable struct {
 	generation uint64
 	// routes maps a hostname to what serves it.
 	routes map[string]route
+	// prefixed is what serves paths of a hostname, the longest first.
+	prefixed map[string][]route
 	// apps holds every app name, deployed or not.
 	apps map[string]bool
 }
@@ -66,6 +85,27 @@ type routeTable struct {
 type route struct {
 	app, env string
 	handler  http.Handler
+	gate     gateRoute
+	// prefix is the path it serves, if not the whole hostname, and strip says that the app
+	// should not hear it. proxyToken shows the app that a request came through here.
+	prefix     string
+	strip      bool
+	proxyToken string
+}
+
+// lookup finds what serves a hostname and a path: the longest path that fits, or else the
+// hostname as a whole. rest is the path after it.
+func (t *routeTable) lookup(host, path string) (rte route, rest string, ok bool) {
+	for _, r := range t.prefixed[host] {
+		if path == r.prefix {
+			return r, "", true
+		}
+		if tail, found := strings.CutPrefix(path, r.prefix+"/"); found {
+			return r, "/" + tail, true
+		}
+	}
+	rte, ok = t.routes[host]
+	return rte, path, ok
 }
 
 // NewRouter returns a router with an empty table; call Reload to fill it.
@@ -84,6 +124,9 @@ func NewRouter(cfg config.Config, db *store.DB, dataDir string, log *slog.Logger
 // SetPools sets where the pools of process apps come from.
 func (rt *Router) SetPools(ps PoolSource) { rt.pools = ps }
 
+// SetSleeper sets what says which environments are asleep. Until then, none are.
+func (rt *Router) SetSleeper(s Sleeper) { rt.sleeper.Store(&s) }
+
 // Trusted returns the trusted proxy prefixes.
 func (rt *Router) Trusted() []netip.Prefix { return rt.trusted }
 
@@ -96,6 +139,22 @@ func (rt *Router) SetCACert(pem []byte) { rt.caPEM = pem }
 
 // Generation counts routing table changes.
 func (rt *Router) Generation() uint64 { return rt.table.Load().generation }
+
+// envRoute is what serves an environment, for its domains to serve too.
+type envRoute struct {
+	route
+	static bool
+}
+
+// SetProxyToken says what shows an app that a request came through here.
+func (rt *Router) SetProxyToken(token func(envID string) string) { rt.tokenOf = token }
+
+func (rt *Router) proxyToken(envID string) string {
+	if rt.tokenOf == nil {
+		return ""
+	}
+	return rt.tokenOf(envID)
+}
 
 // Reload rebuilds the routing table from the database and swaps it in.
 func (rt *Router) Reload(ctx context.Context) error {
@@ -110,15 +169,13 @@ func (rt *Router) Reload(ctx context.Context) error {
 		return err
 	}
 	old := rt.table.Load()
-	next := &routeTable{generation: old.generation + 1, routes: map[string]route{}, apps: map[string]bool{}}
+	next := &routeTable{generation: old.generation + 1, routes: map[string]route{}, prefixed: map[string][]route{}, apps: map[string]bool{}}
 	for _, n := range appNames {
 		next.apps[n] = true
 	}
 	used := map[string]*static.Site{}
+	byEnv := map[string]envRoute{}
 	for _, r := range routes {
-		if r.Env != names.Production {
-			continue // other environments arrive with previews
-		}
 		var plan manifest.Plan
 		if err := json.Unmarshal(r.Build.Plan, &plan); err != nil {
 			rt.log.Error("cannot read a build's plan", "app", r.App, "build", r.Build.ID, "err", err)
@@ -150,7 +207,37 @@ func (rt *Router) Reload(ctx context.Context) error {
 			rt.log.Error("build plan kind not served by this version", "app", r.App, "kind", plan.Kind)
 			continue
 		}
-		next.routes[r.App+"."+rt.cfg.Domain] = route{app: r.App, env: r.Env, handler: h}
+		if r.Env != names.Production {
+			h = noindex(h)
+		}
+		rte := route{app: r.App, env: r.Env, handler: h, gate: rt.gateOf(r, plan), proxyToken: rt.proxyToken(r.EnvID)}
+		byEnv[r.EnvID] = envRoute{rte, plan.Kind != manifest.KindProcess}
+		if rt.cfg.Routing == "path" {
+			rte.prefix, rte.strip = rt.cfg.EnvPrefix(r.App, r.Env), plan.StripPrefix || plan.Kind != manifest.KindProcess
+			next.prefixed[rt.cfg.Domain] = append(next.prefixed[rt.cfg.Domain], rte)
+			continue
+		}
+		next.routes[rt.cfg.EnvHost(r.App, r.Env)] = rte
+	}
+	domains, err := rt.db.AllDomains(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range domains {
+		er, serving := byEnv[d.EnvID]
+		if !d.Verified() || !serving {
+			continue
+		}
+		rte := er.route
+		if d.Prefix == "" {
+			next.routes[d.Hostname] = rte
+			continue
+		}
+		rte.prefix, rte.strip = d.Prefix, d.StripPrefix || er.static
+		next.prefixed[d.Hostname] = append(next.prefixed[d.Hostname], rte)
+	}
+	for _, list := range next.prefixed {
+		sort.Slice(list, func(i, j int) bool { return len(list[i].prefix) > len(list[j].prefix) })
 	}
 	rt.sites = used
 	rt.table.Store(next)
@@ -186,8 +273,29 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := rt.table.Load()
-	if rte, ok := t.routes[host]; ok {
+	if rte, rest, ok := t.lookup(host, r.URL.Path); ok {
+		if rte.prefix != "" {
+			switch {
+			case rest == "":
+				target := rte.prefix + "/"
+				if r.URL.RawQuery != "" {
+					target += "?" + r.URL.RawQuery
+				}
+				http.Redirect(w, r, target, http.StatusMovedPermanently)
+				return
+			case isGatePath(rest):
+				rt.gateEndpoint(w, r, rte, rest)
+				return
+			case strings.HasPrefix(rest, "/.moorage/"):
+				notFound.ServeHTTP(w, r)
+				return
+			}
+		}
 		rt.serveApp(w, r, rte)
+		return
+	}
+	if rt.cfg.Routing == "path" && host == rt.cfg.Domain {
+		rt.noPathRoute(w, r, t)
 		return
 	}
 	if app, ok := rt.appOf(host); ok {
@@ -201,13 +309,35 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	notFound.ServeHTTP(w, r)
 }
 
+// noPathRoute says what there is at a path that no app serves, with path routing.
+func (rt *Router) noPathRoute(w http.ResponseWriter, r *http.Request, t *routeTable) {
+	label, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	app, _, _ := strings.Cut(label, "--")
+	switch {
+	case label == "":
+		notFound.ServeHTTP(w, r)
+	case t.apps[app]:
+		nothingDeployed(app).ServeHTTP(w, r)
+	case names.ValidateApp(app) == nil:
+		noSuchApp(app).ServeHTTP(w, r)
+	default:
+		notFound.ServeHTTP(w, r)
+	}
+}
+
+// isGatePath says whether a path is one the gates use.
+func isGatePath(path string) bool {
+	return strings.HasPrefix(path, "/.moorage/gate/") || strings.HasPrefix(path, "/.moorage/auth/") || strings.HasPrefix(path, "/.moorage/share/")
+}
+
 // RedirectToHTTPS wraps the router for the plain HTTP listener when Moorage
 // terminates TLS: requests move to HTTPS, except platform endpoints and
 // requests addressed to this machine (localhost or a loopback address).
 func (rt *Router) RedirectToHTTPS(httpsPort string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := hostname(r.Host)
-		if strings.HasPrefix(r.URL.Path, "/.moorage/") || isLocal(host) {
+		// What the gates ask of a browser carries passwords and codes, and so goes over HTTPS.
+		if strings.HasPrefix(r.URL.Path, "/.moorage/") && !isGatePath(r.URL.Path) || isLocal(host) {
 			rt.ServeHTTP(w, r)
 			return
 		}
@@ -223,7 +353,7 @@ func (rt *Router) RedirectToHTTPS(httpsPort string) http.Handler {
 // the console's hostname and the hostnames of apps under the base domain.
 // Anything else gets no certificate.
 func (rt *Router) AllowCertificate(name string) bool {
-	if name == rt.cfg.ConsoleHost {
+	if name == rt.cfg.ConsoleHost || rt.cfg.Routing == "path" && name == rt.cfg.Domain {
 		return true
 	}
 	_, ok := rt.appOf(name)
@@ -251,6 +381,12 @@ func (rt *Router) platform(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(rt.caPEM)
 	case r.URL.Path == proxyCheckPrefix || strings.HasPrefix(r.URL.Path, proxyCheckPrefix+"/"):
 		rt.proxyCheck(w, r)
+	case isGatePath(r.URL.Path):
+		if rte, ok := rt.table.Load().routes[hostname(r.Host)]; ok {
+			rt.gateEndpoint(w, r, rte, r.URL.Path)
+		} else {
+			notFound.ServeHTTP(w, r)
+		}
 	default:
 		notFound.ServeHTTP(w, r)
 	}
@@ -297,4 +433,12 @@ func isLocal(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// noindex keeps an environment that is not production out of search engines.
+func noindex(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Robots-Tag", "noindex")
+		next.ServeHTTP(w, r)
+	})
 }

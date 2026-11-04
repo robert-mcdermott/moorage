@@ -44,6 +44,8 @@ type appView struct {
 	Events     []eventRow
 	// Deploying says that a deployment is under way.
 	Deploying bool
+	// Asleep says that its instances are stopped until a request wakes it.
+	Asleep bool
 	// Previous is the release a rollback goes back to, if there is one to serve.
 	Previous int
 	// Engine says whether this server can run containers.
@@ -88,7 +90,7 @@ type instanceView struct {
 func inProgress(d store.Deployment) bool { return !store.Final(d.Status) }
 
 // appStatus says how an app stands, from its newest deployment and its instances.
-func appStatus(hasRelease, static bool, want, healthy int, last *store.Deployment) status {
+func appStatus(hasRelease, static, asleep bool, want, healthy int, last *store.Deployment) status {
 	switch {
 	case last != nil && inProgress(*last):
 		return status{"Deploying", "info pulse"}
@@ -98,6 +100,8 @@ func appStatus(hasRelease, static bool, want, healthy int, last *store.Deploymen
 		return status{"Not deployed", ""}
 	case static:
 		return status{"Live", "ok"}
+	case asleep:
+		return status{"Sleeping", "info"}
 	case want == 0:
 		return status{"Scaled to zero", ""}
 	case healthy >= want:
@@ -154,10 +158,7 @@ func wanted(plan manifest.Plan, formation map[string]int) int {
 }
 
 func (c *Console) instances(app string) []reconcile.InstanceInfo {
-	if c.runtime == nil {
-		return nil
-	}
-	return c.runtime.Instances(app, names.Production)
+	return c.runtimeInstances(app, names.Production)
 }
 
 // appRows draws the apps list: each with how it stands.
@@ -167,6 +168,7 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 		return nil, err
 	}
 	plans := map[string]manifest.Plan{}
+	asleep := map[string]bool{}
 	for _, r := range routes {
 		if r.Env != names.Production {
 			continue
@@ -174,14 +176,19 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 		if plan, err := readPlan(r.Build); err == nil {
 			plans[r.App] = plan
 		}
+		asleep[r.App] = r.Asleep
 	}
 	latest, err := c.db.LatestDeployments(ctx, names.Production)
 	if err != nil {
 		return nil, err
 	}
+	envCounts, err := c.db.EnvironmentCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows := make([]appRow, 0, len(apps))
 	for _, a := range apps {
-		row := appRow{Name: a.Name, URL: c.appURL(a.Name)}
+		row := appRow{Name: a.Name, URL: c.appURL(a.Name), Project: a.Project, OtherEnvs: envCounts[a.Name] - 1}
 		plan, known := plans[a.Name]
 		static := known && plan.Kind != manifest.KindProcess
 		want, healthy := 0, 0
@@ -208,7 +215,7 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 			row.LastFailed = d.Status == store.Failed && a.Production != nil
 			row.Deploying = inProgress(d)
 		}
-		row.Status = appStatus(a.Production != nil, static, want, healthy, last)
+		row.Status = appStatus(a.Production != nil, static, asleep[a.Name], want, healthy, last)
 		rows = append(rows, row)
 	}
 	return rows, nil
@@ -225,25 +232,55 @@ func (c *Console) appsPage(w http.ResponseWriter, r *http.Request, p auth.Princi
 		return
 	}
 	d.RefreshOn = "*"
+	d.Notice = map[string]string{"deleted": "The app is deleted."}[r.URL.Query().Get("done")]
 	for _, row := range d.Apps {
 		d.Poll = d.Poll || row.Deploying
 	}
 	c.render(w, http.StatusOK, "apps", d)
 }
 
-// lookupApp reads the {app} path value, and answers if there is no such app.
+func (c *Console) sleepApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	if err := c.deployer.Sleep(lasting(r), app, envOf(r), p.Name); err != nil {
+		c.actionFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"slept"}}), http.StatusSeeOther)
+}
+
+func (c *Console) wakeApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	if err := c.deployer.Wake(lasting(r), app, envOf(r), p.Name); err != nil {
+		c.actionFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"woken"}}), http.StatusSeeOther)
+}
+
+// lookupApp reads the {app} path value, and answers if there is no such app that the
+// viewer can see.
 func (c *Console) lookupApp(w http.ResponseWriter, r *http.Request, p auth.Principal) (string, bool) {
 	app := r.PathValue("app")
-	if names.ValidateApp(app) != nil || !p.CanApp(app) {
+	if names.ValidateApp(app) != nil {
 		c.noSuchApp(w, app)
 		return "", false
 	}
-	if _, err := c.db.EnvID(r.Context(), app, names.Production); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			c.noSuchApp(w, app)
-		} else {
+	if _, err := c.db.EnvID(r.Context(), app, envOf(r)); err != nil {
+		switch {
+		case !errors.Is(err, store.ErrNotFound):
 			c.internal(w, err)
+		case envOf(r) != names.Production:
+			c.message(w, http.StatusNotFound, data{Title: "Not found", Heading: "There is no such environment", Message: "It may have been removed, as a preview is when its branch goes.", Link: "/apps/" + url.PathEscape(app) + "/environments", LinkText: "The app's environments"})
+		default:
+			c.noSuchApp(w, app)
 		}
+		return "", false
+	}
+	access, err := c.auth.AppAccess(r.Context(), p, app)
+	if err != nil {
+		c.internal(w, err)
+		return "", false
+	}
+	if !access.See {
+		c.noSuchApp(w, app)
 		return "", false
 	}
 	return app, true
@@ -256,6 +293,8 @@ func (c *Console) noSuchApp(w http.ResponseWriter, app string) {
 // notices are what an action may say on the page it returns to. The address names
 // one: nothing of a request's own is shown.
 var notices = map[string]string{
+	"slept":     "It is asleep. The next request wakes it.",
+	"woken":     "It is awake.",
 	"restarted": "Its instances were replaced.",
 	"scaled":    "It now runs as many instances as you asked.",
 	"unchanged": "It already runs that many instances.",
@@ -280,19 +319,22 @@ type failure struct {
 }
 
 func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure) {
-	d, _, err := c.shellData(r, p, "apps", app)
+	d, err := c.appData(r, p, app, "apps", app)
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}}
 	d.Tab = "overview"
-	view, err := c.appView(r.Context(), app)
+	view, err := c.appView(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
 	d.App = view
+	if d.Env != "" {
+		d.EnvRows = []environmentRow{c.environmentRow(r, d.EnvInfo, d.Access)}
+	}
 	d.Poll = view.Deploying
 	d.RefreshOn = app
 	d.Notice = notices[r.URL.Query().Get("done")]
@@ -303,9 +345,9 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 // recentDeployments is how many the app's page shows.
 const recentDeployments = 5
 
-func (c *Console) appView(ctx context.Context, app string) (appView, error) {
-	view := appView{Name: app, URL: c.appURL(app), Engine: c.hasEngine()}
-	deps, err := c.db.Deployments(ctx, app, names.Production, recentDeployments+1)
+func (c *Console) appView(ctx context.Context, app, env string) (appView, error) {
+	view := appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: c.hasEngine()}
+	deps, err := c.db.Deployments(ctx, app, env, recentDeployments+1)
 	if err != nil {
 		return view, err
 	}
@@ -314,7 +356,7 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 		last = &deps[0]
 		view.Deploying = inProgress(deps[0])
 	}
-	rel, b, err := c.db.CurrentRelease(ctx, app, names.Production)
+	rel, b, err := c.db.CurrentRelease(ctx, app, env)
 	hasRelease := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return view, err
@@ -338,12 +380,17 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 			}
 		}
 		if !view.Static {
-			formation, err := c.db.Formation(ctx, app, names.Production)
+			formation, err := c.db.Formation(ctx, app, env)
 			if err != nil {
 				return view, err
 			}
+			kind, err := c.db.EnvKind(ctx, app, env)
+			if err != nil {
+				return view, err
+			}
+			plan = plan.ForEnv(env, kind)
 			want = wanted(plan, formation)
-			view.Processes = c.processViews(app, rel.Version, plan, formation)
+			view.Processes = c.processViews(app, env, rel.Version, plan, formation)
 			for _, proc := range view.Processes {
 				for _, in := range proc.Instances {
 					if in.Status.Kind == "ok" && !in.Replaced {
@@ -353,23 +400,26 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 			}
 		}
 		if rel.Version > 1 {
-			if _, prev, err := c.db.ReleaseVersion(ctx, app, names.Production, rel.Version-1); err == nil && !prev.Collected {
+			if _, prev, err := c.db.ReleaseVersion(ctx, app, env, rel.Version-1); err == nil && !prev.Collected {
 				view.Previous = rel.Version - 1
 			}
 		}
 	}
-	view.Status = appStatus(hasRelease, view.Static, want, healthy, last)
+	if e, err := c.db.Environment(ctx, app, env); err == nil {
+		view.Asleep = !e.AsleepAt.IsZero() && hasRelease && !view.Static
+	}
+	view.Status = appStatus(hasRelease, view.Static, view.Asleep, want, healthy, last)
 	if hasRelease && last != nil && last.Status == store.Failed {
 		view.LastFailed = last.ID
 	}
 	if len(deps) > recentDeployments {
 		deps = deps[:recentDeployments]
-		view.Older = "/apps/" + url.PathEscape(app) + "/deployments"
+		view.Older = appAddress(app, env, "/deployments", nil)
 	}
 	for _, dep := range deps {
 		view.Recent = append(view.Recent, deploymentRowOf(dep, current))
 	}
-	list, err := c.db.Events(ctx, store.EventFilter{App: app, Limit: 8})
+	list, err := c.db.Events(ctx, store.EventFilter{App: app, Env: env, AndApp: true, Limit: 8})
 	if err != nil {
 		return view, err
 	}
@@ -379,9 +429,9 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 	return view, nil
 }
 
-func (c *Console) processViews(app string, version int, plan manifest.Plan, formation map[string]int) []processView {
+func (c *Console) processViews(app, env string, version int, plan manifest.Plan, formation map[string]int) []processView {
 	byName := map[string][]instanceView{}
-	for _, in := range c.instances(app) {
+	for _, in := range c.runtimeInstances(app, env) {
 		byName[in.Process] = append(byName[in.Process], instanceView{
 			Name: fmt.Sprintf("%s.%d", in.Process, in.Index), Status: instanceStatus(in), Version: in.Version,
 			Port: in.Port, PID: in.PID, Restarts: in.Restarts, Started: in.StartedAt, LastExit: exitText(in),
@@ -418,15 +468,20 @@ func (c *Console) actionWith(scope string, limit int64, next func(http.ResponseW
 			c.refused(w)
 			return
 		}
-		if !p.Can(scope) {
-			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your account cannot do that.", Link: "/", LinkText: "Back to the start"})
-			return
-		}
 		app, ok := c.lookupApp(w, r, p)
 		if !ok {
 			return
 		}
-		next(w, r, p, app)
+		access, err := c.auth.AppAccess(r.Context(), p, app)
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		if scope == auth.ScopeAdmin && !access.Manage || scope == auth.ScopeDeploy && !access.Deploy {
+			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your role in the project " + access.Project.Name + " does not allow it.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
+			return
+		}
+		c.audited(w, r, p, func(w http.ResponseWriter) { next(w, r, p, app) })
 	})
 }
 
@@ -454,6 +509,8 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 		scale    *reconcile.ScaleError
 		back     *deploy.CannotRollBackError
 		redeploy *deploy.CannotRedeployError
+		locked   *deploy.LockedError
+		sleep    *deploy.NotSleepableError
 	)
 	switch {
 	case errors.As(err, &rollout):
@@ -464,6 +521,10 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(back.Error())})
 	case errors.As(err, &redeploy):
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(redeploy.Error())})
+	case errors.As(err, &locked):
+		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(locked.Error())})
+	case errors.As(err, &sleep):
+		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(sleep.Error())})
 	case errors.Is(err, store.ErrNotFound):
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: "Nothing is deployed yet."})
 	default:
@@ -472,7 +533,7 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 }
 
 func (c *Console) restart(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	if err := c.deployer.Restart(lasting(r), app, names.Production, p.Name); err != nil {
+	if err := c.deployer.Restart(lasting(r), app, envOf(r), p.Name); err != nil {
 		var rollout *reconcile.RolloutError
 		if errors.As(err, &rollout) || errors.Is(err, store.ErrNotFound) {
 			c.actionFailed(w, r, p, app, err)
@@ -482,11 +543,11 @@ func (c *Console) restart(w http.ResponseWriter, r *http.Request, p auth.Princip
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
 		return
 	}
-	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"?done=restarted", http.StatusSeeOther)
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"restarted"}}), http.StatusSeeOther)
 }
 
 func (c *Console) redeploy(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	dep, err := c.deployer.Redeploy(lasting(r), app, names.Production, p.Name)
+	dep, err := c.deployer.Redeploy(lasting(r), app, envOf(r), p.Name)
 	if err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
@@ -500,7 +561,7 @@ func (c *Console) rollback(w http.ResponseWriter, r *http.Request, p auth.Princi
 		c.showApp(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "That is not a release to go back to."})
 		return
 	}
-	_, dep, err := c.deployer.Rollback(lasting(r), app, names.Production, p.Name, version, r.PostFormValue("with_config") != "")
+	_, dep, err := c.deployer.Rollback(lasting(r), app, envOf(r), p.Name, version, r.PostFormValue("with_config") != "")
 	if err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
@@ -514,7 +575,7 @@ const scalePrefix = "process."
 // scale changes the numbers that differ from what runs: one left alone stays the
 // manifest's to decide.
 func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	_, b, err := c.db.CurrentRelease(r.Context(), app, names.Production)
+	_, b, err := c.db.CurrentRelease(r.Context(), app, envOf(r))
 	if err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
@@ -524,12 +585,17 @@ func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal
 		c.internal(w, err)
 		return
 	}
-	formation, err := c.db.Formation(r.Context(), app, names.Production)
+	formation, err := c.db.Formation(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
-	running := plan.WithFormation(formation).Processes
+	kind, err := c.db.EnvKind(r.Context(), app, envOf(r))
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	running := plan.ForEnv(envOf(r), kind).WithFormation(formation).Processes
 	change := map[string]int{}
 	for field, values := range r.PostForm {
 		name, ok := strings.CutPrefix(field, scalePrefix)
@@ -546,42 +612,17 @@ func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal
 		}
 	}
 	if len(change) == 0 {
-		http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"?done=unchanged", http.StatusSeeOther)
+		http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"unchanged"}}), http.StatusSeeOther)
 		return
 	}
-	if _, err := c.deployer.Scale(lasting(r), app, names.Production, p.Name, change); err != nil {
+	if _, err := c.deployer.Scale(lasting(r), app, envOf(r), p.Name, change); err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
 	}
-	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"?done=scaled", http.StatusSeeOther)
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"scaled"}}), http.StatusSeeOther)
 }
 
 func (c *Console) hasEngine() bool { return c.deployer != nil && c.deployer.HasEngine() }
-
-// newApp asks for a name; deploying is what creates an app.
-func (c *Console) newApp(w http.ResponseWriter, r *http.Request) {
-	p, ok := c.requireUser(w, r)
-	if !ok {
-		return
-	}
-	d, _, err := c.shellData(r, p, "apps", "New app")
-	if err != nil {
-		c.internal(w, err)
-		return
-	}
-	d.Crumbs = []crumb{{"Apps", "/"}}
-	if name := strings.TrimSpace(r.URL.Query().Get("name")); name != "" {
-		d.Name = name
-		if err := names.ValidateApp(name); err != nil {
-			d.Error = sentence(err.Error())
-			c.render(w, http.StatusUnprocessableEntity, "new-app", d)
-			return
-		}
-		http.Redirect(w, r, "/apps/"+url.PathEscape(name)+"/deploy", http.StatusSeeOther)
-		return
-	}
-	c.render(w, http.StatusOK, "new-app", d)
-}
 
 // deployPage says how to deploy an app, which need not exist yet: the first deployment
 // creates it.
@@ -591,15 +632,28 @@ func (c *Console) deployPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app := r.PathValue("app")
-	if names.ValidateApp(app) != nil || !p.CanApp(app) {
+	if names.ValidateApp(app) != nil {
 		c.noSuchApp(w, app)
+		return
+	}
+	access, err := c.auth.AppAccess(r.Context(), p, app)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !access.See {
+		c.noSuchApp(w, app)
+		return
+	}
+	if !access.Deploy {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your role in the project " + access.Project.Name + " does not allow deploying.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
 		return
 	}
 	c.showDeploy(w, r, p, app, http.StatusOK, "", "")
 }
 
 func (c *Console) showDeploy(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, problem, image string) {
-	d, _, err := c.shellData(r, p, "apps", "Deploy "+app)
+	d, err := c.appData(r, p, app, "apps", "Deploy "+app)
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -617,11 +671,15 @@ func (c *Console) showDeploy(w http.ResponseWriter, r *http.Request, p auth.Prin
 	if exists {
 		d.Crumbs = append(d.Crumbs, crumb{app, "/apps/" + url.PathEscape(app)})
 	}
-	d.App = appView{Name: app, URL: c.appURL(app), Engine: c.hasEngine()}
+	env := envOf(r)
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: c.hasEngine()}
 	d.Heading = "Deploy " + app
 	d.Error = problem
 	d.Image = image
 	d.Commands = []string{"moor deploy --app " + app}
+	if env != names.Production {
+		d.Commands = []string{"moor deploy --app " + app + " --env " + env}
+	}
 	d.GitCommands = []string{"moor keys add", "moor git remote --app " + app, "git push moorage main"}
 	d.LoginCommand = "moor login " + c.cfg.PublicURL(c.cfg.ConsoleHost)
 	d.MaxUpload = humanSize(deploy.MaxUpload)
@@ -647,12 +705,19 @@ func (c *Console) deployImage(w http.ResponseWriter, r *http.Request) {
 		c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), image)
 		return
 	}
-	dep, err := c.deployer.DeployImage(lasting(r), app, names.Production, p.Name, image)
-	if err != nil {
-		c.internal(w, err)
-		return
-	}
-	http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	c.audited(w, r, p, func(w http.ResponseWriter) {
+		dep, err := c.deployer.DeployImage(lasting(r), app, envOf(r), p.Name, image)
+		var locked *deploy.LockedError
+		if errors.As(err, &locked) {
+			c.showDeploy(w, r, p, app, http.StatusConflict, sentence(err.Error()), image)
+			return
+		}
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	})
 }
 
 // deployForm guards the forms that may create an app: there may be none yet to look up.
@@ -679,12 +744,21 @@ func (c *Console) deployGuard(w http.ResponseWriter, r *http.Request, token stri
 		return p, "", false
 	}
 	app := r.PathValue("app")
-	if names.ValidateApp(app) != nil || !p.CanApp(app) {
+	if names.ValidateApp(app) != nil {
 		c.noSuchApp(w, app)
 		return p, "", false
 	}
-	if !p.Can(auth.ScopeDeploy) {
-		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your account cannot deploy.", Link: "/", LinkText: "Back to the start"})
+	access, err := c.auth.AppAccess(r.Context(), p, app)
+	if err != nil {
+		c.internal(w, err)
+		return p, "", false
+	}
+	if !access.See {
+		c.noSuchApp(w, app)
+		return p, "", false
+	}
+	if !access.Deploy {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your role in the project " + access.Project.Name + " does not allow deploying.", Link: "/", LinkText: "Back to the start"})
 		return p, "", false
 	}
 	return p, app, true
@@ -722,15 +796,136 @@ func (c *Console) deployArchive(w http.ResponseWriter, r *http.Request) {
 		c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, "Choose an archive to upload.", "")
 		return
 	}
-	dep, _, err := c.deployer.Submit(lasting(r), app, names.Production, p.Name, part)
-	var invalid *deploy.InvalidUploadError
-	switch {
-	case errors.As(err, &invalid):
-		c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), "")
+	c.audited(w, r, p, func(w http.ResponseWriter) {
+		dep, _, err := c.deployer.Submit(lasting(r), app, envOf(r), p.Name, part)
+		var invalid *deploy.InvalidUploadError
+		var locked *deploy.LockedError
+		switch {
+		case errors.As(err, &invalid), errors.As(err, &locked):
+			c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), "")
+			return
+		case err != nil:
+			c.internal(w, err)
+			return
+		}
+		http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	})
+}
+
+// appSettingsPage is where an app moves, changes its name, or goes.
+func (c *Console) appSettingsPage(w http.ResponseWriter, r *http.Request) {
+	p, ok := c.requireUser(w, r)
+	if !ok {
 		return
-	case err != nil:
+	}
+	app, ok := c.lookupApp(w, r, p)
+	if !ok {
+		return
+	}
+	c.showAppSettings(w, r, p, app, http.StatusOK, nil)
+}
+
+func (c *Console) showAppSettings(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure) {
+	d, err := c.appData(r, p, app, "apps", "Settings of "+app)
+	if err != nil {
 		c.internal(w, err)
 		return
 	}
-	http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	if !d.Access.Manage {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "It takes being a maintainer of the project " + d.Access.Project.Name + ".", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
+		return
+	}
+	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}
+	d.Tab = "settings"
+	d.App = appView{Name: app, URL: c.appURL(app)}
+	if c.deployer != nil {
+		d.Usage = c.deployer.Usage(app)
+	}
+	all, err := c.db.Projects(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	for _, project := range all {
+		access, err := c.auth.ProjectAccess(r.Context(), p, project)
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		if access.Manage {
+			d.Projects = append(d.Projects, projectRow{Name: project.Name})
+		}
+	}
+	d.Notice = map[string]string{"moved": "It is in that project now.", "renamed": "It has its new name, and runs under it. Change [app].name in its moorage.toml and its git remote to match."}[r.URL.Query().Get("done")]
+	d.Failure = failed
+	c.render(w, code, "app-settings", d)
+}
+
+func (c *Console) moveApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	name := r.PostFormValue("project")
+	project, err := c.db.ProjectByName(r.Context(), name)
+	if errors.Is(err, store.ErrNotFound) {
+		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "There is no such project."})
+		return
+	}
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	access, err := c.auth.ProjectAccess(r.Context(), p, project)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !access.Manage {
+		c.showAppSettings(w, r, p, app, http.StatusForbidden, &failure{Message: "Moving an app there takes being a maintainer of that project."})
+		return
+	}
+	if err := c.db.MoveApp(r.Context(), app, name); err != nil {
+		c.internal(w, err)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"/settings?done=moved", http.StatusSeeOther)
+}
+
+// lifecycleFailed shows why an app could not be renamed or deleted.
+func (c *Console) lifecycleFailed(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, err error) {
+	var (
+		busy    *deploy.AppBusyError
+		taken   *deploy.NameTakenError
+		invalid *deploy.InvalidNameError
+		rollout *reconcile.RolloutError
+	)
+	switch {
+	case errors.As(err, &busy), errors.As(err, &taken):
+		c.showAppSettings(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
+	case errors.As(err, &invalid):
+		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: sentence(err.Error())})
+	case errors.As(err, &rollout):
+		// It has its new name by now.
+		http.Redirect(w, r, "/apps/"+url.PathEscape(r.PostFormValue("name")), http.StatusSeeOther)
+	default:
+		c.internal(w, err)
+	}
+}
+
+func (c *Console) renameApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	if err := c.deployer.RenameApp(lasting(r), app, name, p.Name); err != nil {
+		c.lifecycleFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+url.PathEscape(name)+"/settings?done=renamed", http.StatusSeeOther)
+}
+
+func (c *Console) deleteApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	if strings.TrimSpace(r.PostFormValue("confirm")) != app {
+		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "Type the app's name to delete it. Nothing was deleted."})
+		return
+	}
+	if err := c.deployer.DeleteApp(lasting(r), app, p.Name, r.PostFormValue("keep_data") != ""); err != nil {
+		c.lifecycleFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, "/?done=deleted", http.StatusSeeOther)
 }

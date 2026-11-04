@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/ingress/static"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 )
 
@@ -18,6 +20,9 @@ import (
 type requestInfo struct {
 	id       string
 	instance string
+	// prefix is the path it is served at, and proxyToken shows the app it came through here.
+	prefix     string
+	proxyToken string
 }
 
 type infoKey struct{}
@@ -36,24 +41,107 @@ func setInstance(r *http.Request, id string) {
 	}
 }
 
+func (rt *Router) openCount(key string) *atomic.Int64 {
+	if n, ok := rt.open.Load(key); ok {
+		return n.(*atomic.Int64)
+	}
+	n, _ := rt.open.LoadOrStore(key, new(atomic.Int64))
+	return n.(*atomic.Int64)
+}
+
+// Busy says whether an environment has requests going on, such as a stream or a WebSocket,
+// which it would lose by going to sleep.
+func (rt *Router) Busy(app, env string) bool {
+	return rt.openCount(app+"/"+env).Load() > 0
+}
+
+// How long a request waits for an environment to wake: a browser's moment before it is told
+// what is happening, and for anything else, a client that may not know what to do with a page.
+var (
+	wakeHoldBrowser = 2 * time.Second
+	wakeHoldClient  = 30 * time.Second
+)
+
+// awaitAwake holds a request for an environment that is asleep, and wakes it. It says whether
+// to go on: if it took too long, it has answered with what the client should do.
+func (rt *Router) awaitAwake(w http.ResponseWriter, r *http.Request, rte route) bool {
+	sleeper := rt.sleeper.Load()
+	if sleeper == nil || !(*sleeper).Asleep(rte.app, rte.env) {
+		return true
+	}
+	done := (*sleeper).WakeFor(rte.app, rte.env)
+	browser := wantsPage(r)
+	hold := wakeHoldClient
+	if browser {
+		hold = wakeHoldBrowser
+	}
+	timer := time.NewTimer(hold)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-r.Context().Done():
+		return false
+	case <-timer.C:
+	}
+	w.Header().Set("Retry-After", "2")
+	if browser {
+		wakingUp(rte.app).ServeHTTP(w, r)
+	} else {
+		http.Error(w, rte.app+" is waking up: try again in a moment\n", http.StatusServiceUnavailable)
+	}
+	return false
+}
+
+// wantsPage says whether a request is a browser's going to a page, which can be shown one that
+// says what is happening, and reloads itself.
+func wantsPage(r *http.Request) bool {
+	return (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+		r.Header.Get("Upgrade") == "" && strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
 // serveApp serves a request for an app and writes it to the app's access
 // log. A request ID from a trusted proxy is kept; otherwise one is made.
 func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 	start := time.Now()
-	client := remoteIP(r.RemoteAddr)
-	trusted := isTrusted(client, rt.trusted)
-	info := &requestInfo{id: newRequestID()}
+	client := rt.clientAddress(r)
+	trusted := isTrusted(remoteIP(r.RemoteAddr), rt.trusted)
+	info := &requestInfo{id: newRequestID(), prefix: rte.prefix, proxyToken: rte.proxyToken}
 	if id := r.Header.Get("X-Request-Id"); trusted && validRequestID(id) {
 		info.id = id
 	}
-	if trusted {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			client = strings.TrimSpace(strings.Split(xff, ",")[0])
+	w.Header().Set("X-Request-Id", info.id)
+	key := rte.app + "/" + rte.env
+	open := rt.openCount(key)
+	open.Add(1)
+	defer open.Add(-1)
+	rec := &recorder{ResponseWriter: w, status: http.StatusOK, prefix: rte.prefix, private: rte.gate.guarded()}
+	user := ""
+	// Those the gate turns away neither keep an environment alive, nor wake it.
+	if who, ok := rt.admit(rec, r, rte); ok {
+		rt.active.Store(key, start)
+		ctx := context.WithValue(r.Context(), infoKey{}, info)
+		if who != nil {
+			user = who.user.Email
+			ctx = context.WithValue(ctx, identityKey{}, who)
+		}
+		if rte.gate.guarded() {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			defer cancel()
+			defer rt.watchAdmission(ctx, cancel, r, rte, who)()
+		}
+		if rt.awaitAwake(rec, r, rte) {
+			inner := r.WithContext(ctx)
+			if rte.strip {
+				stripped := *r.URL
+				stripped.Path = strings.TrimPrefix(r.URL.Path, rte.prefix)
+				stripped.RawPath = ""
+				inner.URL = &stripped
+			}
+			rte.handler.ServeHTTP(rec, inner)
 		}
 	}
-	w.Header().Set("X-Request-Id", info.id)
-	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-	rte.handler.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), infoKey{}, info)))
 	rt.access(rte, accessEntry{
 		Time:     start.UTC(),
 		ID:       info.id,
@@ -65,6 +153,7 @@ func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 		Millis:   float64(time.Since(start).Microseconds()) / 1000,
 		Client:   client,
 		Instance: info.instance,
+		User:     user,
 	})
 }
 
@@ -91,6 +180,7 @@ type accessEntry struct {
 	Millis   float64   `json:"ms"`
 	Client   string    `json:"client"`
 	Instance string    `json:"instance,omitempty"`
+	User     string    `json:"user,omitempty"`
 }
 
 // access appends an entry to logs/router/<app>/<env>.log.
@@ -113,6 +203,30 @@ func (rt *Router) access(rte route, e accessEntry) {
 	f.Write(append(line, '\n'))
 }
 
+// LastActive says when an environment last had a request, since the server started.
+func (rt *Router) LastActive(app, env string) time.Time {
+	if at, ok := rt.active.Load(app + "/" + env); ok {
+		return at.(time.Time)
+	}
+	return time.Time{}
+}
+
+// ForgetApp lets go of an app's files, which are moving or going: its access logs, and the
+// sites read from its builds, which the next reload reads from wherever they are then.
+func (rt *Router) ForgetApp(app string) {
+	rt.mu.Lock()
+	rt.sites = map[string]*static.Site{}
+	rt.mu.Unlock()
+	rt.logsMu.Lock()
+	defer rt.logsMu.Unlock()
+	for key, f := range rt.accessLogs {
+		if strings.HasPrefix(key, app+"/") {
+			f.Close()
+			delete(rt.accessLogs, key)
+		}
+	}
+}
+
 // Close closes the access logs.
 func (rt *Router) Close() {
 	rt.logsMu.Lock()
@@ -130,16 +244,35 @@ type recorder struct {
 	status int
 	bytes  int64
 	wrote  bool
+	// prefix is the path it is served at, whose redirects and cookies must fit it, and private
+	// says that what it serves is not for everyone, so that no cache should keep it for them.
+	prefix  string
+	private bool
+}
+
+// finalHeaders changes what is about to be sent.
+func (r *recorder) finalHeaders() {
+	h := r.ResponseWriter.Header()
+	if r.prefix != "" {
+		rewriteForPrefix(h, r.prefix)
+	}
+	if cc := h.Get("Cache-Control"); r.private && strings.Contains(cc, "public") {
+		h.Set("Cache-Control", strings.ReplaceAll(cc, "public", "private"))
+	}
 }
 
 func (r *recorder) WriteHeader(code int) {
-	if !r.wrote {
+	if !r.wrote && code >= 200 {
+		r.finalHeaders()
 		r.status, r.wrote = code, true
 	}
 	r.ResponseWriter.WriteHeader(code)
 }
 
 func (r *recorder) Write(b []byte) (int, error) {
+	if !r.wrote {
+		r.finalHeaders()
+	}
 	r.wrote = true
 	n, err := r.ResponseWriter.Write(b)
 	r.bytes += int64(n)
@@ -148,7 +281,13 @@ func (r *recorder) Write(b []byte) (int, error) {
 
 func (r *recorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
-func (r *recorder) Flush() { http.NewResponseController(r.ResponseWriter).Flush() }
+func (r *recorder) Flush() {
+	if !r.wrote {
+		r.finalHeaders()
+		r.wrote = true
+	}
+	http.NewResponseController(r.ResponseWriter).Flush()
+}
 
 func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	r.status, r.wrote = http.StatusSwitchingProtocols, true

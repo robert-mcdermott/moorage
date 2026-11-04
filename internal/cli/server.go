@@ -33,9 +33,9 @@ func newServerCmd() *cobra.Command {
 // defaults returns where server.toml and the data directory go when neither
 // a flag nor MOORAGE_CONFIG / MOORAGE_DATA_DIR says otherwise: system-wide
 // locations when running as root (or an elevated Administrator), per-user
-// locations otherwise.
+// locations otherwise, or where an earlier version put them.
 func defaults() (platform.Dirs, error) {
-	return platform.DefaultDirs(platform.IsPrivileged())
+	return platform.FindDirs(platform.IsPrivileged())
 }
 
 func configPath(flag string) (string, error) {
@@ -52,6 +52,7 @@ func configPath(flag string) (string, error) {
 func newServerInitCmd() *cobra.Command {
 	var (
 		preset, domain, dataDir, cfgFlag string
+		routing, consoleHost             string
 		behindProxy, force               bool
 	)
 	cmd := &cobra.Command{
@@ -89,7 +90,7 @@ system-wide when run as root (Administrator on Windows), per-user otherwise.`,
 			if dataDir, err = filepath.Abs(dataDir); err != nil {
 				return err
 			}
-			cfg, err := config.Preset(preset, config.PresetOptions{Domain: domain, DataDir: dataDir, BehindProxy: behindProxy})
+			cfg, err := config.Preset(preset, config.PresetOptions{Domain: domain, DataDir: dataDir, BehindProxy: behindProxy, Routing: routing, ConsoleHost: consoleHost})
 			if err != nil {
 				return err
 			}
@@ -113,6 +114,8 @@ system-wide when run as root (Administrator on Windows), per-user otherwise.`,
 	f := cmd.Flags()
 	f.StringVar(&preset, "preset", "lan", "starting point: "+strings.Join(config.Presets, " or "))
 	f.StringVar(&domain, "domain", "", "base domain; apps are served at <app>.<domain> (required for lan)")
+	f.StringVar(&routing, "routing", "host", "how apps are told apart: host, as <app>.<domain>, or path, as <domain>/<app>, for where there can be no wildcard DNS record")
+	f.StringVar(&consoleHost, "console-host", "", "the console's hostname (default: moorage.<domain>)")
 	f.BoolVar(&behindProxy, "behind-proxy", false, "serve plain HTTP on 127.0.0.1:8080 behind a TLS-terminating proxy such as nginx (lan)")
 	f.StringVar(&dataDir, "data-dir", "", "data directory (default: $MOORAGE_DATA_DIR or a per-platform location)")
 	f.StringVar(&cfgFlag, "config", "", "where to write server.toml (default: $MOORAGE_CONFIG or a per-platform location)")

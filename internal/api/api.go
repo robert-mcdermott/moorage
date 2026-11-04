@@ -72,17 +72,21 @@ func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	p := who(r)
+	visible, err := s.auth.Visible(r.Context(), who(r))
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	page := apitypes.Page[apitypes.App]{Items: []apitypes.App{}}
 	for i, a := range apps {
 		if i == limit {
 			page.NextCursor = encodeCursor(apps[i-1].Name)
 			break
 		}
-		if !p.CanApp(a.Name) {
+		if !visible(a.Name) {
 			continue
 		}
-		app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt}
+		app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt, Project: a.Project}
 		if a.Production != nil {
 			rel := release(*a.Production)
 			app.Production = &rel
@@ -133,9 +137,13 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				dep, created, err = s.deployer.Submit(r.Context(), app, env, who(r).Name, part)
 			}
 			var invalid *deploy.InvalidUploadError
+			var locked *deploy.LockedError
 			switch {
 			case errors.As(err, &invalid):
 				problem(w, http.StatusUnprocessableEntity, "invalid_upload", err.Error())
+				return
+			case errors.As(err, &locked):
+				problem(w, http.StatusConflict, "locked", sentenceOf(err))
 				return
 			case err != nil:
 				s.internal(w, err)
@@ -207,6 +215,11 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) publishFailed(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
+	}
+	var locked *deploy.LockedError
+	if errors.As(err, &locked) {
+		problem(w, http.StatusConflict, "locked", sentenceOf(err))
+		return true
 	}
 	var rollout *reconcile.RolloutError
 	if errors.As(err, &rollout) {
@@ -299,12 +312,16 @@ func (s *Server) redeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	dep, err := s.deployer.Redeploy(r.Context(), app, env, who(r).Name)
 	var cannot *deploy.CannotRedeployError
+	var locked *deploy.LockedError
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return
 	case errors.As(err, &cannot):
 		problem(w, http.StatusConflict, "cannot_redeploy", err.Error())
+		return
+	case errors.As(err, &locked):
+		problem(w, http.StatusConflict, "locked", sentenceOf(err))
 		return
 	case err != nil:
 		s.internal(w, err)
@@ -357,7 +374,12 @@ func (s *Server) environment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) environmentDoc(ctx context.Context, app, env string) (apitypes.Environment, error) {
-	doc := apitypes.Environment{App: app, Name: env, URL: s.appURL(app), Instances: s.instanceList(app, env)}
+	doc := apitypes.Environment{App: app, Name: env, URL: s.envURL(app, env), Instances: s.instanceList(app, env)}
+	e, err := s.db.Environment(ctx, app, env)
+	if err != nil {
+		return doc, err
+	}
+	s.describeEnv(ctx, &doc, e)
 	formation, err := s.db.Formation(ctx, app, env)
 	if err != nil {
 		return doc, err
@@ -377,7 +399,7 @@ func (s *Server) environmentDoc(ctx context.Context, app, env string) (apitypes.
 	plan.Defaults()
 	if plan.Kind == manifest.KindProcess {
 		doc.Formation = map[string]int{}
-		for name, proc := range plan.WithFormation(formation).Processes {
+		for name, proc := range plan.ForEnv(env, doc.Kind).WithFormation(formation).Processes {
 			doc.Formation[name] = *proc.Instances
 		}
 	}
@@ -394,6 +416,20 @@ func (s *Server) changeEnvironment(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&change); err != nil {
 		problem(w, http.StatusBadRequest, "bad_request", "The body is not valid JSON: "+err.Error())
 		return
+	}
+	if change.Pinned != nil {
+		if err := s.db.SetPinned(r.Context(), app, env, *change.Pinned); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				problem(w, http.StatusNotFound, "not_found", err.Error())
+				return
+			}
+			s.internal(w, err)
+			return
+		}
+		if len(change.Formation) == 0 {
+			s.environment(w, r)
+			return
+		}
 	}
 	if len(change.Formation) == 0 {
 		problem(w, http.StatusUnprocessableEntity, "invalid_formation", "Say how many instances of which process: {\"formation\": {\"web\": 2}}.")
@@ -515,18 +551,24 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (app, env string
 		return "", "", false
 	}
 	if env != names.Production {
-		problem(w, http.StatusUnprocessableEntity, "unsupported_environment",
-			"Only the production environment exists in this version; named environments and previews arrive later.")
-		return "", "", false
+		if err := names.ValidateEnv(env); err != nil {
+			problem(w, http.StatusUnprocessableEntity, "invalid_environment_name", err.Error())
+			return "", "", false
+		}
 	}
 	return app, env, true
 }
 
-func (s *Server) appURL(app string) string {
-	return s.cfg.PublicURL(app + "." + s.cfg.Domain)
-}
+func (s *Server) appURL(app string) string { return s.cfg.EnvURL(app, names.Production) }
+
+func (s *Server) envURL(app, env string) string { return s.cfg.EnvURL(app, env) }
 
 func (s *Server) internal(w http.ResponseWriter, err error) {
+	if errors.Is(err, context.Canceled) {
+		// The client went away: there is nobody to answer, and nothing wrong.
+		w.WriteHeader(499)
+		return
+	}
 	s.log.Error("API request failed", "err", err)
 	problem(w, http.StatusInternalServerError, "internal", "The server could not complete the request; its log has the details.")
 }

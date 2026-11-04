@@ -308,6 +308,8 @@ details > summary { cursor: pointer; font-weight: 600; }
 .narrow h2 { margin-bottom: var(--s1); font-size: 1.05rem; }
 .narrow form { margin-top: var(--s4); }
 .deploy-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); gap: var(--s4); }
+.deploy-ways > * { min-width: 0; }
+.deploy-ways select { min-width: 0; max-width: 100%; }
 .deploy-ways h2 { margin-bottom: var(--s1); font-size: 1.05rem; }
 .deploy-ways form { margin-top: var(--s3); }
 .deploy-ways .command { margin-top: var(--s2); }
@@ -330,6 +332,35 @@ button.danger:hover { color: var(--fail); border-color: var(--fail); background:
 .lead { margin-bottom: var(--s2); }
 .row-end { text-align: right; white-space: nowrap; }
 .row-end form + form { margin-left: var(--s2); }
+
+.danger-zone { border-color: var(--fail); }
+.danger-zone h2 { margin-bottom: var(--s2); font-size: 1.05rem; color: var(--fail); }
+.danger-zone .usage { margin: var(--s3) 0; }
+.danger-zone .check { margin-bottom: var(--s3); }
+button.danger-solid { color: #fff; background: var(--fail); border-color: var(--fail); }
+:root[data-theme="dark"] button.danger-solid { color: #1b0c0a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.danger-solid { color: #1b0c0a; } }
+
+.app-nav { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s4); border-bottom: 1px solid var(--line); }
+.app-nav .tabs { margin-bottom: -1px; border-bottom: 0; }
+.env-switch { display: flex; align-items: center; gap: var(--s2); padding-bottom: var(--s2); }
+.env-switch label { margin: 0; font-size: .82rem; color: var(--muted); font-weight: 400; }
+.env-switch select { width: auto; max-width: 14rem; padding: .25rem .5rem; font-size: .85rem; background: var(--surface); }
+.env-actions form { display: inline-block; margin-left: var(--s1); }
+.envs td { vertical-align: top; }
+.env-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s4); }
+.env-banner p { margin: 0; flex: 1 1 20rem; }
+.env-banner .env-actions form:first-child { margin-left: 0; }
+.gate-form fieldset { border: 0; margin: 0 0 var(--s4); padding: 0; }
+.gate-form legend { font-weight: 600; margin-bottom: var(--s2); padding: 0; }
+.gate-form .check { display: block; margin-bottom: var(--s2); font-weight: 400; }
+.gate-form .field { margin-top: var(--s4); }
+.share-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s4); margin-top: var(--s3); }
+.share-form .field { margin: 0; }
+.share-form select, .share-form input { width: auto; max-width: 12rem; }
+.new-link p { margin: 0 0 var(--s2); }
+.lock-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); }
+.lock-offer p { margin: 0; flex: 1 1 20rem; }
 
 /* The dialog that asks first */
 .confirm { width: min(28rem, calc(100vw - 2rem)); padding: var(--s5); margin: 18vh auto auto; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -418,6 +449,9 @@ details.row-edit form { display: block; margin-top: var(--s2); }
 .log-line.level-error .log-text { color: var(--fail); }
 .log-line.level-debug .log-text { color: var(--muted); }
 .log-jump { position: absolute; right: var(--s4); bottom: var(--s4); box-shadow: var(--shadow); }
+.quiet-link { color: inherit; }
+.filters input { width: auto; min-width: 12rem; background: var(--surface); }
+.audit td { vertical-align: top; }
 .who a { color: inherit; text-decoration: none; }
 .who a:hover strong { text-decoration: underline; }
 

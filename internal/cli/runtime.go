@@ -43,6 +43,12 @@ func newPsCmd() *cobra.Command {
 			if asJSON {
 				return printJSON(cmd.OutOrStdout(), ins)
 			}
+			if len(ins) == 0 {
+				if e, err := c.Environment(cmd.Context(), appName, env); err == nil && e.Asleep {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s is asleep. The next request wakes it, or: moor wake\n", appName)
+					return nil
+				}
+			}
 			return printInstances(cmd, appName, ins)
 		},
 	}

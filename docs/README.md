@@ -1,7 +1,7 @@
 # Moorage documentation
 
 How to install Moorage, run it, and deploy apps to it. This documentation
-describes Moorage 0.3.0; the [design documents](../spec/README.md) describe
+describes Moorage 0.4.0; the [design documents](../spec/README.md) describe
 how it works inside and where it is going.
 
 ## Start here
@@ -29,6 +29,12 @@ how it works inside and where it is going.
 - [Anything else](other.md): your own build, a script, an app that is
   already built
 - [Variables and secrets](variables.md)
+- [Previews and environments](previews.md): a place of its own for every branch,
+  staging, promoting, locks and sleeping
+- [Who can reach an app](access.md): passwords, signing in, share links and lists
+  of addresses
+- [Your own domains, and paths](domains.md): hostnames of your own, several apps on one
+  hostname, and servers with no wildcard DNS
 
 ## Reference
 
@@ -45,22 +51,32 @@ how it works inside and where it is going.
 | `moor registry login HOST` | Keeps a private container registry's credentials on the server |
 | `moor trust` | Trusts the server's CA on this machine |
 | `moor server doctor` | Checks the server and what it depends on, and says how to fix what it finds |
-| `moor apps` | Lists the apps |
+| `moor apps` | Lists the apps; `create`, `info`, `move`, `rename` and `delete` one |
 | `moor events` | Shows what happened on the server; `-f` follows it |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
 | `moor releases` | Lists an app's releases; `show` one, and `diff` two |
 | `moor rollback [vN]` | Serves an earlier release again, in a moment |
+| `moor environments` | Lists an app's environments; `create` and `delete` one |
+| `moor previews` | Lists the previews of branches; `create`, `pin`, `unpin` and `destroy` one |
+| `moor promote --from ENV` | Releases what one environment runs to another, without building it again |
+| `moor lock`, `moor unlock` | Stops deployments to an environment, and lets them go on |
+| `moor sleep`, `moor wake` | Stops an environment's instances until a request wakes it, and starts them |
+| `moor access` | Shows who can reach an environment; `set` changes it |
+| `moor share` | Makes a link that lets someone reach an environment; `list` and `revoke` them |
+| `moor domains` | Lists an environment's own hostnames; `add`, `verify` and `remove` one |
 | `moor redeploy` | Builds the current release's source again, and rolls it out |
 | `moor ps` | Lists the app's instances: status, health, port, PID |
 | `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |
 | `moor restart` | Replaces the instances without downtime |
 | `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |
-| `moor env` | Lists and changes variables and secrets |
+| `moor env` | Lists and changes variables and secrets; `reveal` reads a secret |
 | `moor manifest explain` | Shows how Moorage will build and run the app |
 | `moor server status` | Shows the server and its service |
 | `moor login [URL]` | Signs in to a server, approving it in a browser |
 | `moor whoami` | Shows who you are signed in as |
 | `moor password` | Changes your password |
+| `moor projects` | Lists your projects; `create`, `show`, `set`, `add-member`, `remove-member` and `delete` them |
+| `moor audit` | Shows who did what, for administrators |
 | `moor tokens` | Lists your API tokens; `create` and `revoke` them |
 | `moor server users` | Lists the users; `create`, `invite`, `role`, `disable` and `enable` them |
 

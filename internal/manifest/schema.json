@@ -27,6 +27,7 @@
         },
         "root": { "description": "Sub-directory containing the app (monorepos).", "type": "string", "default": "." },
         "shell": { "description": "Shell for build and run commands.", "enum": ["embedded", "system"], "default": "embedded" },
+        "strip_prefix": { "description": "With path routing, take the path it is served at away from what it hears.", "type": "boolean", "default": false },
         "watch": { "description": "Path globs; a push touching none of them is not deployed.", "type": "array", "items": { "type": "string" } }
       }
     },

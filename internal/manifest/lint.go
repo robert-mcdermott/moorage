@@ -69,21 +69,20 @@ func Lint(m *Manifest) []string {
 		notYet("[storage]", "it applies to containers; $MOORAGE_DATA_DIR is always available")
 	}
 	if m.Previews != nil {
-		notYet("[previews]", "previews arrive in a later release")
+		if m.Previews.Data != "" {
+			notYet("previews.data", "a preview's data directory starts empty")
+		}
 	}
-	if len(m.Environments) > 0 {
-		notYet("[environments]", "named environments arrive in a later release")
+	for name, e := range m.Environments {
+		if e.Resources != nil {
+			notYet("environments."+name+".resources", "a later release")
+		}
 	}
 	if len(m.Services) > 0 {
 		notYet("[services]", "services arrive in a later release")
 	}
 	if m.Static != nil && len(m.Processes) > 0 {
 		notYet("[static] beside [processes]", "serving both arrives with [[routes]]; the processes serve the app")
-	}
-	for _, name := range sortedNames(m.Processes) {
-		if p := m.Processes[name]; p.Sleep != nil {
-			notYet("processes."+name+".sleep", "sleeping environments arrive in a later release")
-		}
 	}
 	sort.Strings(w)
 	return w

@@ -14,7 +14,6 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/ids"
-	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -57,6 +56,8 @@ type deploymentView struct {
 	DiffChanged       bool
 	// Redeployable says that this deployment made what is being served.
 	Redeployable bool
+	// OfferLock says that this rollback is being served, and the next push would replace it.
+	OfferLock bool
 }
 
 type stageRow struct {
@@ -110,6 +111,8 @@ func sourceText(d store.Deployment) string {
 		return "Image " + d.SourceRef
 	case "rollback":
 		return "Roll back"
+	case "promote":
+		return "Promoted from another environment"
 	case "config":
 		return "A change of variables"
 	case "static-upload":
@@ -156,16 +159,17 @@ func (c *Console) deploymentsList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d, _, err := c.shellData(r, p, "apps", "Deployments of "+app)
+	d, err := c.appData(r, p, app, "apps", "Deployments of "+app)
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}
 	d.Tab = "deployments"
-	d.App = appView{Name: app, URL: c.appURL(app)}
+	env := envOf(r)
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, env)}
 	current := 0
-	if rel, _, err := c.db.CurrentRelease(r.Context(), app, names.Production); err == nil {
+	if rel, _, err := c.db.CurrentRelease(r.Context(), app, env); err == nil {
 		current = rel.Version
 	} else if !errors.Is(err, store.ErrNotFound) {
 		c.internal(w, err)
@@ -182,7 +186,7 @@ func (c *Console) deploymentsList(w http.ResponseWriter, r *http.Request) {
 		}
 		created, beforeID = time.UnixMilli(ms), id
 	}
-	deps, err := c.db.DeploymentsBefore(r.Context(), app, names.Production, created, beforeID, deploymentsPage+1)
+	deps, err := c.db.DeploymentsBefore(r.Context(), app, env, created, beforeID, deploymentsPage+1)
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -190,7 +194,7 @@ func (c *Console) deploymentsList(w http.ResponseWriter, r *http.Request) {
 	if len(deps) > deploymentsPage {
 		deps = deps[:deploymentsPage]
 		last := deps[deploymentsPage-1]
-		d.Older = "/apps/" + url.PathEscape(app) + "/deployments?" + url.Values{"before": {strconv.FormatInt(last.CreatedAt.UnixMilli(), 10) + "/" + last.ID}}.Encode()
+		d.Older = appAddress(app, env, "/deployments", url.Values{"before": {strconv.FormatInt(last.CreatedAt.UnixMilli(), 10) + "/" + last.ID}})
 	}
 	for _, dep := range deps {
 		d.Deployments = append(d.Deployments, deploymentRowOf(dep, current))
@@ -217,7 +221,7 @@ func (c *Console) deploymentPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep, err := c.db.Deployment(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && !p.CanApp(dep.App)) {
+	if errors.Is(err, store.ErrNotFound) {
 		notFound()
 		return
 	}
@@ -225,18 +229,27 @@ func (c *Console) deploymentPage(w http.ResponseWriter, r *http.Request) {
 		c.internal(w, err)
 		return
 	}
-	d, _, err := c.shellData(r, p, "apps", "Deployment of "+dep.App)
+	d, err := c.appData(r, p, dep.App, "apps", "Deployment of "+dep.App)
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
+	if !d.Access.See {
+		notFound()
+		return
+	}
 	app := dep.App
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}, {"Deployments", "/apps/" + url.PathEscape(app) + "/deployments"}}
-	d.App = appView{Name: app, URL: c.appURL(app)}
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, dep.Env)}
+	// It is of one environment, whatever the address says, and has no others to go to.
+	d.Env, d.EnvNames = envValue(dep.Env), nil
 	view, err := c.deploymentView(r, dep)
 	if err != nil {
 		c.internal(w, err)
 		return
+	}
+	if !d.Access.Logs {
+		view.Log, view.LogCount, view.Omitted = nil, 0, 0
 	}
 	d.Deployment = view
 	d.Poll = view.Running
@@ -258,7 +271,7 @@ func (c *Console) deploymentView(r *http.Request, dep store.Deployment) (deploym
 		return deploymentView{}, err
 	}
 	view := deploymentView{
-		deploymentRow: deploymentRowOf(dep, current), App: dep.App, Env: dep.Env, URL: c.appURL(dep.App),
+		deploymentRow: deploymentRowOf(dep, current), App: dep.App, Env: dep.Env, URL: c.cfg.EnvURL(dep.App, dep.Env),
 		Running: inProgress(dep), Error: sentence(dep.Error), Output: dep.Output, LogCount: len(lines),
 	}
 	for _, s := range deploy.Stages(dep, lines, time.Now()) {
@@ -304,5 +317,10 @@ func (c *Console) deploymentView(r *http.Request, dep store.Deployment) (deploym
 		}
 	}
 	view.Redeployable = view.deploymentRow.Current
+	if dep.SourceType == "rollback" && view.deploymentRow.Current {
+		if e, err := c.db.Environment(r.Context(), dep.App, dep.Env); err == nil && e.LockedBy == "" {
+			view.OfferLock = true
+		}
+	}
 	return view, nil
 }

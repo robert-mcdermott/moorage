@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -389,20 +390,176 @@ func newAppsCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "NAME\tURL\tRELEASE\tDEPLOYED")
+			fmt.Fprintln(w, "NAME\tPROJECT\tURL\tRELEASE\tDEPLOYED")
 			for _, a := range apps {
 				release, deployed := "-", "-"
 				if a.Production != nil {
 					release = "v" + strconv.Itoa(a.Production.Version)
 					deployed = ago(a.Production.CreatedAt)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", a.Name, a.URL, release, deployed)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", a.Name, orDash(a.Project), a.URL, release, deployed)
 			}
 			return w.Flush()
 		},
 	}
 	conn.addFlags(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	var createConn, moveConn connection
+	var project, moveTo string
+	create := &cobra.Command{
+		Use:   "create NAME",
+		Short: "Create an app in a project",
+		Long: `Create an app, before its first deployment. Deploying also creates one, in the
+default project: this is how an app starts in another.`,
+		Example: "  moor apps create shop --project payments",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := createConn.client()
+			if err != nil {
+				return err
+			}
+			a, err := c.CreateApp(cmd.Context(), args[0], project)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Created %s in the project %s. It will be at %s.\n", a.Name, a.Project, a.URL)
+			return nil
+		},
+	}
+	createConn.addFlags(create)
+	create.Flags().StringVar(&project, "project", "", "the project it goes in (default: the default project)")
+	move := &cobra.Command{
+		Use:     "move NAME --project PROJECT",
+		Short:   "Put an app in another project",
+		Long:    "Put an app in another project. It takes being a maintainer of both.",
+		Example: "  moor apps move shop --project payments",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if moveTo == "" {
+				return usageError{errors.New("say which project: --project NAME")}
+			}
+			c, err := moveConn.client()
+			if err != nil {
+				return err
+			}
+			a, err := c.MoveApp(cmd.Context(), args[0], moveTo)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is now in the project %s.\n", a.Name, a.Project)
+			return nil
+		},
+	}
+	moveConn.addFlags(move)
+	move.Flags().StringVar(&moveTo, "project", "", "the project it goes in")
+	cmd.AddCommand(create, move, newAppInfoCmd(), newAppRenameCmd(), newAppDeleteCmd())
+	return cmd
+}
+
+func newAppInfoCmd() *cobra.Command {
+	var conn connection
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "info NAME",
+		Short: "Show an app's address and project, and how much room it takes",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			info, err := c.AppInfo(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printJSON(cmd.OutOrStdout(), info)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "App         %s\nAddress     %s\nProject     %s\nBuilds      %s\nLogs        %s\nRepository  %s\nData        %s\n",
+				info.Name, info.URL, info.Project, humanBytes(info.Builds), humanBytes(info.Logs), humanBytes(info.Repository), humanBytes(info.Data))
+			return nil
+		},
+	}
+	conn.addFlags(cmd)
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func newAppRenameCmd() *cobra.Command {
+	var conn connection
+	cmd := &cobra.Command{
+		Use:   "rename NAME NEW",
+		Short: "Give an app another name",
+		Long: `Give an app another name, which is another address and another git remote. Its
+instances stop and start again under the new name, so there is a moment of downtime.
+
+Change [app].name in its moorage.toml, and its git remote, to match: a deploy by the
+old name makes a new app.`,
+		Example: "  moor apps rename shop store",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			a, err := c.RenameApp(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is now %s, at %s.\nChange [app].name in its moorage.toml and its git remote to match.\n", args[0], a.Name, a.URL)
+			return nil
+		},
+	}
+	conn.addFlags(cmd)
+	return cmd
+}
+
+func newAppDeleteCmd() *cobra.Command {
+	var conn connection
+	var keepData, yes bool
+	cmd := &cobra.Command{
+		Use:   "delete NAME",
+		Short: "Delete an app, and everything of it",
+		Long: `Delete an app: its instances, variables, releases, builds, logs and repository, and
+its data directory unless --keep-data keeps it. This cannot be undone. It asks you to type
+the app's name first, unless --yes.`,
+		Example: `  moor apps delete shop
+  moor apps delete shop --keep-data --yes`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			c, err := conn.client()
+			if err != nil {
+				return err
+			}
+			if !yes {
+				info, err := c.AppInfo(cmd.Context(), name)
+				if err != nil {
+					return err
+				}
+				out := cmd.ErrOrStderr()
+				fmt.Fprintf(out, "This deletes %s, its builds (%s), logs (%s) and repository (%s)", name, humanBytes(info.Builds), humanBytes(info.Logs), humanBytes(info.Repository))
+				if keepData {
+					fmt.Fprintf(out, ", and keeps its data directory (%s).\n", humanBytes(info.Data))
+				} else {
+					fmt.Fprintf(out, ", and its data directory (%s).\n", humanBytes(info.Data))
+				}
+				fmt.Fprintf(out, "Type %s to go on: ", name)
+				answer, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+				if strings.TrimSpace(answer) != name {
+					return errors.New("that is not its name: nothing was deleted")
+				}
+			}
+			if err := c.DeleteApp(cmd.Context(), name, keepData); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s.\n", name)
+			return nil
+		},
+	}
+	conn.addFlags(cmd)
+	cmd.Flags().BoolVar(&keepData, "keep-data", false, "keep its data directory")
+	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask")
 	return cmd
 }
 

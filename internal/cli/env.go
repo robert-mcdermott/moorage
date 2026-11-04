@@ -55,7 +55,7 @@ for the next deploy).`,
 	}
 	f.add(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
-	cmd.AddCommand(newEnvListCmd(), newEnvSetCmd(), newEnvUnsetCmd(), newEnvImportCmd(), newEnvExportCmd())
+	cmd.AddCommand(newEnvListCmd(), newEnvRevealCmd(), newEnvSetCmd(), newEnvUnsetCmd(), newEnvImportCmd(), newEnvExportCmd())
 	return cmd
 }
 
@@ -102,7 +102,7 @@ func listVars(cmd *cobra.Command, f *envFlags, asJSON bool) error {
 		if v.Secret {
 			value = "(secret)"
 		}
-		source := map[string]string{"env": f.env, "app": "all environments", "manifest": "moorage.toml"}[v.Source]
+		source := map[string]string{"env": f.env, "app": "all environments", "manifest": "moorage.toml", "production": "inherited from production"}[v.Source]
 		var notes []string
 		if v.Build {
 			notes = append(notes, "also at build time")
@@ -129,7 +129,7 @@ func oneLine(s string) string {
 // changeFlags are the flags of the commands that change variables.
 type changeFlags struct {
 	envFlags
-	secret, build, allEnvs, noRestart bool
+	secret, build, allEnvs, noRestart, productionOnly bool
 }
 
 func (f *changeFlags) add(cmd *cobra.Command, setting bool) {
@@ -138,6 +138,7 @@ func (f *changeFlags) add(cmd *cobra.Command, setting bool) {
 	if setting {
 		fl.BoolVar(&f.secret, "secret", false, "store the values encrypted and never show them again")
 		fl.BoolVar(&f.build, "build", false, "make the variables available to builds too")
+		fl.BoolVar(&f.productionOnly, "production-only", false, "keep previews from inheriting the variables")
 	}
 	fl.BoolVar(&f.allEnvs, "all-envs", false, "change the variables of every environment of the app")
 	fl.BoolVar(&f.noRestart, "no-restart", false, "keep the change for the next deploy instead of releasing it now")
@@ -168,7 +169,7 @@ or asked for without echoing it, so that it stays out of the shell's history.`,
 					}
 					value = v
 				}
-				change.Set = append(change.Set, apitypes.VarSet{Name: name, Value: value, Secret: f.secret, Build: f.build})
+				change.Set = append(change.Set, apitypes.VarSet{Name: name, Value: value, Secret: f.secret, Build: f.build, ProductionOnly: f.productionOnly})
 			}
 			return changeVars(cmd, &f.envFlags, change)
 		},
@@ -253,6 +254,35 @@ Use - to read standard input.`,
 		},
 	}
 	f.add(cmd, true)
+	return cmd
+}
+
+func newEnvRevealCmd() *cobra.Command {
+	var f envFlags
+	cmd := &cobra.Command{
+		Use:   "reveal NAME",
+		Short: "Print a secret's value",
+		Long: `Print a secret's value. It takes being a maintainer of the app's project, and is
+recorded in the audit log.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			appName, _, err := resolveApp(f.app)
+			if err != nil {
+				return err
+			}
+			c, err := f.conn.client()
+			if err != nil {
+				return err
+			}
+			revealed, err := c.RevealVar(cmd.Context(), appName, f.env, args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), revealed.Value)
+			return nil
+		},
+	}
+	f.add(cmd)
 	return cmd
 }
 

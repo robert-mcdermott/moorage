@@ -121,7 +121,8 @@ func TestEveryRouteDeclaresItsPermission(t *testing.T) {
 		// A token for one app passes on routes that name no app: their
 		// handlers show it only its own (see TestListsAndRestrictedTokens).
 		canRead:     {"local", "admin-all", "admin-read", "member-all", "member-deploy", "member-read", "shop-all", "other-all"},
-		canDeploy:   {"local", "admin-all", "member-all", "member-deploy", "shop-all"},
+		canReadLogs: {"local", "admin-all", "admin-read", "member-all", "member-deploy", "member-read", "shop-all", "other-all"},
+		canDeploy:   {"local", "admin-all", "member-all", "member-deploy"},
 		canManage:   {"local", "admin-all", "member-all"},
 		serverAdmin: {"local", "admin-all"},
 	}
@@ -173,6 +174,141 @@ func TestEveryRouteDeclaresItsPermission(t *testing.T) {
 	}
 	if count < 30 {
 		t.Errorf("only %d routes", count)
+	}
+}
+
+// TestRolesInAProject checks that a role in an app's project decides what its routes
+// allow, whatever a token's scope, and that those with no role cannot tell the app exists.
+func TestRolesInAProject(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	db := f.s.db
+	if _, err := db.CreateProject(ctx, "secure"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MoveApp(ctx, "shop", "secure"); err != nil {
+		t.Fatal(err)
+	}
+	member, err := db.UserByEmail(ctx, "member@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeLogs := true
+	for _, tc := range []struct {
+		role                  string
+		see, logs, act, admin int
+		noLogs                int
+	}{
+		{"", http.StatusNotFound, http.StatusNotFound, http.StatusNotFound, http.StatusNotFound, http.StatusNotFound},
+		{store.RoleViewer, http.StatusTeapot, http.StatusTeapot, http.StatusForbidden, http.StatusForbidden, http.StatusForbidden},
+		{store.RoleDeployer, http.StatusTeapot, http.StatusTeapot, http.StatusTeapot, http.StatusForbidden, http.StatusTeapot},
+		{store.RoleMaintainer, http.StatusTeapot, http.StatusTeapot, http.StatusTeapot, http.StatusTeapot, http.StatusTeapot},
+	} {
+		if tc.role != "" {
+			if err := db.SetMember(ctx, "secure", member.ID, tc.role); err != nil {
+				t.Fatal(err)
+			}
+		}
+		as := func(token string) func(*http.Request) {
+			return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+f.tokens[token]) }
+		}
+		for _, check := range []struct {
+			method, path string
+			want         int
+		}{
+			{"GET", "/apps/shop/envs/production", tc.see},
+			{"GET", "/apps/shop/envs/production/logs", tc.logs},
+			{"POST", "/apps/shop/envs/production/restart", tc.act},
+			{"PATCH", "/apps/shop/envs/production/vars", tc.admin},
+		} {
+			if w := f.do(check.method, basePath+check.path, as("member-all")); w.Code != check.want {
+				t.Errorf("as a %q: %s %s: %d, want %d: %s", tc.role, check.method, check.path, w.Code, check.want, w.Body)
+			}
+		}
+		// Viewers may be kept from the logs; those who deploy may not.
+		if err := db.SetProject(ctx, "secure", "", false); err != nil {
+			t.Fatal(err)
+		}
+		if w := f.do("GET", basePath+"/apps/shop/envs/production/logs", as("member-all")); w.Code != tc.noLogs {
+			t.Errorf("as a %q with logs kept from viewers: %d, want %d", tc.role, w.Code, tc.noLogs)
+		}
+		if err := db.SetProject(ctx, "secure", "", seeLogs); err != nil {
+			t.Fatal(err)
+		}
+		// A token's scope narrows a role, whatever the role.
+		if tc.role == store.RoleMaintainer {
+			if w := f.do("POST", basePath+"/apps/shop/envs/production/restart", as("member-read")); w.Code != http.StatusForbidden {
+				t.Errorf("a read token as a maintainer: %d", w.Code)
+			}
+			if w := f.do("PATCH", basePath+"/apps/shop/envs/production/vars", as("member-deploy")); w.Code != http.StatusForbidden {
+				t.Errorf("a deploy token as a maintainer: %d", w.Code)
+			}
+		}
+	}
+	// Administrators and the local token have no need of a role.
+	for _, token := range []string{"admin-all", "local"} {
+		w := f.do("PATCH", basePath+"/apps/shop/envs/production/vars", func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+f.tokens[token]) })
+		if w.Code != http.StatusTeapot {
+			t.Errorf("%s: %d", token, w.Code)
+		}
+	}
+	// Everyone can be given a role, and it is a member's own that counts.
+	if err := db.RemoveMember(ctx, "secure", member.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetProject(ctx, "secure", store.RoleViewer, true); err != nil {
+		t.Fatal(err)
+	}
+	do := func(method, path string) int {
+		return f.do(method, basePath+path, func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+f.tokens["member-all"]) }).Code
+	}
+	if code := do("GET", "/apps/shop/envs/production"); code != http.StatusTeapot {
+		t.Errorf("everyone a viewer: %d", code)
+	}
+	if code := do("POST", "/apps/shop/envs/production/restart"); code != http.StatusForbidden {
+		t.Errorf("everyone a viewer: %d", code)
+	}
+	if err := db.SetMember(ctx, "secure", member.ID, store.RoleDeployer); err != nil {
+		t.Fatal(err)
+	}
+	if code := do("POST", "/apps/shop/envs/production/restart"); code != http.StatusTeapot {
+		t.Errorf("a member's own role: %d", code)
+	}
+
+	// An app that does not exist yet would be in the default project, as its first
+	// deployment makes it.
+	if err := db.SetProject(ctx, store.DefaultProject, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if code := do("POST", "/apps/brand-new/envs/production/deployments"); code != http.StatusNotFound {
+		t.Errorf("no role in the default project: %d", code)
+	}
+}
+
+func TestChangesAreAudited(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	as := func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+f.tokens["member-read"]) }
+	f.do("GET", basePath+"/apps/shop/envs/production", as)
+	if list, err := f.s.db.Audit(ctx, store.AuditFilter{}); err != nil || len(list) != 0 {
+		t.Errorf("a read is no change: %+v %v", list, err)
+	}
+	f.do("POST", basePath+"/apps/shop/envs/production/restart", as)
+	list, err := f.s.db.Audit(ctx, store.AuditFilter{})
+	if err != nil || len(list) != 1 {
+		t.Fatalf("%+v %v", list, err)
+	}
+	e := list[0]
+	if e.Actor != "member@example.com" || e.Action != "POST /apps/{app}/envs/{env}/restart" || e.Target != basePath+"/apps/shop/envs/production/restart" || e.Result != "refused" || e.IP != "127.0.0.1" {
+		t.Errorf("%+v", e)
+	}
+	f.do("POST", basePath+"/apps/shop/envs/production/restart", func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+f.tokens["member-all"]) })
+	// The stand-in for the route's handler answers 418, which is a failure to record.
+	if list, _ := f.s.db.Audit(ctx, store.AuditFilter{Actor: "member@example.com", Action: "restart", Limit: 1}); len(list) != 1 || list[0].Result != "failed" || list[0].Data["status"] != float64(http.StatusTeapot) {
+		t.Errorf("%+v", list)
+	}
+	if list, _ := f.s.db.Audit(ctx, store.AuditFilter{Actor: "nobody"}); len(list) != 0 {
+		t.Errorf("%+v", list)
 	}
 }
 

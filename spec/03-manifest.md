@@ -406,9 +406,9 @@ exposed as `$MOORAGE_DATA_DIR` (native) or mounted into containers.
 | Key | Default | Description |
 |---|---|---|
 | `enabled` | `true` (if previews are enabled server-side) | Create an environment per pushed branch. |
-| `branches` | `["*"]` | Glob filters; prefix `!` to exclude (`"!dependabot/*"`). |
+| `branches` | `["*"]` | Glob filters, whose `*` crosses slashes; prefix `!` to exclude (`"!dependabot/*"`). |
 | `ttl` | `"7d"` | Delete after this long without a deploy or request. |
-| `sleep_after` | `"30m"` | Stop instances after this long without requests; wake on next request. |
+| `sleep_after` | `"30m"` | Stop instances after this long without requests; wake on next request. `"off"` never does. |
 | `access` | server default | `public`, `password`, `login`, `share`. |
 | `data` | `"empty"` | `empty` or `copy` (copy production's data directory when created). |
 
@@ -417,7 +417,9 @@ exposed as `$MOORAGE_DATA_DIR` (native) or mounted into containers.
 Overrides for a specific environment. `<name>` is `production`, a named
 environment such as `staging`, or the special name `preview` (applies to all
 previews). Named environments other than `production` and `preview` are
-created automatically when declared.
+created when production's manifest declaring them is released, or by the first
+push of their branch. One the manifest stops naming stays, since it may hold
+data, until it is removed.
 
 | Key | Description |
 |---|---|

@@ -25,7 +25,6 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
-	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/shim"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -33,6 +32,9 @@ import (
 // Options configure a Manager.
 type Options struct {
 	DataDir string
+	// ProxyToken is what shows an environment's instances that a request came through the
+	// router, for those that do not trust what else can reach them on this machine.
+	ProxyToken func(envID string) string
 	// ShimCmd runs `moor shim`; Shell runs `moor sh -c` for commands that
 	// are not simple. ShimEnv and ShellEnv are added to their environments.
 	ShimCmd  []string
@@ -391,9 +393,6 @@ func (m *Manager) ensure(ctx context.Context) {
 		return
 	}
 	for _, r := range routes {
-		if r.Env != names.Production {
-			continue
-		}
 		plan, err := readPlan(r.Build)
 		if err != nil || plan.Kind != manifest.KindProcess {
 			continue
@@ -402,19 +401,52 @@ func (m *Manager) ensure(ctx context.Context) {
 		if !es.rollout.TryLock() {
 			continue // a rollout is under way
 		}
-		rel, _, err := m.db.CurrentRelease(ctx, r.App, r.Env)
-		var formation map[string]int
-		if err == nil {
-			formation, err = m.db.Formation(ctx, r.App, r.Env)
-		}
-		if err == nil {
-			err = m.ensureEnv(ctx, es, rel, r.Build, plan.WithFormation(formation))
-		}
-		if err != nil && ctx.Err() == nil {
+		if err := m.ensureRoute(ctx, es, r, plan); err != nil && ctx.Err() == nil {
 			m.log.Error("cannot start an instance", "app", r.App, "env", r.Env, "err", err)
 		}
 		es.rollout.Unlock()
 	}
+}
+
+// ensureRoute brings one environment to what it should be running now. It takes the
+// environment's rollout lock being held.
+func (m *Manager) ensureRoute(ctx context.Context, es *envState, r store.Route, plan manifest.Plan) error {
+	rel, _, err := m.db.CurrentRelease(ctx, r.App, r.Env)
+	if err != nil {
+		return err
+	}
+	formation, err := m.db.Formation(ctx, r.App, r.Env)
+	if err != nil {
+		return err
+	}
+	running := plan.ForEnv(r.Env, r.Kind).WithFormation(formation)
+	if r.Asleep {
+		running = running.Sleeping()
+	}
+	return m.ensureEnv(ctx, es, rel, r.Build, running)
+}
+
+// Settle brings an environment to what it should be running now, at once, and returns when it
+// is: its instances gone if it has gone to sleep, or healthy if it has woken.
+func (m *Manager) Settle(ctx context.Context, app, env string) error {
+	routes, err := m.db.Routes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range routes {
+		if r.App != app || r.Env != env {
+			continue
+		}
+		plan, err := readPlan(r.Build)
+		if err != nil || plan.Kind != manifest.KindProcess {
+			return err
+		}
+		es := m.env(app, env)
+		es.rollout.Lock()
+		defer es.rollout.Unlock()
+		return m.ensureRoute(ctx, es, r, plan)
+	}
+	return nil
 }
 
 // ensureEnv brings an environment to what its plan says, by starting the instances

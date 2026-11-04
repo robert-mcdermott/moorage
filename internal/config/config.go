@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
 // Config is the content of server.toml.
@@ -29,9 +31,47 @@ type Config struct {
 	Toolchains  Toolchains `toml:"toolchains"`
 	Containers  Containers `toml:"containers"`
 	Log         Log        `toml:"log"`
+	Access      Access     `toml:"access"`
 
 	// Path is the file the configuration was read from.
 	Path string `toml:"-"`
+}
+
+// Access says who may reach each kind of environment, unless the manifest asks otherwise or a
+// maintainer has set otherwise.
+type Access struct {
+	Production string `toml:"production"`
+	Named      string `toml:"named"`
+	Preview    string `toml:"preview"`
+}
+
+// accessModes are the gates an environment can have.
+var accessModes = []string{"public", "password", "login", "share"}
+
+// DefaultAccess says what gate an environment of a kind has, if nobody has said.
+func (c Config) DefaultAccess(kind string) string {
+	switch kind {
+	case "preview":
+		return c.Access.Preview
+	case "named":
+		return c.Access.Named
+	}
+	return c.Access.Production
+}
+
+// GateFor says what gate an environment has, and where that comes from (setting, manifest or
+// server): what has been set, or else what its manifest asks, or else the server's default for
+// its kind. Setting a gate takes a maintainer. A manifest is a deployer's, so it may ask for a
+// gate where the server would have none, and it may not open what the server has closed.
+func (c Config) GateFor(set, asked, kind string) (mode, source string) {
+	if set != "" {
+		return set, "setting"
+	}
+	fallback := c.DefaultAccess(kind)
+	if asked != "" && (asked != "public" || fallback == "public") {
+		return asked, "manifest"
+	}
+	return fallback, "server"
 }
 
 // Listen holds the listening addresses; an empty address disables the
@@ -188,6 +228,15 @@ func (c *Config) ApplyDefaults() {
 	if c.Routing == "" {
 		c.Routing = "host"
 	}
+	if c.Access.Production == "" {
+		c.Access.Production = "public"
+	}
+	if c.Access.Named == "" {
+		c.Access.Named = "public"
+	}
+	if c.Access.Preview == "" {
+		c.Access.Preview = "login" // work in progress, with production's variables
+	}
 	if c.TLS.Mode == "" {
 		if c.Listen.HTTPS != "" {
 			c.TLS.Mode = "internal"
@@ -243,6 +292,14 @@ func (c Config) Validate() error {
 	}
 	if !validHostname(c.ConsoleHost) {
 		add("console_host %q is not a valid DNS name", c.ConsoleHost)
+	}
+	for kind, mode := range map[string]string{"production": c.Access.Production, "named": c.Access.Named, "preview": c.Access.Preview} {
+		if mode != "" && !oneOf(mode, accessModes) {
+			add("access.%s %q must be one of %s", kind, mode, list(accessModes))
+		}
+	}
+	if c.Routing == "path" && c.ConsoleHost == c.Domain {
+		add("with routing = \"path\", console_host must be another hostname than domain: pages of apps must not share an origin with the console, or a script in any of them could act as whoever is signed in")
 	}
 	if !oneOf(c.Routing, routings) {
 		add("routing %q must be one of %s", c.Routing, list(routings))
@@ -355,6 +412,27 @@ func (c Config) PublicURL(host string) string {
 		}
 	}
 	return c.Proxy.ExternalScheme + "://" + host + port
+}
+
+// EnvHost is the hostname of an app's environment. With path routing they all share one.
+func (c Config) EnvHost(app, env string) string {
+	if c.Routing == "path" {
+		return c.Domain
+	}
+	return names.Label(app, env) + "." + c.Domain
+}
+
+// EnvPrefix is the path an app's environment is served at, if any: with path routing, its own.
+func (c Config) EnvPrefix(app, env string) string {
+	if c.Routing == "path" {
+		return "/" + names.Label(app, env)
+	}
+	return ""
+}
+
+// EnvURL is the address of an app's environment.
+func (c Config) EnvURL(app, env string) string {
+	return c.PublicURL(c.EnvHost(app, env)) + c.EnvPrefix(app, env)
 }
 
 func checkListen(addr string) error {

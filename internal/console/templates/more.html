@@ -4,6 +4,7 @@
 {{$ranges := .TimeRanges}}
 {{with .Logs}}
 <form class="log-tools" method="get" action="/apps/{{$app}}/logs" data-log-form>
+  {{with $.Env}}<input type="hidden" name="env" value="{{.}}">{{end}}
   <div class="log-tools-row">
     <div class="field">
       <label for="log-of">Instance</label>
@@ -76,32 +77,39 @@
 {{$app := .App.Name}}
 {{with .Variables}}
 {{if .Released}}<p class="notice-more muted small"><a href="/deployments/{{.Released}}">See the deployment</a></p>{{end}}
-{{if .BuildChanged}}<div class="notice warn" role="status"><p>A build variable reaches the app with its next build. <a href="/apps/{{$app}}">Redeploy it</a> to build with it now.</p></div>{{end}}
-{{if .Unreleased}}
+{{if .BuildChanged}}<div class="notice warn" role="status"><p>A build variable reaches the app with its next build. <a href="/apps/{{$app}}{{envq $.Env}}">Redeploy it</a> to build with it now.</p></div>{{end}}
+{{if and .Unreleased $.Access.Manage}}
 <div class="notice warn pending" role="status">
   <div>
     <p><strong>Not released yet:</strong> {{range $i, $v := .Unreleased}}{{if $i}}, {{end}}<code>{{.Name}}</code> {{.Change}}{{end}}.</p>
     <p class="small">What runs now has the variables of its release.</p>
   </div>
-  <form method="post" action="/apps/{{$app}}/variables/release" data-busy="Releasing…">
+  <form method="post" action="/apps/{{$app}}/variables/release{{envq $.Env}}" data-busy="Releasing…">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     <button type="submit">Release them</button>
   </form>
 </div>
 {{end}}
-<div class="page-actions">
+{{if .Revealed}}
+<section class="panel panel-pad secret-once" role="status">
+  <h2>The value of {{.Revealed}}</h2>
+  <p class="muted small">That you saw it is recorded. It is not shown again.</p>
+  {{template "command" .RevealedValue}}
+</section>
+{{end}}
+{{if $.Access.Manage}}<div class="page-actions">
   <details class="add-var" {{if not .Vars}}open{{end}}>
     <summary class="button">Add a variable</summary>
-    <form class="panel panel-pad var-form" method="post" action="/apps/{{$app}}/variables/set" data-busy="Saving…">
+    <form class="panel panel-pad var-form" method="post" action="/apps/{{$app}}/variables/set{{envq $.Env}}" data-busy="Saving…">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <div class="field"><label for="var-name">Name</label><input id="var-name" name="name" required autocomplete="off" spellcheck="false" placeholder="API_URL" pattern="[A-Za-z_][A-Za-z0-9_]*"></div>
       <div class="field"><label for="var-value">Value</label><textarea id="var-value" name="value" rows="2" autocomplete="off" spellcheck="false"></textarea></div>
-      {{template "var-flags" dict "HasRelease" .HasRelease "Prefix" "new"}}
+      {{template "var-flags" (dict "HasRelease" .HasRelease "IsProduction" (not $.Env))}}
       <div class="actions"><button type="submit">Add it</button></div>
     </form>
   </details>
-  <a class="button quiet" href="/apps/{{$app}}/variables/edit">Edit as text</a>
-</div>
+  <a class="button quiet" href="/apps/{{$app}}/variables/edit{{envq $.Env}}">Edit as text</a>
+</div>{{end}}
 {{if .Vars}}
 <div class="panel table-scroll">
   <table class="apps vars">
@@ -112,15 +120,25 @@
       <td class="var-name"><code>{{.Name}}</code>{{if .Secret}} <span class="badge">Secret</span>{{end}}{{if .Build}} <span class="badge info">Build</span>{{end}}</td>
       <td class="var-value">{{if .Secret}}<span class="muted" aria-label="Hidden">{{mask}}</span>{{else}}<code class="wrap">{{.Value}}</code>{{end}}</td>
       <td data-label="From" class="muted small">
-        {{if eq .Source "manifest"}}moorage.toml{{else if eq .Source "app"}}Every environment{{else}}This environment{{end}}
+        {{if eq .Source "manifest"}}moorage.toml{{else if eq .Source "app"}}Every environment{{else if eq .Source "production"}}Inherited from production{{else}}This environment{{end}}
         {{if .Overridden}}<span class="badge warn">Overridden</span>{{end}}
         {{if .UpdatedBy}}<div><time datetime="{{iso .UpdatedAt}}">{{ago .UpdatedAt}}</time> by {{.UpdatedBy}}</div>{{end}}
       </td>
       <td class="var-actions">
-        {{if ne .Source "manifest"}}
+        {{if not $.Access.Manage}}
+        {{else if eq .Source "production"}}
+        <span class="muted small">Set one here to override it</span>
+        {{else if ne .Source "manifest"}}
+        {{if .Secret}}
+        <form method="post" action="/apps/{{$app}}/variables/reveal{{envq $.Env}}" data-confirm="Show the value of {{.Name}}? That you did is recorded.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="name" value="{{.Name}}">
+          <button class="quiet small" type="submit">Reveal</button>
+        </form>
+        {{end}}
         <details class="row-edit">
           <summary class="button quiet small">Change</summary>
-          <form class="var-form" method="post" action="/apps/{{$app}}/variables/set" data-busy="Saving…">
+          <form class="var-form" method="post" action="/apps/{{$app}}/variables/set{{envq $.Env}}" data-busy="Saving…">
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <input type="hidden" name="name" value="{{.Name}}">
             {{if .Secret}}<input type="hidden" name="was_secret" value="1">{{end}}
@@ -132,7 +150,7 @@
             <div class="actions"><button type="submit">Save</button></div>
           </form>
         </details>
-        <form method="post" action="/apps/{{$app}}/variables/unset" data-confirm="Remove {{.Name}}? It takes effect at once." data-busy="Removing…">
+        <form method="post" action="/apps/{{$app}}/variables/unset{{envq $.Env}}" data-confirm="Remove {{.Name}}? It takes effect at once." data-busy="Removing…">
           <input type="hidden" name="csrf" value="{{$csrf}}">
           <input type="hidden" name="name" value="{{.Name}}">
           {{if eq .Source "app"}}<input type="hidden" name="all_envs" value="1">{{end}}
@@ -162,6 +180,7 @@
   <label class="check"><input type="checkbox" name="secret" value="1"> Secret: sealed, and never shown again</label>
   <label class="check"><input type="checkbox" name="build" value="1"> Available to builds</label>
   <label class="check"><input type="checkbox" name="all_envs" value="1"> For every environment</label>
+  {{if .IsProduction}}<label class="check"><input type="checkbox" name="production_only" value="1"> Not for previews: they inherit production's variables otherwise</label>{{end}}
   {{if .HasRelease}}<label class="check"><input type="checkbox" name="hold" value="1"> Save without releasing</label>{{end}}
 </div>
 {{end}}
@@ -187,7 +206,7 @@
     </tbody>
   </table>
   <p class="muted small">{{.Unchanged}} left as they are.</p>
-  <form method="post" action="/apps/{{$app}}/variables/apply" data-busy="Applying…">
+  <form method="post" action="/apps/{{$app}}/variables/apply{{envq $.Env}}" data-busy="Applying…">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     <input type="hidden" name="text" value="{{$.Variables.Editor}}">
     {{if $.Variables.SecretNew}}<input type="hidden" name="secret_new" value="1">{{end}}
@@ -198,13 +217,13 @@
   {{end}}
 </section>
 {{end}}
-<form class="panel panel-pad block var-editor" method="post" action="/apps/{{$app}}/variables/preview">
+<form class="panel panel-pad block var-editor" method="post" action="/apps/{{$app}}/variables/preview{{envq $.Env}}">
   <input type="hidden" name="csrf" value="{{$csrf}}">
   <label for="vars-text">Variables</label>
   <textarea id="vars-text" name="text" rows="16" spellcheck="false" autocomplete="off">{{.Editor}}</textarea>
   <label class="check"><input type="checkbox" name="secret_new" value="1"{{if .SecretNew}} checked{{end}}> Make the variables added here secrets</label>
   <label class="check"><input type="checkbox" name="build_new" value="1"{{if .BuildNew}} checked{{end}}> Make those available to builds</label>
-  <div class="actions"><button class="{{if .Preview}}quiet{{end}}" type="submit">See what changes</button><a class="button quiet" href="/apps/{{$app}}/variables">Back without changing</a></div>
+  <div class="actions"><button class="{{if .Preview}}quiet{{end}}" type="submit">See what changes</button><a class="button quiet" href="/apps/{{$app}}/variables{{envq $.Env}}">Back without changing</a></div>
 </form>
 {{end}}
 {{end}}
@@ -346,6 +365,7 @@
       <label class="check"><input type="radio" name="scope" value="read"> Read: see apps, deployments and logs</label>
       <label class="check"><input type="radio" name="scope" value="deploy" checked> Deploy: also deploy, roll back and restart</label>
       <label class="check"><input type="radio" name="scope" value="admin"> Everything you can do</label>
+      <label class="check"><input type="radio" name="scope" value="gate"> Gate: only get through the sign-in gates of apps</label>
     </fieldset>
     <div class="field"><label for="token-app">For</label>
       <select id="token-app" name="app">
@@ -407,6 +427,7 @@
   <a href="/settings"{{if eq .Tab "server"}} aria-current="page"{{end}}>Server</a>
   <a href="/settings/users"{{if eq .Tab "users"}} aria-current="page"{{end}}>Users</a>
   <a href="/settings/registries"{{if eq .Tab "registries"}} aria-current="page"{{end}}>Registries</a>
+  <a href="/settings/audit"{{if eq .Tab "audit"}} aria-current="page"{{end}}>Audit log</a>
   <a href="/settings/system"{{if eq .Tab "system"}} aria-current="page"{{end}}>System</a>
 </nav>
 {{end}}
@@ -575,5 +596,170 @@
     </ul>
   </div>
 </section>
+{{end}}
+{{end}}
+
+{{define "settings-audit"}}
+{{template "settings-tabs" .}}
+{{with .Settings}}
+<form class="filters" method="get" action="/settings/audit">
+  <div><label for="audit-actor">Who</label><input id="audit-actor" name="actor" value="{{.FormActor}}" autocomplete="off" spellcheck="false" placeholder="An email address"></div>
+  <div><label for="audit-action">What</label><input id="audit-action" name="action" value="{{.FormAction}}" autocomplete="off" spellcheck="false" placeholder="signin, secret, /restart"></div>
+  <div><label for="audit-target">To</label><input id="audit-target" name="target" value="{{.FormTarget}}" autocomplete="off" spellcheck="false" placeholder="shop"></div>
+  <button class="quiet" type="submit">Show</button>
+  <a class="button quiet" href="{{.AuditExport}}">Download</a>
+</form>
+{{if .Audit}}
+<div class="panel table-scroll">
+  <table class="apps audit">
+    <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">To</th><th scope="col">Result</th><th scope="col">From</th></tr></thead>
+    <tbody>
+    {{range .Audit}}
+    <tr>
+      <td class="muted nowrap"><time datetime="{{iso .At}}">{{ago .At}}</time></td>
+      <td>{{.Actor}}</td>
+      <td><code class="wrap small">{{.Action}}</code></td>
+      <td data-label="To"><code class="wrap small">{{orDash .Target}}</code></td>
+      <td><span class="badge {{if eq .Result "ok"}}ok{{else if eq .Result "refused"}}warn{{else}}fail{{end}}">{{.Result}}</span></td>
+      <td class="muted small" data-label="From">{{orDash .IP}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<section class="panel empty"><h2>Nothing matches that</h2><p>Every change through the API or the console, every sign-in, every push and every secret revealed is here, for a year.</p></section>
+{{end}}
+{{end}}
+{{with .Older}}<p class="pager"><a class="button quiet" href="{{.}}">Older</a></p>{{end}}
+{{end}}
+
+{{define "projects"}}
+{{template "failure" .}}
+<div class="panel table-scroll">
+  <table class="apps">
+    <thead><tr><th scope="col">Project</th><th scope="col">Your role</th><th scope="col">Everyone else</th><th scope="col">Apps</th></tr></thead>
+    <tbody>
+    {{range .Projects}}
+    <tr>
+      <td class="app-name"><a href="/projects/{{.Name}}">{{.Name}}</a></td>
+      <td data-label="Your role">{{.Role}}</td>
+      <td data-label="Everyone else">{{orNobody .Everyone}}</td>
+      <td data-label="Apps">{{.Apps}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{if .Admin}}
+<section class="block">
+  <div class="section-heading"><h2>Make a project</h2></div>
+  <form class="panel panel-pad token-form" method="post" action="/projects">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="field"><label for="project-name">Name</label><input id="project-name" name="name" value="{{.Name}}" required autocomplete="off" spellcheck="false" placeholder="payments"></div>
+    <p class="muted small">Nobody but administrators has a role in it until you add them.</p>
+    <div class="actions"><button type="submit">Make it</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{define "project"}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{$admin := .Admin}}
+{{with .Project}}
+{{$project := .Project.Name}}
+{{$manage := .Manage}}
+{{$roles := .Roles}}
+<section class="panel panel-pad facts-panel">
+  <dl class="facts">
+    <dt>Your role</dt><dd>{{.Role}}</dd>
+    <dt>Everyone else</dt><dd>{{orNobody .Project.EveryoneRole}}</dd>
+    <dt>Viewers read logs</dt><dd>{{if .Project.ViewersSeeLogs}}Yes{{else}}No{{end}}</dd>
+    <dt>Apps</dt><dd>{{if .Apps}}{{range $i, $a := .Apps}}{{if $i}}, {{end}}<a href="/apps/{{$a}}">{{$a}}</a>{{end}}{{else}}None yet{{end}}</dd>
+  </dl>
+</section>
+<section class="block">
+  <div class="section-heading"><h2>Members</h2></div>
+  {{if .Members}}
+  <div class="panel table-scroll">
+    <table class="apps">
+      <thead><tr><th scope="col">Who</th><th scope="col">Role</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+      {{range .Members}}
+      <tr>
+        <td><span class="app-name">{{.Name}}</span><div class="muted small">{{.Email}}</div></td>
+        <td>
+          {{if $manage}}
+          <form class="inline-form" method="post" action="/projects/{{$project}}/members/set">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="email" value="{{.Email}}">
+            <label class="visually-hidden" for="role-{{.UserID}}">Role of {{.Email}}</label>
+            {{$role := .Role}}
+            <select id="role-{{.UserID}}" name="role" data-autosubmit>{{range $roles}}<option value="{{.}}"{{if eq . $role}} selected{{end}}>{{.}}</option>{{end}}</select>
+            <button class="quiet small" type="submit" data-autosubmit-button>Set</button>
+          </form>
+          {{else}}{{.Role}}{{end}}
+        </td>
+        <td class="row-end">
+          {{if $manage}}
+          <form method="post" action="/projects/{{$project}}/members/remove" data-confirm="Take {{.Email}} out of {{$project}}?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="user" value="{{.UserID}}">
+            <button class="quiet small danger" type="submit">Remove</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="panel panel-pad muted">No members.{{if .Project.EveryoneRole}} Everyone is a {{.Project.EveryoneRole}} of it.{{end}}</p>
+  {{end}}
+</section>
+{{if $manage}}
+<div class="deploy-ways block">
+  <section class="panel panel-pad">
+    <h2>Add someone</h2>
+    <form method="post" action="/projects/{{$project}}/members/set">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="member-email">Email address</label><input id="member-email" type="email" name="email" value="{{.FormEmail}}" required autocomplete="off"></div>
+      <div class="field"><label for="member-role">Role</label>
+        <select id="member-role" name="role">
+          <option value="viewer">Viewer</option>
+          <option value="deployer" selected>Deployer</option>
+          <option value="maintainer">Maintainer</option>
+        </select>
+        <p class="hint small">A viewer sees its apps and logs. A deployer also deploys, restarts, rolls back and scales them. A maintainer also changes their variables and this project's members.</p>
+      </div>
+      <div class="actions"><button type="submit">Add them</button></div>
+    </form>
+  </section>
+  <section class="panel panel-pad">
+    <h2>Everyone else</h2>
+    <form method="post" action="/projects/{{$project}}/settings">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="everyone">Those who are not members are</label>
+        {{$everyone := .Project.EveryoneRole}}
+        <select id="everyone" name="everyone">
+          <option value="none"{{if not $everyone}} selected{{end}}>Nothing here</option>
+          {{range $roles}}<option value="{{.}}"{{if eq . $everyone}} selected{{end}}>{{.}}s</option>{{end}}
+        </select>
+      </div>
+      <label class="check"><input type="checkbox" name="viewers_see_logs" value="1"{{if .Project.ViewersSeeLogs}} checked{{end}}> Viewers may read logs</label>
+      <div class="actions"><button class="quiet" type="submit">Save</button></div>
+    </form>
+  </section>
+</div>
+{{if and $admin (not .Apps) (ne $project "default")}}
+<form class="block" method="post" action="/projects/{{$project}}/delete" data-confirm="Delete the project {{$project}}?">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <button class="quiet danger" type="submit">Delete this project</button>
+</form>
+{{end}}
+{{end}}
 {{end}}
 {{end}}

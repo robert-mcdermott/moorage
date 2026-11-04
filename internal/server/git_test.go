@@ -135,15 +135,14 @@ func TestGitPush(t *testing.T) {
 		t.Errorf("main moved after a failed deploy: %v", remoteHead)
 	}
 
-	// A commit that asks to skip the deploy moves the branch without one;
-	// a branch other than main is kept, not deployed.
+	// A commit that asks to skip the deploy moves the branch without one, on any branch.
 	repo.must("commit", "-q", "--allow-empty", "-m", "Notes [skip deploy]")
 	if out := repo.must("push", "moorage", "main"); !strings.Contains(out, "skip the deploy") {
 		t.Errorf("[skip deploy]: %s", out)
 	}
 	repo.must("switch", "-q", "-c", "feature")
 	if out := repo.must("push", "moorage", "feature"); !strings.Contains(out, "feature is kept, not deployed") {
-		t.Errorf("another branch: %s", out)
+		t.Errorf("another branch that asks to skip it: %s", out)
 	}
 	if deps, _ := c.Deployments(ctx, "gitsite", "production", 5); len(deps) != 3 {
 		t.Errorf("%d deployments, want 3 (the first, its rebuild and the failed one)", len(deps))
