@@ -3,6 +3,7 @@ package gitserver
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -54,6 +55,7 @@ func (rs *Repos) Export(app, commit, dir string) (Exported, error) {
 	if err != nil {
 		return Exported{}, err
 	}
+	defer closeStore(st)
 	return export(st, plumbing.NewHash(commit), dir, DefaultExportLimits)
 }
 
@@ -63,6 +65,7 @@ func (rs *Repos) BranchHead(app, branch string) (commit, message string, err err
 	if err != nil {
 		return "", "", err
 	}
+	defer closeStore(st)
 	ref, err := st.Reference(plumbing.NewBranchReferenceName(branch))
 	if err != nil {
 		return "", "", err
@@ -74,8 +77,16 @@ func (rs *Repos) BranchHead(app, branch string) (commit, message string, err err
 	return ref.Hash().String(), c.Message, nil
 }
 
+// closeStore lets go of a repository's open files: elsewhere they would stop its directory
+// from being moved or removed, as on Windows.
+func closeStore(st storage.Storer) {
+	if c, ok := st.(io.Closer); ok {
+		c.Close()
+	}
+}
+
 // open opens app's repository. It is opened again for every request, so
-// that it sees the objects other pushes have added since.
+// that it sees the objects other pushes have added since. Whoever opens it closes it.
 func (rs *Repos) open(app string) (storage.Storer, error) {
 	if !rs.Exists(app) {
 		return nil, ErrNoRepository

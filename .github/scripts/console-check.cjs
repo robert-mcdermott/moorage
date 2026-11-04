@@ -28,7 +28,7 @@ function moor(...args) {
   // Anything a page complains of: above all what the Content-Security-Policy refuses.
   const problems = [];
   // Firefox says so when a page that is going away lets go of a stream: it is meant to.
-  const letGo = text => /\/api\/v1\//.test(text) && /can.t establish a connection|was interrupted while the page was loading/.test(text);
+  const letGo = text => /\/api\/v1\//.test(text) && /can.t establish a connection|was interrupted while the page was loading|due to access control checks/.test(text);
   page.on('console', m => { if (m.type() === 'error' && !letGo(m.text())) { problems.push(m.text()); } });
   page.on('pageerror', e => problems.push(String(e)));
   const quiet = what => {

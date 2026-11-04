@@ -127,6 +127,7 @@ func (s *Server) receivePack(ctx context.Context, app, by string, r io.Reader, w
 		w.Close()
 		return err
 	}
+	defer closeStore(st)
 	req := &transport.ReceivePackRequest{AdvertiseRefs: advertise, StatelessRPC: stateless, GitProtocol: protocol}
 	if advertise {
 		return transport.ReceivePack(ctx, st, nil, w, req)
@@ -241,6 +242,7 @@ func (s *Server) uploadPack(ctx context.Context, app string, r io.ReadCloser, w 
 		w.Close()
 		return err
 	}
+	defer closeStore(st)
 	return transport.UploadPack(ctx, st, r, w, &transport.UploadPackRequest{
 		AdvertiseRefs: advertise, StatelessRPC: stateless, GitProtocol: protocol,
 	})
