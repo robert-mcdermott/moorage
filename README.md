@@ -21,6 +21,8 @@ binary with its state in SQLite, and everything else is built in.
 - **Deploys with `git push`,** over SSH or HTTPS, to a repository on the
   server: the push shows the build as it happens, and fails if the deploy
   does. Or upload a directory with `moor deploy`.
+- **Deploys from GitHub, GitLab or Gitea.** A push deploys, and each pull request gets a preview, with a
+  check and a comment that say where it is. Code from a stranger waits until someone approves that commit.
 - **Builds from source.** Go (from `go.mod`), Python (with uv, from
   `pyproject.toml` and `uv.lock`), Node.js (with npm), static sites, or the
   build command you give it. A `moorage.toml` is optional.
@@ -45,10 +47,13 @@ binary with its state in SQLite, and everything else is built in.
   release.
 - **Runs what an app needs on a schedule.** Cron jobs in its manifest, and `moor run` for
   a command now, with its variables and data, like `moor run -- python manage.py migrate`.
+- **Lets you in when you need to be.** `moor run -it -- /bin/sh` is a terminal in the current release, on any system. The console
+  runs commands too, and shows what is in an app's data directory.
 - **Shows how it is doing, and says when it is not.** Requests, response times, CPU and memory
   for each environment, kept for a year and ready for Prometheus. A failed deployment, a crash
   loop or a failed cron job reaches those concerned in the console, and by webhook, Slack, Teams,
-  Discord or email: one message and not hundreds, then a word when it recovers.
+  Discord or email: one message and not hundreds, then a word when it recovers. Thresholds say when, and logs and
+  metrics can go to syslog or an OpenTelemetry collector as well.
 - **A web console.** Deploy, scale, restart and roll back from the browser; watch a
   deployment's stages and log as they happen; follow and search logs; change
   variables. Drop a folder on it and that is a static site. It works on a phone, and without
@@ -209,8 +214,8 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.6.0 is a server on Linux or macOS for a team: it builds and deploys
-apps from their source or a `git push`, in containers or not, with accounts, projects
+Moorage 0.7.0 is a server on Linux, macOS or Windows for a team: it builds and deploys
+apps from their source, a `git push` or [a forge](docs/forges.md), in containers or not, with accounts, projects
 and roles, an audit log and a [web console](docs/console.md). Every branch can have
 [its own preview and address](docs/previews.md), which sleeps when idle, and [who can
 reach it](docs/access.md) is up to you: a password, a sign-in, a share link. Apps can have
@@ -218,12 +223,13 @@ reach it](docs/access.md) is up to you: a password, a sign-in, a share link. App
 [metrics](docs/metrics.md) and [notifications](docs/notifications.md) when something goes
 wrong. On Linux, [each app runs as a user of its own](docs/isolation.md). [Backups](docs/backups.md)
 are built in, people can sign in with [a second factor, or through your identity provider](docs/sign-in.md),
-and a server [upgrades itself](docs/install.md#upgrading), with a way back. On Windows, it [runs as a service](docs/install.md#3-run-it-as-a-service) too, with apps held to their limits by Job Objects.
+and a server [upgrades itself](docs/install.md#upgrading), with a way back. On Windows, it [runs as a service](docs/install.md#3-run-it-as-a-service) too, with apps held to their limits by Job Objects, though [not kept from the server](docs/isolation.md#on-windows).
+You can [get into an app](docs/interactive.md) with a terminal or from the console, and [send its logs and metrics elsewhere](docs/telemetry.md).
 
 Next, in the [roadmap](spec/11-roadmap.md):
 
-- **0.7.0, Windows, forges and the terminal:** the Windows service, deployments from a forge's
-  webhooks, and a terminal in the console.
+- **0.8.0, beyond the firewall:** certificates from ACME, public or your own, hardening for what faces the internet, with an
+  outside penetration test, and gRPC and sticky sessions.
 
 ## Building Moorage
 

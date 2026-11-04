@@ -1084,7 +1084,7 @@ directory, supervises it, and serves it on its own hostname.
      administrator's account. The lesson of it: unit tests found few of these, and a person's scenario or an
      attacker's plan found most. The drills on real services found what no test had.
 
-## 0.7.0: Windows, forges and the terminal (planned)
+## 0.7.0: Windows, forges and the terminal (released 2026-11-04)
 
 ### Wave 7
 
@@ -1122,6 +1122,13 @@ directory, supervises it, and serves it on its own hostname.
      minute. A sink added long after the last one was removed must not start from where that one stopped. The fake collector and listeners
      are all this has been tried against: no real collector or syslog server has yet been sent anything.
 5. **Release 0.7.0.**
+   - Done: three independent reviews by reading the code, and one of what they led to, each of which found what had to be fixed
+     first.
+   - Found: approving a pull request has to name the commit, or the commit that gets built is the one pushed as someone was reading.
+     A failing or slow sink, or a look at a slow forge, is not to hold up anything else, and every queue and retry needs to be asked
+     what it does when the other end refuses everything. On Windows, closing a folder to everyone is only safe for one that is the
+     server's own, and apps that run as the server's account can reach all that it can, which is now said plainly. A connection to
+     a real forge, collector or syslog server has yet to be tried: the fakes are all that any of this has met.
 
 ## 0.8.0: beyond the firewall (planned)
 

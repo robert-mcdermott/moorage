@@ -1,7 +1,7 @@
 # Moorage documentation
 
 How to install Moorage, run it, and deploy apps to it. This documentation
-describes Moorage 0.6.0; the [design documents](../spec/README.md) describe
+describes Moorage 0.7.0; the [design documents](../spec/README.md) describe
 how it works inside and where it is going.
 
 ## Start here

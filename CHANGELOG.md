@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-11-04)
+
+Moorage 0.7.0 brings the server to Windows, connects it to where your code is kept, and lets you into what it runs. A push or a pull request on GitHub, GitLab or Gitea can deploy by itself, with a preview for each pull request. `moor run -it` is a terminal in an app, and the console can run commands and show its data directory. Logs and metrics can go to where your team already looks, and thresholds say when to be told.
+
+To upgrade from 0.6.0, run `moor server upgrade`. Running apps are taken over without a restart, and `moor server upgrade --rollback` goes back. Nothing you have set up behaves differently. Some things to know:
+
+- **On Windows, apps run as the server's own account,** as there is nothing there yet to keep them apart. They can read its database and master key, so anyone who can deploy to a server on Windows can reach every secret on it, whichever project they are in. See [How apps are kept apart](docs/isolation.md#on-windows).
+- **`moor server install` on Windows closes the data directory to everyone but the service,** so it refuses the top of a drive, or anyone's profile. A data directory has to be a folder of its own.
+
+Connecting to a real forge, OpenTelemetry collector or syslog server has been tried against stand-ins that follow their published formats, and not against the real thing. If yours disagrees, please say so.
 
 ### Added
 
