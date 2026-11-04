@@ -28,7 +28,9 @@ function moor(...args) {
   // Anything a page complains of: above all what the Content-Security-Policy refuses.
   const problems = [];
   // Firefox says so when a page that is going away lets go of a stream: it is meant to.
-  const letGo = text => /\/api\/v1\//.test(text) && /can.t establish a connection|was interrupted while the page was loading|due to access control checks/.test(text);
+  // WebKit on Linux also gives up on a resource now and then, with an internal error of its own.
+  const letGo = text => /WebKit encountered an internal error/.test(text) ||
+    /\/api\/v1\//.test(text) && /can.t establish a connection|was interrupted while the page was loading|due to access control checks/.test(text);
   page.on('console', m => { if (m.type() === 'error' && !letGo(m.text())) { problems.push(m.text()); } });
   page.on('pageerror', e => { if (!letGo(String(e))) { problems.push(String(e)); } });
   const quiet = what => {
@@ -79,10 +81,18 @@ function moor(...args) {
   }
   await page.setViewportSize({ width: 1280, height: 800 });
 
-  // The palette, from the keyboard.
+  // The palette, from the keyboard. If WebKit gave up on the page's script, load it again.
   await page.goto(base + '/');
-  await page.keyboard.press('/');
-  await page.waitForSelector('#palette[open]');
+  for (let tries = 3; ; tries--) {
+    await page.keyboard.press('/');
+    try {
+      await page.waitForSelector('#palette[open]', { timeout: 5000 });
+      break;
+    } catch (e) {
+      if (tries <= 1) { throw e; }
+      await page.reload();
+    }
+  }
   await page.keyboard.type('logs shop');
   await page.keyboard.press('Enter');
   await page.waitForURL('**/apps/shop/logs');
