@@ -446,9 +446,9 @@ func SameOrigin(r *http.Request) bool {
 	return ok && strings.EqualFold(host, r.Host)
 }
 
-// lowerASCII lowers A to Z, and nothing else: lowering everything would make different addresses one, as İ
+// LowerASCII lowers A to Z, and nothing else: lowering everything would make different addresses one, as İ
 // becomes i, and someone with admİn@example.com at a provider would be admin@example.com here.
-func lowerASCII(text string) string {
+func LowerASCII(text string) string {
 	return strings.Map(func(r rune) rune {
 		if r >= 'A' && r <= 'Z' {
 			return r + ('a' - 'A')
@@ -459,7 +459,7 @@ func lowerASCII(text string) string {
 
 // NormalizeEmail lowercases and checks an email address.
 func NormalizeEmail(email string) (string, error) {
-	email = lowerASCII(strings.TrimSpace(email))
+	email = LowerASCII(strings.TrimSpace(email))
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email || !strings.Contains(email, "@") {
 		return "", errors.New("that is not an email address")
@@ -484,6 +484,31 @@ func (s *Service) StartSession(ctx context.Context, u store.User, ip, userAgent 
 // EndSession ends the session with this cookie value.
 func (s *Service) EndSession(ctx context.Context, value string) error {
 	return s.DB.DeleteSessionByHash(ctx, Hex(value))
+}
+
+// take counts an attempt under each key, unless one of them says to wait, in one step for each: checking and counting
+// apart, many at once would all find that they need not wait.
+func (s *Service) take(keys ...string) error {
+	if s.Limits == nil {
+		return nil
+	}
+	for i, k := range keys {
+		if wait := s.Limits.Take(k); wait > 0 {
+			s.giveBack(keys[:i]...)
+			return &RateLimitedError{Wait: wait}
+		}
+	}
+	return nil
+}
+
+// giveBack returns attempts that turned out not to have failed.
+func (s *Service) giveBack(keys ...string) {
+	if s.Limits == nil {
+		return
+	}
+	for _, k := range keys {
+		s.Limits.Return(k)
+	}
 }
 
 func (s *Service) limit(keys ...string) error {
@@ -513,14 +538,22 @@ func (s *Service) SignIn(ctx context.Context, email, password, ip string) (store
 	if s.PasswordsOff != nil && s.PasswordsOff(ctx) {
 		return store.User{}, ErrPasswordsOff
 	}
-	email = lowerASCII(strings.TrimSpace(email))
+	email = LowerASCII(strings.TrimSpace(email))
 	keys := []string{"signin-ip:" + ip, "signin-account:" + email}
-	if err := s.limit(keys...); err != nil {
+	if err := s.take(keys...); err != nil {
 		s.Security("sign-in refused by the rate limit", "ip", ip, "email", email)
 		return store.User{}, err
 	}
 	u, err := s.DB.UserByEmail(ctx, email)
+	if errors.Is(err, store.ErrNotFound) {
+		// An address with letters beyond A to Z may have been kept lowered, and a capital typed here. With a
+		// password to go with it, this gives nobody anything that they should not have.
+		if folded := strings.ToLower(email); folded != email {
+			u, err = s.DB.UserByEmail(ctx, folded)
+		}
+	}
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.giveBack(keys...)
 		return store.User{}, err
 	}
 	hash := u.PasswordHash
@@ -529,14 +562,15 @@ func (s *Service) SignIn(ctx context.Context, email, password, ip string) (store
 	}
 	ok, err := VerifyPassword(ctx, hash, password)
 	if err != nil {
+		s.giveBack(keys...)
 		return store.User{}, err
 	}
 	if !ok || u.ID == "" || u.PasswordHash == "" || u.Disabled() {
-		s.failed(keys...)
 		s.Security("a sign-in failed", "ip", ip, "email", email)
 		s.Audit(ctx, store.AuditEntry{Actor: email, IP: ip, Action: "signin", Result: "failed"})
 		return store.User{}, ErrBadCredentials
 	}
+	s.giveBack(keys...)
 	if s.Limits != nil {
 		s.Limits.Clear("signin-account:" + email)
 	}
@@ -549,21 +583,23 @@ func (s *Service) SignIn(ctx context.Context, email, password, ip string) (store
 // password is off, as it does not sign anyone in.
 func (s *Service) CheckOwnPassword(ctx context.Context, u store.User, password, ip string) error {
 	keys := []string{"signin-ip:" + ip, "signin-account:" + u.Email}
-	if err := s.limit(keys...); err != nil {
+	if err := s.take(keys...); err != nil {
 		return err
 	}
 	if u.PasswordHash == "" {
+		s.giveBack(keys...)
 		return ErrBadCredentials
 	}
 	ok, err := VerifyPassword(ctx, u.PasswordHash, password)
 	if err != nil {
+		s.giveBack(keys...)
 		return err
 	}
 	if !ok {
-		s.failed(keys...)
 		s.Security("a password check failed", "ip", ip, "email", u.Email)
 		return ErrBadCredentials
 	}
+	s.giveBack(keys...)
 	return nil
 }
 

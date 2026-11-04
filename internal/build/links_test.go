@@ -85,7 +85,7 @@ dir = "x/keys"
 
 // TestSiteCanHaveALinkInside is what is left of links: one that stays in the build.
 func TestSiteCanHaveALinkInside(t *testing.T) {
-	_, res, err := aBuildThatRuns(t, `[app]
+	job, _, err := aBuildThatRuns(t, `[app]
 runtime = "static"
 [build]
 command = 'mkdir real; echo hi > real/index.html; ln -s real dist'
@@ -95,7 +95,8 @@ dir = "dist"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Plan.Root == "" {
-		t.Errorf("%+v", res.Plan)
+	index, err := os.ReadFile(filepath.Join(job, "index.json"))
+	if err != nil || !strings.Contains(string(index), "index.html") {
+		t.Errorf("the index has nothing to serve: %s %v", index, err)
 	}
 }

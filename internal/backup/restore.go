@@ -36,6 +36,8 @@ type RestoreOptions struct {
 	Force bool
 	// Keys opens what the archive holds sealed: the master key.
 	Keys Keyed
+	// MinUID is the lowest user that the database may say an app runs as.
+	MinUID uint32
 	// BeforeSwap, if set, runs once the archive has all arrived and is good, before anything changes:
 	// what is running from the data directory has to stop by then.
 	BeforeSwap func() error
@@ -199,6 +201,11 @@ func Restore(ctx context.Context, r io.Reader, digest string, o RestoreOptions) 
 		if err := allowedEntry(name, h.Typeflag, holdsKeys); err != nil {
 			return err
 		}
+		switch h.Typeflag {
+		case tar.TypeReg, tar.TypeDir, tar.TypeSymlink:
+		default:
+			return nil // what means nothing later, and leaves nothing behind
+		}
 		if dir := path.Dir(name); dir != "." {
 			if err := root.MkdirAll(filepath.FromSlash(dir), 0o755); err != nil {
 				return err
@@ -273,6 +280,11 @@ func Restore(ctx context.Context, r io.Reader, digest string, o RestoreOptions) 
 			return out, err
 		}
 		_ = root.Chtimes(dirs[i].name, dirs[i].at, dirs[i].at)
+	}
+
+	// What the database says goes on to be used as paths and users, by a server running as root.
+	if err := store.CheckRestoredDatabase(ctx, filepath.Join(staging, databaseName), o.MinUID); err != nil {
+		return out, &RefusedError{"this backup's database is not one that a server wrote: " + err.Error()}
 	}
 
 	// Everything has arrived. What was there goes aside, and what arrived takes its place.
@@ -382,11 +394,6 @@ func allowedEntry(name string, kind byte, holdsKeys bool) error {
 	}
 	parts := strings.Split(name, "/")
 	top := parts[0]
-	switch kind {
-	case tar.TypeReg, tar.TypeDir, tar.TypeSymlink:
-	default:
-		return nil // these are dropped
-	}
 	isLink := kind == tar.TypeSymlink
 	switch top {
 	case databaseName:

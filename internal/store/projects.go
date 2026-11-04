@@ -224,6 +224,23 @@ func (db *DB) SetMember(ctx context.Context, project, userID, role string) error
 	})
 }
 
+// TakeOutOfProject removes someone from a project. Where the project gives everyone more than a look, they stay as a
+// viewer, as otherwise leaving would give them more.
+func (db *DB) TakeOutOfProject(ctx context.Context, project, userID string) error {
+	p, err := db.ProjectByName(ctx, project)
+	if err != nil {
+		return err
+	}
+	if p.EveryoneRole == RoleDeployer || p.EveryoneRole == RoleMaintainer {
+		return db.SetMember(ctx, project, userID, RoleViewer)
+	}
+	err = db.RemoveMember(ctx, project, userID)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
 // LimitEveryone keeps someone from the roles that a project gives everyone, as a viewer of it. For an account that
 // nobody chose to give: otherwise, whoever a provider signs in could deploy to the default project.
 func (db *DB) LimitEveryone(ctx context.Context, userID string) error {

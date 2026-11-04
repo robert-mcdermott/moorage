@@ -135,25 +135,28 @@ func secondFactorSetup(secret []byte, account, issuer string) SecondFactorSetup 
 // that get them in if they lose it, which are shown only now.
 func (s *Service) ConfirmSecondFactor(ctx context.Context, userID, code, ip string) ([]string, error) {
 	keys := []string{"totp-account:" + userID, "totp-ip:" + ip}
-	if err := s.limit(keys...); err != nil {
+	if err := s.take(keys...); err != nil {
 		return nil, err
 	}
 	t, err := s.DB.GetUserTOTP(ctx, userID)
 	if err != nil {
+		s.giveBack(keys...)
 		return nil, err
 	}
 	if t.Confirmed() {
+		s.giveBack(keys...)
 		return nil, errors.New("two-factor sign-in is already on")
 	}
 	secret, err := s.Sealer.OpenTOTP(userID, t.Sealed)
 	if err != nil {
+		s.giveBack(keys...)
 		return nil, err
 	}
 	step, ok := checkTOTP(secret, code, s.now())
 	if !ok {
-		s.failed(keys...)
 		return nil, ErrSecondFactor
 	}
+	s.giveBack(keys...)
 	codes := make([]string, recoveryCodes)
 	hashes := make([]string, recoveryCodes)
 	for i := range codes {
@@ -193,25 +196,12 @@ func (s *Service) NeedsSecondFactor(ctx context.Context, userID string) (bool, e
 // CheckSecondFactor takes a code from an authenticator app, or a recovery code. Each works once.
 func (s *Service) CheckSecondFactor(ctx context.Context, u store.User, code, ip string) error {
 	keys := []string{"totp-account:" + u.ID, "totp-ip:" + ip}
-	if s.Limits != nil {
-		for i, k := range keys {
-			if wait := s.Limits.Take(k); wait > 0 {
-				for _, taken := range keys[:i] {
-					s.Limits.Return(taken)
-				}
-				s.Security("a second factor refused by the rate limit", "ip", ip, "email", u.Email)
-				return &RateLimitedError{Wait: wait}
-			}
-		}
+	if err := s.take(keys...); err != nil {
+		s.Security("a second factor refused by the rate limit", "ip", ip, "email", u.Email)
+		return err
 	}
 	// Each attempt counts from before it is looked at, and is given back if it was not a wrong code.
-	giveBack := func() {
-		if s.Limits != nil {
-			for _, k := range keys {
-				s.Limits.Return(k)
-			}
-		}
-	}
+	giveBack := func() { s.giveBack(keys...) }
 	refuse := func() error {
 		s.Security("a second factor failed", "ip", ip, "email", u.Email)
 		s.Audit(ctx, store.AuditEntry{Actor: u.Email, IP: ip, Action: "signin.second_factor", Result: "failed"})

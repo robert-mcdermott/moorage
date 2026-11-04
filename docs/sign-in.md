@@ -41,8 +41,11 @@ web-readers = project web viewer
 
 These are applied each time someone signs in: they get the highest role that their groups give in each
 project, and lose what they no longer have. What the rules do not mention stays as you set it, so that
-without a rule for `admin`, it stays yours to give by hand. If your provider says nothing of someone's groups,
-in its token or when asked for their user info, what they may do stays as it is, and the server's log says so.
+without a rule for `admin`, it stays yours to give by hand. A rule says that its group decides that project: someone
+not in the group has no more than a look at it, even in one that gives everyone more. If your provider says nothing
+of someone's groups, in its token or when asked for their user info, that counts as none, as some leave them out
+for someone in no groups, and the server's log says so: if they do have some, it may need a scope, or the claim's
+name. Whoever is the last administrator stays one.
 
 ### Only through your provider
 

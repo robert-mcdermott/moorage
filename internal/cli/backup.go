@@ -274,7 +274,7 @@ A backup without keys needs the master key it was made with to be in place first
 			defer r.Close()
 			out := cmd.OutOrStdout()
 			restored, err := backup.Restore(cmd.Context(), r, digest, backup.RestoreOptions{
-				DataDir: cfg.DataDir, KeyFingerprint: fingerprint, Keys: keys, Force: force,
+				DataDir: cfg.DataDir, KeyFingerprint: fingerprint, Keys: keys, MinUID: cfg.Isolation.UIDBase, Force: force,
 				Log:        func(format string, args ...any) { fmt.Fprintf(out, "  "+format+"\n", args...) },
 				BeforeSwap: func() error { stopApps(cmd, cfg); return nil },
 			})

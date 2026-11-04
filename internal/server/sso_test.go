@@ -586,6 +586,13 @@ func TestSSOAddressHasToBeVerified(t *testing.T) {
 	if _, err := testAuth(t, cfg).DB.UserByIdentity(context.Background(), p.srv.URL, "subject-eve"); err == nil {
 		t.Error("the subject joined the account")
 	}
+	// Nor does a domain allowed become another, by the rules of a language.
+	setUpSSO(t, owner, p, url.Values{"provision": {"1"}, "email_domains": {"inc.com"}})
+	p.signsIn(map[string]any{"sub": "subject-other", "email": "someone@İnc.com", "email_verified": true})
+	if res, _ := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a domain that only looks allowed: %d", res.StatusCode)
+	}
+	setUpSSO(t, owner, p, url.Values{})
 	// A different address, by the rules of a language and not of mail, is not the same address.
 	p.signsIn(map[string]any{"sub": "subject-eve", "email": "ownİr@example.com", "email_verified": true})
 	if res, _ := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusForbidden {
@@ -631,6 +638,56 @@ func TestSSOProvisionedCanOnlyLook(t *testing.T) {
 	}
 }
 
+// TestSSOGroupRuleKeepsThemToALook: a rule says that a group decides a project. Someone not in the group should not
+// end up with what the project gives everyone, which in the default project is more than the group would give.
+func TestSSOGroupRuleKeepsThemToALook(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	owner := signIn(t, cfg, addrs)
+	p := newFakeProvider(t)
+	setUpSSO(t, owner, p, url.Values{"provision": {"1"}, "group_rules": {"web-team = project default deployer"}})
+	signsIn := func(groups ...string) {
+		t.Helper()
+		if groups == nil {
+			groups = []string{}
+		}
+		p.signsIn(map[string]any{"sub": "subject-new", "email": "new@example.com", "email_verified": true, "groups": groups})
+		if res, page := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
+			t.Fatalf("%d\n%s", res.StatusCode, page)
+		}
+	}
+	ctx := context.Background()
+	db := testAuth(t, cfg).DB
+	role := func() string {
+		t.Helper()
+		u, err := db.UserByEmail(ctx, "new@example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		project, err := db.ProjectByName(ctx, "default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := db.MemberRole(ctx, project.ID, u.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	signsIn("contractors")
+	if got := role(); got != "viewer" {
+		t.Errorf("not in the group, the first time: %q", got)
+	}
+	signsIn("web-team")
+	if got := role(); got != "deployer" {
+		t.Errorf("in the group: %q", got)
+	}
+	signsIn()
+	if got := role(); got != "viewer" {
+		t.Errorf("having left it: %q", got)
+	}
+}
+
 // TestSSOAskingForUserInfo: a provider need not put someone's address or groups in its token.
 func TestSSOAskingForUserInfo(t *testing.T) {
 	cfg := testConfig(t)
@@ -652,15 +709,16 @@ func TestSSOAskingForUserInfo(t *testing.T) {
 		t.Fatalf("%+v %v", u, err)
 	}
 
-	// Hearing nothing of their groups is not hearing that they have none: they stay as they are.
+	// Some providers leave groups out for someone in none, and someone just removed from their last should lose
+	// what it gave them.
 	p.mu.Lock()
 	p.userInfo = map[string]any{"sub": "subject-new", "email": "new@example.com", "email_verified": true}
 	p.mu.Unlock()
 	if res, _ := newSSOBrowser(t, cfg, addrs).signIn("/"); res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("%d", res.StatusCode)
 	}
-	if u, err = db.UserByEmail(ctx, "new@example.com"); err != nil || u.Role != "admin" {
-		t.Errorf("hearing nothing took their role away: %+v %v", u, err)
+	if u, err = db.UserByEmail(ctx, "new@example.com"); err != nil || u.Role != "member" {
+		t.Errorf("hearing nothing left their role: %+v %v", u, err)
 	}
 	// Someone else's user info counts for nothing.
 	p.signsIn(map[string]any{"sub": "subject-other"})

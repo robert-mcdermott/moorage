@@ -247,7 +247,7 @@ func (s *Service) Finish(ctx context.Context, query url.Values, held, ip string)
 	if err := id.Claims(&all); err != nil {
 		return store.User{}, f.Next, err
 	}
-	if _, hasGroups := groupsOf(all, cfg.GroupClaim); who.Email == "" || (!hasGroups && cfg.GroupRules != "") {
+	if _, hasGroups := groupsOf(all, cfg.GroupClaim); who.Email == "" || who.Verified == nil || (!hasGroups && cfg.GroupRules != "") {
 		s.askForMore(exchangeCtx, provider, conf, token, id.Subject, cfg.GroupClaim, &who, all)
 	}
 	u, err := s.account(ctx, cfg, id.Issuer, id.Subject, who, ip)
@@ -255,13 +255,15 @@ func (s *Service) Finish(ctx context.Context, query url.Values, held, ip string)
 		s.Auth.Audit(ctx, store.AuditEntry{Actor: who.Email, IP: ip, Action: "signin.sso", Result: "failed"})
 		return store.User{}, f.Next, err
 	}
-	if groups, said := groupsOf(all, cfg.GroupClaim); said {
-		if err := s.applyGroups(ctx, cfg, u, groups); err != nil {
-			s.Log.Warn("apply someone's groups", "email", u.Email, "err", err)
-		}
-	} else if cfg.GroupRules != "" {
-		// Having heard nothing is not the same as hearing of no groups, which would take away what someone has.
-		s.Log.Warn("the provider said nothing of someone's groups, so that what they may do stays as it is: it may need a scope, or the claim's name", "email", u.Email)
+	groups, said := groupsOf(all, cfg.GroupClaim)
+	if !said && cfg.GroupRules != "" {
+		// Some providers leave it out for someone in no groups, and someone who has just been removed from their
+		// last one has to lose what it gave them. So it counts as none, and the log says what to look at if that
+		// is not what it means.
+		s.Log.Warn("the provider said nothing of someone's groups, which counts as none: if they have some, it may need a scope, or the claim's name", "email", u.Email)
+	}
+	if err := s.applyGroups(ctx, cfg, u, groups); err != nil {
+		s.Log.Warn("apply someone's groups", "email", u.Email, "err", err)
 	}
 	if u, err = s.DB.UserByID(ctx, u.ID); err != nil {
 		return store.User{}, f.Next, err
@@ -289,6 +291,8 @@ func (s *Service) askForMore(ctx context.Context, provider *oidc.Provider, conf 
 	}
 	if who.Email == "" {
 		who.Email, who.Verified = more.Email, more.Verified
+	} else if who.Verified == nil && strings.EqualFold(who.Email, more.Email) {
+		who.Verified = more.Verified
 	}
 	if who.Name == "" {
 		who.Name = more.Name
@@ -355,12 +359,12 @@ func (s *Service) account(ctx context.Context, cfg store.SSOConfig, issuer, subj
 }
 
 func domainAllowed(domains, email string) bool {
-	list := strings.Fields(strings.ToLower(domains))
+	list := strings.Fields(auth.LowerASCII(domains))
 	if len(list) == 0 {
 		return true
 	}
 	_, domain, ok := strings.Cut(email, "@")
-	return ok && slices.Contains(list, strings.ToLower(domain))
+	return ok && slices.Contains(list, auth.LowerASCII(domain))
 }
 
 // groupsOf finds someone's groups, and says whether anything was said of them.
@@ -454,7 +458,9 @@ func (s *Service) applyGroups(ctx context.Context, cfg store.SSOConfig, u store.
 	for project, role := range wanted {
 		var err error
 		if role == "" {
-			err = s.DB.RemoveMember(ctx, project, u.ID)
+			// A rule says that a group decides this project. Removing them outright would leave them with what the
+			// project gives everyone, and in the default project that is more than the group would have given.
+			err = s.DB.TakeOutOfProject(ctx, project, u.ID)
 		} else {
 			err = s.DB.SetMember(ctx, project, u.ID, role)
 		}

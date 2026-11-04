@@ -33,7 +33,8 @@ strangers' code, which needs virtual machines.
 ## With a user of its own
 
 - An app's users come from a range that starts at 300000, or at `uid_base` under `[isolation]`.
-  They need no entries in `/etc/passwd`, and an app keeps its user for good.
+  They need no entries in `/etc/passwd`, and an app keeps its user for good, so that `uid_base` is to be
+  set before there are apps: a server refuses to run one as a user below it.
 - Its data directory belongs to it, and no other app can enter it. Its build is read-only.
 - Other apps cannot read its environment, including its secrets, from `/proc`.
 - `moor run`, cron jobs and release commands run as the app's user.
@@ -53,6 +54,9 @@ look into that. Coming back from `none`, an app gets back what it wrote as root 
 An app's environments share its user, so that a preview can read production's data and variables. Keep
 what should not meet in apps of their own. `/dev/shm` is left writable in a sandbox too, as programs
 expect it to be, and is shared between apps, under the usual file permissions.
+
+An environment's data can be a link to a bigger disk, in `data/<app>`: the app's user gets what it leads to, and a
+backup holds that, so that a restore brings it back as a plain directory.
 
 The data directory and `moor` itself have to be where other users can reach them. `/var/lib/moorage`
 and `/usr/local/bin`, where the system service puts them, are. If they are not, `auto` stays at

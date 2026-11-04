@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -163,98 +164,101 @@ func writeJSON(tw *tar.Writer, name string, v any, at time.Time) error {
 	return err
 }
 
-// addPart adds one of the parts of a data directory. An app's data is its own to change, as it is being read,
-// so that each environment's is read through a handle that cannot leave it: a link an app swaps in, to the
-// master key or to another app's files, leads nowhere.
+// addPart adds one of the parts of a data directory. An app's data is its own to change, as it is being read, so that
+// nothing below a certain level is reached by a path that it could change: a link it swaps in, to the master key or
+// to another app's files, leads nowhere. Above that level, directories are the server's, and a link is one that an
+// administrator made, to keep something on a bigger disk. What it leads to is what goes in the backup.
 func addPart(ctx context.Context, tw *tar.Writer, o Options, part string, sum *Summary) error {
 	top := filepath.Join(o.DataDir, part)
 	switch part {
-	case "data":
-		root, err := openRoot(top)
-		if root == nil {
-			return err
-		}
-		defer root.Close()
-		if err := addFile(ctx, tw, root, ".", part, sum, nil); err != nil {
-			return err
-		}
-		apps, err := os.ReadDir(top)
-		if err != nil {
-			return err
-		}
-		for _, app := range apps {
-			name := path.Join(part, app.Name())
-			if err := addFile(ctx, tw, root, app.Name(), name, sum, nil); err != nil {
-				return err
-			}
-			if !app.IsDir() {
-				continue
-			}
-			envs, err := os.ReadDir(filepath.Join(top, app.Name()))
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			for _, env := range envs {
-				below := path.Join(name, env.Name())
-				if !env.IsDir() {
-					if err := addFile(ctx, tw, root, filepath.Join(app.Name(), env.Name()), below, sum, nil); err != nil {
-						return err
-					}
-					continue
-				}
-				if err := addTree(ctx, tw, filepath.Join(top, app.Name(), env.Name()), below, sum, nil); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+	case "data", "builds":
+		return addLevels(ctx, tw, top, part, 2, sum)
+	case "repos":
+		return addLevels(ctx, tw, top, part, 1, sum)
 	case "certs":
 		if o.IncludeKeys {
-			return addTree(ctx, tw, top, part, sum, nil)
+			return addTree(ctx, tw, top, part, sum, nil, true)
 		}
-		return addTree(ctx, tw, top, part, sum, sealerFor(o.Keys))
+		return addTree(ctx, tw, top, part, sum, sealerFor(o.Keys), true)
+	case "keys":
+		return addTree(ctx, tw, top, part, sum, nil, true)
 	}
-	return addTree(ctx, tw, top, part, sum, nil)
+	return addTree(ctx, tw, top, part, sum, nil, false)
 }
 
-// openRoot opens a directory to read from, if it is there.
-func openRoot(dir string) (*os.Root, error) {
-	root, err := os.OpenRoot(dir)
+// addLevels adds a directory of the server's, and what is in it, for so many levels down, and from there down as a tree.
+func addLevels(ctx context.Context, tw *tar.Writer, dir, name string, levels int, sum *Summary) error {
+	if levels == 0 {
+		return addTree(ctx, tw, dir, name, sum, nil, false)
+	}
+	info, err := os.Stat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil
 	}
-	return root, err
-}
-
-// addTree adds a directory and all that is in it.
-func addTree(ctx context.Context, tw *tar.Writer, dir, name string, sum *Summary, seal sealer) error {
-	root, err := openRoot(dir)
-	if root == nil {
+	if err != nil {
+		return err
+	}
+	h, err := headerOf(info, "", name+"/")
+	if err != nil {
+		return err
+	}
+	if err := tw.WriteHeader(h); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
 		return err
 	}
 	defer root.Close()
-	err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil // it has gone since the directory was read
-			}
-			return err
-		}
+	for _, e := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if d.IsDir() && strings.HasSuffix(d.Name(), ".partial") {
-			return filepath.SkipDir // a build still being made
+		if e.IsDir() && strings.HasSuffix(e.Name(), ".partial") {
+			continue // a build still being made
 		}
-		return addFile(ctx, tw, root, filepath.FromSlash(rel), path.Join(name, rel), sum, seal)
-	})
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		below := path.Join(name, e.Name())
+		if e.Type()&fs.ModeSymlink != 0 {
+			if target, err := os.Stat(filepath.Join(dir, e.Name())); err == nil && target.IsDir() {
+				if err := addLevels(ctx, tw, filepath.Join(dir, e.Name()), below, levels-1, sum); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if e.IsDir() {
+			if err := addLevels(ctx, tw, filepath.Join(dir, e.Name()), below, levels-1, sum); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := addFile(ctx, tw, root, e.Name(), below, sum, nil); err != nil {
+			return err
+		}
 	}
-	return err
+	return nil
+}
+
+// addTree adds a directory and all that is in it. Where a restore would refuse a link, it is left out.
+func addTree(ctx context.Context, tw *tar.Writer, dir, name string, sum *Summary, seal sealer, noLinks bool) error {
+	return platform.WalkRoot(dir, func(at *os.Root, entry, rel string, isDir bool) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if isDir && strings.HasSuffix(entry, ".partial") {
+			return fs.SkipDir // a build still being made
+		}
+		if noLinks {
+			if info, err := at.Lstat(entry); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+				return nil
+			}
+		}
+		return addFile(ctx, tw, at, entry, path.Join(name, rel), sum, seal)
+	})
 }
 
 // addOne adds a single file of a directory.

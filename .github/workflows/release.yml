@@ -59,10 +59,11 @@ jobs:
         env:
           MOORAGE_RELEASE_KEY: ${{ secrets.MOORAGE_RELEASE_KEY }}
         run: |
-          # A moor that knows a key refuses a release with no signature, so such a release must not go out.
+          # A moor refuses a release with no signature, and one with no key refuses to upgrade at all, so that neither
+          # goes out. .github/scripts/new-release-key.sh makes the key.
           if ! grep -qv '^#' internal/upgrade/release-keys.txt; then
-            echo "::warning::No release key is in the code, so this release is not signed."
-            exit 0
+            echo "No release key is in the code: moor could not upgrade itself from this release."
+            exit 1
           fi
           if [ -z "$MOORAGE_RELEASE_KEY" ]; then
             echo "The code has a release key, and this repository has no MOORAGE_RELEASE_KEY to sign with."

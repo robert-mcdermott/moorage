@@ -414,51 +414,40 @@ func (p *Policy) Seal(ctx context.Context, app, dir string) error {
 	return seal(dir, uid)
 }
 
-// ownTree makes a directory someone's, and all that is in it if it was someone else's. The directory has to be
-// one: a link here would give away whatever it led to.
+// ownTree makes a directory someone's, and all that is in it if it was someone else's. A link here is one that an
+// administrator made, to keep an app's data on a bigger disk: an app cannot, as the directory above is not its own,
+// and a restore refuses a backup that holds one.
 func ownTree(dir string, uid, gid uint32, mode fs.FileMode) error {
 	if err := os.MkdirAll(dir, mode); err != nil {
 		return err
-	}
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", dir)
 	}
 	if err := os.Chmod(dir, mode); err != nil {
 		return err
 	}
 	// All of it each time, and not only when the top is someone else's: what ran as root before now, such as an
-	// app that has not restarted since an upgrade, leaves its files among those that are already theirs.
-	return walkInside(dir, func(root *os.Root, name string, d fs.DirEntry) error {
-		info, err := d.Info()
+	// app that has not restarted since an upgrade, leaves its files among those that are already theirs. Only the
+	// top has to work: some of what is inside may not be up to anyone, on a read-only mount or one that does not
+	// let root change owners, and an app has run from those before now.
+	return walkInside(dir, func(at *os.Root, name string) error {
+		info, err := at.Lstat(name)
 		if err != nil {
 			return err
 		}
 		if owner, group, _, ok := statOf(info); ok && owner == uid && group == gid {
 			return nil
 		}
-		return root.Lchown(name, int(uid), int(gid))
+		if err := at.Lchown(name, int(uid), int(gid)); err != nil && name == "." {
+			return err
+		}
+		return nil
 	})
 }
 
-// walkInside goes through all that is in a directory, and acts on it through a handle that cannot leave it. What
-// this walks may belong to someone who is still running, and who could swap a directory for a link on the way:
-// going by paths, that would take the walk, as root, to wherever the link leads.
-func walkInside(dir string, act func(root *os.Root, name string, d fs.DirEntry) error) error {
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		return act(root, name, d)
-	})
+// walkInside goes through all that is in a directory. What this walks may belong to someone who is still running, who
+// could swap a directory for a link on the way: going by paths, that would take the walk, as root, to wherever the
+// link leads.
+func walkInside(dir string, act func(at *os.Root, name string) error) error {
+	return platform.WalkRoot(dir, func(at *os.Root, name, _ string, _ bool) error { return act(at, name) })
 }
 
 // ownParent closes the directory above a thing to all but the group of the app it is for.
@@ -496,19 +485,19 @@ func sealOnce(dir string, gid uint32) error {
 var sealOwner = 0
 
 func seal(dir string, gid uint32) error {
-	if err := walkInside(dir, func(root *os.Root, name string, d fs.DirEntry) error {
-		info, err := d.Info()
+	if err := walkInside(dir, func(at *os.Root, name string) error {
+		info, err := at.Lstat(name)
 		if err != nil {
 			return err
 		}
 		// A package manager may have linked this from its cache, and then from there to other builds. Changing
 		// who it belongs to would change it for all of them, so that this one gets a copy of its own.
 		if _, _, links, ok := statOf(info); ok && links > 1 && info.Mode().IsRegular() {
-			if err := ownCopy(root, name, info); err != nil {
+			if err := ownCopy(at, name, info); err != nil {
 				return err
 			}
 		}
-		return root.Lchown(name, sealOwner, int(gid))
+		return at.Lchown(name, sealOwner, int(gid))
 	}); err != nil {
 		return err
 	}
@@ -542,16 +531,16 @@ func ownCopy(root *os.Root, name string, info fs.FileInfo) error {
 
 // applyModes lets the group read and run what the owner may, and nobody else do anything.
 func applyModes(dir string) error {
-	return walkInside(dir, func(root *os.Root, name string, d fs.DirEntry) error {
-		if d.Type()&fs.ModeSymlink != 0 {
-			return nil
-		}
-		info, err := d.Info()
+	return walkInside(dir, func(at *os.Root, name string) error {
+		info, err := at.Lstat(name)
 		if err != nil {
 			return err
 		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		mode := info.Mode().Perm()
-		return root.Chmod(name, mode&0o700|(mode&0o500)>>3)
+		return at.Chmod(name, mode&0o700|(mode&0o500)>>3)
 	})
 }
 

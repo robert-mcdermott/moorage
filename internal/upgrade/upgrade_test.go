@@ -617,3 +617,18 @@ func TestWhatAnInterruptedUpgradeLeft(t *testing.T) {
 		t.Error("it is still there")
 	}
 }
+
+// TestCheckWithNoKey: asking what the project has out runs nothing, and works even in a moor with no key.
+func TestCheckWithNoKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/tag/v0.9.0", http.StatusFound)
+	}))
+	defer srv.Close()
+	s := newServer(t, 21)
+	o := s.options(Source{Base: srv.URL})
+	o.Unsigned, o.Check = false, true
+	res, err := Upgrade(context.Background(), o)
+	if err != nil || !res.Available || res.To != "0.9.0" {
+		t.Errorf("%+v %v", res, err)
+	}
+}

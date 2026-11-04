@@ -300,7 +300,7 @@ func (s *Server) lookupUser(w http.ResponseWriter, r *http.Request) (store.User,
 	var u store.User
 	var err error
 	if strings.Contains(which, "@") {
-		u, err = s.db.UserByEmail(r.Context(), strings.ToLower(which))
+		u, err = s.db.UserByEmail(r.Context(), auth.LowerASCII(which))
 	} else {
 		u, err = s.db.UserByID(r.Context(), which)
 	}

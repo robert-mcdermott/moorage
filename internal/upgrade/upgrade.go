@@ -147,7 +147,8 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 	if err := o.Source.check(); err != nil {
 		return res, err
 	}
-	if len(o.Keys) == 0 && !o.Unsigned {
+	// Saying what the project has out runs nothing. Anything else from here on would.
+	if len(o.Keys) == 0 && !o.Unsigned && !(o.Check && !o.Source.Flat) {
 		return res, &RefusedError{"this moor knows no key that releases are signed with, so that it cannot tell a real one from any other, and nothing has changed: run the installer, or --unsigned if you know where this release came from"}
 	}
 	want := o.Version
@@ -187,12 +188,18 @@ func Upgrade(ctx context.Context, o Options) (Result, error) {
 	if o.Check {
 		stagingIn = ""
 	} else {
+		cannot := func(err error) error {
+			if errors.Is(err, fs.ErrPermission) {
+				return &RefusedError{fmt.Sprintf("this user cannot use the server's files in %s: run this as a user who can, as with sudo", o.DataDir)}
+			}
+			return err
+		}
 		if err := os.MkdirAll(stateDir(o.DataDir), 0o700); err != nil {
-			return res, err
+			return res, cannot(err)
 		}
 		unlock, err := oneAtATime(o.DataDir)
 		if err != nil {
-			return res, err
+			return res, cannot(err)
 		}
 		defer unlock()
 		clearInterrupted(stagingIn)

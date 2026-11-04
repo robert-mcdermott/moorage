@@ -214,7 +214,7 @@ func siteRoot(buildDir, root string) (string, error) {
 	if site != base && !strings.HasPrefix(site, base+string(filepath.Separator)) {
 		return "", &Error{Msg: fmt.Sprintf("the site's directory %s leads outside the build", root)}
 	}
-	return filepath.Join(buildDir, filepath.FromSlash(root)), nil
+	return site, nil
 }
 
 // buildImage builds an app's image, or fetches the one it names, and settles

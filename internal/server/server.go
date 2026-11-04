@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	stdlog "log"
 	"log/slog"
 	"net"
@@ -19,6 +18,8 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -54,6 +55,67 @@ type Layout = layout.Layout
 
 // NewLayout returns the layout of the data directory root.
 func NewLayout(root string) Layout { return layout.New(root) }
+
+// logWriter writes what a tool says, a line at a time, to the server's log.
+type logWriter struct {
+	log  *slog.Logger
+	what []any
+}
+
+func (w logWriter) Write(p []byte) (int, error) {
+	for _, line := range strings.Split(strings.TrimSpace(string(p)), "\n") {
+		if line != "" {
+			w.log.Info(line, w.what...)
+		}
+	}
+	return len(p), nil
+}
+
+// fetchToolchains gets the toolchains that apps need and this server does not have, as on a restored server, which
+// has their builds and not those. It happens on its own: what keeps instances running goes through apps one at a
+// time, and one waiting for a download should not hold up the rest. The app starts the next time it is looked at.
+func fetchToolchains(life context.Context, toolchains *toolchain.Manager, log *slog.Logger) func(ctx context.Context, name, version string) error {
+	var mu sync.Mutex
+	going := map[string]bool{}
+	failedAt := map[string]time.Time{}
+	return func(_ context.Context, name, version string) error {
+		key := name + "@" + version
+		mu.Lock()
+		defer mu.Unlock()
+		if going[key] {
+			return errors.New("it is being fetched")
+		}
+		if time.Since(failedAt[key]) < time.Minute {
+			return errors.New("fetching it failed a moment ago: the server's log says why, and it tries again")
+		}
+		going[key] = true
+		go func() {
+			ctx, cancel := context.WithTimeout(life, 15*time.Minute)
+			defer cancel()
+			say := logWriter{log, []any{"toolchain", name, "version", version}}
+			log.Info("fetching a toolchain that an app needs", say.what...)
+			var uv *toolchain.Installed
+			var err error
+			if name == "python" {
+				var found toolchain.Installed
+				if found, err = toolchains.Ensure(ctx, "uv", "", nil, say); err == nil {
+					uv = &found
+				}
+			}
+			if err == nil {
+				_, err = toolchains.Ensure(ctx, name, version, uv, say)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			delete(going, key)
+			if err != nil {
+				failedAt[key] = time.Now()
+				log.Error("a toolchain that an app needs could not be fetched", "toolchain", name, "version", version, "err", err)
+			}
+		}()
+		return errors.New("it is being fetched")
+	}
+}
 
 // trustsThisMachine finds a trusted range that holds an address of this machine.
 func trustsThisMachine(trusted []netip.Prefix) (netip.Prefix, bool) {
@@ -290,33 +352,21 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	}
 	router.SetProxyToken(proxyToken)
 	runtime := reconcile.New(db, cfg, reconcile.Options{
-		ProxyToken:    proxyToken,
-		DataDir:       cfg.DataDir,
-		Isolation:     isolation,
-		ShimCmd:       []string{exe, "shim"},
-		ShimEnv:       opts.ShimEnv,
-		Shell:         shell,
-		ShellEnv:      opts.ShellEnv,
-		BackoffMin:    opts.BackoffMin,
-		Tick:          opts.Tick,
-		Trusted:       router.Trusted(),
-		ToolchainBins: toolchains.BinDirs,
-		EnsureToolchain: func(ctx context.Context, name, version string) error {
-			log.Info("fetching a toolchain that an app needs", "toolchain", name, "version", version)
-			var uv *toolchain.Installed
-			if name == "python" {
-				found, err := toolchains.Ensure(ctx, "uv", "", nil, io.Discard)
-				if err != nil {
-					return err
-				}
-				uv = &found
-			}
-			_, err := toolchains.Ensure(ctx, name, version, uv, io.Discard)
-			return err
-		},
-		Secrets:    keyring,
-		Containers: containers,
-		Events:     bus,
+		ProxyToken:      proxyToken,
+		DataDir:         cfg.DataDir,
+		Isolation:       isolation,
+		ShimCmd:         []string{exe, "shim"},
+		ShimEnv:         opts.ShimEnv,
+		Shell:           shell,
+		ShellEnv:        opts.ShellEnv,
+		BackoffMin:      opts.BackoffMin,
+		Tick:            opts.Tick,
+		Trusted:         router.Trusted(),
+		ToolchainBins:   toolchains.BinDirs,
+		EnsureToolchain: fetchToolchains(ctx, toolchains, log),
+		Secrets:         keyring,
+		Containers:      containers,
+		Events:          bus,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)

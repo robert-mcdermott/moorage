@@ -898,6 +898,8 @@ func TestRestoreOnlyWhatABackupHolds(t *testing.T) {
 		{"a link for a build", m, link("builds/shop/b1", "/etc")},
 		{"a link for the database", m, link("moorage.db", "/etc/passwd")},
 		{"a link in the certificates", m, link("certs/ca.key", "/etc/shadow")},
+		{"a pipe in the keys, to make a place for them", m, tar.Header{Name: "keys/x", Typeflag: tar.TypeFifo, Mode: 0o644}},
+		{"a pipe in what tells it what to run", m, tar.Header{Name: "run/x", Typeflag: tar.TypeFifo, Mode: 0o644}},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			to := t.TempDir()
@@ -971,5 +973,74 @@ func TestS3ThatGoesQuiet(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("still waiting")
+	}
+}
+
+// TestBackupOfDataOnABiggerDisk: an administrator can link an environment's data elsewhere. A backup holds what it
+// leads to, or it could not be restored.
+func TestBackupOfDataOnABiggerDisk(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("links need rights here")
+	}
+	from := newServerData(t)
+	bigger := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bigger, "big.dat"), []byte("on the other disk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(from, "data", "large"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(bigger, filepath.Join(from, "data", "large", "production")); err != nil {
+		t.Skip(err)
+	}
+	if err := os.MkdirAll(filepath.Join(from, "certs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(from, "certs", "linked")); err != nil {
+		t.Fatal(err)
+	}
+	archive := archiveOf(t, from, options(from))
+	to := t.TempDir()
+	if _, err := Restore(context.Background(), bytes.NewReader(archive), "", RestoreOptions{DataDir: to, KeyFingerprint: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(to, "data", "large", "production", "big.dat")); got != "on the other disk" {
+		t.Errorf("%q", got)
+	}
+	info, err := os.Lstat(filepath.Join(to, "data", "large", "production"))
+	if err != nil || !info.IsDir() {
+		t.Errorf("%v %v", info, err)
+	}
+}
+
+// TestRestoreOfAForgedDatabase: what a database says goes on to be used as paths and users, by a server running as root.
+func TestRestoreOfAForgedDatabase(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct{ what, sql string }{
+		{"an app with a path for a name", `UPDATE apps SET name = '../../etc' WHERE name = 'shop'`},
+		{"an environment with a path for a name", `UPDATE environments SET name = '../..'`},
+		{"root for an app", `INSERT INTO app_users (app_id, uid) SELECT id, 0 FROM apps WHERE name = 'shop'`},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			from := newServerData(t)
+			db, err := store.Open(ctx, filepath.Join(from, databaseName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := db.EnsureApp(ctx, "shop"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Writer.ExecContext(ctx, c.sql); err != nil {
+				t.Fatal(err)
+			}
+			db.Close()
+			archive := archiveOf(t, from, options(from))
+			to := t.TempDir()
+			_, err = Restore(ctx, bytes.NewReader(archive), "", RestoreOptions{DataDir: to, KeyFingerprint: "abc", MinUID: 300000})
+			refusedSaying(t, err, "not one that a server wrote")
+			if _, err := os.Stat(filepath.Join(to, databaseName)); err == nil {
+				t.Error("it went ahead")
+			}
+		})
 	}
 }

@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -159,6 +162,83 @@ func SchemaOf(ctx context.Context, path string) (int, error) {
 	var version int
 	err = conn.QueryRowContext(ctx, `SELECT coalesce(max(version), 0) FROM schema_migrations`).Scan(&version)
 	return version, err
+}
+
+// CheckRestoredDatabase looks through a database from a backup, before a server goes on to use what it says as paths
+// and as users. A server writes names that it has checked, and only a forged one could say otherwise.
+func CheckRestoredDatabase(ctx context.Context, path string, minUID uint32) error {
+	conn, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	exists := func(table string) (bool, error) {
+		var n int
+		err := conn.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&n)
+		return n > 0, err
+	}
+	each := func(table, query string, check func(string) error) error {
+		there, err := exists(table)
+		if err != nil || !there {
+			return err
+		}
+		rows, err := conn.QueryContext(ctx, query)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var value string
+			if err := rows.Scan(&value); err != nil {
+				return err
+			}
+			if err := check(value); err != nil {
+				return err
+			}
+		}
+		return rows.Err()
+	}
+	local := func(what string) func(string) error {
+		return func(value string) error {
+			for _, part := range strings.Split(value, "/") {
+				if part == "" || part == "." || part == ".." || strings.Contains(part, `\`) {
+					return fmt.Errorf("%s %q", what, value)
+				}
+			}
+			return nil
+		}
+	}
+	if err := each("apps", `SELECT name FROM apps`, func(name string) error {
+		if strings.Contains(name, "/") {
+			return fmt.Errorf("an app %q", name)
+		}
+		return local("an app")(name)
+	}); err != nil {
+		return err
+	}
+	if err := each("environments", `SELECT name FROM environments`, func(name string) error {
+		if strings.Contains(name, "/") {
+			return fmt.Errorf("an environment %q", name)
+		}
+		return local("an environment")(name)
+	}); err != nil {
+		return err
+	}
+	if err := each("builds", `SELECT artifact_ref FROM builds WHERE artifact_ref <> ''`, func(ref string) error {
+		if !strings.HasPrefix(ref, "builds/") {
+			return fmt.Errorf("a build at %q", ref)
+		}
+		return local("a build at")(ref)
+	}); err != nil {
+		return err
+	}
+	return each("app_users", `SELECT uid FROM app_users`, func(uid string) error {
+		n, err := strconv.ParseUint(uid, 10, 32)
+		if err != nil || n == 0 || uint32(n) < minUID {
+			return fmt.Errorf("an app that runs as user %s", uid)
+		}
+		return nil
+	})
 }
 
 // ForgetBackups drops the records of backups that have gone from where they were.

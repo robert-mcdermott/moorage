@@ -182,24 +182,21 @@ func TestWalksStayInside(t *testing.T) {
 	}
 }
 
-// TestOwnTreeWillNotFollowALink: a backup can hold a link where a directory should be.
-func TestOwnTreeWillNotFollowALink(t *testing.T) {
+// TestOwnTreeThroughAnAdministratorsLink: an environment's data can be a link to a bigger disk.
+func TestOwnTreeThroughAnAdministratorsLink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no such modes")
 	}
-	outside := t.TempDir()
-	if err := os.Chmod(outside, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bigger := t.TempDir()
 	link := filepath.Join(t.TempDir(), "production")
-	if err := os.Symlink(outside, link); err != nil {
+	if err := os.Symlink(bigger, link); err != nil {
 		t.Skip(err)
 	}
-	if err := ownTree(link, uint32(os.Getuid()), uint32(os.Getgid()), 0o700); err == nil {
-		t.Error("it went along with a link")
+	if err := ownTree(link, uint32(os.Getuid()), uint32(os.Getgid()), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if info, err := os.Stat(outside); err != nil || info.Mode().Perm() != 0o755 {
-		t.Errorf("it changed what the link led to: %v %v", info, err)
+	if info, err := os.Stat(bigger); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("%v %v", info, err)
 	}
 }
 

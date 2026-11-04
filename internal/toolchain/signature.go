@@ -80,8 +80,9 @@ func (m *Manager) checkSignature(ctx context.Context, f file, sums []byte, log i
 	case errors.Is(err, pgperrors.ErrUnknownIssuer):
 		return unchecked(fmt.Sprintf("%s is signed by a key that this moor does not know", f.signedAs))
 	case errors.Is(err, pgperrors.ErrKeyExpired) && entity != nil:
-		// The signature is good, by a key that has expired since, as old releases' keys do. One made after it
-		// expired is another matter: an old key is the likeliest of them to have gone astray.
+		// The signature is good, by a key that has expired since, as old releases' keys do. One that says it was
+		// made after that is no release of theirs. Someone holding the key could date it earlier, so that this
+		// catches a mistake or a careless forger, and is no defence against a careful one.
 		if !madeBeforeExpiry(keys, signature) {
 			return fmt.Errorf("%s failed verification: its signature was made with a key that had already expired", f.signedAs)
 		}
