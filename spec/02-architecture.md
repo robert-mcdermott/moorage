@@ -344,10 +344,11 @@ instances immediately.
 stop apps too.
 
 **Upgrade:** `moor server upgrade` downloads the new release, verifies its
-signature and checksum, snapshots the database, swaps the binary (keeping the
-previous one) and restarts the service. If the new version fails its startup
-checks, `moor server upgrade --rollback` restores the previous binary and
-database snapshot. Because the proxy, TLS and git server are compiled in,
+signature and checksum, runs it only then, to ask what it is, snapshots the database,
+swaps the binary (keeping the previous one) and restarts the service. If the new
+version does not come up, it goes back by itself. `moor server upgrade --rollback` does
+so later on: the previous binary, and the database snapshot only if the schema has moved
+on, since that loses what has happened since. Because the proxy, TLS and git server are compiled in,
 there are no separately versioned components that can drift out of sync. On Linux
 the listening sockets can be held by systemd socket activation so not even a
 connection is refused during the restart; elsewhere the gap is well under a

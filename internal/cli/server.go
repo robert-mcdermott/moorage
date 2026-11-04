@@ -26,7 +26,7 @@ func newServerCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newServerUsersCmd(), newServerInitCmd(), newServerRunCmd(), newServerInstallCmd(), newServerUninstallCmd(),
 		newServerStartCmd(), newServerStopCmd(), newServerRestartCmd(), newServerStatusCmd(), newServerDoctorCmd(),
-		newServerProxyConfigCmd(), newServerResolverCmd(), newServerBackupCmd(), newServerRestoreCmd(), newServerSSOCmd())
+		newServerProxyConfigCmd(), newServerResolverCmd(), newServerBackupCmd(), newServerRestoreCmd(), newServerSSOCmd(), newServerUpgradeCmd())
 	return cmd
 }
 

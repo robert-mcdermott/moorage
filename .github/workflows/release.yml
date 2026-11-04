@@ -2,7 +2,7 @@ name: Release
 
 # Pushing a tag such as v0.1.0 checks that the tag, the version in the code and
 # CHANGELOG.md agree, runs the tests, builds the six binaries with their
-# checksums, and drafts a GitHub release whose notes are the version's
+# checksums, a signature, a list of what went into them, and drafts a GitHub release whose notes are the version's
 # CHANGELOG section. Review the draft and publish it.
 on:
   push:
@@ -10,6 +10,9 @@ on:
 
 permissions:
   contents: write
+  # For the attestation of where the binaries came from.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -50,7 +53,29 @@ jobs:
             if [ "$os" = windows ]; then suffix=".exe"; fi
             GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w" -o "dist/moor-$os-$arch$suffix" ./cmd/moor
           done
-          cd dist && sha256sum moor-* > SHA256SUMS && cat SHA256SUMS
+          python3 .github/scripts/sbom.py "dist/moor-linux-amd64" "$VERSION" > dist/moorage-sbom.cdx.json
+          cd dist && sha256sum moor-* moorage-sbom.cdx.json > SHA256SUMS && cat SHA256SUMS
+      - name: Sign the checksums
+        env:
+          MOORAGE_RELEASE_KEY: ${{ secrets.MOORAGE_RELEASE_KEY }}
+        run: |
+          # A moor that knows a key refuses a release with no signature, so such a release must not go out.
+          if ! grep -qv '^#' internal/upgrade/release-keys.txt; then
+            echo "::warning::No release key is in the code, so this release is not signed."
+            exit 0
+          fi
+          if [ -z "$MOORAGE_RELEASE_KEY" ]; then
+            echo "The code has a release key, and this repository has no MOORAGE_RELEASE_KEY to sign with."
+            exit 1
+          fi
+          go run ./internal/upgrade/releasekey sign dist/SHA256SUMS > dist/SHA256SUMS.sig
+          go run ./internal/upgrade/releasekey verify dist/SHA256SUMS dist/SHA256SUMS.sig
+      - name: Attest where the binaries came from
+        # Anyone can check this with: gh attestation verify moor-linux-amd64 --repo OWNER/moorage
+        uses: actions/attest-build-provenance@v2
+        continue-on-error: true
+        with:
+          subject-path: 'dist/moor-*'
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}

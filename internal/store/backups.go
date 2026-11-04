@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
+	"os"
 	"time"
 )
 
@@ -138,6 +140,22 @@ func SnapshotDatabase(ctx context.Context, path, into string) (int, error) {
 	if _, err := conn.ExecContext(ctx, `VACUUM INTO ?`, into); err != nil {
 		return 0, err
 	}
+	var version int
+	err = conn.QueryRowContext(ctx, `SELECT coalesce(max(version), 0) FROM schema_migrations`).Scan(&version)
+	return version, err
+}
+
+// SchemaOf says which version of the schema a database has, with a connection of its own. A database
+// that is not there yet has none.
+func SchemaOf(ctx context.Context, path string) (int, error) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	conn, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
 	var version int
 	err = conn.QueryRowContext(ctx, `SELECT coalesce(max(version), 0) FROM schema_migrations`).Scan(&version)
 	return version, err

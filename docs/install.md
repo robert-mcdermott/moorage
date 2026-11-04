@@ -295,25 +295,68 @@ and a backup leaves it out. See [backups](backups.md) for a schedule, buckets an
 
 ## Upgrading
 
-Run the installer again, as the same user: it replaces `moor` where it is, and says
-what it upgraded from. To go back, give it an earlier release with `MOOR_VERSION`.
+A server upgrades itself:
 
-Then restart the server, to use the new version:
+```bash
+moor server upgrade --check
+```
+
+```bash
+sudo moor server upgrade
+```
+
+That downloads the newest release and checks that it is what the project published, by its signature and
+its checksum. It then keeps a copy of the database and of the binary, puts the new binary in place, and
+restarts the server. Running apps keep running, and the new server takes them over. **If the server does not
+come up on the new version, everything goes back by itself.** A database from a large server can take a
+while to migrate: `--wait 10m` gives it longer than the 2 minutes it otherwise has.
+
+| Option | What it does |
+|---|---|
+| `--check` | Only says whether there is a newer version |
+| `--version 0.6.1` | Upgrades to that version, and not the newest |
+| `--from DIR` | Takes the release from a directory or an address, for a mirror or a machine with no way out. It holds a release's files, with the same signature |
+| `--wait 10m` | Gives the new version longer to come up |
+
+To go back later:
+
+```bash
+sudo moor server upgrade --rollback
+```
+
+That puts back the binary, and leaves the database alone if the new version did not change it. If it did, the
+previous version could not read it, so it goes back to its copy from before the upgrade. What has happened
+since is then lost from it, so after 10 minutes this takes `--force`, and what it replaced is kept beside the
+copy, in `upgrades` in the data directory. There is one way back: from the last upgrade.
+
+A server that nothing manages, run with `moor server run`, gets its new binary, and goes on with the version
+it started with until you restart it. To go back, stop it first.
+
+Upgrade `moor` on the other machines that use the server too, by running the installer again: a newer server
+may change what the API answers. `moor server doctor` then checks the result.
+
+The installer can upgrade a server as well, without the copies or the way back. Run it again as the same
+user, which replaces `moor` where it is and says what it upgraded from, and restart the server:
 
 ```bash
 sudo moor server restart
 ```
 
-Running apps keep running, and the new server takes them over. Until you restart it, a
-server goes on with the version it started with. It migrates the database as it
-starts, after keeping a snapshot in `backups` in the data directory. Upgrade `moor` on
-the other machines that use the server too: a newer server may change what the API
-answers. `moor server doctor` then checks the result.
+Until you do, a server goes on with the version it started with. Give the installer an earlier release with
+`MOOR_VERSION` to install that.
 
-On Windows, the server and the supervisors of its apps run from `moor.exe`, and a
-running program cannot be replaced there. The installer moves it aside as
-`moor.previous.*.exe`, which goes on running, and clears that away on a later upgrade
-once nothing uses it. Press Ctrl+C where the server runs, and start it again.
+On Windows, the server and the supervisors of its apps run from `moor.exe`, and a running program cannot be
+replaced there, so both ways move it aside, where it goes on running. Press Ctrl+C where the server runs, and
+start it again.
+
+### What a release can be checked against
+
+Each release has `SHA256SUMS`, with `SHA256SUMS.sig` over it, a list of what went into the binaries in
+`moorage-sbom.cdx.json`, and an attestation of the workflow that built them. To look for yourself:
+
+```bash
+gh attestation verify moor-linux-amd64 --repo robert-mcdermott/moorage
+```
 
 From 0.1.0, the server has no accounts yet: `moor server status` shows the link to
 create the first, and until then the admin token works from anywhere, as it did.

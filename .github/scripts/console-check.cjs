@@ -44,12 +44,37 @@ function moor(...args) {
     problems.length = 0;
   };
 
+  // Signed out, a page still answers, as the sign-in page: so what was asked for has to be what came.
+  const onSignIn = () => new URL(page.url()).pathname === '/login';
+  let inSession = false;
+  let sessions = 1;
+
+  // WebKit on Linux, when it gives up with an internal error, can lose the cookies of a whole context:
+  // they are held in memory by a process of its own. That is the browser's doing only if the server
+  // still has the session, so this signs in again and looks, and otherwise the check fails.
+  const lostItsCookies = async () => {
+    console.log(`note  ${browserName}: the browser no longer has its session, at ${page.url()}; let go of: ${letGoOf.slice(-3).join(' | ') || 'nothing'}`);
+    await page.fill('input[name=email]', 'owner@example.com');
+    await page.fill('input[name=password]', passphrase);
+    await page.click('button[type=submit]');
+    await page.waitForURL(url => new URL(url).pathname !== '/login');
+    sessions++;
+    await page.goto(`${base}/account/sessions`);
+    const listed = await page.locator('main table tbody tr').count();
+    check('a session the browser lost is one the server still has', listed === sessions, `${listed} listed, and ${sessions} made`);
+  };
+
   // WebKit on Linux now and then gives up on a navigation that interrupts a stream the
   // page holds, with an internal error of its own. Once or twice more is enough.
   const visit = async (page, url) => {
     for (let tries = 3; ; tries--) {
       try {
-        return await page.goto(url);
+        const res = await page.goto(url);
+        if (browserName === 'webkit' && inSession && onSignIn()) {
+          await lostItsCookies();
+          continue;
+        }
+        return res;
       } catch (e) {
         if (tries <= 1 || !/internal error/.test(e.message)) { throw e; }
         await page.waitForTimeout(250);
@@ -65,6 +90,7 @@ function moor(...args) {
   await page.click('button[type=submit]');
   await page.waitForURL('**/welcome');
   check('claiming the server goes to getting started', true);
+  inSession = true;
 
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
@@ -74,7 +100,7 @@ function moor(...args) {
     await page.setViewportSize({ width, height: 800 });
     for (const path of pages) {
       const res = await visit(page, base + path);
-      check(`${path} at ${width}px answers`, res.status() === 200, String(res.status()));
+      check(`${path} at ${width}px answers`, res.status() === 200 && !onSignIn(), `${res.status()}, at ${page.url()}`);
       const over = await page.evaluate(() => {
         const limit = document.documentElement.clientWidth;
         const wide = [...document.querySelectorAll('body *')]
@@ -310,6 +336,7 @@ function moor(...args) {
 
   // Signing out.
   await visit(page, base + '/account');
+  inSession = false;
   await page.click('#signout button');
   await page.waitForURL(url => !url.pathname.startsWith('/account'));
   const res = await visit(page, base + '/apps/shop');

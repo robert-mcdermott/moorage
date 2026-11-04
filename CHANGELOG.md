@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`moor server upgrade` (wave 6, slice 4).** A server upgrades itself: it checks a release's signature and checksum, keeps a copy of the database and the binary, swaps them, restarts, and goes back by itself if the new version does not come up. `--rollback` goes back later on. Apps keep running throughout. Releases now come with a list of what went into them, and an attestation of the workflow that built them. See [upgrading](docs/install.md#upgrading).
 - **Single sign-on (wave 6, slice 3).** **Settings → Sign-in** connects to any OpenID Connect provider, with accounts made the first time, roles from groups, and an option to turn off passwords. `trusted_header` under `[auth]` believes a proxy that signs people in. See [how people sign in](docs/sign-in.md).
 - **Two-factor sign-in (wave 6, slice 3).** **Your account → Two-factor** adds a code from an authenticator app to signing in, with recovery codes for if you lose it. See [accounts](docs/accounts.md#two-factor-sign-in).
 - **Backups (wave 6, slice 2).** `moor server backup` and **Settings → Backups** make a backup of a running server, on demand or on a schedule, to a directory or a bucket on S3 or a service like it. `moor server restore` brings it all back: apps, data, secrets and accounts. A restore checks everything before it changes anything, and is tried in CI. See [backups](docs/backups.md).

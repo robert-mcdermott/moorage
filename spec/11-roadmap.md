@@ -1059,6 +1059,14 @@ directory, supervises it, and serves it on its own hostname.
      of their own, and put everything back if they fail.
 4. **Lifecycle.** Self-upgrade with rollback; server configuration export and
    import; provenance checks for toolchain downloads where published.
+   - Done in slice 4: `moor server upgrade`, with `--check`, `--version`, `--from`, `--wait` and `--rollback`; a
+     signature over a release's checksums, with an Ed25519 key in the code, and the workflow to sign with
+     it; a list of what went into a release; an attestation of the workflow that built it.
+   - Found by slice 4: rolling back should cost nothing unless it must, so the database only goes back if
+     the schema moved on. A release's binary should not run at all until it has passed its checks. The
+     browser check counted the sign-in page as a page that worked, so a signed-out browser passed it; and
+     its failure once in three runs on WebKit turned out to be that browser losing its cookies, which it now
+     shows by finding the session still on the server.
 5. **Release 0.6.0.**
 
 ## 0.7.0: Windows, forges and the terminal (planned)
