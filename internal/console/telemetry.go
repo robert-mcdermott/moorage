@@ -159,7 +159,7 @@ func (c *Console) thresholdData(r *http.Request, app, env string) (*thresholdsVi
 		units[k.Metric] = k.Unit
 	}
 	for _, t := range list {
-		row := thresholdRow{AlertThreshold: t, Label: notify.ThresholdLabel(t.Metric), Unit: units[t.Metric], Now: "Nothing to compare with"}
+		row := thresholdRow{AlertThreshold: t, Label: notify.ThresholdLabel(t.Metric), Unit: units[t.Metric], Now: "Nothing to compare with", Firing: t.Firing}
 		if c.notifier != nil {
 			if value, known, firing := c.notifier.ThresholdStatus(t.ID); known {
 				row.Now, row.Firing = strconv.FormatFloat(value, 'f', 1, 64)+" "+units[t.Metric], firing

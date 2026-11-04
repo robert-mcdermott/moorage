@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/robert-mcdermott/moorage/internal/platform"
 )
 
 // The lines between which the hosts file is this server's to change, and nothing outside them.
@@ -79,7 +81,12 @@ func withoutBlock(body []byte) []byte {
 	}
 	end := bytes.Index(body[start:], []byte(hostsEnd))
 	if end < 0 {
-		return body[:start] // nothing to say where it ended: it was the last thing in the file
+		// Nothing says where it ended, and what follows may be someone's own. So only the line that began it goes.
+		rest := body[start:]
+		if newline := bytes.IndexByte(rest, '\n'); newline >= 0 {
+			return append(append([]byte{}, body[:start]...), rest[newline+1:]...)
+		}
+		return body[:start]
 	}
 	rest := body[start+end+len(hostsEnd):]
 	return append(append([]byte{}, body[:start]...), bytes.TrimLeft(rest, "\r\n")...)
@@ -107,6 +114,11 @@ func writeOver(path string, body []byte) error {
 	}
 	if err := os.Chmod(tmp.Name(), mode); err != nil {
 		return err
+	}
+	if _, err := os.Stat(path); err == nil {
+		if err := platform.CopyAccess(path, tmp.Name()); err != nil {
+			return err
+		}
 	}
 	return os.Rename(tmp.Name(), path)
 }

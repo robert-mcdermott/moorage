@@ -66,11 +66,20 @@ func postJSON(ctx context.Context, client *http.Client, address string, headers 
 	}
 	defer res.Body.Close()
 	io.Copy(io.Discard, io.LimitReader(res.Body, 64<<10))
-	if res.StatusCode/100 != 2 {
-		return fmt.Errorf("it answered %s", res.Status)
+	switch {
+	case res.StatusCode/100 == 2:
+		return nil
+	case res.StatusCode == http.StatusBadRequest || res.StatusCode == http.StatusRequestEntityTooLarge || res.StatusCode == http.StatusUnprocessableEntity:
+		return &RejectedError{res.Status}
 	}
-	return nil
+	return fmt.Errorf("it answered %s", res.Status)
 }
+
+// RejectedError says that a sink will not take what it was sent, however many times it is sent. Another try is not going to
+// help, as it does with a sink that is down or that wants another token.
+type RejectedError struct{ Status string }
+
+func (e *RejectedError) Error() string { return "it answered " + e.Status }
 
 // httpSender sends what apps say as JSON, in batches.
 type httpSender struct {
@@ -162,8 +171,11 @@ func (o *otlpSender) sendLogs(ctx context.Context, lines []Line) error {
 			order = append(order, key)
 		}
 		stream := "stdout"
-		if l.Stream == "E" {
+		switch l.Stream {
+		case "E":
 			stream = "stderr"
+		case "M":
+			stream = "moorage"
 		}
 		records[key] = append(records[key], logRecord{nanos(l.Time), otlpValue{l.Text}, attributes("log.iostream", stream)})
 	}

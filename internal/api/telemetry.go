@@ -91,6 +91,7 @@ func (s *Server) testTelemetrySink(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) thresholdDoc(t store.AlertThreshold) apitypes.Threshold {
 	doc := apitypes.Threshold{ID: t.ID, Metric: t.Metric, Label: notify.ThresholdLabel(t.Metric), Above: t.Above, Minutes: t.Minutes, CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt}
+	doc.Firing = t.Firing
 	if value, known, firing := s.notifier.ThresholdStatus(t.ID); known {
 		doc.Value, doc.Firing = &value, firing
 	}

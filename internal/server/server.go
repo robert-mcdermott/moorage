@@ -515,15 +515,19 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	serverName, _ := os.Hostname()
 	sinks := &telemetry.Service{DB: db, Keys: keyring, Log: log, Life: telemetryCtx, Tick: opts.TelemetryTick, MetricsEvery: opts.TelemetryMetricsEvery,
 		Client: notify.GuardedClient(allowed, 15*time.Second), Dial: notify.GuardedDial(allowed), Server: serverName, Version: buildinfo.Version,
-		Sources: func(ctx context.Context) []telemetry.Source {
+		Sources: func(ctx context.Context) ([]telemetry.Source, error) {
+			running, err := runtime.LogSources(ctx)
+			if err != nil {
+				return nil, err
+			}
 			var out []telemetry.Source
-			for _, l := range runtime.LogSources(ctx) {
+			for _, l := range running {
 				out = append(out, telemetry.Source(l))
 			}
 			for _, l := range deployer.RunLogSources() {
 				out = append(out, telemetry.Source(l))
 			}
-			return out
+			return out, nil
 		},
 		Metrics: func(ctx context.Context) metrics.Export {
 			all, err := db.AllEnvironments(ctx)

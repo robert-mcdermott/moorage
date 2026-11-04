@@ -25,7 +25,7 @@ A pull request from a fork, or from someone the forge does not say may push ther
 not built until someone approves that commit: building it would run their code here.`,
 		Example: `  moor forge connect https://github.com/acme/shop.git --token-stdin
   moor forge pulls
-  moor forge approve 42
+  moor forge approve 42 1f3a9c07
   moor forge sync`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -227,13 +227,14 @@ func newForgePullsCmd() *cobra.Command {
 func newForgeApproveCmd() *cobra.Command {
 	var f appFlags
 	cmd := &cobra.Command{
-		Use:   "approve NUMBER",
+		Use:   "approve NUMBER COMMIT",
 		Short: "Build a pull request's code",
-		Long: `Have a pull request built, as it is now. Building it runs its code on this server,
-and its preview has the app's preview variables, so look at it first. This is for one
-commit: another one needs approving too. It also builds again one that failed.`,
-		Example: "  moor forge approve 42",
-		Args:    cobra.ExactArgs(1),
+		Long: `Have a pull request built, at the commit that you looked at, as moor forge pulls shows it. Building it
+runs its code on this server, and its preview has the app's preview variables, so look at it first.
+This is for that one commit: if it has moved on, nothing is built, and another commit needs
+approving too. It also builds again one that failed.`,
+		Example: "  moor forge approve 42 1f3a9c07",
+		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			number, err := strconv.Atoi(args[0])
 			if err != nil {
@@ -243,15 +244,10 @@ commit: another one needs approving too. It also builds again one that failed.`,
 			if err != nil {
 				return err
 			}
-			pull, err := c.ApproveForgePull(cmd.Context(), app, number)
-			if err != nil {
+			if _, err := c.ApproveForgePull(cmd.Context(), app, number, args[1]); err != nil {
 				return err
 			}
-			commit := pull.Commit
-			if len(commit) > 8 {
-				commit = commit[:8]
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Building %s of pull request %d. See how it goes with: moor forge pulls\n", commit, number)
+			fmt.Fprintf(cmd.OutOrStdout(), "Building %s of pull request %d. See how it goes with: moor forge pulls\n", args[1], number)
 			return nil
 		},
 	}

@@ -215,7 +215,8 @@ func GuardedClient(allow []netip.Prefix, timeout time.Duration) *http.Client {
 		Timeout: timeout,
 		// A redirect could go anywhere, and an answer has nothing more to say to us.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		Transport:     &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: 10 * time.Second, DisableKeepAlives: true},
+		// Something that takes the connection and then never answers is not to hold anyone up.
+		Transport: &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second, DisableKeepAlives: true},
 	}
 }
 

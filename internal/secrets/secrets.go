@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/robert-mcdermott/moorage/internal/platform"
 )
 
 // MasterKeyEnv names a file holding the master key, in place of the one in
@@ -72,6 +74,10 @@ func LoadMasterKey(defaultPath string, getenv func(string) string, create bool) 
 		encoded := base64.StdEncoding.EncodeToString(key) + "\n"
 		if err := os.WriteFile(path, []byte(encoded), 0o600); err != nil {
 			return MasterKey{}, fmt.Errorf("write the master key: %w", err)
+		}
+		if err := platform.MakePrivate(path); err != nil {
+			os.Remove(path)
+			return MasterKey{}, fmt.Errorf("close the master key to others: %w", err)
 		}
 		return MasterKey{Path: path, Created: true, key: key}, nil
 	}

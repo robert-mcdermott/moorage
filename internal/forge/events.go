@@ -35,8 +35,8 @@ type Event struct {
 	// Branch and Commit are what a push moved. No commit says that the branch has gone. The commit is only a hint:
 	// what gets deployed is what is fetched from the repository, and not what anyone says is there.
 	Branch, Commit string
-	// DefaultBranch is the repository's, if it said.
-	DefaultBranch string
+	// DefaultBranch is the repository's, if it said, and Repository which repository it is.
+	DefaultBranch, Repository string
 	// For a pull request.
 	Number int
 	Title  string
@@ -46,6 +46,9 @@ type Event struct {
 	// FromFork says that its code is not in this repository, and Member that its author may push there, as far as the
 	// forge says. A forge that does not say has it from the repository it is in.
 	FromFork, Member bool
+	// Reopened says that a pull request that was closed is open again. Otherwise, what is told of one that is closed is
+	// about something else: its title being edited, or a delivery arriving out of order.
+	Reopened bool
 }
 
 // Verified says whether a request came from whoever has the hook's secret.
@@ -78,11 +81,14 @@ type hookPayload struct {
 	UserUsername string `json:"user_username"`
 	Action       string `json:"action"`
 	Number       int    `json:"number"`
+	RefType      string `json:"ref_type"`
 	Repository   struct {
 		DefaultBranch string `json:"default_branch"`
+		FullName      string `json:"full_name"`
 	} `json:"repository"`
 	Project struct {
-		DefaultBranch string `json:"default_branch"`
+		DefaultBranch     string `json:"default_branch"`
+		PathWithNamespace string `json:"path_with_namespace"`
 	} `json:"project"`
 	PullRequest struct {
 		Number int    `json:"number"`
@@ -128,7 +134,7 @@ func ParseEvent(kind string, header http.Header, body []byte) (Event, error) {
 	if err := json.Unmarshal(body, &p); err != nil {
 		return Event{}, errors.New("what the forge sent is not JSON: " + err.Error())
 	}
-	e := Event{DefaultBranch: p.Repository.DefaultBranch}
+	e := Event{DefaultBranch: p.Repository.DefaultBranch, Repository: p.Repository.FullName}
 	switch kind {
 	case GitHub, Gitea:
 		name := header.Get("X-GitHub-Event")
@@ -139,6 +145,12 @@ func ParseEvent(kind string, header http.Header, body []byte) (Event, error) {
 		case "push":
 			parsePush(&e, p.Ref, p.After, p.Deleted)
 			e.Author = p.Sender.Login
+		case "delete":
+			// A forge of this kind may say so here rather than in a push. Its ref is the bare name.
+			if kind == Gitea && p.RefType == "branch" {
+				parsePush(&e, "refs/heads/"+p.Ref, "", true)
+				e.Author = p.Sender.Login
+			}
 		case "pull_request":
 			pr := p.PullRequest
 			number := p.Number
@@ -159,12 +171,13 @@ func ParseEvent(kind string, header http.Header, body []byte) (Event, error) {
 			switch p.Action {
 			case "opened", "reopened", "synchronize", "synchronized":
 				e.Kind = PullChanged
+				e.Reopened = p.Action == "reopened"
 			case "closed":
 				e.Kind = PullClosed
 			}
 		}
 	case GitLab:
-		e.DefaultBranch = p.Project.DefaultBranch
+		e.DefaultBranch, e.Repository = p.Project.DefaultBranch, p.Project.PathWithNamespace
 		switch header.Get("X-Gitlab-Event") {
 		case "Push Hook":
 			parsePush(&e, p.Ref, p.After, false)
@@ -176,7 +189,11 @@ func ParseEvent(kind string, header http.Header, body []byte) (Event, error) {
 			e.Member = !e.FromFork
 			switch mr.Action {
 			case "open", "reopen", "update":
-				e.Kind = PullChanged
+				// An edit of one that has been closed or merged is told of as an update.
+				if mr.State != "closed" && mr.State != "merged" {
+					e.Kind = PullChanged
+					e.Reopened = mr.Action == "reopen"
+				}
 			case "close", "merge":
 				e.Kind = PullClosed
 			}

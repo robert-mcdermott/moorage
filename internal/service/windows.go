@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,10 +140,23 @@ func (w *Windows) Install(spec Spec, start bool) error {
 	if err := setPath(spec.Path); err != nil {
 		return err
 	}
-	for _, dir := range []string{spec.DataDir, filepath.Dir(spec.Config)} {
-		if err := grantToService(dir); err != nil {
-			return fmt.Errorf("give the service %s: %w", dir, err)
-		}
+	if err := keepPrivileges(s); err != nil {
+		return err
+	}
+	if why := notOfItsOwn(spec.DataDir); why != "" {
+		return fmt.Errorf("the service cannot have %s as its data directory, as that closes it to everyone else: %s. Set data_dir to a folder of its own", spec.DataDir, why)
+	}
+	if err := grantToService(spec.DataDir); err != nil {
+		return fmt.Errorf("give the service %s: %w", spec.DataDir, err)
+	}
+	// Its configuration may be in a folder with other things in it, which are no business of the service's, and whose
+	// owner should not find themselves shut out of it. That folder is only closed if it is the one meant for this.
+	config := spec.Config
+	if dir := filepath.Dir(spec.Config); strings.EqualFold(dir, filepath.Join(os.Getenv("ProgramData"), ServiceName)) && notOfItsOwn(dir) == "" {
+		config = dir
+	}
+	if err := grantToService(config); err != nil {
+		return fmt.Errorf("give the service %s: %w", config, err)
 	}
 	if !start {
 		return nil
@@ -159,16 +173,16 @@ func commandLine(exe string, args []string) string {
 	return strings.Join(parts, " ")
 }
 
-// reachableBinary finds a place for the program that the service's account can read. What is in someone's own profile,
-// where the installer puts it for them, is theirs alone, so that a copy goes where programs go.
+// reachableBinary finds a place for the program that the service's account can read and no one else can change. What is
+// in someone's own profile, where the installer puts it for them, is theirs alone, so that a copy goes where programs go.
 func reachableBinary(exe string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || !strings.HasPrefix(strings.ToLower(exe), strings.ToLower(home)+string(filepath.Separator)) {
-		return exe, nil
-	}
 	programs := os.Getenv("ProgramFiles")
 	if programs == "" {
 		return "", errors.New("%ProgramFiles% is not set")
+	}
+	// Anywhere else, someone other than an administrator may be able to replace what the service runs.
+	if strings.HasPrefix(strings.ToLower(exe), strings.ToLower(programs)+string(filepath.Separator)) {
+		return exe, nil
 	}
 	dir := filepath.Join(programs, ServiceName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -215,9 +229,52 @@ func setPath(path string) error {
 	return key.SetStringsValue("Environment", []string{"PATH=" + path})
 }
 
-// grantToService lets the service's account, the system and administrators in, and nobody else. On a computer, what
-// is under %ProgramData% can otherwise be read by everyone, and that would include the master key.
-func grantToService(dir string) error {
+// notOfItsOwn says why closing a folder to everyone but the service would take something away from someone, if it would.
+func notOfItsOwn(dir string) string {
+	clean, err := filepath.Abs(dir)
+	if err != nil {
+		return "it cannot be found"
+	}
+	clean = strings.ToLower(filepath.Clean(clean))
+	volume := strings.ToLower(filepath.VolumeName(clean))
+	if clean == volume || clean == volume+string(filepath.Separator) {
+		return "it is the top of a drive"
+	}
+	for _, name := range []string{"USERPROFILE", "PUBLIC", "ALLUSERSPROFILE", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "SystemRoot", "SystemDrive", "APPDATA", "LOCALAPPDATA", "TEMP"} {
+		place := os.Getenv(name)
+		if place == "" {
+			continue
+		}
+		place = strings.ToLower(filepath.Clean(place))
+		if clean == place || strings.HasPrefix(place, clean+string(filepath.Separator)) {
+			return "it has " + os.Getenv(name) + " in it, or is it"
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if users := strings.ToLower(filepath.Dir(filepath.Clean(home))); clean == users {
+			return "it is where people's own folders are"
+		}
+	}
+	return ""
+}
+
+// keepPrivileges has the service keep only the privilege that it needs, as an account of this kind is otherwise given
+// others, including impersonating whoever connects to it.
+func keepPrivileges(s *mgr.Service) error {
+	names, err := windows.UTF16FromString("SeChangeNotifyPrivilege")
+	if err != nil {
+		return err
+	}
+	names = append(names, 0) // a list of strings ends with an empty one
+	info := struct{ names *uint16 }{&names[0]}
+	return windows.ChangeServiceConfig2(s.Handle, windows.SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO, (*byte)(unsafe.Pointer(&info)))
+}
+
+// grantToService lets the service's account, the system and administrators in, and nobody else, with administrators as the
+// owner. On a computer, what is under %ProgramData% can otherwise be read by everyone, and that would include the master
+// key, and whoever made a folder there first would go on being able to let themselves in. It goes through everything that
+// is in a folder, as what was closed to someone else by MakePrivate does not inherit from it.
+func grantToService(path string) error {
 	entries := []windows.EXPLICIT_ACCESS{}
 	add := func(sid *windows.SID, kind windows.TRUSTEE_TYPE) {
 		entries = append(entries, windows.EXPLICIT_ACCESS{
@@ -227,12 +284,16 @@ func grantToService(dir string) error {
 			Trustee:           windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: kind, TrusteeValue: windows.TrusteeValueFromSID(sid)},
 		})
 	}
+	var owner *windows.SID
 	for _, known := range []windows.WELL_KNOWN_SID_TYPE{windows.WinLocalSystemSid, windows.WinBuiltinAdministratorsSid} {
 		sid, err := windows.CreateWellKnownSid(known)
 		if err != nil {
 			return err
 		}
 		add(sid, windows.TRUSTEE_IS_WELL_KNOWN_GROUP)
+		if known == windows.WinBuiltinAdministratorsSid {
+			owner = sid
+		}
 	}
 	sid, _, _, err := windows.LookupSID("", account)
 	if err != nil {
@@ -243,8 +304,20 @@ func grantToService(dir string) error {
 	if err != nil {
 		return err
 	}
-	return windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil)
+	const what = windows.OWNER_SECURITY_INFORMATION | windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION
+	return filepath.WalkDir(path, func(at string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		// A link would have this reach what it leads to, wherever that is. Only what is here is the service's.
+		if !d.IsDir() && !d.Type().IsRegular() {
+			return nil
+		}
+		return windows.SetNamedSecurityInfo(at, windows.SE_FILE_OBJECT, what, owner, nil, acl, nil)
+	})
 }
 
 // Uninstall stops the service and removes it. Nothing it was given goes with it, for the data is still there.

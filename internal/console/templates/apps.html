@@ -557,7 +557,7 @@
         <td class="nowrap">{{template "status" .Status}}{{if .ApprovedBy}}<div class="muted small">approved by {{.ApprovedBy}}</div>{{end}}</td>
         <td class="nowrap"><code>{{.Short}}</code></td>
         <td>{{if .PreviewURL}}<a href="{{.PreviewURL}}">{{bareURL .PreviewURL}}</a>{{else if .Error}}<span class="muted small">{{.Error}}</span>{{end}}</td>
-        <td class="nowrap">{{if .Approvable}}<form method="post" action="/apps/{{$app}}/settings/forge/pulls/{{.Number}}/approve" data-busy="Starting…" data-confirm="Build commit {{.Short}} of pull request #{{.Number}}? This runs its code on this server, and its preview has the app's preview variables."><input type="hidden" name="csrf" value="{{$csrf}}"><button class="quiet" type="submit">{{.Action}}</button></form>{{end}}</td>
+        <td class="nowrap">{{if .Approvable}}<form method="post" action="/apps/{{$app}}/settings/forge/pulls/{{.Number}}/approve" data-busy="Starting…" data-confirm="Build commit {{.Short}} of pull request #{{.Number}}? This runs its code on this server, and its preview has the app's preview variables."><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="commit" value="{{.HeadSHA}}"><button class="quiet" type="submit">{{.Action}}</button></form>{{end}}</td>
       </tr>
       {{end}}
       </tbody>

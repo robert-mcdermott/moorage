@@ -1185,6 +1185,17 @@
         ],
         "type": "object"
       },
+      "ForgeApproval": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "commit"
+        ],
+        "type": "object"
+      },
       "ForgeConnect": {
         "properties": {
           "api_url": {
@@ -6491,6 +6502,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgeApproval"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "content": {
@@ -6520,7 +6541,7 @@
             "session": []
           }
         ],
-        "summary": "Have a pull request built as it is now, which runs its code: this is for one commit",
+        "summary": "Have a pull request built at the commit that someone looked at, which runs its code: this is for that one commit",
         "tags": [
           "apps"
         ],

@@ -57,7 +57,7 @@ name as its host, the app's as its app name, the instance as its process ID, and
 each message has its length in front of it, as RFC 6587 has it. Over UDP, anything past 1,400 bytes is cut off.
 
 **OTLP** has a resource for each instance, with `service.name` as the app, `deployment.environment.name`, `service.instance.id`,
-`moorage.process` and `host.name`, and each record has `log.iostream`. Moorage does not guess at a severity from what a line says.
+`moorage.process` and `host.name`, and each record has `log.iostream`, of `stdout`, `stderr` or `moorage`. Moorage does not guess at a severity from what a line says.
 
 **HTTP** posts this, with up to 500 lines:
 
@@ -70,7 +70,7 @@ each message has its length in front of it, as RFC 6587 has it. Over UDP, anythi
 }
 ```
 
-`stream` is `O` for standard output and `E` for standard error.
+`stream` is `O` for standard output, `E` for standard error, and `M` for a note from Moorage, such as that an instance restarted.
 
 **Metrics** go once a minute to an OTLP sink, with the same in them as [`/metrics`](metrics.md) has for a scrape, under names
 such as `moorage.http.requests`, `moorage.http.request.duration`, `moorage.instance.cpu` and `moorage.host.disk.used`. Counts
@@ -79,8 +79,9 @@ are cumulative, from when the server started. `--app` has no effect on them.
 ## When a sink is down
 
 Nothing here waits for a sink. Each has a queue of 20,000 lines, and past that the oldest go, with a count of how many did. It tries
-again after a second, then two, and so on, to once a minute, and when it gets through it catches up. How that is going is in the
-console and in `moor server telemetry`.
+again after a second, then two, and so on, to once a minute, and when it gets through it catches up. A sink that answers that it will
+not take what it was sent (400, 413 or 422) gets less at a time, and a single line that it will not take is let go of and counted, so
+that it does not stop what comes after. How that is going is in the console and in `moor server telemetry`.
 
 Apps go on through a restart of the server, and it catches up then too, from what is in the log files. What was in a queue as the
 server stopped is lost, so it is at most a few seconds' worth when all is well. This is for following what is going on. It is not

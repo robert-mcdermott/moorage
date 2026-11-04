@@ -1074,6 +1074,12 @@ type ForgeConnection struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ForgeApproval says what someone looked at, in having a pull request built.
+type ForgeApproval struct {
+	// Commit is the commit that they are answering for, by at least its first eight characters.
+	Commit string `json:"commit"`
+}
+
 // ForgePull is a pull request that a forge has told of.
 type ForgePull struct {
 	Number   int    `json:"number"`

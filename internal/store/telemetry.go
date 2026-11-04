@@ -97,11 +97,15 @@ func (db *DB) DeleteTelemetrySink(ctx context.Context, name string) error {
 	})
 }
 
-// NoteTelemetrySink records how sending to one has been going.
+// NoteTelemetrySink records how sending to one has been going. Sent is when something last got there, if it did.
 func (db *DB) NoteTelemetrySink(ctx context.Context, id string, sent time.Time, problem string, dropped int64) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
+		at := int64(0)
+		if !sent.IsZero() {
+			at = sent.UnixMilli()
+		}
 		_, err := tx.ExecContext(ctx, `UPDATE telemetry_sinks SET last_sent_at = MAX(last_sent_at, ?), last_error = ?, dropped = dropped + ? WHERE id = ?`,
-			sent.UnixMilli(), problem, dropped, id)
+			at, problem, dropped, id)
 		return err
 	})
 }
@@ -133,17 +137,19 @@ type AlertThreshold struct {
 	Metric              string
 	Above               float64
 	Minutes             int
-	CreatedBy           string
-	CreatedAt           time.Time
+	// Firing says that it has been crossed, and has not come right.
+	Firing    bool
+	CreatedBy string
+	CreatedAt time.Time
 }
 
-const thresholdColumns = `t.id, t.env_id, a.name, e.name, t.metric, t.above, t.minutes, t.created_by, t.created_at`
+const thresholdColumns = `t.id, t.env_id, a.name, e.name, t.metric, t.above, t.minutes, t.firing, t.created_by, t.created_at`
 const thresholdJoin = ` FROM alert_thresholds t JOIN environments e ON e.id = t.env_id JOIN apps a ON a.id = e.app_id`
 
 func scanThreshold(row interface{ Scan(...any) error }) (AlertThreshold, error) {
 	var t AlertThreshold
 	var created int64
-	err := row.Scan(&t.ID, &t.EnvID, &t.App, &t.Env, &t.Metric, &t.Above, &t.Minutes, &t.CreatedBy, &created)
+	err := row.Scan(&t.ID, &t.EnvID, &t.App, &t.Env, &t.Metric, &t.Above, &t.Minutes, &t.Firing, &t.CreatedBy, &created)
 	if err != nil {
 		return t, err
 	}
@@ -193,6 +199,14 @@ func (db *DB) AddAlertThreshold(ctx context.Context, t AlertThreshold) error {
 			return ErrThresholdExists
 		}
 		return nil
+	})
+}
+
+// SetAlertFiring notes whether a threshold has been crossed.
+func (db *DB) SetAlertFiring(ctx context.Context, id string, firing bool) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE alert_thresholds SET firing = ? WHERE id = ?`, firing, id)
+		return err
 	})
 }
 

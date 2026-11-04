@@ -124,3 +124,65 @@ func TestWriterRedacts(t *testing.T) {
 		t.Errorf("redacted output:\n%s", got)
 	}
 }
+
+func TestFollowerGetsWhatWasWrittenBeforeARotation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	if err := os.WriteFile(path, []byte(Format(time.Now(), Stdout, "one")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := FollowFromStart(path)
+	lines, err := f.Read()
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("%+v %v", lines, err)
+	}
+	// Written to, and moved aside, with nothing having looked in between.
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.WriteString(Format(time.Now(), Stdout, "two"))
+	file.Close()
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	// What takes its place is longer already than the old one was when it was last read.
+	long := Format(time.Now(), Stdout, "three, which is a good deal longer than what was there before") + Format(time.Now(), Stdout, "four, and so is this")
+	if err := os.WriteFile(path, []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines, err = f.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	for _, l := range lines {
+		said = append(said, strings.SplitN(l.Text, ",", 2)[0])
+	}
+	if strings.Join(said, " ") != "two three four" {
+		t.Errorf("%q", said)
+	}
+}
+
+func TestFollowSinceReadsWhatRotatedWhileNoOneLooked(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	before := time.Now().Add(-time.Hour)
+	if err := os.WriteFile(path+".2", []byte(Format(before, Stdout, "long ago")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path+".2", before, before); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".1", []byte(Format(time.Now(), Stdout, "lately")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(Format(time.Now(), Stdout, "now")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := FollowSince(path, time.Now().Add(-time.Minute)).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || lines[0].Text != "lately" || lines[1].Text != "now" {
+		t.Errorf("%+v", lines)
+	}
+}

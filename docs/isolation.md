@@ -77,6 +77,15 @@ There is one level there, `none`. The server runs as the account of its own that
 and all apps run as it too, so that they are kept from the rest of the computer, and not from one another. Each
 instance runs in a Job Object, which holds it and all it starts to its limits, and ends them all together.
 
+**They are not kept from the server either.** An app can read what the account can, and that is the database and the master key, so
+it can read every app's secrets, and could change the server's configuration. On Windows, then, anyone who can deploy to this server
+can reach everything on it, whichever project they are in. Only let people deploy here if that is all right, or use Linux,
+where each app has a user of its own.
+
+The service keeps only the one privilege that it needs, so that an app cannot impersonate whoever connects to it. Its data
+directory is closed to everyone but the account, the system and administrators, which is why it has to be a folder of its own, and
+`moor server install` will not do that to the top of a drive or to anyone's profile.
+
 ## Limits
 
 `[resources]` in the [manifest](manifest.md#resources) says how much each instance may use:

@@ -67,6 +67,15 @@ func Where(kind, repoURL, apiURL string) (Remote, error) {
 	return Remote{Kind: kind, APIURL: strings.TrimSuffix(apiURL, "/"), Repo: repo}, nil
 }
 
+// repositoryURL is the address to fetch from. A forge can answer one with no .git by sending the client elsewhere, which
+// this server's requests do not follow, so it asks for the place itself.
+func repositoryURL(kind, address string) string {
+	if kind == Generic || strings.HasSuffix(address, ".git") {
+		return address
+	}
+	return strings.TrimSuffix(address, "/") + ".git"
+}
+
 // Reports says whether anything can be told to this forge.
 func (r Remote) Reports() bool { return r.Token != "" && r.Kind != Generic && r.APIURL != "" }
 

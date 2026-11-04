@@ -90,7 +90,7 @@ func TestParseEvent(t *testing.T) {
 			Event{Kind: PullChanged, Number: 5, Head: commitA}},
 		{"its fork has gone", GitHub, header("X-GitHub-Event", "pull_request"),
 			`{"action":"reopened","number":5,"pull_request":{"author_association":"MEMBER","head":{"sha":"` + commitA + `","repo":null},"base":{"repo":{"full_name":"acme/shop"}}}}`,
-			Event{Kind: PullChanged, Number: 5, Head: commitA, Member: true, FromFork: true}},
+			Event{Kind: PullChanged, Number: 5, Head: commitA, Member: true, FromFork: true, Reopened: true}},
 		{"closed", GitHub, header("X-GitHub-Event", "pull_request"), `{"action":"closed","number":5,"pull_request":{"merged":true}}`,
 			Event{Kind: PullClosed, Number: 5, FromFork: true}},
 		{"its title changed", GitHub, header("X-GitHub-Event", "pull_request"), `{"action":"edited","number":5,"pull_request":{}}`,
@@ -133,6 +133,21 @@ func TestParseEvent(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%s:\n got %+v\nwant %+v", c.name, got, c.want)
 		}
+	}
+	if got, err := ParseEvent(GitLab, header("X-Gitlab-Event", "Merge Request Hook"), []byte(`{"object_attributes":{"iid":7,"action":"update","state":"merged","source_project_id":3,"target_project_id":3}}`)); err != nil || got.Kind != Ignored {
+		t.Errorf("an edit of what is merged: %+v %v", got, err)
+	}
+	if got, err := ParseEvent(Gitea, header("X-Gitea-Event", "delete"), []byte(`{"ref":"old","ref_type":"branch","repository":{"full_name":"acme/shop"}}`)); err != nil || got.Kind != Push || got.Branch != "old" || got.Commit != "" {
+		t.Errorf("a branch deleted on gitea: %+v %v", got, err)
+	}
+	if got, err := ParseEvent(Gitea, header("X-Gitea-Event", "delete"), []byte(`{"ref":"v1","ref_type":"tag"}`)); err != nil || got.Kind != Ignored {
+		t.Errorf("a tag deleted on gitea: %+v %v", got, err)
+	}
+	if got, _ := ParseEvent(GitHub, header("X-GitHub-Event", "push"), []byte(`{"ref":"refs/heads/main","after":"`+commitA+`","repository":{"full_name":"acme/shop"}}`)); got.Repository != "acme/shop" {
+		t.Errorf("%+v", got)
+	}
+	if got, _ := ParseEvent(GitLab, header("X-Gitlab-Event", "Push Hook"), []byte(`{"ref":"refs/heads/main","after":"`+commitA+`","project":{"path_with_namespace":"acme/team/shop"}}`)); got.Repository != "acme/team/shop" {
+		t.Errorf("%+v", got)
 	}
 	if _, err := ParseEvent(GitHub, header("X-GitHub-Event", "push"), []byte("not json")); err == nil {
 		t.Error("what is not JSON was read")

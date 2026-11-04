@@ -139,7 +139,12 @@ func (c *Console) approveForgePull(w http.ResponseWriter, r *http.Request, p aut
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := c.forges.Approve(r.Context(), app, number, p.Name); err != nil {
+	if _, err := c.forges.Approve(r.Context(), app, number, r.PostFormValue("commit"), p.Name); err != nil {
+		var moved *forge.CommitChangedError
+		if errors.As(err, &moved) {
+			c.showForge(w, r, p, app, http.StatusConflict, &failure{Message: moved.Error()}, forge.Connection{}, "")
+			return
+		}
 		c.forgeFailed(w, r, p, app, forge.Connection{}, err)
 		return
 	}

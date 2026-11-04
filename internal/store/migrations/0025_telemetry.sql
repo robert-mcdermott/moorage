@@ -29,6 +29,7 @@ CREATE TABLE alert_thresholds (
     metric     TEXT NOT NULL,
     above      REAL NOT NULL,
     minutes    INTEGER NOT NULL,
+    firing     INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     UNIQUE (env_id, metric, above)

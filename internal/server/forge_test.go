@@ -601,10 +601,10 @@ func TestForgePullRequests(t *testing.T) {
 	e.send("pull_request", pullEvent("closed", 5, next, false, "MEMBER"))
 	waitUntil(t, "the preview to go", func() bool { return !e.envs()["pr-5"] })
 	waitUntil(t, "it to leave the list", func() bool { return e.pull(5).Number == 0 })
-	if _, err := e.c.ApproveForgePull(ctx, "shop", 5); status(err) != http.StatusUnprocessableEntity {
+	if _, err := e.c.ApproveForgePull(ctx, "shop", 5, next); status(err) != http.StatusUnprocessableEntity {
 		t.Errorf("approving what is closed: %v", err)
 	}
-	if _, err := e.c.ApproveForgePull(ctx, "shop", 404); status(err) != http.StatusNotFound {
+	if _, err := e.c.ApproveForgePull(ctx, "shop", 404, next); status(err) != http.StatusNotFound {
 		t.Errorf("approving what is not there: %v", err)
 	}
 }
@@ -650,7 +650,7 @@ func TestForgeWaitsForApproval(t *testing.T) {
 		t.Errorf("%v", comments)
 	}
 	for _, text := range comments {
-		if !strings.Contains(text, "moor forge approve 7 --app shop") {
+		if !strings.Contains(text, "moor forge approve 7 "+theirs[:8]+" --app shop") {
 			t.Errorf("%s", text)
 		}
 	}
@@ -662,7 +662,7 @@ func TestForgeWaitsForApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	memberClient := tokenClient(t, e.c, tokenOf(t, member, auth.ScopeDeploy))
-	if _, err := memberClient.ApproveForgePull(ctx, "shop", 7); status(err) != http.StatusForbidden {
+	if _, err := memberClient.ApproveForgePull(ctx, "shop", 7, theirs); status(err) != http.StatusForbidden {
 		t.Errorf("a deployer approving: %v", err)
 	}
 	if _, err := memberClient.ConnectForge(ctx, "shop", apitypes.ForgeConnect{URL: "https://github.com/someone/else.git"}); status(err) != http.StatusForbidden {
@@ -675,8 +675,22 @@ func TestForgeWaitsForApproval(t *testing.T) {
 		t.Errorf("%+v", e.pull(7))
 	}
 
+	// An approval says which commit it is for, and is not for anything else.
+	if _, err := e.c.ApproveForgePull(ctx, "shop", 7, ""); status(err) != http.StatusUnprocessableEntity {
+		t.Errorf("no commit: %v", err)
+	}
+	if _, err := e.c.ApproveForgePull(ctx, "shop", 7, theirs[:7]); status(err) != http.StatusUnprocessableEntity {
+		t.Errorf("too little of a commit: %v", err)
+	}
+	if _, err := e.c.ApproveForgePull(ctx, "shop", 7, strings.Repeat("c", 40)); status(err) != http.StatusConflict {
+		t.Errorf("another commit: %v", err)
+	}
+	if e.pull(7).State != "waiting" {
+		t.Errorf("%+v", e.pull(7))
+	}
+
 	// Approved, that commit is built.
-	p, err := e.c.ApproveForgePull(ctx, "shop", 7)
+	p, err := e.c.ApproveForgePull(ctx, "shop", 7, theirs[:8])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,10 +705,10 @@ func TestForgeWaitsForApproval(t *testing.T) {
 	}
 	audited := false
 	for _, entry := range entries {
-		audited = audited || strings.Contains(entry.Action, "approve")
+		audited = audited || (entry.Action == "forge.approve" && strings.Contains(entry.Target, theirs))
 	}
 	if !audited {
-		t.Error("no one has a record of who approved it")
+		t.Errorf("no one has a record of who approved which commit: %+v", entries)
 	}
 
 	// Another commit is another matter, and what was built stays as it was.
@@ -706,10 +720,23 @@ func TestForgeWaitsForApproval(t *testing.T) {
 		t.Errorf("%s", e.serves("pr-7"))
 	}
 
-	// What is approved is what someone saw: a commit that arrives in the meantime is not built.
+	// Someone looks at what is there, and a commit is pushed and told of before they say so. It is not what they looked at.
+	seen := e.pull(7).Commit
+	pushedLast := f.commit("pushed as they looked")
+	f.publish(pushedLast, "refs/pull/7/head")
+	e.send("pull_request", pullEvent("synchronize", 7, pushedLast, true, "NONE"))
+	waitUntil(t, "it to hear of that", func() bool { return e.pull(7).Commit == pushedLast })
+	if _, err := e.c.ApproveForgePull(ctx, "shop", 7, seen); status(err) != http.StatusConflict {
+		t.Errorf("approving what it has moved on from: %v", err)
+	}
+	if strings.Contains(e.serves("pr-7"), "pushed as they looked") {
+		t.Error("what no one approved was built")
+	}
+
+	// What is approved is what someone saw: a commit that arrives in the meantime, not yet told of, is not built.
 	sneaked := f.commit("sneaked in")
 	f.publish(sneaked, "refs/pull/7/head")
-	if _, err := e.c.ApproveForgePull(ctx, "shop", 7); err != nil {
+	if _, err := e.c.ApproveForgePull(ctx, "shop", 7, pushedLast); err != nil {
 		t.Fatal(err)
 	}
 	waitUntil(t, "it to see that", func() bool { p := e.pull(7); return p.State == "waiting" && p.Commit == sneaked })
@@ -909,7 +936,7 @@ func TestForgeAfterARestart(t *testing.T) {
 
 	// It builds again if asked, and its hook still works.
 	f.publish(first, "refs/pull/3/head")
-	if _, err := c.ApproveForgePull(ctx, "shop", 3); err != nil {
+	if _, err := c.ApproveForgePull(ctx, "shop", 3, first); err != nil {
 		t.Fatal(err)
 	}
 	e.waitForPull(3, "live")
@@ -976,7 +1003,10 @@ func TestForgeInTheConsole(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Waiting for approval") || !strings.Contains(body, "from a fork") || !strings.Contains(body, theirs[:8]) || !strings.Contains(body, "Approve and build") {
 		t.Errorf("%d %s", res.StatusCode, body)
 	}
-	if res, _ := owner.post("/apps/shop/settings/forge/pulls/7/approve", url.Values{"csrf": {owner.token()}}); res.StatusCode != http.StatusSeeOther {
+	if res, body := owner.post("/apps/shop/settings/forge/pulls/7/approve", url.Values{"csrf": {owner.token()}, "commit": {strings.Repeat("c", 40)}}); res.StatusCode != http.StatusConflict || !strings.Contains(body, "moved on") {
+		t.Errorf("%d %s", res.StatusCode, body)
+	}
+	if res, _ := owner.post("/apps/shop/settings/forge/pulls/7/approve", url.Values{"csrf": {owner.token()}, "commit": {theirs}}); res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("%d", res.StatusCode)
 	}
 	e.waitForPull(7, "live")
@@ -1009,4 +1039,142 @@ func TestForgeInTheConsole(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Repository address") {
 		t.Errorf("%d %s", res.StatusCode, body)
 	}
+}
+
+func TestForgeKeepsToItsRepositoryAndBranch(t *testing.T) {
+	f := newFakeForge(t)
+	f.token = "a-token-of-the-forge"
+	first := f.commit("first")
+	f.publish(first, "refs/heads/main")
+	second := f.commit("on release")
+	f.publish(second, "refs/heads/release")
+	e := connectedToForge(t, f, nil, apitypes.ForgeConnect{Token: f.token, DefaultBranch: "release"})
+	ctx := context.Background()
+	if e.conn.DefaultBranch != "release" {
+		t.Fatalf("%+v", e.conn)
+	}
+
+	// What it says is production stays so, whatever the forge says its default branch is.
+	push := pushEvent("release", second)
+	push["repository"] = map[string]any{"full_name": "git/shop", "default_branch": "main"}
+	e.send("push", push)
+	e.waitForServed("production", "on release")
+	if conn, err := e.c.Forge(ctx, "shop"); err != nil || conn.DefaultBranch != "release" {
+		t.Errorf("%+v %v", conn, err)
+	}
+	push = pushEvent("main", first)
+	push["repository"] = map[string]any{"full_name": "git/shop", "default_branch": "main"}
+	e.send("push", push)
+	waitUntil(t, "it to keep the branch", func() bool { return branchAt(e, "main") == first })
+	if !strings.Contains(e.serves("production"), "on release") {
+		t.Error("the forge's default branch reached production")
+	}
+
+	// A hook that goes on from another repository is about that one.
+	elsewhere := pullEvent("opened", 44, second, false, "MEMBER")
+	elsewhere["repository"] = map[string]any{"full_name": "someone/else"}
+	f.publish(second, "refs/pull/44/head")
+	reads := f.readsNow()
+	e.send("pull_request", elsewhere)
+	time.Sleep(200 * time.Millisecond)
+	if e.pull(44).Number != 0 || f.readsNow() != reads {
+		t.Errorf("it acted on another repository: %+v", e.pull(44))
+	}
+	push = pushEvent("main", first)
+	push["repository"] = map[string]any{"full_name": "someone/else"}
+	third := f.commit("not told of")
+	f.publish(third, "refs/heads/release")
+	push = pushEvent("release", third)
+	push["repository"] = map[string]any{"full_name": "someone/else"}
+	e.send("push", push)
+	time.Sleep(200 * time.Millisecond)
+	if strings.Contains(e.serves("production"), "not told of") {
+		t.Error("a push to another repository deployed")
+	}
+
+	// The same name, written another way, is the same repository.
+	push = pushEvent("release", third)
+	push["repository"] = map[string]any{"full_name": "GIT/Shop"}
+	e.send("push", push)
+	e.waitForServed("production", "not told of")
+
+	// What is told of one that is closed does not bring it back, unless it is opened again.
+	change := f.commit("the change")
+	f.publish(change, "refs/pull/5/head")
+	e.send("pull_request", pullEvent("opened", 5, change, false, "MEMBER"))
+	e.waitForPull(5, "live")
+	e.send("pull_request", pullEvent("closed", 5, change, false, "MEMBER"))
+	waitUntil(t, "the preview to go", func() bool { return !e.envs()["pr-5"] })
+	waitUntil(t, "it to leave the list", func() bool { return e.pull(5).Number == 0 })
+	e.send("pull_request", pullEvent("synchronize", 5, change, false, "MEMBER"))
+	time.Sleep(200 * time.Millisecond)
+	if e.pull(5).Number != 0 || e.envs()["pr-5"] {
+		t.Errorf("a late delivery brought it back: %+v", e.pull(5))
+	}
+	e.send("pull_request", pullEvent("reopened", 5, change, false, "MEMBER"))
+	e.waitForPull(5, "live")
+
+	// A token is not sent in the clear to an API, any more than to the repository.
+	if _, err := e.c.ConnectForge(ctx, "shop", apitypes.ForgeConnect{URL: f.repoURL(), Kind: "gitea", APIURL: "http://git.example.com/api/v1", Token: "a-token"}); status(err) != http.StatusUnprocessableEntity {
+		t.Errorf("%v", err)
+	}
+}
+
+func TestForgeDeletedWhileItWaits(t *testing.T) {
+	f := newFakeForge(t)
+	f.publish(f.commit("first"), "refs/heads/main")
+	e := connectedToForge(t, f, func(o *Options) { o.ForgeTick = 50 * time.Millisecond }, apitypes.ForgeConnect{Poll: true})
+	e.waitForServed("production", "first")
+	if err := e.c.DeleteApp(context.Background(), "shop", false); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing makes it again.
+	time.Sleep(500 * time.Millisecond)
+	apps, err := e.c.Apps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range apps {
+		if a.Name == "shop" {
+			t.Errorf("it came back: %+v", a)
+		}
+	}
+}
+
+func TestForgeCatchesUpAfterARestart(t *testing.T) {
+	f := newFakeForge(t)
+	f.token = "a-token-of-the-forge"
+	first := f.commit("first")
+	f.publish(first, "refs/heads/main")
+	cfg := testConfig(t)
+	cfg.Notifications.Allow = []string{"127.0.0.1/32"}
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	if _, err := c.CreateApp(ctx, "shop", ""); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := c.ConnectForge(ctx, "shop", apitypes.ForgeConnect{URL: f.repoURL(), Kind: "github", APIURL: f.srv.URL, Token: f.token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SyncForge(ctx, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	e := &forgeEnd{t: t, cfg: cfg, addrs: addrs, c: c, conn: conn, secret: conn.Secret}
+	e.waitForServed("production", "first")
+	waitUntil(t, "the look to be noted", func() bool {
+		stored, err := testAuth(t, cfg).DB.ForgeOf(ctx, "shop")
+		return err == nil && !stored.LookedAt.IsZero()
+	})
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	// A push while it is away, of which no one is told.
+	second := f.commit("while it was away")
+	f.publish(second, "refs/heads/main")
+	addrs, _ = start(t, cfg)
+	e.addrs, e.c = addrs, apiClient(t, cfg, addrs)
+	e.waitForServed("production", "while it was away")
+	waitUntil(t, "the check to pass", func() bool { return f.lastStatus(second).State == "success" })
 }

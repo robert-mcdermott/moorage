@@ -704,10 +704,10 @@ func (m *Manager) MetricsInstances(ctx context.Context) []metrics.Instance {
 }
 
 // LogSources lists the log files of what is running now.
-func (m *Manager) LogSources(ctx context.Context) []LogSource {
+func (m *Manager) LogSources(ctx context.Context) ([]LogSource, error) {
 	routes, err := m.db.Routes(ctx)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []LogSource
 	for _, r := range routes {
@@ -723,7 +723,7 @@ func (m *Manager) LogSources(ctx context.Context) []LogSource {
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 // LogSource is a log file of something that is running.

@@ -1106,10 +1106,10 @@ func (c *Client) ForgePulls(ctx context.Context, app string) ([]apitypes.ForgePu
 	return out, err
 }
 
-// ApproveForgePull has a pull request built, as it is now.
-func (c *Client) ApproveForgePull(ctx context.Context, app string, number int) (apitypes.ForgePull, error) {
+// ApproveForgePull has a pull request built, at the commit that someone looked at.
+func (c *Client) ApproveForgePull(ctx context.Context, app string, number int, commit string) (apitypes.ForgePull, error) {
 	var out apitypes.ForgePull
-	err := c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/forge/pulls/"+strconv.Itoa(number)+"/approve", nil, "", &out)
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/forge/pulls/"+strconv.Itoa(number)+"/approve", apitypes.ForgeApproval{Commit: commit}, &out)
 	return out, err
 }
 

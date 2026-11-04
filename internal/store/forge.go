@@ -24,6 +24,11 @@ type ForgeConnection struct {
 	// APIURL overrides where the forge's API is, and Repo is the repository's path there.
 	APIURL, Repo  string
 	DefaultBranch string
+	// BranchPinned says that whoever connected it said which branch that is, so that what the forge says does not change it.
+	BranchPinned bool
+	// LookedAt is when it last looked at all the branches, and Deploying what is being deployed from one now.
+	LookedAt  time.Time
+	Deploying string
 	// HookID is the address a forge sends events to.
 	HookID                    string
 	SealedSecret, SealedToken []byte
@@ -46,16 +51,19 @@ type ForgePull struct {
 	UpdatedAt               time.Time
 }
 
-const forgeColumns = `f.app_id, a.name, f.kind, f.url, f.api_url, f.repo, f.default_branch, f.hook_id, f.sealed_secret, f.sealed_token,
+const forgeColumns = `f.app_id, a.name, f.kind, f.url, f.api_url, f.repo, f.default_branch, f.branch_pinned, f.looked_at, f.deploying, f.hook_id, f.sealed_secret, f.sealed_token,
 	f.previews, f.poll, f.last_event_at, f.last_error, f.created_by, f.created_at`
 
 func scanForge(row interface{ Scan(...any) error }) (ForgeConnection, error) {
 	var c ForgeConnection
-	var last, created int64
-	err := row.Scan(&c.AppID, &c.App, &c.Kind, &c.URL, &c.APIURL, &c.Repo, &c.DefaultBranch, &c.HookID, &c.SealedSecret, &c.SealedToken,
+	var last, created, looked int64
+	err := row.Scan(&c.AppID, &c.App, &c.Kind, &c.URL, &c.APIURL, &c.Repo, &c.DefaultBranch, &c.BranchPinned, &looked, &c.Deploying, &c.HookID, &c.SealedSecret, &c.SealedToken,
 		&c.Previews, &c.Poll, &last, &c.LastError, &c.CreatedBy, &created)
 	if err != nil {
 		return c, err
+	}
+	if looked != 0 {
+		c.LookedAt = time.UnixMilli(looked).UTC()
 	}
 	if last != 0 {
 		c.LastEventAt = time.UnixMilli(last).UTC()
@@ -103,7 +111,16 @@ func (db *DB) ForgeOfAppID(ctx context.Context, appID string) (ForgeConnection, 
 
 // PolledForges lists the connections that are looked at, rather than told of changes.
 func (db *DB) PolledForges(ctx context.Context) ([]ForgeConnection, error) {
-	rows, err := db.Reader.QueryContext(ctx, `SELECT `+forgeColumns+` FROM forge_connections f JOIN apps a ON a.id = f.app_id WHERE f.poll = 1`)
+	return db.forges(ctx, ` WHERE f.poll = 1`)
+}
+
+// AllForges lists every connection.
+func (db *DB) AllForges(ctx context.Context) ([]ForgeConnection, error) {
+	return db.forges(ctx, ``)
+}
+
+func (db *DB) forges(ctx context.Context, where string) ([]ForgeConnection, error) {
+	rows, err := db.Reader.QueryContext(ctx, `SELECT `+forgeColumns+` FROM forge_connections f JOIN apps a ON a.id = f.app_id`+where)
 	if err != nil {
 		return nil, err
 	}
@@ -122,11 +139,11 @@ func (db *DB) PolledForges(ctx context.Context) ([]ForgeConnection, error) {
 // SetForge keeps an app's connection.
 func (db *DB) SetForge(ctx context.Context, c ForgeConnection) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO forge_connections (app_id, kind, url, api_url, repo, default_branch, hook_id, sealed_secret, sealed_token, previews, poll, last_event_at, last_error, created_by, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-			ON CONFLICT (app_id) DO UPDATE SET kind = excluded.kind, url = excluded.url, api_url = excluded.api_url, repo = excluded.repo, default_branch = excluded.default_branch,
+		_, err := tx.ExecContext(ctx, `INSERT INTO forge_connections (app_id, kind, url, api_url, repo, default_branch, branch_pinned, hook_id, sealed_secret, sealed_token, previews, poll, last_event_at, last_error, created_by, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+			ON CONFLICT (app_id) DO UPDATE SET kind = excluded.kind, url = excluded.url, api_url = excluded.api_url, repo = excluded.repo, default_branch = excluded.default_branch, branch_pinned = excluded.branch_pinned,
 				sealed_token = excluded.sealed_token, previews = excluded.previews, poll = excluded.poll, last_error = excluded.last_error`,
-			c.AppID, c.Kind, c.URL, c.APIURL, c.Repo, c.DefaultBranch, c.HookID, c.SealedSecret, c.SealedToken, c.Previews, c.Poll, c.LastError, c.CreatedBy, c.CreatedAt.UnixMilli())
+			c.AppID, c.Kind, c.URL, c.APIURL, c.Repo, c.DefaultBranch, c.BranchPinned, c.HookID, c.SealedSecret, c.SealedToken, c.Previews, c.Poll, c.LastError, c.CreatedBy, c.CreatedAt.UnixMilli())
 		return err
 	})
 }
@@ -146,6 +163,22 @@ func (db *DB) DeleteForge(ctx context.Context, appID string) error {
 func (db *DB) SetForgeDefaultBranch(ctx context.Context, appID, branch string) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE forge_connections SET default_branch = ? WHERE app_id = ?`, branch, appID)
+		return err
+	})
+}
+
+// NoteForgeLooked records that all of a repository's branches have been looked at.
+func (db *DB) NoteForgeLooked(ctx context.Context, appID string, at time.Time) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE forge_connections SET looked_at = ? WHERE app_id = ?`, at.UnixMilli(), appID)
+		return err
+	})
+}
+
+// SetForgeDeploying notes the commit that a branch is deploying, or that it is no longer.
+func (db *DB) SetForgeDeploying(ctx context.Context, appID, commit string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE forge_connections SET deploying = ? WHERE app_id = ?`, commit, appID)
 		return err
 	})
 }
@@ -203,7 +236,35 @@ func (db *DB) ForgePulls(ctx context.Context, appID string) ([]ForgePull, error)
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		if gone, err := db.forgePreviewGone(ctx, out[i]); err != nil {
+			return nil, err
+		} else if gone {
+			out[i].State, out[i].Env, out[i].Error = PullSkipped, "", "Its preview went, having not been used for a while."
+		}
+	}
+	return out, nil
+}
+
+// ForgePreviewGone says whether a pull request's preview has gone since it was built, as previews do when no one uses them.
+func (db *DB) ForgePreviewGone(ctx context.Context, p ForgePull) (bool, error) {
+	return db.forgePreviewGone(ctx, p)
+}
+
+func (db *DB) forgePreviewGone(ctx context.Context, p ForgePull) (bool, error) {
+	if p.State != PullLive || p.Env == "" {
+		return false, nil
+	}
+	var found int
+	err := db.Reader.QueryRowContext(ctx, `SELECT 1 FROM environments WHERE app_id = ? AND name = ?`, p.AppID, p.Env).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	return false, err
 }
 
 // ForgePullsBuilding lists the pull requests that are being built, as far as anyone has said.

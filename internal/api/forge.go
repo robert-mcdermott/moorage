@@ -25,9 +25,12 @@ func (s *Server) pullDoc(app string, p store.ForgePull) apitypes.ForgePull {
 
 func (s *Server) forgeFailed(w http.ResponseWriter, r *http.Request, err error) {
 	var invalid *forge.InvalidError
+	var moved *forge.CommitChangedError
 	switch {
 	case errors.As(err, &invalid):
 		problem(w, http.StatusUnprocessableEntity, "invalid", invalid.Msg)
+	case errors.As(err, &moved):
+		problem(w, http.StatusConflict, "moved_on", moved.Error())
 	case errors.Is(err, forge.ErrNoConnection), errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", "There is no such thing: "+err.Error()+".")
 	default:
@@ -104,8 +107,12 @@ func (s *Server) approveForgePull(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusNotFound, "not_found", "There is no such pull request.")
 		return
 	}
+	var in apitypes.ForgeApproval
+	if !decode(w, r, &in) {
+		return
+	}
 	app := r.PathValue("app")
-	pull, err := s.forges.Approve(r.Context(), app, number, who(r).Name)
+	pull, err := s.forges.Approve(r.Context(), app, number, in.Commit, who(r).Name)
 	if err != nil {
 		s.forgeFailed(w, r, err)
 		return

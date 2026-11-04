@@ -126,9 +126,37 @@ func TestTelemetrySinks(t *testing.T) {
 	}
 
 	// Metrics go there too, and only there.
-	waitUntil(t, "the metrics", func() bool { return otlp.has("moorage.host.load") })
-	if everything.has("moorage.host.load") {
+	waitUntil(t, "the metrics", func() bool { return otlp.has("resourceMetrics") })
+	if everything.has("resourceMetrics") {
 		t.Error("a sink for logs had metrics")
+	}
+
+	// One that will not have what it is sent is not held up by it, and says how many it let go.
+	fussy := newFakeCollector(t)
+	fussy.status.Store(http.StatusRequestEntityTooLarge)
+	if _, err := c.SetTelemetrySink(ctx, apitypes.NewTelemetrySink{Name: "fussy", Kind: "http", Address: fussy.srv.URL, Logs: true}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	run, err = c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "echo too-much"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	followedRun(t, c, "shop", run.ID)
+	waitUntil(t, "it to let it go", func() bool {
+		list, err := c.TelemetrySinks(ctx)
+		if err != nil {
+			return false
+		}
+		for _, k := range list {
+			if k.Name == "fussy" {
+				return k.Dropped > 0 && strings.Contains(k.LastError, "413") && k.LastSentAt.IsZero()
+			}
+		}
+		return false
+	})
+	if err := c.RemoveTelemetrySink(ctx, "fussy"); err != nil {
+		t.Fatal(err)
 	}
 
 	// Trying it says how that went.

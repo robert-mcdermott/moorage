@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -56,7 +57,7 @@ func ThresholdCheck(metric string, above float64, minutes int) string {
 			names = append(names, k.Metric)
 		}
 		return "A threshold is about one of " + strings.Join(names, ", ") + "."
-	case above <= 0:
+	case math.IsNaN(above) || math.IsInf(above, 0) || above <= 0:
 		return "A threshold is a number above nothing."
 	case (metric == ThresholdErrorRate || metric == ThresholdMemory) && above > 100:
 		return "That is a percentage, of 100 at the most."
@@ -68,8 +69,8 @@ func ThresholdCheck(metric string, above float64, minutes int) string {
 
 // thresholdState is how a threshold stands.
 type thresholdState struct {
-	// since is when it went over, if it is over.
-	since  time.Time
+	// over is how long it has been over for, leaving out what had nothing to say.
+	over   time.Duration
 	firing bool
 	value  float64
 	known  bool
@@ -174,28 +175,32 @@ func (s *Service) checkThresholds(ctx context.Context, now time.Time, every time
 		}
 		st := s.thresholdStates[t.ID]
 		if st == nil {
-			st = &thresholdState{}
+			st = &thresholdState{firing: t.Firing}
 			s.thresholdStates[t.ID] = st
 		}
 		st.value, st.known = value, known
 		var crossed, cleared bool
 		if known {
 			if value > t.Above {
-				if st.since.IsZero() {
-					st.since = now
-				}
-				crossed = !st.firing && now.Sub(st.since)+every >= time.Duration(t.Minutes)*minute
+				st.over += every
+				crossed = !st.firing && st.over >= time.Duration(t.Minutes)*minute
 				if crossed {
 					st.firing = true
 				}
 			} else {
-				st.since = time.Time{}
+				st.over = 0
 				cleared = st.firing
 				st.firing = false
 			}
 		}
 		s.thresholdMu.Unlock()
 		data := map[string]any{"threshold": t.ID, "metric": t.Metric, "value": roundTo(value), "above": t.Above, "minutes": t.Minutes}
+		// It stays on record, as a threshold coming right is worth saying after a restart too.
+		if crossed || cleared {
+			if err := s.DB.SetAlertFiring(ctx, t.ID, crossed); err != nil && ctx.Err() == nil {
+				s.Log.Warn("note a threshold", "err", err)
+			}
+		}
 		switch {
 		case crossed:
 			s.Bus.Publish(ctx, store.Event{Type: events.ThresholdCrossed, App: t.App, Env: t.Env, At: now, Data: data})

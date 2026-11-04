@@ -230,7 +230,7 @@ func (rs *Repos) Fetch(ctx context.Context, app string, o FetchOptions, refspecs
 		}
 	}
 	err = o.remote(st).FetchContext(ctx, &git.FetchOptions{RefSpecs: specs, Force: true, Prune: prune, Tags: plumbing.NoTags, ClientOptions: o.clientOptions()})
-	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) && !errors.Is(err, transport.ErrEmptyRemoteRepository) {
 		return o.tidy(err)
 	}
 	return nil

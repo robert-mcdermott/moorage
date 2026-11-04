@@ -337,11 +337,10 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 		s.failing[thresholdKey+id] = true
 		alerts = append(alerts, events.ThresholdCrossed)
 	case events.ThresholdOK:
+		// It is only told of when it has been crossed, across a restart too.
 		id, _ := e.Data["threshold"].(string)
-		if s.failing[thresholdKey+id] {
-			delete(s.failing, thresholdKey+id)
-			recovered = append(recovered, recovery{kind: events.ThresholdCrossed, summary: events.Summary(e)})
-		}
+		delete(s.failing, thresholdKey+id)
+		recovered = append(recovered, recovery{kind: events.ThresholdCrossed, summary: events.Summary(e)})
 	case events.DiskOK:
 		if s.failing[diskKey] {
 			delete(s.failing, diskKey)
@@ -491,7 +490,9 @@ func (s *Service) dispatch(ctx context.Context, e store.Event, kind string, m Me
 	}
 	if repeats(kind) {
 		if m.Kind == Recovered {
-			if _, ok := s.admit("recovered/"+key, e.At); !ok {
+			// A threshold has to go on for a while to be crossed, so that one going back and forth is not many messages, and
+			// holding this back would leave what was last said as that it is crossed.
+			if _, ok := s.admit("recovered/"+key, e.At); !ok && kind != events.ThresholdCrossed {
 				return
 			}
 			s.mu.Lock()

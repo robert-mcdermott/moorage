@@ -6,11 +6,17 @@ CREATE TABLE forge_connections (
     api_url        TEXT NOT NULL DEFAULT '',
     repo           TEXT NOT NULL DEFAULT '',
     default_branch TEXT NOT NULL DEFAULT 'main',
+    -- Whoever connected it said which branch is production, so what the forge says does not change that.
+    branch_pinned  INTEGER NOT NULL DEFAULT 0,
     hook_id        TEXT NOT NULL UNIQUE,
     sealed_secret  BLOB NOT NULL,
     sealed_token   BLOB,
     previews       INTEGER NOT NULL DEFAULT 1,
     poll           INTEGER NOT NULL DEFAULT 0,
+    -- When it last looked at all the branches. Until it has, what it finds there is not news.
+    looked_at      INTEGER NOT NULL DEFAULT 0,
+    -- What is being deployed from a branch now, whose check would say so for ever if the server stopped here.
+    deploying      TEXT NOT NULL DEFAULT '',
     last_event_at  INTEGER NOT NULL DEFAULT 0,
     last_error     TEXT NOT NULL DEFAULT '',
     created_by     TEXT NOT NULL,

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -277,5 +278,52 @@ func TestSenderFailures(t *testing.T) {
 	err = (&httpSender{address: address, client: http.DefaultClient}).sendLogs(context.Background(), []Line{{Time: at, Text: "x"}})
 	if err == nil || strings.Contains(err.Error(), "a-secret") {
 		t.Errorf("%v", err)
+	}
+}
+
+// An answer of "not that" is not a reason to try the same thing for ever.
+func TestSinkThatRejectsWhatItIsSent(t *testing.T) {
+	srv, heard := collector(t, http.StatusRequestEntityTooLarge)
+	err := (&httpSender{address: srv.URL, client: srv.Client()}).sendLogs(context.Background(), []Line{{Time: at, Text: "x"}})
+	var rejected *RejectedError
+	if !errors.As(err, &rejected) || len(heard()) != 1 {
+		t.Errorf("%v", err)
+	}
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusServiceUnavailable} {
+		srv, _ := collector(t, status)
+		err := (&httpSender{address: srv.URL, client: srv.Client()}).sendLogs(context.Background(), []Line{{Time: at, Text: "x"}})
+		if err == nil || errors.As(err, &rejected) {
+			t.Errorf("%d is worth trying again: %v", status, err)
+		}
+	}
+}
+
+func TestQueueLetsGoOfTheOldest(t *testing.T) {
+	k := &sink{limit: batchSize}
+	lines := make([]Line, queueSize+7)
+	for i := range lines {
+		lines[i].Text = strconv.Itoa(i)
+	}
+	k.add(lines)
+	if got := k.take(); len(got) != batchSize || got[0].Text != "7" {
+		t.Errorf("%d, from %q", len(got), got[0].Text)
+	}
+	if n := k.takeDropped(); n != 7 {
+		t.Errorf("%d went", n)
+	}
+	if n := k.takeDropped(); n != 0 {
+		t.Errorf("counted twice: %d", n)
+	}
+	k.sent(batchSize)
+	if got := k.take(); got[0].Text != strconv.Itoa(7+batchSize) {
+		t.Errorf("%q", got[0].Text)
+	}
+	k.limit = 1
+	k.giveUp(1)
+	if got := k.take(); len(got) != 1 || got[0].Text != strconv.Itoa(8+batchSize) {
+		t.Errorf("%+v", got)
+	}
+	if n := k.takeDropped(); n != 1 {
+		t.Errorf("%d went", n)
 	}
 }

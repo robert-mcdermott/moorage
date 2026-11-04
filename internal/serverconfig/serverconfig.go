@@ -700,6 +700,9 @@ func (s *Service) importSinks(r *run, f apitypes.ServerConfig) error {
 			r.add("sink", want.Name, apitypes.ConfigSkip, waiting)
 			continue
 		}
+		if waiting != "" {
+			headers = nil // not some of them: what it has stays, as it would with none of them there
+		}
 		appID := ""
 		if want.App != "" {
 			if appID, err = s.DB.AppID(r.ctx, want.App); err != nil {

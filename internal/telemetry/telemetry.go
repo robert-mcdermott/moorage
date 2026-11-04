@@ -62,7 +62,7 @@ type Service struct {
 	Client *http.Client
 	Dial   func(ctx context.Context, network, address string) (net.Conn, error)
 	// Sources lists what is writing logs now.
-	Sources func(ctx context.Context) []Source
+	Sources func(ctx context.Context) ([]Source, error)
 	// Metrics says what the server is doing now.
 	Metrics func(ctx context.Context) metrics.Export
 	// Server is what this machine calls itself, and Version what is running.
@@ -91,16 +91,26 @@ type follower struct {
 	source Source
 	f      *logs.Follower
 	skip   time.Time
-	// gone says that it is no longer being written to, so that it can go once it has been read.
-	gone bool
+	// gone is when it was last seen to be written to, if it no longer is. It is kept for a while after, as a look that
+	// did not list it does not prove that it has gone, and starting again from the top would send it all again.
+	gone time.Time
 }
+
+// followerStays is how long a log that has no one writing to it goes on being followed.
+const followerStays = 10 * time.Minute
 
 // sink is one sink, as it goes along.
 type sink struct {
-	row    store.TelemetrySink
-	sender sender
-	stop   context.CancelFunc
-	done   chan struct{}
+	// row is for the service, under its lock. What serves it has what it needs of that here, which does not change while it
+	// goes on: when it would, another takes its place.
+	row           store.TelemetrySink
+	id, name      string
+	logs, metrics bool
+	sender        sender
+	stop          context.CancelFunc
+	done          chan struct{}
+	// limit is how many lines to send at once, which goes down if a sink says that they are too much.
+	limit int
 
 	mu      sync.Mutex
 	queue   []Line
@@ -120,16 +130,37 @@ func (k *sink) add(lines []Line) {
 func (k *sink) take() []Line {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	n := min(batchSize, len(k.queue))
+	n := min(k.limit, len(k.queue))
 	return k.queue[:n:n]
 }
 
-func (k *sink) sent(n int) (dropped int64) {
+func (k *sink) waiting() bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return len(k.queue) > 0
+}
+
+// takeDropped says how many lines have gone, since it was last asked.
+func (k *sink) takeDropped() int64 {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	dropped := k.dropped
+	k.dropped = 0
+	return dropped
+}
+
+func (k *sink) sent(n int) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.queue = k.queue[n:]
-	dropped, k.dropped = k.dropped, 0
-	return dropped
+}
+
+// giveUp lets go of a line that a sink will not take.
+func (k *sink) giveUp(n int) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.queue = k.queue[n:]
+	k.dropped += int64(n)
 }
 
 var (
@@ -314,11 +345,11 @@ func (s *Service) Test(ctx context.Context, name, by string) error {
 	} else {
 		err = send.sendMetrics(ctx, metrics.Export{Gauges: []metrics.ExportValue{{Name: "moorage.test", Unit: "1", Description: "A test from Moorage.", Labels: map[string]string{}, Value: 1}}}, now, now)
 	}
-	problem := ""
+	problem, reached := "", now
 	if err != nil {
-		problem = err.Error()
+		problem, reached = err.Error(), time.Time{}
 	}
-	if saved := s.DB.NoteTelemetrySink(context.WithoutCancel(ctx), row.ID, now, problem, 0); saved != nil {
+	if saved := s.DB.NoteTelemetrySink(context.WithoutCancel(ctx), row.ID, reached, problem, 0); saved != nil {
 		s.Log.Warn("note how a sink went", "sink", name, "err", saved)
 	}
 	return err
@@ -417,7 +448,7 @@ func (s *Service) load() {
 			continue
 		}
 		ctx, stop := context.WithCancel(s.Life)
-		k := &sink{row: row, sender: send, stop: stop, done: make(chan struct{})}
+		k := &sink{row: row, id: row.ID, name: row.Name, logs: row.Logs, metrics: row.Metrics, sender: send, stop: stop, done: make(chan struct{}), limit: batchSize}
 		s.sinks[row.ID] = k
 		s.going.Add(1)
 		go func() {
@@ -451,7 +482,14 @@ func (s *Service) readLogs() {
 	if !logging {
 		return
 	}
-	sources := s.Sources(s.Life)
+	sources, err := s.Sources(s.Life)
+	if err != nil {
+		if s.Life.Err() == nil {
+			s.Log.Warn("list the logs to send", "err", err)
+		}
+		return
+	}
+	now := time.Now().UTC()
 	present := make(map[string]bool, len(sources))
 	for _, source := range sources {
 		present[source.Path] = true
@@ -462,15 +500,22 @@ func (s *Service) readLogs() {
 		if s.fresh {
 			f.skip = s.cursor
 			if f.skip.IsZero() {
-				f.skip = time.Now().UTC()
+				f.skip = now
 			}
+			// It may have rotated while no one was looking.
+			f.f = logs.FollowSince(source.Path, f.skip)
 		}
 		s.followers[source.Path] = f
 	}
 	s.fresh = false
 	newest := s.cursor
 	for path, f := range s.followers {
-		f.gone = !present[path]
+		switch {
+		case present[path]:
+			f.gone = time.Time{}
+		case f.gone.IsZero():
+			f.gone = now
+		}
 		lines, err := f.f.Read()
 		if err != nil {
 			s.Log.Warn("read a log to send", "path", path, "err", err)
@@ -495,7 +540,7 @@ func (s *Service) readLogs() {
 			}
 			s.mu.Unlock()
 		}
-		if f.gone && len(lines) == 0 {
+		if !f.gone.IsZero() && len(lines) == 0 && now.Sub(f.gone) > followerStays {
 			delete(s.followers, path)
 		}
 	}
@@ -508,7 +553,8 @@ func (s *Service) readLogs() {
 	}
 }
 
-// serve sends what comes for one sink until it is told to stop, waiting longer each time that it fails.
+// serve sends what comes for one sink until it is told to stop, waiting longer each time that it fails. With more waiting,
+// it goes straight on, or a sink could not take more than one batch each time around.
 func (s *Service) serve(ctx context.Context, k *sink) {
 	defer k.sender.close()
 	every := s.MetricsEvery
@@ -517,73 +563,101 @@ func (s *Service) serve(ctx context.Context, k *sink) {
 	}
 	nextMetrics := time.Now().Add(min(every, 5*time.Second))
 	backoff := time.Duration(0)
-	var problem string
-	sentAny := false
-	note := func(now time.Time, failure string, dropped int64) {
-		if failure == problem && !sentAny && dropped == 0 {
+	problem := ""
+	var sentSince time.Time
+	var lastNote time.Time
+	note := func(failure string) {
+		dropped := k.takeDropped()
+		now := time.Now().UTC()
+		if failure == problem && dropped == 0 && (sentSince.IsZero() || now.Sub(lastNote) < 10*time.Second) {
 			return
 		}
-		problem, sentAny = failure, false
 		saving, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		if err := s.DB.NoteTelemetrySink(saving, k.row.ID, now, failure, dropped); err != nil {
-			s.Log.Warn("note how a sink went", "sink", k.row.Name, "err", err)
+		if err := s.DB.NoteTelemetrySink(saving, k.id, sentSince, failure, dropped); err != nil {
+			s.Log.Warn("note how a sink went", "sink", k.name, "err", err)
 		}
+		problem, lastNote, sentSince = failure, now, time.Time{}
 	}
-	lastNote := time.Time{}
 	for {
 		wait := 500 * time.Millisecond
-		if backoff > 0 {
+		switch {
+		case backoff > 0:
 			wait = backoff
+		case k.logs && k.waiting():
+			wait = 0
 		}
 		select {
 		case <-ctx.Done():
+			note(problem)
 			return
 		case <-time.After(wait):
 		}
-		var err error
-		attempted := false
+		failure := ""
+		tried := false
 		now := time.Now().UTC()
-		if k.row.Logs {
+		if k.logs {
 			if batch := k.take(); len(batch) > 0 {
-				attempted = true
+				tried = true
 				sending, cancel := context.WithTimeout(ctx, sendTimeout)
-				err = k.sender.sendLogs(sending, slices.Clone(batch))
+				err := k.sender.sendLogs(sending, slices.Clone(batch))
 				cancel()
-				if err == nil {
-					dropped := k.sent(len(batch))
-					sentAny = true
-					if dropped > 0 || now.Sub(lastNote) > 10*time.Second || problem != "" {
-						lastNote = now
-						note(now, "", dropped)
+				var rejected *RejectedError
+				switch {
+				case err == nil:
+					k.sent(len(batch))
+					sentSince = now
+				case errors.As(err, &rejected) && len(batch) > 1:
+					// It may be too much at once, so it gets less. Otherwise this comes down to the line that it will not
+					// have, which is not to stop what comes after it.
+					k.limit = max(1, len(batch)/2)
+					failure = err.Error()
+				case errors.As(err, &rejected):
+					k.giveUp(1)
+					failure = err.Error()
+				default:
+					failure = err.Error()
+				}
+				if err == nil && k.limit < batchSize {
+					k.limit = min(batchSize, k.limit*2)
+				}
+				if err != nil && errors.As(err, &rejected) {
+					// That was an answer, and it can try the next thing straight away.
+					note(failure)
+					if ctx.Err() != nil {
+						return
 					}
+					continue
 				}
 			}
 		}
-		if err == nil && k.row.Metrics && now.After(nextMetrics) {
-			attempted = true
+		// What it thinks of logs has nothing to do with metrics, which may be going somewhere else behind the same address.
+		if k.metrics && now.After(nextMetrics) {
+			tried = true
 			nextMetrics = now.Add(every)
 			sending, cancel := context.WithTimeout(ctx, sendTimeout)
-			err = k.sender.sendMetrics(sending, s.Metrics(ctx), s.started, now)
+			err := k.sender.sendMetrics(sending, s.Metrics(ctx), s.started, now)
 			cancel()
 			if err == nil {
-				sentAny = true
-				lastNote = now
-				note(now, "", 0)
+				sentSince = now
+			} else if failure == "" {
+				failure = err.Error()
 			}
 		}
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
+		if ctx.Err() != nil {
+			return
+		}
+		switch {
+		case failure != "":
 			if backoff == 0 {
 				backoff = time.Second
 			} else if backoff *= 2; backoff > maxBackoff {
 				backoff = maxBackoff
 			}
-			note(now, err.Error(), 0)
-		} else if attempted {
+			note(failure)
+		case tried:
 			backoff = 0
+			note("")
 		}
 	}
 }

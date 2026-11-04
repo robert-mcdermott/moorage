@@ -87,6 +87,11 @@ func (b *runBook) remove(id, path string) {
 		if b.ended == nil {
 			b.ended = map[string]endedRun{}
 		}
+		for old, e := range b.ended {
+			if time.Since(e.at) > endedRunStays {
+				delete(b.ended, old)
+			}
+		}
 		b.ended[id] = endedRun{a.source(id, path), time.Now()}
 	}
 	delete(b.running, id)
@@ -116,8 +121,8 @@ func (b *runBook) ofJob(app, env, job string) []*activeRun {
 // RunLogSource is the log file of a command going on now.
 type RunLogSource struct{ App, Env, Process, Instance, Path string }
 
-// RunLogSources lists the log files of the commands going on now, other than those with someone at the other end of them,
-// which keep nothing.
+// RunLogSources lists the log files of the commands going on now, or that ended a moment ago. One with someone at the other
+// end of it says only that what was said is not kept.
 func (d *Deployer) RunLogSources() []RunLogSource {
 	d.runs.mu.Lock()
 	defer d.runs.mu.Unlock()
