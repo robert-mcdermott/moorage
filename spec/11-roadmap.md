@@ -633,6 +633,10 @@ directory, supervises it, and serves it on its own hostname.
        with no end on a machine with nobody at it: `moor trust --remove` hung in CI.
        It now deletes the certificate first, says if the setting stayed, and gives
        every system tool two minutes. Adding one needs no confirmation as root.
+     - The macOS runner resolves `*.localhost` before any rule is added, and macOS
+       15.7 here does not, so whether the rule is needed depends on the version. CI
+       checks that the system takes up the rule and that the responder answers; only
+       a machine that lacks the names shows the rule making the difference.
      - A Windows busy port is `WSAEADDRINUSE`, which `syscall.EADDRINUSE` does not
        match, so neither the doctor nor the server's own message said what was wrong.
      - An engine found by chance and not answering, as Docker is on a Windows runner,

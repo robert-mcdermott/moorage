@@ -65,7 +65,8 @@ The server starts them again when it next starts.
 
 On your own computer, apps are at `http://<app>.localhost:8080`. Chromium- and
 Firefox-based browsers and systemd-resolved on Linux resolve those names by
-themselves. Safari and command-line tools on macOS do not, and this fixes that:
+themselves, as do some versions of macOS. On the others, Safari and command-line
+tools do not, and this fixes that:
 
 ```bash
 moor server resolver install

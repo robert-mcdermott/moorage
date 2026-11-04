@@ -33,9 +33,10 @@ func newServerResolverCmd() *cobra.Command {
 		Short: "Show whether this machine resolves the addresses of a local server's apps",
 		Long: `Show whether this machine resolves <app>.localhost, the addresses of a server on
 your own computer. Chromium- and Firefox-based browsers manage that on their own,
-as does systemd-resolved on Linux. macOS does not, for Safari and command-line
-tools: moor server resolver install adds a rule for it, pointing at a small DNS
-responder of the server's, which answers only on loopback and only for that domain.`,
+as does systemd-resolved on Linux, and some versions of macOS. Where macOS does
+not, for Safari and command-line tools, moor server resolver install adds a rule
+for it, pointing at a small DNS responder of the server's, which answers only on
+loopback and only for that domain.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, cfg, err := loadServerConfig(cfgFlag)
