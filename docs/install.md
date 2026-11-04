@@ -1,7 +1,7 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. Version 0.4.0 runs on Linux and macOS (amd64 and arm64); on Windows,
+to it. Version 0.5.0 runs on Linux and macOS (amd64 and arm64); on Windows,
 `moor` runs as a command line and `moor server run` works, but installing the
 server as a service arrives in a later release.
 
@@ -52,18 +52,18 @@ sudo sh install-moor.sh
 
 | Variable | `install.sh` | `install.ps1` | |
 |---|---|---|---|
-| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.4.0`. By default, the latest |
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.5.0`. By default, the latest |
 | `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
 | `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
 | `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
 | `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.4.0 sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.5.0 sh
 ```
 
 ```powershell
-$env:MOOR_VERSION = 'v0.4.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+$env:MOOR_VERSION = 'v0.5.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
 
 **On Windows,** `irm … | iex` reads the script into memory and runs it, so the
@@ -259,6 +259,29 @@ The quick starts show each kind of app: [Go](go.md), [Python](python.md),
 [Node.js](node.md), [static sites](static.md) and
 [anything else](other.md). [Variables and secrets](variables.md)
 configure apps.
+
+## How big a machine
+
+Moorage itself asks for little: about 100 MB of memory, and next to no CPU while nothing is
+happening. What a machine has to hold is your apps, and only those awake. An environment
+[asleep](previews.md#sleeping) uses no memory until a request wakes it.
+
+We check this with [a script](../.github/scripts/capacity-check.sh) on a machine limited to 4 CPUs and
+8 GB: 60 environments of 10 apps, each a small Python server holding 64 MB, with sleep on.
+
+| With 60 environments | Measured |
+|---|---|
+| Memory, all awake | 4.9 GB |
+| Memory, all asleep | 120 MB |
+| The server's own memory, at its most | 107 MB |
+| The server's CPU, all asleep | under 1% of a core |
+| Waking one with a request | 0.13 s for this app: yours takes as long as it takes to start |
+| Waking all 60 at once | 2.3 s for the slowest |
+| Serving five while the others sleep | 4,100 requests a second, 95% within 12 ms |
+| Requests that failed | none |
+
+So count what your apps use while they are awake, and how many of them will be at once. Builds
+need room as well, which depends on what you build, and logs and [metrics](metrics.md) take disk.
 
 ## Back up
 

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.0 (2026-11-04)
+
+Moorage 0.5.0 is about apps once they are running. They can have cron jobs and one-off commands, charts of how they are doing, and notifications when they are not. Drop a folder in the console and it is a static site, with every release at an address of its own. A server of 4 CPUs and 8 GB holds 60 environments with sleep on, as [measured](docs/install.md#how-big-a-machine). Moorage is now licensed under the [Apache License 2.0](LICENSE).
+
+Upgrading from 0.4.0 needs no steps of its own: replace `moor` and restart the server, and running apps are taken over without a restart. Some things behave differently:
+
+- **`[[cron]]` in a manifest now runs.** It was accepted and did nothing, and `moor manifest validate` warned of that. Its jobs start with the next deployment.
+- **`[vars.NAME]` now counts.** A deployment fails early if a `required` one is missing, and one to `generate` is made.
+- **`watch` in `[app]` now counts.** A push that touches none of those paths is kept, and not deployed.
+- **People are told when things fail.** In the console, maintainers of a project, its administrators and whoever pushed a deployment see notifications, with no setup. Nothing leaves the server until you add a channel and a rule.
+- **Metrics take room.** About 6 MB for a busy environment, kept for a year.
+- **`moor deploy --static` now follows the manifest's `[environments.*]` and `[previews]`,** and `keep_releases`. It ignored them, so that a site you meant to gate with `access` in its manifest may have been open, and is now closed as it says.
+- **Commands run with their environment's variables.** A release command ran with `[env]` alone, and now has `[environments.NAME.env]` over it, as the app itself always did.
+
+### Fixed
+
+- **With Moorage's own CA, the addresses of environments and previews had no certificate,** so that a browser got a TLS error. They have one now.
+- **A long request through a login gate with a token ended only with the gate, and not with the token.** Revoking the token ends it now, within a minute.
+- **Following an app's logs or a run's output now ends when you may no longer see them,** within a minute.
+- **A server started right after another stopped could say that the other was still using its data directory,** if a process it was starting at that moment held a copy of the lock. Stopping now lets go of the lock whatever else holds a copy.
+
+### Added
+
+- **Drop a folder in the console (wave 5, slice 4).** On an app's **Deploy** page, drop a folder or choose one, and it is a live static site a moment later. `.git` and `.env` files stay out of it. See [static sites](docs/static.md).
+- **Every release of a static site at its own address.** `docs--production--v12.apps.example.com` serves that release as long as it is kept, behind the same gate as its environment, to compare versions or show someone an exact build. `moor releases` lists them.
+- **Notifications (wave 5, slice 3).** Moorage says when a deployment fails, an app keeps crashing, a cron job fails or the server's disk is nearly full: in the console for those it concerns, with no setup, and through signed webhooks, Slack, Microsoft Teams, Discord and email for whatever rules you add, of the whole server, a project or an app. One crash-looping app sends one message and not hundreds, then a word when it recovers. `moor notifications`, and see [Notifications](docs/notifications.md).
+- **Metrics (wave 5, slice 2).** Requests, response times, CPU and memory for every environment, kept for a year with nothing else to run. An app's **Metrics** tab has them as charts from the last 15 minutes to the last 30 days, with each release marked, its page has the last hour at a glance, and the list of apps has each one's requests. `moor metrics`, and `/metrics` for Prometheus.
+- **Cron jobs (wave 5, slice 1).** `[[cron]]` in the manifest: five-field schedules or `@daily` and `@every 15m`, time zones, time limits, what to do about overlaps, and which environments. `moor cron`, and a **Cron** tab with when each next runs and how it last went. The last 100 runs of each are kept, with what they said.
+- **`moor run -- COMMAND`.** Runs a command in the current release, with its variables and data, shows what it says, and ends with its exit status. The console has a box for it.
+- **`moor restart PROCESS`.** Replaces the instances of one process, and leaves the others running.
+- **What an app expects.** `[vars.NAME]`: a deployment fails early if a `required` one is missing, and one to `generate` is made once for each environment.
+- **`watch` in `[app]`.** A push that touches none of those paths is kept, not deployed.
+
 ## 0.4.0 (2026-11-03)
 
 Moorage 0.4.0 gives every branch a place of its own, and says who can reach it. Push a branch and it gets its own build, address and data, which sleeps when nobody is using it and goes when its branch does. Staging, promoting what it runs to production, and locks come with it. Each environment can be open, behind a password, for those signed in, or only for people with a share link. Apps can have domains of their own, and belong to projects, in which people have roles, with an audit log of who did what.

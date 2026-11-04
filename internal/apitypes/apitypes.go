@@ -27,6 +27,8 @@ type Release struct {
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by,omitempty"`
 	Current   bool      `json:"current"`
+	// URL is this release's own address, for a static site's that is kept.
+	URL string `json:"url,omitempty"`
 }
 
 // Deployment is the job that produces a release: a deploy, a rollback. A
@@ -91,9 +93,14 @@ type Var struct {
 	// the manifest of the current release).
 	Source string `json:"source"`
 	// Overridden reports a variable that another source sets too, and wins.
-	Overridden bool      `json:"overridden,omitempty"`
-	UpdatedBy  string    `json:"updated_by,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at,omitzero"`
+	Overridden bool `json:"overridden,omitempty"`
+	// Declared says the manifest expects it, for Description; Missing that it is required, and
+	// nothing sets it, so that the next deployment will fail.
+	Declared    bool      `json:"declared,omitempty"`
+	Description string    `json:"description,omitempty"`
+	Missing     bool      `json:"missing,omitempty"`
+	UpdatedBy   string    `json:"updated_by,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitzero"`
 }
 
 // VarsChange sets and unsets variables of an environment (or, with
@@ -378,6 +385,79 @@ type RegistryLogin struct {
 	Password string `json:"password"`
 }
 
+// NotificationChannel is somewhere notifications can go. Where it goes and how the last attempt
+// went are for administrators.
+type NotificationChannel struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Kind      string     `json:"kind"`
+	Target    string     `json:"target,omitempty"`
+	CreatedBy string     `json:"created_by,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	SentAt    *time.Time `json:"sent_at,omitempty"`
+	Error     string     `json:"error,omitempty"`
+}
+
+// NewNotificationChannel asks for a channel: of a kind, with what that kind needs. A webhook, slack,
+// teams or discord channel needs a URL; email needs a mail server, who it is from and who it goes to.
+type NewNotificationChannel struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	URL  string `json:"url,omitempty"`
+	// The mail server, and how to sign in to it.
+	Host     string   `json:"host,omitempty"`
+	Port     int      `json:"port,omitempty"`
+	Username string   `json:"username,omitempty"`
+	Password string   `json:"password,omitempty"`
+	From     string   `json:"from,omitempty"`
+	To       []string `json:"to,omitempty"`
+}
+
+// CreatedChannel is a channel just made. Secret signs what a webhook sends, and is never shown again.
+type CreatedChannel struct {
+	NotificationChannel
+	Secret string `json:"secret,omitempty"`
+}
+
+// NotificationRule says which events go to which channel. Neither a project nor an app means the
+// whole server.
+type NotificationRule struct {
+	ID        string    `json:"id"`
+	Channel   string    `json:"channel"`
+	Project   string    `json:"project,omitempty"`
+	App       string    `json:"app,omitempty"`
+	Events    []string  `json:"events"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// NewNotificationRule asks for a rule. Channel is its name or ID, and "*" among the events asks for
+// every alert.
+type NewNotificationRule struct {
+	Channel string   `json:"channel"`
+	Project string   `json:"project,omitempty"`
+	App     string   `json:"app,omitempty"`
+	Events  []string `json:"events"`
+}
+
+// Notification is something someone has been told.
+type Notification struct {
+	ID      string     `json:"id"`
+	Kind    string     `json:"kind"`
+	App     string     `json:"app,omitempty"`
+	Env     string     `json:"env,omitempty"`
+	Summary string     `json:"summary"`
+	Link    string     `json:"link,omitempty"`
+	At      time.Time  `json:"at"`
+	ReadAt  *time.Time `json:"read_at,omitempty"`
+}
+
+// Inbox is what someone has been told, newest first.
+type Inbox struct {
+	Unread int            `json:"unread"`
+	Items  []Notification `json:"items"`
+}
+
 // ProxyCheck says what reached the server, for moor server doctor.
 type ProxyCheck struct {
 	// Peer is who connected, and Trusted whether that is a trusted proxy.
@@ -432,6 +512,87 @@ type Environment struct {
 	// LockedBy, if set, is who stopped deployments to it.
 	LockedBy   string    `json:"locked_by,omitempty"`
 	LastActive time.Time `json:"last_active_at,omitzero"`
+}
+
+// Metrics is what an environment did over a range.
+type Metrics struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+	// Step is how many seconds apart its points are.
+	Step        int           `json:"step"`
+	Charts      []MetricChart `json:"charts"`
+	Deployments []MetricMark  `json:"deployments"`
+}
+
+// MetricChart is one measure: requests, latency, cpu or memory.
+type MetricChart struct {
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	// Unit is rate (a minute), ms, percent (of one core) or bytes.
+	Unit  string       `json:"unit"`
+	Lines []MetricLine `json:"lines"`
+}
+
+// MetricLine is a line of a chart. A gap is where there is no point.
+type MetricLine struct {
+	Name   string        `json:"name"`
+	Points []MetricPoint `json:"points"`
+}
+
+// MetricPoint is a line at a moment.
+type MetricPoint struct {
+	At    time.Time `json:"at"`
+	Value float64   `json:"value"`
+	Min   float64   `json:"min"`
+	Max   float64   `json:"max"`
+}
+
+// MetricMark is a release, on a chart.
+type MetricMark struct {
+	At      time.Time `json:"at"`
+	Version int       `json:"version"`
+	By      string    `json:"by,omitempty"`
+}
+
+// Run is one running of a command of a release: a cron job's, or one someone asked for.
+type Run struct {
+	ID  string `json:"id"`
+	App string `json:"app"`
+	Env string `json:"env"`
+	// Job is the cron job it belongs to, if any.
+	Job     string `json:"job,omitempty"`
+	Command string `json:"command"`
+	// Trigger is schedule or manual.
+	Trigger   string `json:"trigger"`
+	CreatedBy string `json:"created_by,omitempty"`
+	Version   int    `json:"version,omitempty"`
+	// Status is running, succeeded, failed, canceled or skipped.
+	Status string `json:"status"`
+	// ExitCode is what it exited with, if it did.
+	ExitCode   *int      `json:"exit_code,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at,omitzero"`
+}
+
+// NewRun starts a command.
+type NewRun struct {
+	Command string `json:"command"`
+	// Timeout is how long it may take, such as 10m: an hour unless it says, and a day at most.
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// CronJob is a cron job of an environment, as it stands.
+type CronJob struct {
+	Name     string `json:"name"`
+	Schedule string `json:"schedule"`
+	Command  string `json:"command"`
+	Timezone string `json:"timezone,omitempty"`
+	Overlap  string `json:"overlap,omitempty"`
+	Timeout  string `json:"timeout"`
+	// Next is when it next runs, and Last its newest run.
+	Next time.Time `json:"next,omitzero"`
+	Last *Run      `json:"last,omitempty"`
 }
 
 // Domain is a hostname of your own, or a path on one, attached to an environment.

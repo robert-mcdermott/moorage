@@ -798,6 +798,69 @@ func (d *Driver) Remove(id string) {
 // CleanupOrphan has nothing to do: a container has no shim to outlive.
 func (d *Driver) CleanupOrphan(shim.State) {}
 
+// Usage is what a container is using.
+type Usage struct {
+	CPU    float64 // percent of one core
+	Memory uint64  // bytes
+}
+
+// Stats asks the engine what the containers it runs for us are using, by instance ID.
+func (d *Driver) Stats(ctx context.Context) (map[string]Usage, error) {
+	args := []string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"}
+	d.mu.Lock()
+	byName := make(map[string]string, len(d.tracked))
+	for id, t := range d.tracked {
+		byName[t.name] = id
+		args = append(args, t.name)
+	}
+	d.mu.Unlock()
+	if len(byName) == 0 {
+		return nil, nil
+	}
+	out, err := d.engine.output(ctx, nil, args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseStats(string(out), byName), nil
+}
+
+// parseStats reads what the engine says of its containers, a line each: name, CPU and memory, as
+// 0.12% and 12.5MiB / 7.6GiB.
+func parseStats(text string, byName map[string]string) map[string]Usage {
+	usage := map[string]Usage{}
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Split(strings.TrimSpace(line), "\t")
+		if len(f) < 3 {
+			continue
+		}
+		id, ok := byName[f[0]]
+		if !ok {
+			continue
+		}
+		cpu, _ := strconv.ParseFloat(strings.TrimSuffix(f[1], "%"), 64)
+		used, _, _ := strings.Cut(f[2], "/")
+		usage[id] = Usage{CPU: cpu, Memory: parseSize(strings.TrimSpace(used))}
+	}
+	return usage
+}
+
+// parseSize reads a size as engines write them, such as 12.5MiB or 1.2GB.
+func parseSize(s string) uint64 {
+	for _, u := range []struct {
+		suffix string
+		factor float64
+	}{{"KiB", 1 << 10}, {"MiB", 1 << 20}, {"GiB", 1 << 30}, {"TiB", 1 << 40}, {"kB", 1e3}, {"KB", 1e3}, {"MB", 1e6}, {"GB", 1e9}, {"TB", 1e12}, {"B", 1}} {
+		if num, ok := strings.CutSuffix(s, u.suffix); ok {
+			v, err := strconv.ParseFloat(strings.TrimSpace(num), 64)
+			if err != nil {
+				return 0
+			}
+			return uint64(v * u.factor)
+		}
+	}
+	return 0
+}
+
 // List returns the instances that have containers of this server's. Their
 // labels are read with inspect, whose output is the same on every engine and
 // version; ps's templates are not.

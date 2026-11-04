@@ -99,6 +99,39 @@ func (p *Push) ReadFile(commit, name string) ([]byte, error) {
 	return []byte(text), err
 }
 
+// ChangedFiles lists the files that differ between two commits.
+func (p *Push) ChangedFiles(from, to string) ([]string, error) {
+	a, err := object.GetCommit(p.st, plumbing.NewHash(from))
+	if err != nil {
+		return nil, err
+	}
+	b, err := object.GetCommit(p.st, plumbing.NewHash(to))
+	if err != nil {
+		return nil, err
+	}
+	treeA, err := a.Tree()
+	if err != nil {
+		return nil, err
+	}
+	treeB, err := b.Tree()
+	if err != nil {
+		return nil, err
+	}
+	changes, err := object.DiffTree(treeA, treeB)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, c := range changes {
+		for _, name := range []string{c.From.Name, c.To.Name} {
+			if name != "" {
+				files = append(files, name)
+			}
+		}
+	}
+	return files, nil
+}
+
 // Option returns a push option's value ("env=staging" gives "staging"), and
 // whether it was given (an option without a value, such as "detach", gives
 // "").

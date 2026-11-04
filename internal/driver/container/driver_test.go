@@ -665,3 +665,37 @@ func TestPinned(t *testing.T) {
 		t.Errorf("no digests: %s", got)
 	}
 }
+
+func TestParseStats(t *testing.T) {
+	got := parseStats("moorage-a\t0.12%\t12.5MiB / 7.6GiB\nmoorage-b\t150.0%\t1.5GB / 8GB\nsomeone-elses\t1%\t1MiB / 1GiB\nbroken line\n", map[string]string{"moorage-a": "ins_a", "moorage-b": "ins_b"})
+	if len(got) != 2 {
+		t.Fatalf("%+v", got)
+	}
+	if u := got["ins_a"]; u.CPU != 0.12 || u.Memory != uint64(12.5*(1<<20)) {
+		t.Errorf("a: %+v", u)
+	}
+	if u := got["ins_b"]; u.CPU != 150 || u.Memory != 1500000000 {
+		t.Errorf("b: %+v", u)
+	}
+	for size, want := range map[string]uint64{"512B": 512, "1KiB": 1024, "2kB": 2000, "3MB": 3000000, "1TiB": 1 << 40, "nonsense": 0, "": 0} {
+		if got := parseSize(size); got != want {
+			t.Errorf("%q: %d, want %d", size, got, want)
+		}
+	}
+}
+
+func TestStats(t *testing.T) {
+	d := realEngine(t)
+	s := testSpec(t, `sleep 30`)
+	if _, err := d.Start(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	defer d.Remove(s.ID)
+	stats, err := d.Stats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, ok := stats[s.ID]; !ok || u.Memory == 0 {
+		t.Errorf("what it is using: %+v", stats)
+	}
+}

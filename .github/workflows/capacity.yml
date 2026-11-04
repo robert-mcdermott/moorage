@@ -1,0 +1,31 @@
+# Does a small machine hold sixty environments, with sleep on? It takes a while, and tells of what
+# changes slowly, so that it runs only when asked, or when it changes itself.
+name: Capacity
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/scripts/capacity-check.*
+      - .github/workflows/capacity.yml
+
+permissions:
+  contents: read
+
+jobs:
+  capacity:
+    name: Sixty environments on 4 CPUs and 8 GB
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: What this machine has
+        run: nproc && free -m && cat /sys/fs/cgroup/cgroup.controllers
+      - name: The check, in a cgroup of 8 GB and 4 CPUs
+        run: |
+          sudo --preserve-env systemd-run --scope --quiet --uid="$(id -u)" --gid="$(id -g)" \
+            -p MemoryMax=8G -p MemorySwapMax=0 -p AllowedCPUs=0-3 \
+            env "PATH=$PATH" "HOME=$HOME" .github/scripts/capacity-check.sh

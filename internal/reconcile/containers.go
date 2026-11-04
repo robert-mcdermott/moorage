@@ -114,7 +114,7 @@ func (m *Manager) adoptContainer(ctx context.Context, li store.LiveInstance, pla
 
 // runContainerOnce runs a command once in a container of the release's image:
 // the release command of a deployment.
-func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error {
+func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer) error {
 	if m.opts.Containers == nil {
 		return container.ErrNoEngine
 	}
@@ -126,7 +126,7 @@ func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel sto
 	if err != nil {
 		return err
 	}
-	vars["MOORAGE_PROCESS"] = "release"
+	vars["MOORAGE_PROCESS"] = process
 	c := plan.Container
 	values := make([]string, 0, len(secrets))
 	for _, v := range secrets {
@@ -137,7 +137,7 @@ func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel sto
 	defer out.Flush()
 	defer errw.Flush()
 	return m.opts.Containers.RunOnce(ctx, container.Spec{
-		ID: ids.New(ids.Instance), App: app, Env: env, Process: "release", Release: "v" + strconv.Itoa(rel.Version),
+		ID: ids.New(ids.Instance), App: app, Env: env, Process: process, Release: "v" + strconv.Itoa(rel.Version),
 		Image: c.Image, Command: command, Vars: vars, Secrets: secrets, DataDir: dataDir, Mount: c.Mount,
 		User: c.User, Memory: c.Memory, CPU: c.CPU, PIDs: c.PIDs,
 	}, timeout, out, errw)

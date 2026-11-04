@@ -33,10 +33,10 @@ type Runtime interface {
 	Retire(app, env string)
 	Forget(app string)
 	ForgetEnv(app, env string)
-	Restart(ctx context.Context, app, env string) error
+	Restart(ctx context.Context, app, env, process string) error
 	Scale(ctx context.Context, app, env string, change map[string]int) (map[string]int, error)
 	Settle(ctx context.Context, app, env string) error
-	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error
+	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer) error
 }
 
 // Keyring seals and opens the values of secret variables.
@@ -98,6 +98,7 @@ type Deployer struct {
 	locks  map[string]*sync.Mutex // the release phase of an environment
 
 	started  time.Time
+	runs     runBook
 	asleep   sync.Map // of app/env, as long as a request should wait for it
 	wakingMu sync.Mutex
 	waking   map[string]chan struct{} // by app/env: closes when it has woken
@@ -542,6 +543,11 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 		log = io.Discard
 	}
 	plan.Defaults()
+	if reason != "rollback" && reason != "config" {
+		if err := d.prepareVars(ctx, dep.App, dep.Env, plan, log); err != nil {
+			return store.Release{}, err
+		}
+	}
 	lock := d.envLock(dep.App, dep.Env)
 	lock.Lock()
 	defer lock.Unlock()
@@ -617,7 +623,7 @@ func (d *Deployer) declareEnvironments(ctx context.Context, app string, plan man
 }
 
 func (d *Deployer) runOnce(ctx context.Context, dep store.Deployment, rel store.Release, b store.Build, plan manifest.Plan, command string, log io.Writer) error {
-	return d.opts.Runtime.RunOnce(ctx, dep.App, dep.Env, rel, b, plan, command, plan.Release.Timeout.Std(), log)
+	return d.opts.Runtime.RunOnce(ctx, dep.App, dep.Env, rel, b, plan, "release", command, plan.Release.Timeout.Std(), log)
 }
 
 // formationText says how many instances of each process a plan runs.
@@ -729,6 +735,12 @@ func (d *Deployer) collect(app string, keep int) {
 		}
 		d.db.MarkCollected(ctx, b.ID)
 		d.log.Info("removed an old build", "app", app, "build", b.ID)
+	}
+	if len(builds) > 0 {
+		// What served an old release is gone from where the router has it.
+		if err := d.opts.Reload(ctx); err != nil {
+			d.log.Warn("reload the routes", "app", app, "err", err)
+		}
 	}
 	known, err := d.db.BuildIDs(ctx, app)
 	if err != nil {

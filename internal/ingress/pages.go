@@ -3,6 +3,7 @@ package ingress
 import (
 	"html/template"
 	"net/http"
+	"strconv"
 
 	"github.com/robert-mcdermott/moorage/internal/brand"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
@@ -61,6 +62,16 @@ func nothingDeployed(name string) page {
 		Title:   name + " has not been deployed yet",
 		Heading: "“" + name + "” has not been deployed yet",
 		Message: "The app exists, but nothing has been deployed to it so far.",
+	}
+}
+
+func releaseNotKept(name string, version int) page {
+	release := "v" + strconv.Itoa(version)
+	return page{
+		Status:  http.StatusNotFound,
+		Title:   release + " of " + name + " is not here",
+		Heading: release + " of “" + name + "” is not here",
+		Message: "Only the releases of a static site have addresses of their own, and only as long as they are kept.",
 	}
 }
 

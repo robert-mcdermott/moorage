@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -136,6 +137,17 @@ func (s *Server) routes() []route {
 			}},
 
 		// Container registries.
+		{method: "GET", path: "/notifications", perm: canRead, handler: s.inbox, summary: "What you have been told, newest first", response: apitypes.Inbox{}},
+		{method: "POST", path: "/notifications/read", perm: canRead, handler: s.readInbox, status: http.StatusNoContent, summary: "Mark all you have been told as read"},
+		{method: "GET", path: "/notifications/channels", perm: canRead, handler: s.channels, summary: "List where notifications can go; where each one goes is for administrators", response: []apitypes.NotificationChannel{}},
+		{method: "POST", path: "/notifications/channels", perm: serverAdmin, handler: s.createChannel, status: http.StatusCreated, summary: "Add a channel; the answer has what signs a webhook, which is not shown again",
+			request: apitypes.NewNotificationChannel{}, response: apitypes.CreatedChannel{}},
+		{method: "DELETE", path: "/notifications/channels/{channel}", perm: serverAdmin, handler: s.deleteChannel, status: http.StatusNoContent, summary: "Remove a channel, and the rules that use it"},
+		{method: "POST", path: "/notifications/channels/{channel}/test", perm: serverAdmin, handler: s.testChannel, summary: "Send a channel a test, and say how it went", response: apitypes.NotificationChannel{}},
+		{method: "GET", path: "/notifications/rules", perm: canRead, handler: s.rules, summary: "List the rules you can see", response: []apitypes.NotificationRule{}},
+		{method: "POST", path: "/notifications/rules", perm: canManage, handler: s.createRule, status: http.StatusCreated, summary: "Add a rule: of the whole server, which takes an admin, or of a project or an app, which takes a maintainer of it",
+			request: apitypes.NewNotificationRule{}, response: apitypes.NotificationRule{}},
+		{method: "DELETE", path: "/notifications/rules/{rule}", perm: canManage, handler: s.deleteRule, status: http.StatusNoContent, summary: "Remove a rule"},
 		{method: "GET", path: "/registries", perm: serverAdmin, handler: s.registries, summary: "List the container registries the server has credentials for", response: []apitypes.Registry{}},
 		{method: "PUT", path: "/registries/{host}", perm: serverAdmin, handler: s.setRegistry, summary: "Store the credentials of a container registry",
 			request: apitypes.RegistryLogin{}, response: apitypes.Registry{}},
@@ -184,6 +196,14 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/apps/{app}/envs/{env}/promote", perm: canDeploy, handler: s.promote, summary: "Release the build another environment runs", request: apitypes.Promotion{}, response: apitypes.Deployment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/lock", perm: canDeploy, handler: s.lock, summary: "Stop deployments to an environment", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/unlock", perm: canDeploy, handler: s.unlock, summary: "Let deployments to an environment go on", response: apitypes.Environment{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/metrics", perm: canRead, handler: s.environmentMetrics, summary: "What an environment did over a range (range= live, 1h, 24h, 7d or 30d): requests, response times, CPU and memory, with its deployments", response: apitypes.Metrics{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/cron", perm: canRead, handler: s.cronJobs, summary: "List an environment's cron jobs, with when each next runs and how the last one went", response: []apitypes.CronJob{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/cron/{job}/run", perm: canDeploy, handler: s.runCronJob, status: http.StatusAccepted, summary: "Run a cron job now", response: apitypes.Run{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/runs", perm: canRead, handler: s.runs, summary: "List an environment's runs, newest first; job= is those of a cron job", response: []apitypes.Run{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/runs", perm: canDeploy, handler: s.startRun, status: http.StatusAccepted, summary: "Run a command in the current release, with its variables and data", request: apitypes.NewRun{}, response: apitypes.Run{}},
+		{method: "GET", path: "/apps/{app}/runs/{id}", perm: canRead, handler: s.run, summary: "How a run went", response: apitypes.Run{}},
+		{method: "POST", path: "/apps/{app}/runs/{id}/stop", perm: canDeploy, handler: s.stopRun, summary: "Stop a run that is going on", response: apitypes.Run{}},
+		{method: "GET", path: "/apps/{app}/runs/{id}/log", perm: canReadLogs, handler: s.runLog, summary: "What a run says, as NDJSON; follow=true stays open until it ends", stream: apitypes.LogLine{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/domains", perm: canRead, handler: s.domains, summary: "List an environment's domains", response: []apitypes.Domain{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/domains", perm: canManage, handler: s.addDomain, status: http.StatusCreated, summary: "Attach a domain, which serves once its DNS points here", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/domains/verify", perm: canManage, handler: s.verifyDomain, summary: "Look now at where a domain points", request: apitypes.NewDomain{}, response: apitypes.Domain{}},
@@ -288,8 +308,60 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 				return
 			}
 		}
-		rt.handler(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+		ctx := context.WithValue(r.Context(), principalKey{}, p)
+		if rt.stream != nil || rt.sse != nil {
+			// What stays open must end when whoever opened it may no longer see it.
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			defer cancel()
+			go s.watchAccess(ctx, cancel, r.Clone(ctx), rt, app)
+		}
+		rt.handler(w, r.WithContext(ctx))
 	}
+}
+
+// watchAccess looks again, every so often, at whether a request may go on.
+func (s *Server) watchAccess(ctx context.Context, cancel context.CancelFunc, r *http.Request, rt route, app string) {
+	every := s.recheck
+	if every <= 0 {
+		every = time.Minute
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !s.stillAllowed(ctx, r, rt, app) {
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+// stillAllowed answers as the guard would. Only a clear no counts: the database being busy for a
+// moment ends nothing.
+func (s *Server) stillAllowed(ctx context.Context, r *http.Request, rt route, app string) bool {
+	p, err := s.auth.Request(r)
+	if errors.Is(err, auth.ErrUnauthenticated) || errors.Is(err, auth.ErrLocalOnly) {
+		return false
+	}
+	if err != nil {
+		return true
+	}
+	if refused(rt, p, app) != "" {
+		return false
+	}
+	if app == "" {
+		return true
+	}
+	access, err := s.auth.AppAccess(ctx, p, app)
+	if err != nil {
+		return true
+	}
+	return access.See && roleRefused(rt, access) == ""
 }
 
 // statusRecorder notes how a request ended, for the audit log.

@@ -246,6 +246,45 @@
         ],
         "type": "object"
       },
+      "CreatedChannel": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "sent_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
       "CreatedToken": {
         "properties": {
           "app": {
@@ -285,6 +324,42 @@
           "scopes",
           "created_at",
           "token"
+        ],
+        "type": "object"
+      },
+      "CronJob": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "last": {
+            "$ref": "#/components/schemas/Run"
+          },
+          "name": {
+            "type": "string"
+          },
+          "next": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "overlap": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "schedule",
+          "command",
+          "timeout"
         ],
         "type": "object"
       },
@@ -688,6 +763,24 @@
         ],
         "type": "object"
       },
+      "Inbox": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            },
+            "type": "array"
+          },
+          "unread": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unread",
+          "items"
+        ],
+        "type": "object"
+      },
       "Instance": {
         "properties": {
           "healthy": {
@@ -889,6 +982,128 @@
         ],
         "type": "object"
       },
+      "MetricChart": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/MetricLine"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "unit",
+          "lines"
+        ],
+        "type": "object"
+      },
+      "MetricLine": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MetricPoint"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "points"
+        ],
+        "type": "object"
+      },
+      "MetricMark": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "version"
+        ],
+        "type": "object"
+      },
+      "MetricPoint": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "max": {
+            "type": "number"
+          },
+          "min": {
+            "type": "number"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "at",
+          "value",
+          "min",
+          "max"
+        ],
+        "type": "object"
+      },
+      "Metrics": {
+        "properties": {
+          "charts": {
+            "items": {
+              "$ref": "#/components/schemas/MetricChart"
+            },
+            "type": "array"
+          },
+          "deployments": {
+            "items": {
+              "$ref": "#/components/schemas/MetricMark"
+            },
+            "type": "array"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "step",
+          "charts",
+          "deployments"
+        ],
+        "type": "object"
+      },
       "NewApp": {
         "properties": {
           "name": {
@@ -931,6 +1146,69 @@
         ],
         "type": "object"
       },
+      "NewNotificationChannel": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "NewNotificationRule": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "events"
+        ],
+        "type": "object"
+      },
       "NewPreview": {
         "properties": {
           "branch": {
@@ -950,6 +1228,20 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "NewRun": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
         ],
         "type": "object"
       },
@@ -1017,6 +1309,116 @@
         },
         "required": [
           "email"
+        ],
+        "type": "object"
+      },
+      "Notification": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "link": {
+            "type": "string"
+          },
+          "read_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "summary",
+          "at"
+        ],
+        "type": "object"
+      },
+      "NotificationChannel": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sent_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "NotificationRule": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "events",
+          "created_by",
+          "created_at"
         ],
         "type": "object"
       },
@@ -1190,6 +1592,9 @@
           "size": {
             "type": "integer"
           },
+          "url": {
+            "type": "string"
+          },
           "version": {
             "type": "integer"
           }
@@ -1232,6 +1637,9 @@
           },
           "size": {
             "type": "integer"
+          },
+          "url": {
+            "type": "string"
           },
           "version": {
             "type": "integer"
@@ -1324,6 +1732,61 @@
             "type": "boolean"
           }
         },
+        "type": "object"
+      },
+      "Run": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "job": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "app",
+          "env",
+          "command",
+          "trigger",
+          "status",
+          "started_at"
+        ],
         "type": "object"
       },
       "SSHKey": {
@@ -1551,6 +2014,15 @@
       "Var": {
         "properties": {
           "build": {
+            "type": "boolean"
+          },
+          "declared": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "missing": {
             "type": "boolean"
           },
           "name": {
@@ -2355,6 +2827,131 @@
         "x-moorage-permission": "admin"
       }
     },
+    "/apps/{app}/envs/{env}/cron": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvCron",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CronJob"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an environment's cron jobs, with when each next runs and how the last one went",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/envs/{env}/cron/{job}/run": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvCronJobRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Run a cron job now",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}/deployments": {
       "get": {
         "operationId": "getAppsAppEnvsEnvDeployments",
@@ -3029,6 +3626,63 @@
         "x-moorage-permission": "logs"
       }
     },
+    "/apps/{app}/envs/{env}/metrics": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvMetrics",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metrics"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "What an environment did over a range (range= live, 1h, 24h, 7d or 30d): requests, response times, CPU and memory, with its deployments",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
     "/apps/{app}/envs/{env}/promote": {
       "post": {
         "operationId": "postAppsAppEnvsEnvPromote",
@@ -3485,6 +4139,131 @@
           }
         ],
         "summary": "Serve an earlier release again",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/runs": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Run"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an environment's runs, newest first; job= is those of a cron job",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "post": {
+        "operationId": "postAppsAppEnvsEnvRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewRun"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Run a command in the current release, with its variables and data",
         "tags": [
           "apps"
         ],
@@ -4088,6 +4867,177 @@
           }
         ],
         "summary": "Deploy a preview of a branch that was pushed",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/runs/{id}": {
+      "get": {
+        "operationId": "getAppsAppRunsId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "How a run went",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/runs/{id}/log": {
+      "get": {
+        "operationId": "getAppsAppRunsIdLog",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogLine"
+                }
+              }
+            },
+            "description": "A stream of lines, each a JSON document."
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "What a run says, as NDJSON; follow=true stays open until it ends",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "logs"
+      }
+    },
+    "/apps/{app}/runs/{id}/stop": {
+      "post": {
+        "operationId": "postAppsAppRunsIdStop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Stop a run that is going on",
         "tags": [
           "apps"
         ],
@@ -5034,6 +5984,388 @@
         "summary": "Revoke one of your API tokens, by name or ID",
         "tags": [
           "me"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/notifications": {
+      "get": {
+        "operationId": "getNotifications",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Inbox"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "What you have been told, newest first",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/notifications/channels": {
+      "get": {
+        "operationId": "getNotificationsChannels",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationChannel"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List where notifications can go; where each one goes is for administrators",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "post": {
+        "operationId": "postNotificationsChannels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewNotificationChannel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedChannel"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Add a channel; the answer has what signs a webhook, which is not shown again",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/notifications/channels/{channel}": {
+      "delete": {
+        "operationId": "deleteNotificationsChannelsChannel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Remove a channel, and the rules that use it",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/notifications/channels/{channel}/test": {
+      "post": {
+        "operationId": "postNotificationsChannelsChannelTest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Send a channel a test, and say how it went",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "server-admin"
+      }
+    },
+    "/notifications/read": {
+      "post": {
+        "operationId": "postNotificationsRead",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Mark all you have been told as read",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/notifications/rules": {
+      "get": {
+        "operationId": "getNotificationsRules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationRule"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List the rules you can see",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "post": {
+        "operationId": "postNotificationsRules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewNotificationRule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationRule"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Add a rule: of the whole server, which takes an admin, or of a project or an app, which takes a maintainer of it",
+        "tags": [
+          "notifications"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/notifications/rules/{rule}": {
+      "delete": {
+        "operationId": "deleteNotificationsRulesRule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Remove a rule",
+        "tags": [
+          "notifications"
         ],
         "x-moorage-permission": "admin"
       }

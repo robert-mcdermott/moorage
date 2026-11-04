@@ -17,6 +17,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/notify"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -47,7 +48,7 @@ func newFixture(t *testing.T) *fixture {
 	svc := &auth.Service{DB: db, LocalToken: auth.Hash("moor_local"), ClaimFile: filepath.Join(dir, "keys", "claim-code"), Limits: auth.NewLimiter()}
 	cfg := config.Config{Domain: "apps.test", ConsoleHost: "moorage.apps.test", Routing: "host", DataDir: dir,
 		Listen: config.Listen{HTTP: "127.0.0.1:80"}, TLS: config.TLS{Mode: "off"}, Proxy: config.Proxy{ExternalScheme: "http"}}
-	pages, err := New(Options{Auth: svc, DB: db, Config: cfg, Log: slog.New(slog.DiscardHandler)})
+	pages, err := New(Options{Auth: svc, DB: db, Config: cfg, Log: slog.New(slog.DiscardHandler), Notifier: &notify.Service{DB: db, Log: slog.New(slog.DiscardHandler)}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"sort"
@@ -169,10 +170,12 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 	}
 	plans := map[string]manifest.Plan{}
 	asleep := map[string]bool{}
+	envIDs := map[string]string{}
 	for _, r := range routes {
 		if r.Env != names.Production {
 			continue
 		}
+		envIDs[r.App] = r.EnvID
 		if plan, err := readPlan(r.Build); err == nil {
 			plans[r.App] = plan
 		}
@@ -189,6 +192,11 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 	rows := make([]appRow, 0, len(apps))
 	for _, a := range apps {
 		row := appRow{Name: a.Name, URL: c.appURL(a.Name), Project: a.Project, OtherEnvs: envCounts[a.Name] - 1}
+		if c.metrics != nil && envIDs[a.Name] != "" {
+			now := c.metrics.Glance(envIDs[a.Name], time.Now())
+			row.Traffic = formatValue("rate", now.RequestsPerMinute)
+			row.Spark = sparkline(now.Requests, "Requests a minute to "+a.Name+" over the last hour")
+		}
 		plan, known := plans[a.Name]
 		static := known && plan.Kind != manifest.KindProcess
 		want, healthy := 0, 0
@@ -335,6 +343,11 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 	if d.Env != "" {
 		d.EnvRows = []environmentRow{c.environmentRow(r, d.EnvInfo, d.Access)}
 	}
+	if view.Release != nil {
+		if envID, err := c.db.EnvID(r.Context(), app, envOf(r)); err == nil {
+			d.Glance = c.glance(envID, view.Static)
+		}
+	}
 	d.Poll = view.Deploying
 	d.RefreshOn = app
 	d.Notice = notices[r.URL.Query().Get("done")]
@@ -417,7 +430,7 @@ func (c *Console) appView(ctx context.Context, app, env string) (appView, error)
 		view.Older = appAddress(app, env, "/deployments", nil)
 	}
 	for _, dep := range deps {
-		view.Recent = append(view.Recent, deploymentRowOf(dep, current))
+		view.Recent = append(view.Recent, c.deploymentRowOf(dep, current))
 	}
 	list, err := c.db.Events(ctx, store.EventFilter{App: app, Env: env, AndApp: true, Limit: 8})
 	if err != nil {
@@ -533,7 +546,7 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 }
 
 func (c *Console) restart(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	if err := c.deployer.Restart(lasting(r), app, envOf(r), p.Name); err != nil {
+	if err := c.deployer.Restart(lasting(r), app, envOf(r), r.PostFormValue("process"), p.Name); err != nil {
 		var rollout *reconcile.RolloutError
 		if errors.As(err, &rollout) || errors.Is(err, store.ErrNotFound) {
 			c.actionFailed(w, r, p, app, err)
@@ -682,7 +695,7 @@ func (c *Console) showDeploy(w http.ResponseWriter, r *http.Request, p auth.Prin
 	}
 	d.GitCommands = []string{"moor keys add", "moor git remote --app " + app, "git push moorage main"}
 	d.LoginCommand = "moor login " + c.cfg.PublicURL(c.cfg.ConsoleHost)
-	d.MaxUpload = humanSize(deploy.MaxUpload)
+	d.MaxUpload, d.MaxUploadBytes = humanSize(deploy.MaxUpload), deploy.MaxUpload
 	c.render(w, code, "deploy", d)
 }
 
@@ -805,6 +818,85 @@ func (c *Console) deployArchive(w http.ResponseWriter, r *http.Request) {
 			c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), "")
 			return
 		case err != nil:
+			c.internal(w, err)
+			return
+		}
+		http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	})
+}
+
+// deploySite deploys a folder as a static site: what the page's form sends, with a path for each file
+// only if the page's script made the request. As with an archive, the form's token comes first.
+func (c *Console) deploySite(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		c.refused(w)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, deploy.MaxUpload)
+	mr, err := r.MultipartReader()
+	if err != nil {
+		c.message(w, http.StatusBadRequest, data{Title: "Refused", Heading: "That request was refused", Message: "The form could not be read."})
+		return
+	}
+	part, err := mr.NextPart()
+	if err != nil || part.FormName() != "csrf" {
+		c.refused(w)
+		return
+	}
+	token, err := io.ReadAll(io.LimitReader(part, 256))
+	if err != nil {
+		c.refused(w)
+		return
+	}
+	p, app, ok := c.deployGuard(w, r, string(token))
+	if !ok {
+		return
+	}
+	next := func() (deploy.SiteFile, error) {
+		path := ""
+		for {
+			part, err := mr.NextPart()
+			if err != nil {
+				return deploy.SiteFile{}, err
+			}
+			switch part.FormName() {
+			case "path":
+				named, err := io.ReadAll(io.LimitReader(part, 4096))
+				if err != nil {
+					return deploy.SiteFile{}, err
+				}
+				path = string(named)
+			case "file":
+				// Not FileName(), which keeps only the last part of what a folder's file is called.
+				if _, params, err := mime.ParseMediaType(part.Header.Get("Content-Disposition")); err == nil && path == "" {
+					path = params["filename"]
+				}
+				if path != "" {
+					return deploy.SiteFile{Path: path, Content: part}, nil
+				}
+			}
+		}
+	}
+	c.audited(w, r, p, func(w http.ResponseWriter) {
+		up, err := deploy.UploadSite(lasting(r), c.db, c.cfg.DataDir, app, next)
+		var invalid *deploy.InvalidUploadError
+		if errors.As(err, &invalid) {
+			c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(invalid.Err.Error()), "")
+			return
+		}
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		_, dep, err := c.deployer.Publish(lasting(r), deploy.PublishRequest{
+			App: app, Env: envOf(r), By: p.Name, Source: manifest.KindStatic + "-upload", Reason: "deploy", Build: up.Build, Plan: up.Plan, Warnings: up.Warnings,
+		})
+		var locked *deploy.LockedError
+		switch {
+		case errors.As(err, &locked):
+			c.showDeploy(w, r, p, app, http.StatusConflict, sentence(err.Error()), "")
+			return
+		case err != nil && dep.ID == "":
 			c.internal(w, err)
 			return
 		}

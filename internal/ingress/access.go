@@ -65,6 +65,9 @@ var (
 // awaitAwake holds a request for an environment that is asleep, and wakes it. It says whether
 // to go on: if it took too long, it has answered with what the client should do.
 func (rt *Router) awaitAwake(w http.ResponseWriter, r *http.Request, rte route) bool {
+	if rte.release {
+		return true
+	}
 	sleeper := rt.sleeper.Load()
 	if sleeper == nil || !(*sleeper).Asleep(rte.app, rte.env) {
 		return true
@@ -119,7 +122,13 @@ func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 	user := ""
 	// Those the gate turns away neither keep an environment alive, nor wake it.
 	if who, ok := rt.admit(rec, r, rte); ok {
-		rt.active.Store(key, start)
+		if !rte.release {
+			rt.active.Store(key, start)
+		}
+		if m := rt.metrics.Load(); m != nil {
+			end := m.Begin(rte.gate.envID)
+			defer func() { end(rec.status, time.Since(start), rec.bytes) }()
+		}
 		ctx := context.WithValue(r.Context(), infoKey{}, info)
 		if who != nil {
 			user = who.user.Email

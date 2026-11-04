@@ -955,21 +955,73 @@ directory, supervises it, and serves it on its own hostname.
      now and then fails a navigation that interrupts a page's open stream, with an internal
      error of its own, which the browser check tries again.
 
-## 0.5.0: real apps, observed (planned)
+## 0.5.0: real apps, observed (released 2026-11-04)
 
 ### Wave 5
 
 1. **Processes.** Cron jobs, one-off runs (`moor run`), restarting one process,
    declared and generated variables, `watch` paths.
+   - Done in slice 1: all of those, with a **Cron** tab in the console. Runs are their own
+     records, with their output, and the last 100 of each job are kept.
+   - Found by slice 1: `@every` may go down to a second, since a job a minute apart cannot be
+     tried in a test of any reasonable length. A rollback does not check declared
+     variables, since it is what one reaches for when things are already wrong. A
+     `watch` list always includes the manifest, or a change to the list itself could be ignored.
 2. **Metrics.** Collection (cgroups, process sampling, engine statistics,
    the ingress), tiered storage, console charts with deploy markers,
    sparklines, the Prometheus endpoint.
+   - Done in slice 2: all of that, with `moor metrics`, on process-tree sampling until per-app
+     cgroups arrive with Linux isolation.
+   - Found by slice 2: charts were to be drawn on a canvas, but as SVG from the server they work
+     with no scripts, and a table of their numbers comes for free, so that the script adds only
+     what follows the pointer. A WebSocket's length is no response time. A chart must keep a
+     line's color as others come and go, so that its slot goes by its place among sorted names.
 3. **Notifications.** Webhooks, chat webhooks, email and in-console
    notifications, with rules and deduplication.
+   - Done in slice 3: all of those, with `moor notifications`, a page and a count in the sidebar,
+     channels and rules in Settings and on a project's page, and a word when something recovers.
+   - Found by slice 3: certificates cannot fail yet, as Moorage obtains none, so that the defaults
+     have no such alert until it does. Someone's role in a project may come from its **Everyone
+     else**, so whom to tell cannot be read from its members alone. A chat webhook's address is its
+     secret, and so must stay out of errors, which name the address unless they are unwrapped. An
+     admin adding a rule of a project expects to see it among the rules, so Settings lists them all.
+     A server with a nearly full disk tells you so on the first day: the scratch server here did.
 4. **Static extras.** Drag-and-drop static deploys in the console; static
    release permalinks.
+   - Done in slice 4: both. A chosen folder also works with no scripts, since browsers send its
+     files' paths as their names.
+   - Found by slice 4: a folder dropped by hand holds what its owner cannot see, so that `.env` and
+     `.git` must stay out, and one with a manifest that builds or runs would publish its source, and
+     is refused. A label of DNS has no room for `--v` and seven digits after the longest names, so
+     that those are cut by a shorter length than other hostnames. The gate has to find a release's
+     address by the same way as the request did, in all three places that look routes up.
 5. **Release 0.5.0.** Exit check: 50 or more environments on a 4 vCPU / 8 GB
    VM with sleep enabled.
+   - Done by the release: `.github/scripts/capacity-check.sh`, in a cgroup of 4 CPUs and 8 GB on a
+     CI runner: 60 environments of 10 apps holding 64 MB each. All awake they held 4.9 GB and all
+     asleep 120 MB, of which the server 98 MB, at no measurable CPU. One woke in 0.13 s and all 60
+     together in 2.3 s; five served 4,100 requests a second, 95% within 12 ms, and none failed.
+     It runs when asked, or when it changes itself: the numbers are in `docs/install.md`.
+   - Found by the release: the limit is what apps hold, and not the platform. Two measurements
+     misled at first, both from the test app rather than Moorage: HTTP/1.0 used up local ports on
+     macOS, and two small writes with Nagle's algorithm on made every request on Linux take 41 ms.
+     Adding up RSS overstates memory (6.2 GB, against the cgroup's 4.9 GB), since instances share
+     pages. A scripted drop in WebKit has no file behind it, so that files dropped without a
+     folder need no reading through entries, which also takes away a way of failing.
+   - Found by an independent review before the release, all fixed with tests: a dropped folder and
+     `moor deploy --static` lost the manifest's `access`, so that a gate went missing. Environments'
+     and previews' hostnames had no certificate from the internal CA, as far back as 0.4.0: nothing
+     tried them over TLS. Commands ran without `[environments.*.env]`, and two at once shared a
+     temporary directory. Prometheus's text held a lock while a slow client read it. An instance
+     turning healthy does not say that a process has stopped crashing, so recovery goes by a new
+     release or by 10 quiet minutes, longer than the supervisor waits before trying again. Holding
+     back deployments lost news that someone was waiting for. A run's log had no limit, a cron
+     timeout over a day never ran and said nothing, and the address guard missed this machine's
+     other addresses.
+   - Found by CI on the release: an flock belongs to the open file, so that closing it does not let
+     go while a child between fork and exec holds a copy. Metrics made that likely on macOS, by
+     running `ps` so often. Windows says that access is denied when a folder has a file's name, so
+     that errors should go by what is there, and not by what the error says.
 
 ## 0.6.0: hardened (planned)
 

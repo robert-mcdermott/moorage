@@ -299,6 +299,63 @@ func (c *Client) RegistryLogout(ctx context.Context, host string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/registries/"+url.PathEscape(host), nil, "", nil)
 }
 
+// Notifications is what the caller has been told.
+func (c *Client) Notifications(ctx context.Context) (apitypes.Inbox, error) {
+	var out apitypes.Inbox
+	err := c.do(ctx, http.MethodGet, "/api/v1/notifications", nil, "", &out)
+	return out, err
+}
+
+// ReadNotifications marks all the caller has been told as read.
+func (c *Client) ReadNotifications(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/notifications/read", nil, "", nil)
+}
+
+// NotificationChannels lists where notifications can go.
+func (c *Client) NotificationChannels(ctx context.Context) ([]apitypes.NotificationChannel, error) {
+	var out []apitypes.NotificationChannel
+	err := c.do(ctx, http.MethodGet, "/api/v1/notifications/channels", nil, "", &out)
+	return out, err
+}
+
+// AddNotificationChannel adds a channel.
+func (c *Client) AddNotificationChannel(ctx context.Context, in apitypes.NewNotificationChannel) (apitypes.CreatedChannel, error) {
+	var out apitypes.CreatedChannel
+	err := c.post(ctx, http.MethodPost, "/api/v1/notifications/channels", in, &out)
+	return out, err
+}
+
+// RemoveNotificationChannel removes a channel, by its name or ID.
+func (c *Client) RemoveNotificationChannel(ctx context.Context, channel string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/notifications/channels/"+url.PathEscape(channel), nil, "", nil)
+}
+
+// TestNotificationChannel sends a channel a test, by its name or ID.
+func (c *Client) TestNotificationChannel(ctx context.Context, channel string) (apitypes.NotificationChannel, error) {
+	var out apitypes.NotificationChannel
+	err := c.do(ctx, http.MethodPost, "/api/v1/notifications/channels/"+url.PathEscape(channel)+"/test", nil, "", &out)
+	return out, err
+}
+
+// NotificationRules lists the rules the caller can see.
+func (c *Client) NotificationRules(ctx context.Context) ([]apitypes.NotificationRule, error) {
+	var out []apitypes.NotificationRule
+	err := c.do(ctx, http.MethodGet, "/api/v1/notifications/rules", nil, "", &out)
+	return out, err
+}
+
+// AddNotificationRule adds a rule.
+func (c *Client) AddNotificationRule(ctx context.Context, in apitypes.NewNotificationRule) (apitypes.NotificationRule, error) {
+	var out apitypes.NotificationRule
+	err := c.post(ctx, http.MethodPost, "/api/v1/notifications/rules", in, &out)
+	return out, err
+}
+
+// RemoveNotificationRule removes a rule.
+func (c *Client) RemoveNotificationRule(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/notifications/rules/"+url.PathEscape(id), nil, "", nil)
+}
+
 // upload sends dir as a deploy: with a plan, a plan part and an archive
 // part; without one, a source part.
 func (c *Client) upload(ctx context.Context, app, env, dir string, plan *manifest.Plan, image string, skip func(string, fs.DirEntry) bool, out any) (PackStats, error) {
@@ -724,6 +781,93 @@ func (c *Client) SleepEnvironment(ctx context.Context, app, env string) (apitype
 func (c *Client) WakeEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
 	var out apitypes.Environment
 	err := c.post(ctx, http.MethodPost, envPath(app, env, "wake"), struct{}{}, &out)
+	return out, err
+}
+
+// Metrics reads what an environment did over a range: live, 1h, 24h, 7d or 30d.
+func (c *Client) Metrics(ctx context.Context, app, env, span string) (apitypes.Metrics, error) {
+	var out apitypes.Metrics
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "metrics")+"?range="+url.QueryEscape(span), nil, "", &out)
+	return out, err
+}
+
+// CronJobs lists an environment's cron jobs.
+func (c *Client) CronJobs(ctx context.Context, app, env string) ([]apitypes.CronJob, error) {
+	var out []apitypes.CronJob
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "cron"), nil, "", &out)
+	return out, err
+}
+
+// RunCronJob runs a cron job now.
+func (c *Client) RunCronJob(ctx context.Context, app, env, job string) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "cron/"+url.PathEscape(job)+"/run"), struct{}{}, &out)
+	return out, err
+}
+
+// Runs lists an environment's runs, newest first; a job's, if it is named.
+func (c *Client) Runs(ctx context.Context, app, env, job string) ([]apitypes.Run, error) {
+	var out []apitypes.Run
+	path := envPath(app, env, "runs")
+	if job != "" {
+		path += "?job=" + url.QueryEscape(job)
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, "", &out)
+	return out, err
+}
+
+// StartRun runs a command in an environment's current release.
+func (c *Client) StartRun(ctx context.Context, app, env string, req apitypes.NewRun) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "runs"), req, &out)
+	return out, err
+}
+
+// Run says how a run went.
+func (c *Client) Run(ctx context.Context, app, id string) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/runs/"+url.PathEscape(id), nil, "", &out)
+	return out, err
+}
+
+// StopRun stops a run that is going on.
+func (c *Client) StopRun(ctx context.Context, app, id string) (apitypes.Run, error) {
+	var out apitypes.Run
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/runs/"+url.PathEscape(id)+"/stop", struct{}{}, &out)
+	return out, err
+}
+
+// FollowRun passes what a run says to fn as it comes, and returns the run as it ended.
+func (c *Client) FollowRun(ctx context.Context, app, id string, fn func(apitypes.LogLine) error) (apitypes.Run, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+"/api/v1/apps/"+url.PathEscape(app)+"/runs/"+url.PathEscape(id)+"/log?follow=true", nil)
+	if err != nil {
+		return apitypes.Run{}, err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return apitypes.Run{}, err
+	}
+	defer res.Body.Close()
+	dec := json.NewDecoder(res.Body)
+	for {
+		var l apitypes.LogLine
+		if err := dec.Decode(&l); err != nil {
+			if !errors.Is(err, io.EOF) {
+				return apitypes.Run{}, err
+			}
+			break
+		}
+		if err := fn(l); err != nil {
+			return apitypes.Run{}, err
+		}
+	}
+	return c.Run(ctx, app, id)
+}
+
+// RestartProcess replaces the instances of one process.
+func (c *Client) RestartProcess(ctx context.Context, app, env, process string) ([]apitypes.Instance, error) {
+	var out []apitypes.Instance
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "restart")+"?process="+url.QueryEscape(process), struct{}{}, &out)
 	return out, err
 }
 

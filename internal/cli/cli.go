@@ -23,6 +23,11 @@ const (
 	exitUsage = 2
 )
 
+// exitStatus ends moor with a status of its own, having said what there is to say.
+type exitStatus struct{ code int }
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", e.code) }
+
 // usageError marks a mistake in how a command was invoked.
 type usageError struct{ error }
 
@@ -41,6 +46,10 @@ func mainWith(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cmd, err := root.ExecuteContextC(context.Background())
 	if err == nil {
 		return exitOK
+	}
+	var status exitStatus
+	if errors.As(err, &status) {
+		return status.code
 	}
 	fmt.Fprintf(stderr, "moor: %v\n", err)
 	var usage usageError
@@ -66,7 +75,7 @@ The moor binary is both the server and the command line that talks to it.`,
 	root.SetErr(stderr)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 	root.AddCommand(newVersionCmd(), newServerCmd(), newDeployCmd(), newAppsCmd(), newReleasesCmd(), newRollbackCmd(), newRedeployCmd(), newScaleCmd(), newDeploymentsCmd(), newEnvCmd(), newManifestCmd(), newPsCmd(), newLogsCmd(), newRestartCmd(), newGitCmd(), newKeysCmd(),
-		newLoginCmd(), newLogoutCmd(), newWhoamiCmd(), newContextCmd(), newTokensCmd(), newPasswordCmd(), newProjectsCmd(), newAuditCmd(), newEnvironmentsCmd(), newPreviewsCmd(), newPromoteCmd(), newLockCmd(), newUnlockCmd(), newSleepCmd(), newWakeCmd(), newAccessCmd(), newShareCmd(), newDomainsCmd(), newRegistryCmd(), newTrustCmd(), newEventsCmd())
+		newLoginCmd(), newLogoutCmd(), newWhoamiCmd(), newContextCmd(), newTokensCmd(), newPasswordCmd(), newProjectsCmd(), newAuditCmd(), newEnvironmentsCmd(), newPreviewsCmd(), newPromoteCmd(), newLockCmd(), newUnlockCmd(), newSleepCmd(), newWakeCmd(), newAccessCmd(), newShareCmd(), newDomainsCmd(), newRunCmd(), newCronCmd(), newMetricsCmd(), newRegistryCmd(), newNotificationsCmd(), newTrustCmd(), newEventsCmd())
 	return root
 }
 

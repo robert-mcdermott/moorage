@@ -42,6 +42,9 @@ const (
 	AccessChanged        = "access.changed"
 	ShareCreated         = "share.created"
 	ShareRevoked         = "share.revoked"
+	CronFailed           = "cron.failed"
+	DiskLow              = "server.disk_low"
+	DiskOK               = "server.disk_ok"
 	DomainAdded          = "domain.added"
 	DomainVerified       = "domain.verified"
 	DomainRemoved        = "domain.removed"
@@ -173,8 +176,10 @@ func Level(kind string) string {
 	switch kind {
 	case DeploymentLive, InstanceHealthy, DomainVerified:
 		return "ok"
-	case DeploymentFailed:
+	case DeploymentFailed, CronFailed:
 		return "fail"
+	case DiskLow:
+		return "warn"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
 	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked, EnvironmentWoke, AccessChanged, ShareCreated, ShareRevoked, DomainAdded, DomainRemoved:
@@ -270,6 +275,9 @@ func Summary(e store.Event) string {
 	case ScaleChanged:
 		return "Scaled to " + text(e, "formation") + by
 	case AppRestarted:
+		if p := text(e, "process"); p != "" {
+			return "Restarted " + p + by
+		}
 		return "Restarted" + by
 	case AppRenamed:
 		return "Renamed from " + text(e, "from") + by
@@ -282,6 +290,12 @@ func Summary(e store.Event) string {
 		return "Environment " + e.Env + " made"
 	case EnvironmentDeleted:
 		return "Environment " + e.Env + " removed" + by
+	case DiskLow:
+		return fmt.Sprintf("The server's data volume is %v%% full", e.Data["percent"])
+	case DiskOK:
+		return fmt.Sprintf("The server's data volume has room again, at %v%% full", e.Data["percent"])
+	case CronFailed:
+		return "The cron job " + text(e, "job") + " failed: " + text(e, "error")
 	case DomainAdded:
 		return text(e, "domain") + " attached to " + e.Env + by
 	case DomainVerified:

@@ -17,7 +17,7 @@ first deployment, and says when it is live.
 
 Every app: how it stands, its address, its release and its last deployment, changing as
 they do. **New app** asks for a name and a project, and says how to deploy it. Filter the list by
-typing part of a name.
+typing part of a name. Each has a little line of its requests over the last hour.
 
 | Status | |
 |---|---|
@@ -44,7 +44,7 @@ deployments change as they do. From here:
 |---|---|---|
 | **Deploy** | Says how: from its directory, with `git push`, or from the page, by uploading a `.tar.gz` of its source or naming an image. It goes to the deployment when one starts. | `moor deploy` |
 | **Redeploy** | Builds again what the current release was built from: the same commit, upload or image name, for when a toolchain has moved, a tag points elsewhere or a build variable has changed. A release uploaded ready to run has nothing to build. | `moor redeploy` |
-| **Restart** | Replaces the instances, without downtime. | `moor restart` |
+| **Restart** | Replaces the instances, without downtime, or those of one process. | `moor restart [PROCESS]` |
 | **Roll back** | Serves the release before this one again, as a new release, in seconds. A deployment's page rolls back to that one, and can restore the variables it ran with. | `moor rollback` |
 | **Scale** | Says how many instances of each process run. | `moor scale` |
 | **Sleep** and **Wake** | Stops its instances until a request wakes it, and starts them again. | `moor sleep`, `moor wake` |
@@ -90,6 +90,16 @@ production, **Lock** one against deployments, **Pin** a preview and **Remove** o
 
 **Previews** in the sidebar has those of every app you can see, with when each was last used and
 when it expires.
+
+## Metrics
+
+An app's **Metrics** tab has [charts](metrics.md) of its requests, response times, CPU and memory, for the chosen environment, from
+the last few minutes to the last 30 days, with each release marked. **The last hour** on its page has them at a glance.
+
+## Cron
+
+An app's **Cron** tab lists its [cron jobs](cron.md), with their schedules, when each next runs and how it last went, and
+**Run now** does just that. Below them are its runs, each with what it said, and a box to run a command in the current release.
 
 ## Domains and access
 
@@ -194,9 +204,17 @@ For administrators.
 - **Users:** add someone, and send them the link it makes: the server sends no email. Change
   a role, disable an account, or make a new link for someone who has lost their password.
 - **Registries:** the credentials of private container registries, sealed.
+- **Notifications:** [channels](notifications.md#channels), each with when it last sent something and
+  why it failed if it did, a way to send it a test, and the rules that say what goes to it.
 - **Audit log:** [who did what](accounts.md#who-did-what), to search and to download.
 - **System:** what the server runs, and what [`moor server doctor`](troubleshooting.md) finds,
   with how to fix it.
+
+## Notifications
+
+**Notifications** in the sidebar has [what you have been told](notifications.md), with how many you have not read: a deployment of
+yours that failed and, in a project you maintain, one that failed, an app that keeps crashing or a cron job that failed. A
+project's page has the rules that send its news to a channel as well, for its maintainers.
 
 ## Activity
 

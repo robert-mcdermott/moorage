@@ -6,7 +6,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+	_ "time/tzdata" // so that a job's timezone means the same on every system
 	"unicode"
+
+	"github.com/robert-mcdermott/moorage/internal/schedule"
 )
 
 // Runtimes an app may name in [app].runtime.
@@ -170,7 +174,6 @@ func (s Size) MarshalText() ([]byte, error) { return []byte(strconv.FormatInt(in
 var (
 	toolchainPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*@[A-Za-z0-9.*+-]+$`)
 	cronField        = regexp.MustCompile(`^[0-9A-Za-z*,/-]+$`)
-	cronMacros       = []string{"@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"}
 )
 
 // validateTables checks the tables beyond [static], [processes] and
@@ -221,8 +224,16 @@ func (m *Manifest) validateTables() []string {
 		if c.Command == "" {
 			add("%s: command is required", where)
 		}
+		if c.Timeout.Std() > MaxRunTimeout {
+			add("%s: timeout must be a day at the most", where)
+		}
 		if !validSchedule(c.Schedule) {
 			add("%s: schedule %q must be five cron fields, such as \"0 3 * * *\", or @hourly, @daily, @every 15m", where, c.Schedule)
+		}
+		if c.Timezone != "" {
+			if _, err := time.LoadLocation(c.Timezone); err != nil {
+				add("%s: timezone %q is not a time zone such as Europe/Paris", where, c.Timezone)
+			}
 		}
 		if c.Overlap != "" && !oneOf(c.Overlap, []string{"skip", "allow", "replace"}) {
 			add("%s: overlap %q must be skip, allow or replace", where, c.Overlap)
@@ -334,24 +345,8 @@ func checkResources(p *[]string, where string, r Resources) {
 }
 
 func validSchedule(s string) bool {
-	s = strings.TrimSpace(s)
-	if oneOf(s, cronMacros) {
-		return true
-	}
-	if every, ok := strings.CutPrefix(s, "@every "); ok {
-		var d Duration
-		return d.UnmarshalText([]byte(every)) == nil && d > 0
-	}
-	fields := strings.Fields(s)
-	if len(fields) != 5 {
-		return false
-	}
-	for _, f := range fields {
-		if !cronField.MatchString(f) {
-			return false
-		}
-	}
-	return true
+	_, err := schedule.Parse(s)
+	return err == nil
 }
 
 // relativePath reports whether p is a slash-separated path that stays

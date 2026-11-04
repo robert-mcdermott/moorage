@@ -429,6 +429,55 @@ func TestGateCookiesEnd(t *testing.T) {
 	}
 }
 
+// TestTokenAtAGateEndsWithTheToken ends a long request when the token that let it in is revoked.
+func TestTokenAtAGateEndsWithTheToken(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	admin := signIn(t, cfg, addrs)
+	gatedApp(t, cfg, addrs, c, "shop")
+	setGate(t, c, "shop", "production", apitypes.AccessChange{Mode: "login", AnyUser: true})
+	secret := tokenOf(t, admin, "gate")
+	req, err := http.NewRequest(http.MethodGet, "http://"+addrs.HTTP.String()+"/slow?ms=30000", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "shop.localhost"
+	req.Header.Set("Authorization", "Bearer "+secret)
+	req.Header.Set("Accept", "text/plain")
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		res, err := http.DefaultClient.Do(req)
+		if err == nil {
+			io.Copy(io.Discard, res.Body)
+			res.Body.Close()
+		}
+	}()
+	select {
+	case <-ended:
+		t.Fatal("a long request ended by itself")
+	case <-time.After(700 * time.Millisecond):
+	}
+	manager := tokenClient(t, c, tokenOf(t, admin, "admin"))
+	all, err := manager.Tokens(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range all {
+		if tok.Name == "for gate" {
+			if _, err := manager.RevokeToken(context.Background(), tok.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	select {
+	case <-ended:
+	case <-time.After(10 * time.Second):
+		t.Error("the long request goes on after its token was revoked")
+	}
+}
+
 // TestShareDoesNotChangeWhoYouAre keeps someone signed in as themselves, whatever a page makes
 // their browser fetch.
 func TestShareDoesNotChangeWhoYouAre(t *testing.T) {

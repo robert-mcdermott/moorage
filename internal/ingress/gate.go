@@ -171,6 +171,8 @@ type identity struct {
 	user store.User
 	// kind and subject are what let them in; kind is empty for a token or a password from a script.
 	kind, subject string
+	// bearer is the token that let them in, and client from where, to look at it again.
+	bearer, client string
 	// consumed says that the request's Authorization header was for the gate, not the app.
 	consumed bool
 }
@@ -312,6 +314,14 @@ func (g *Gatekeeper) fromCookie(r *http.Request, rte route) *identity {
 
 // stillGood says whether what let someone in has not since ended.
 func (g *Gatekeeper) stillGood(ctx context.Context, rte route, who *identity) bool {
+	if who.bearer != "" {
+		p, err := g.Auth.Token(ctx, who.bearer, who.client)
+		if err != nil || !p.Can(auth.ScopeGate) || p.UserID == "" || p.App != "" && p.App != rte.app {
+			return false
+		}
+		_, ok := g.checkLogin(ctx, rte.gate, rte.app, p.UserID, "")
+		return ok
+	}
 	switch who.kind {
 	case GatePassword:
 		return true
@@ -381,11 +391,11 @@ func (rt *Router) admit(w http.ResponseWriter, r *http.Request, rte route) (*ide
 // stillAdmitted looks again at someone who was let in, for what goes on for a long time, such as a
 // stream or a WebSocket: the gate as it now stands, and whatever let them in.
 func (rt *Router) stillAdmitted(ctx context.Context, r *http.Request, rte route, who *identity) bool {
-	now, _, ok := rt.table.Load().lookup(hostname(r.Host), r.URL.Path)
+	now, _, ok := rt.find(rt.table.Load(), hostname(r.Host), r.URL.Path)
 	if !ok || now.gate.envID != rte.gate.envID || now.gate.generation != rte.gate.generation || now.gate.mode != rte.gate.mode || !now.gate.allowed(rt.clientAddress(r)) {
 		return false
 	}
-	if now.gate.mode == GatePublic || who == nil || who.kind == "" {
+	if now.gate.mode == GatePublic || who == nil || who.kind == "" && who.bearer == "" {
 		return true
 	}
 	g := rt.gate.Load()
@@ -517,7 +527,7 @@ func (rt *Router) bearerAccepted(w http.ResponseWriter, r *http.Request, g *Gate
 	if !ok {
 		return refuse()
 	}
-	return &identity{user: u, consumed: true}, true
+	return &identity{user: u, consumed: true, bearer: token, client: client}, true
 }
 
 // toConsole sends a browser to sign in, with what will show that it is the same browser that
@@ -570,7 +580,7 @@ type RouteInfo struct {
 // RouteFor says what a hostname and a path serve. Only what is in the routing table has an answer,
 // so that nothing the console is told by a browser can send anyone anywhere else.
 func (rt *Router) RouteFor(host, path string) (RouteInfo, bool) {
-	rte, _, ok := rt.table.Load().lookup(host, path)
+	rte, _, ok := rt.find(rt.table.Load(), host, path)
 	if !ok {
 		return RouteInfo{}, false
 	}

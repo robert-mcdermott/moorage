@@ -32,6 +32,8 @@ type Config struct {
 	Containers  Containers `toml:"containers"`
 	Log         Log        `toml:"log"`
 	Access      Access     `toml:"access"`
+	// Notifications says what they may reach.
+	Notifications Notifications `toml:"notifications"`
 
 	// Path is the file the configuration was read from.
 	Path string `toml:"-"`
@@ -43,6 +45,13 @@ type Access struct {
 	Production string `toml:"production"`
 	Named      string `toml:"named"`
 	Preview    string `toml:"preview"`
+}
+
+// Notifications is how notifications are sent.
+type Notifications struct {
+	// Allow lists addresses and prefixes that webhooks and mail servers may be at, though they
+	// would be refused as this machine or a link-local address, which is the cloud's metadata.
+	Allow []string `toml:"allow"`
 }
 
 // accessModes are the gates an environment can have.
@@ -301,6 +310,11 @@ func (c Config) Validate() error {
 	if c.Routing == "path" && c.ConsoleHost == c.Domain {
 		add("with routing = \"path\", console_host must be another hostname than domain: pages of apps must not share an origin with the console, or a script in any of them could act as whoever is signed in")
 	}
+	for _, a := range c.Notifications.Allow {
+		if _, err := ParseTrusted(a); err != nil {
+			add("notifications.allow: %q is not an address or a prefix", a)
+		}
+	}
 	if !oneOf(c.Routing, routings) {
 		add("routing %q must be one of %s", c.Routing, list(routings))
 	}
@@ -395,6 +409,28 @@ func ParseTrusted(s string) (netip.Prefix, error) {
 		return netip.Prefix{}, fmt.Errorf("%q is not an address or CIDR prefix", s)
 	}
 	return netip.PrefixFrom(a, a.BitLen()), nil
+}
+
+// ReleaseURL is the address of one release of a static site. With path routing there is none: apps
+// have no hostnames of their own.
+func (c Config) ReleaseURL(app, env string, version int) string {
+	if c.Routing == "path" {
+		return ""
+	}
+	return c.PublicURL(names.PermalinkLabel(app, env, version) + "." + c.Domain)
+}
+
+// NotificationsAllowed parses [notifications] allow.
+func (c Config) NotificationsAllowed() ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(c.Notifications.Allow))
+	for _, a := range c.Notifications.Allow {
+		p, err := ParseTrusted(a)
+		if err != nil {
+			return nil, fmt.Errorf("notifications.allow: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // PublicURL is how a browser reaches host: through the proxy when Moorage is

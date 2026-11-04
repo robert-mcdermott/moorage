@@ -102,13 +102,19 @@ func listVars(cmd *cobra.Command, f *envFlags, asJSON bool) error {
 		if v.Secret {
 			value = "(secret)"
 		}
-		source := map[string]string{"env": f.env, "app": "all environments", "manifest": "moorage.toml", "production": "inherited from production"}[v.Source]
+		source := map[string]string{"env": f.env, "app": "all environments", "manifest": "moorage.toml", "production": "inherited from production", "declared": "declared, not set"}[v.Source]
 		var notes []string
 		if v.Build {
 			notes = append(notes, "also at build time")
 		}
 		if v.Overridden {
 			notes = append(notes, "overridden")
+		}
+		if v.Missing {
+			notes = append(notes, "required: the next deployment fails without it")
+		}
+		if v.Description != "" {
+			notes = append(notes, v.Description)
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", v.Name, oneLine(value), source, strings.Join(notes, ", "))
 	}

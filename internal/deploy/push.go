@@ -55,6 +55,10 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 		out.printf("moorage  %s is kept, not deployed: the push asked to skip the deploy", target.Branch())
 		return nil
 	}
+	if why := watchSkips(p, target); why != "" {
+		out.printf("moorage  %s is kept, not deployed: %s", target.Branch(), why)
+		return nil
+	}
 	if err := ps.Deployer.checkLock(ctx, p.App, targetEnv); err != nil {
 		var locked *LockedError
 		if errors.As(err, &locked) {
@@ -126,6 +130,33 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 		return fmt.Errorf("deployment %s %s: %s", dep.ID, dep.Status, reason)
 	}
 	return nil
+}
+
+// watchSkips says why a push should not deploy, if its manifest says which paths matter and it
+// touches none of them. What is new, or cannot be compared, deploys: a force push may have changed
+// anything, and it costs less to deploy once too often than to miss a change.
+func watchSkips(p *gitserver.Push, u *gitserver.Update) string {
+	if u.Old == "" {
+		return ""
+	}
+	data, err := p.ReadFile(u.New, manifest.FileName)
+	if err != nil {
+		return ""
+	}
+	m, err := manifest.Parse(data, manifest.FileName)
+	if err != nil || len(m.App.Watch) == 0 {
+		return ""
+	}
+	changed, err := p.ChangedFiles(u.Old, u.New)
+	if err != nil {
+		return ""
+	}
+	for _, file := range changed {
+		if file == manifest.FileName || branchMatches(m.App.Watch, file) {
+			return ""
+		}
+	}
+	return "it touches nothing that [app].watch names"
 }
 
 // destination says where a pushed branch deploys, or why it does not.

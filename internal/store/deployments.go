@@ -45,12 +45,14 @@ type Deployment struct {
 	// BuildCollected reports that the build was removed to save space, so that
 	// its release can no longer be served again.
 	BuildCollected bool
-	Error          string
-	Output         []string
-	CreatedBy      string
-	CreatedAt      time.Time
-	StartedAt      time.Time
-	FinishedAt     time.Time
+	// BuildKind is what the build is: static or process.
+	BuildKind  string
+	Error      string
+	Output     []string
+	CreatedBy  string
+	CreatedAt  time.Time
+	StartedAt  time.Time
+	FinishedAt time.Time
 }
 
 // CreateDeployment records a new deployment of an existing environment.
@@ -123,7 +125,7 @@ func (db *DB) InterruptDeployments(ctx context.Context) (int, error) {
 }
 
 const deploymentColumns = `SELECT d.id, a.name, e.name, d.source_type, d.source_ref, d.source_commit, d.source_message, d.status, d.build_id, d.release_id, r.version,
-	d.error, d.output, d.created_by, d.created_at, d.started_at, d.finished_at, b.collected_at
+	d.error, d.output, d.created_by, d.created_at, d.started_at, d.finished_at, b.collected_at, COALESCE(json_extract(b.plan, '$.kind'), '')
 	FROM deployments d JOIN environments e ON e.id = d.env_id JOIN apps a ON a.id = e.app_id
 	LEFT JOIN releases r ON r.id = d.release_id
 	LEFT JOIN builds b ON b.id = d.build_id`
@@ -134,7 +136,7 @@ func scanDeployment(row interface{ Scan(...any) error }) (Deployment, error) {
 	var version, started, finished, collected sql.NullInt64
 	var created int64
 	if err := row.Scan(&d.ID, &d.App, &d.Env, &d.SourceType, &ref, &commit, &message, &d.Status, &buildID, &releaseID, &version,
-		&errMsg, &output, &by, &created, &started, &finished, &collected); err != nil {
+		&errMsg, &output, &by, &created, &started, &finished, &collected, &d.BuildKind); err != nil {
 		return Deployment{}, err
 	}
 	d.SourceRef, d.SourceCommit, d.SourceMessage = ref.String, commit.String, message.String

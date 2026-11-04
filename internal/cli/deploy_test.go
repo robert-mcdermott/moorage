@@ -385,7 +385,7 @@ func TestManifestCommands(t *testing.T) {
 		}
 	}
 
-	os.WriteFile(filepath.Join(dir, "moorage.toml"), []byte("[env]\nAPI_TOKEN = \"abc\"\n[[cron]]\nname = \"x\"\nschedule = \"@daily\"\ncommand = \"true\"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "moorage.toml"), []byte("[env]\nAPI_TOKEN = \"abc\"\n[services.db]\ntype = \"postgres\"\nversion = \"17\"\n"), 0o644)
 	code, out, errOut := run(t, "manifest", "validate", dir)
 	if code != 0 || !strings.Contains(out, "valid (2 warnings)") || !strings.Contains(errOut, "env.API_TOKEN looks like a credential") {
 		t.Errorf("validate with warnings: %d\n%s\n%s", code, out, errOut)

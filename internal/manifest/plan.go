@@ -56,6 +56,71 @@ type Plan struct {
 	Previews *PreviewPlan `json:"previews,omitempty"`
 	// StripPrefix takes away the path it is served at from what it hears, with path routing.
 	StripPrefix bool `json:"strip_prefix,omitempty"`
+	// Cron is its cron jobs.
+	Cron []CronPlan `json:"cron,omitempty"`
+	// Vars are the variables it expects, by name.
+	Vars map[string]VarPlan `json:"vars,omitempty"`
+}
+
+// CronPlan is a cron job.
+type CronPlan struct {
+	Name     string `json:"name"`
+	Schedule string `json:"schedule"`
+	Command  string `json:"command"`
+	Timezone string `json:"timezone,omitempty"`
+	// Timeout is how long a run may take; an hour unless it says.
+	Timeout Duration `json:"timeout,omitempty"`
+	// Overlap says what to do when the run before is still going: skip, allow or replace.
+	Overlap      string   `json:"overlap,omitempty"`
+	Environments []string `json:"environments,omitempty"`
+}
+
+// DefaultCronTimeout is how long a cron job's run may take, unless it says, and MaxRunTimeout how
+// long anything run once may take at all.
+const (
+	DefaultCronTimeout = time.Hour
+	MaxRunTimeout      = 24 * time.Hour
+)
+
+// Limit is how long a run may take.
+func (c CronPlan) Limit() time.Duration {
+	if c.Timeout > 0 {
+		return c.Timeout.Std()
+	}
+	return DefaultCronTimeout
+}
+
+// RunsIn says whether a job runs in an environment: production, unless it says. "*" is every
+// environment that stays, and previews need naming, as "preview".
+func (c CronPlan) RunsIn(env, kind string) bool {
+	list := c.Environments
+	if len(list) == 0 {
+		list = []string{"production"}
+	}
+	for _, name := range list {
+		switch {
+		case name == "preview":
+			if kind == "preview" {
+				return true
+			}
+		case name == "*":
+			if kind != "preview" {
+				return true
+			}
+		case name == env:
+			return true
+		}
+	}
+	return false
+}
+
+// VarPlan is a variable an app expects.
+type VarPlan struct {
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Secret      bool   `json:"secret,omitempty"`
+	// Generate makes a value once for each environment: secret or uuid.
+	Generate string `json:"generate,omitempty"`
 }
 
 // EnvPlan is what an environment changes of a plan.
@@ -159,6 +224,46 @@ func (p Plan) ForEnv(name, kind string) Plan {
 		p.Env = env
 	}
 	return p.WithFormation(over.Instances)
+}
+
+// ApplyEnvironments gives a plan what a manifest says of its environments and previews, such as
+// who may reach them: a plan of any kind has that.
+func (m *Manifest) ApplyEnvironments(p *Plan) {
+	for name, e := range m.Environments {
+		if p.Environments == nil {
+			p.Environments = map[string]EnvPlan{}
+		}
+		over := EnvPlan{Branch: e.Branch, Env: e.Env, SleepAfter: e.SleepAfter, Access: e.Access}
+		for process, proc := range e.Processes {
+			if proc.Instances != nil {
+				if over.Instances == nil {
+					over.Instances = map[string]int{}
+				}
+				over.Instances[process] = *proc.Instances
+			}
+		}
+		p.Environments[name] = over
+	}
+	if m.Previews != nil {
+		p.Previews = &PreviewPlan{Enabled: m.Previews.Enabled, Branches: m.Previews.Branches, TTL: m.Previews.TTL, SleepAfter: m.Previews.SleepAfter, Access: m.Previews.Access}
+	}
+}
+
+// StaticPlan is the plan of a directory uploaded to be served as it is: how to serve it, who may
+// reach it, and how many releases to keep. m may be nil, for a directory with no manifest.
+func (m *Manifest) StaticPlan() Plan {
+	plan := Plan{Kind: KindStatic, Static: &Static{}}
+	if m == nil {
+		return plan
+	}
+	if m.Static != nil {
+		rules := *m.Static
+		rules.Dir = ""
+		plan.Static = &rules
+	}
+	plan.Deploy = m.Deploy
+	m.ApplyEnvironments(&plan)
+	return plan
 }
 
 // ContainerPlan says how an app's image is made and how its containers run.

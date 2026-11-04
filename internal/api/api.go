@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -21,6 +22,8 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
+	"github.com/robert-mcdermott/moorage/internal/notify"
+	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -32,6 +35,7 @@ type Runtime interface {
 
 // Server serves the API.
 type Server struct {
+	metrics  *metrics.Store
 	db       *store.DB
 	cfg      config.Config
 	dataDir  string
@@ -40,14 +44,17 @@ type Server struct {
 	deployer *deploy.Deployer
 	keyring  RegistrySealer
 	bus      *events.Bus
-	log      *slog.Logger
+	notifier *notify.Service
+	// recheck is how often what stays open looks again at whether it may.
+	recheck time.Duration
+	log     *slog.Logger
 	// openapiDoc is the OpenAPI document, generated once.
 	openapiDoc func() []byte
 }
 
 // New returns the API handler.
-func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, log *slog.Logger) http.Handler {
-	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, log: log}
+func New(db *store.DB, cfg config.Config, dataDir string, authn *auth.Service, runtime Runtime, deployer *deploy.Deployer, keyring RegistrySealer, bus *events.Bus, metricsStore *metrics.Store, notifier *notify.Service, recheck time.Duration, log *slog.Logger) http.Handler {
+	s := &Server{db: db, cfg: cfg, dataDir: dataDir, auth: authn, runtime: runtime, deployer: deployer, keyring: keyring, bus: bus, metrics: metricsStore, notifier: notifier, recheck: recheck, log: log}
 	s.openapiDoc = sync.OnceValue(func() []byte { return openAPIDocument(s.routes()) })
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
@@ -268,7 +275,11 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request) {
 			page.NextCursor = encodeCursor(strconv.Itoa(rels[i-1].Version))
 			break
 		}
-		page.Items = append(page.Items, release(rel))
+		doc := release(rel)
+		if rel.Kind == manifest.KindStatic && !rel.BuildCollected {
+			doc.URL = s.cfg.ReleaseURL(app, env, rel.Version)
+		}
+		page.Items = append(page.Items, doc)
 	}
 	writeJSON(w, http.StatusOK, page)
 }
@@ -337,8 +348,12 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.deployer.Restart(r.Context(), app, env, who(r).Name)
+	err := s.deployer.Restart(r.Context(), app, env, r.URL.Query().Get("process"), who(r).Name)
+	var scale *reconcile.ScaleError
 	switch {
+	case errors.As(err, &scale):
+		problem(w, http.StatusUnprocessableEntity, "invalid_process", sentenceOf(err))
+		return
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", err.Error())
 		return

@@ -178,9 +178,10 @@ are outside the versioned API.
   one SSE connection updates status badges and the activity feed; log and
   deployment views stream new lines; forms can submit without a full page
   reload; confirmations, copy buttons and the command palette are scripted.
-- **Charts:** sparklines are rendered on the server as inline SVG; full
-  charts are drawn by a small canvas renderer written for Moorage (time
-  series, hover read-outs, deploy markers).
+- **Charts:** sparklines and full charts are rendered on the server as inline
+  SVG, so that they are there with no scripts, with their numbers in a table;
+  a small script adds the crosshair and read-outs, from the pointer or the arrow
+  keys.
 - **Log viewer:** keeps a bounded number of lines in the page and loads older
   lines on scroll, so long tails stay fast.
 - **Styling:** CSS custom properties as design tokens; light and dark themes

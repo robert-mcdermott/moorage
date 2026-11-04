@@ -1,7 +1,7 @@
 # Moorage documentation
 
 How to install Moorage, run it, and deploy apps to it. This documentation
-describes Moorage 0.4.0; the [design documents](../spec/README.md) describe
+describes Moorage 0.5.0; the [design documents](../spec/README.md) describe
 how it works inside and where it is going.
 
 ## Start here
@@ -31,6 +31,10 @@ how it works inside and where it is going.
 - [Variables and secrets](variables.md)
 - [Previews and environments](previews.md): a place of its own for every branch,
   staging, promoting, locks and sleeping
+- [Cron jobs and one-off commands](cron.md)
+- [Metrics](metrics.md): charts in the console, and for Prometheus
+- [Notifications](notifications.md): told when something goes wrong, in the console,
+  by webhook, in chat and by email
 - [Who can reach an app](access.md): passwords, signing in, share links and lists
   of addresses
 - [Your own domains, and paths](domains.md): hostnames of your own, several apps on one
@@ -67,7 +71,10 @@ how it works inside and where it is going.
 | `moor redeploy` | Builds the current release's source again, and rolls it out |
 | `moor ps` | Lists the app's instances: status, health, port, PID |
 | `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |
-| `moor restart` | Replaces the instances without downtime |
+| `moor restart [PROCESS]` | Replaces the instances without downtime |
+| `moor run -- COMMAND` | Runs a command in the current release, and ends with its exit status |
+| `moor metrics` | Shows requests, response times, CPU and memory over a range |
+| `moor cron` | Lists the cron jobs; `run` one now, `runs` and `log` show how they went |
 | `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |
 | `moor env` | Lists and changes variables and secrets; `reveal` reads a secret |
 | `moor manifest explain` | Shows how Moorage will build and run the app |

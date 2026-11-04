@@ -68,3 +68,15 @@ func TestLabel(t *testing.T) {
 		t.Errorf("a long one: %q (%d)", got, len(got))
 	}
 }
+
+func TestValidHostLabel(t *testing.T) {
+	for label, want := range map[string]bool{
+		"docs": true, "docs--staging": true, "docs--production--v12": true, "docs--pr-7--v1": true,
+		"a--b--c--d": false, "docs--production--v01": false, "docs--production--x": false, "--v1": false,
+		"docs--": false, "": false, "Docs": false, "docs--ENV": false,
+	} {
+		if got := ValidHostLabel(label); got != want {
+			t.Errorf("%q: %v", label, got)
+		}
+	}
+}

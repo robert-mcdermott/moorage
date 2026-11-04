@@ -35,6 +35,163 @@
   }
 
   $$('.theme-choice').forEach(function (group) { group.hidden = false; });
+
+  // A folder dropped on the page, or chosen, goes up with how far along it is. Without this, the form
+  // sends a folder that is chosen just as well.
+  $$('[data-dropzone]').forEach(function (form) {
+    var chooser = $('input[type="file"]', form);
+    var button = $('button[type="submit"]', form);
+    var progress = $('[data-drop-progress]', form);
+    var bar = $('progress', form);
+    var status = $('[data-drop-status]', form);
+    var problem = $('[data-drop-error]', form);
+    var max = Number(form.getAttribute('data-max')) || 0;
+    var sending = false;
+
+    function fail(text) {
+      sending = false;
+      button.disabled = false;
+      progress.hidden = true;
+      problem.textContent = text;
+      problem.hidden = false;
+    }
+
+    // What the server says is wrong is on the page it answers with.
+    function failWith(page) {
+      var found = new DOMParser().parseFromString(page, 'text/html').querySelector('.notice.fail, main p');
+      fail(found ? found.textContent : 'That could not be deployed.');
+    }
+
+    function send(files) {
+      var wanted = files.filter(function (f) { return !/(^|\/)\.git\//.test(f.path); });
+      if (!wanted.length) { fail('There are no files in that.'); return; }
+      var total = wanted.reduce(function (sum, f) { return sum + f.file.size; }, 0);
+      if (max && total > max) { fail('That is too much to upload here: use moor deploy --static instead.'); return; }
+      var body = new FormData();
+      body.append('csrf', $('input[name="csrf"]', form).value);
+      wanted.forEach(function (f) {
+        body.append('path', f.path);
+        body.append('file', f.file, f.file.name);
+      });
+      sending = true;
+      button.disabled = true;
+      problem.hidden = true;
+      progress.hidden = false;
+      bar.value = 0;
+      status.textContent = 'Uploading ' + wanted.length + (wanted.length === 1 ? ' file' : ' files');
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', form.action);
+      xhr.upload.addEventListener('progress', function (e) {
+        if (e.lengthComputable) { bar.value = e.loaded / e.total * 100; }
+      });
+      xhr.upload.addEventListener('load', function () {
+        bar.removeAttribute('value');
+        status.textContent = 'Deploying';
+      });
+      xhr.addEventListener('load', function () {
+        if (xhr.status >= 200 && xhr.status < 300 && xhr.responseURL) {
+          window.location.assign(xhr.responseURL);
+        } else {
+          failWith(xhr.responseText);
+        }
+      });
+      xhr.addEventListener('error', function () { fail('The upload did not finish. Try it again.'); });
+      xhr.send(body);
+    }
+
+    // Everything in a folder that was dropped, however deep. A browser gives a few at a time.
+    function walk(entry, into, done, failed) {
+      if (entry.isFile) {
+        entry.file(function (file) {
+          into.push({ path: entry.fullPath.replace(/^\/+/, ''), file: file });
+          done();
+        }, failed);
+        return;
+      }
+      var reader = entry.createReader();
+      var pending = [];
+      (function more() {
+        reader.readEntries(function (batch) {
+          if (batch.length) {
+            pending = pending.concat(batch);
+            more();
+            return;
+          }
+          var left = pending.length;
+          if (!left) { done(); return; }
+          pending.forEach(function (child) {
+            walk(child, into, function () {
+              left -= 1;
+              if (!left) { done(); }
+            }, failed);
+          });
+        }, failed);
+      })();
+    }
+
+    function dropped(data) {
+      var plain = Array.prototype.map.call(data.files, function (file) { return { path: file.name, file: file }; });
+      var entries = [];
+      Array.prototype.forEach.call(data.items || [], function (item) {
+        var entry = item.kind === 'file' && item.webkitGetAsEntry && item.webkitGetAsEntry();
+        if (entry) { entries.push(entry); }
+      });
+      // Only folders need looking into.
+      if (!entries.some(function (entry) { return entry.isDirectory; })) {
+        send(plain);
+        return;
+      }
+      var files = [];
+      var left = entries.length;
+      entries.forEach(function (entry) {
+        walk(entry, files, function () {
+          left -= 1;
+          if (!left) { send(files); }
+        }, function () { fail('That folder could not be read.'); });
+      });
+    }
+
+    function hasFiles(e) {
+      var data = e.dataTransfer;
+      return !!data && (data.files.length > 0 || Array.prototype.indexOf.call(data.types, 'Files') >= 0);
+    }
+    form.addEventListener('dragover', function (e) {
+      if (!hasFiles(e)) { return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = sending ? 'none' : 'copy';
+      form.classList.add('dragging');
+    });
+    form.addEventListener('dragleave', function (e) {
+      if (!form.contains(e.relatedTarget)) { form.classList.remove('dragging'); }
+    });
+    form.addEventListener('drop', function (e) {
+      if (!hasFiles(e)) { return; }
+      e.preventDefault();
+      form.classList.remove('dragging');
+      if (!sending) { dropped(e.dataTransfer); }
+    });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (sending) { return; }
+      send(Array.prototype.map.call(chooser.files, function (file) {
+        return { path: file.webkitRelativePath || file.name, file: file };
+      }));
+    });
+  });
+
+  // A form that asks different things of different kinds asks only what the kind chosen needs.
+  $$('[data-kind-choice]').forEach(function (choice) {
+    var parts = choice.form.querySelectorAll('[data-kinds]');
+    function show() {
+      parts.forEach(function (part) {
+        var on = part.getAttribute('data-kinds').split(' ').indexOf(choice.value) >= 0;
+        part.hidden = !on;
+        part.querySelectorAll('input').forEach(function (input) { input.disabled = !on; });
+      });
+    }
+    choice.addEventListener('change', show);
+    show();
+  });
   $$('[data-theme-set]').forEach(function (button) {
     button.addEventListener('click', function () { setTheme(button.getAttribute('data-theme-set')); });
   });
@@ -830,6 +987,118 @@
         break;
     }
   }
+
+  // Charts are all there without this: it says what is under the pointer, or the arrow keys.
+
+  function chartText(unit, v) {
+    if (unit === 'rate') { return (v >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(1) : v.toFixed(2).replace(/\.00$/, '')) + '/min'; }
+    if (unit === 'ms') { return v >= 1000 ? (v / 1000).toFixed(2) + ' s' : v >= 10 ? Math.round(v) + ' ms' : v.toFixed(1) + ' ms'; }
+    if (unit === 'percent') { return v >= 10 ? Math.round(v) + '%' : v.toFixed(1) + '%'; }
+    if (unit === 'bytes') {
+      var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+      var i = 0;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return (v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)) + ' ' + units[i];
+    }
+    return String(v);
+  }
+
+  function chartAt(chart, data, index) {
+    var svg = $('svg', chart);
+    var cross = $('.chart-cross', chart);
+    if (!cross) {
+      cross = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      cross.setAttribute('class', 'chart-cross');
+      cross.setAttribute('y1', data.top);
+      cross.setAttribute('y2', data.bottom);
+      svg.appendChild(cross);
+    }
+    var at = data.times[index];
+    var x = data.left + (data.right - data.left) * (at - data.from) / (data.to - data.from);
+    cross.setAttribute('x1', x);
+    cross.setAttribute('x2', x);
+    var tip = $('.chart-tip', chart);
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'chart-tip';
+      tip.setAttribute('role', 'status');
+      chart.appendChild(tip);
+    }
+    tip.textContent = '';
+    var when = document.createElement('time');
+    when.textContent = new Date(at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    tip.appendChild(when);
+    data.lines.forEach(function (line) {
+      var value = line.values[index];
+      if (value === null || value === undefined) { return; }
+      var row = document.createElement('div');
+      var key = document.createElement('span');
+      key.className = 'chart-key s' + line.slot;
+      var strong = document.createElement('strong');
+      strong.textContent = chartText(data.unit, value);
+      var name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = line.name;
+      row.appendChild(key);
+      row.appendChild(strong);
+      row.appendChild(name);
+      tip.appendChild(row);
+    });
+    var box = chart.getBoundingClientRect();
+    var left = x / data.width * box.width;
+    var wide = tip.offsetWidth;
+    tip.style.left = Math.max(0, left + 12 + wide > box.width ? left - 12 - wide : left + 12) + 'px';
+    tip.style.top = '4px';
+  }
+
+  function chartLeave(chart) {
+    var tip = $('.chart-tip', chart);
+    if (tip) { tip.remove(); }
+    var cross = $('.chart-cross', chart);
+    if (cross) { cross.remove(); }
+  }
+
+  function chartData(chart) {
+    try { return JSON.parse(chart.getAttribute('data-chart')); } catch (e) { return null; }
+  }
+
+  document.addEventListener('pointermove', function (e) {
+    var chart = e.target.closest ? e.target.closest('.chart[data-chart]') : null;
+    $$('.chart-tip').forEach(function (tip) {
+      if (tip.parentNode !== chart) { chartLeave(tip.parentNode); }
+    });
+    if (!chart) { return; }
+    var data = chartData(chart);
+    if (!data || data.times.length === 0) { return; }
+    var box = chart.getBoundingClientRect();
+    var x = (e.clientX - box.left) / box.width * data.width;
+    var at = data.from + (x - data.left) / (data.right - data.left) * (data.to - data.from);
+    var best = 0;
+    data.times.forEach(function (t, i) {
+      if (Math.abs(t - at) < Math.abs(data.times[best] - at)) { best = i; }
+    });
+    chart.setAttribute('data-index', best);
+    chartAt(chart, data, best);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    var chart = e.target.matches && e.target.matches('.chart[data-chart]') ? e.target : null;
+    if (!chart) { return; }
+    if (e.key === 'Escape') { chartLeave(chart); return; }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') { return; }
+    var data = chartData(chart);
+    if (!data || data.times.length === 0) { return; }
+    e.preventDefault();
+    var index = parseInt(chart.getAttribute('data-index'), 10);
+    if (isNaN(index)) { index = data.times.length; }
+    index = Math.min(data.times.length - 1, Math.max(0, index + (e.key === 'ArrowLeft' ? -1 : 1)));
+    chart.setAttribute('data-index', index);
+    chartAt(chart, data, index);
+  });
+
+  document.addEventListener('focusout', function (e) {
+    if (e.target.matches && e.target.matches('.chart[data-chart]')) { chartLeave(e.target); }
+  });
 
   // The page that says how to deploy an app goes to the deployment when one starts.
 

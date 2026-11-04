@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/shim"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -572,6 +573,52 @@ func (m *Manager) Instances(app, env string) []InstanceInfo {
 			info.Healthy = info.Status == shim.Running
 		}
 		out = append(out, info)
+	}
+	return out
+}
+
+// MetricsInstances lists what is running, for sampling.
+func (m *Manager) MetricsInstances(ctx context.Context) []metrics.Instance {
+	routes, err := m.db.Routes(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []metrics.Instance
+	for _, r := range routes {
+		m.mu.Lock()
+		es := m.envs[r.App+"/"+r.Env]
+		m.mu.Unlock()
+		if es == nil {
+			continue
+		}
+		for _, in := range es.list() {
+			st, _, err := in.run.Status(in.id)
+			if err != nil || st.Status != shim.Running {
+				continue
+			}
+			out = append(out, metrics.Instance{EnvID: r.EnvID, ID: in.id, Part: fmt.Sprintf("%s.%d", in.process, in.index), PID: st.AppPID})
+		}
+	}
+	return out
+}
+
+// MetricsContainers says what the container engine knows of the instances it runs.
+func (m *Manager) MetricsContainers(ctx context.Context) map[string]metrics.Usage {
+	if m.opts.Containers == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	stats, err := m.opts.Containers.Stats(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			m.log.Debug("read what containers are using", "err", err)
+		}
+		return nil
+	}
+	out := make(map[string]metrics.Usage, len(stats))
+	for id, u := range stats {
+		out[id] = metrics.Usage{CPU: u.CPU, Memory: u.Memory}
 	}
 	return out
 }

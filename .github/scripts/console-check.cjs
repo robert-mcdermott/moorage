@@ -1,6 +1,9 @@
 // What console-check.sh runs: the console, driven as a person would, in one browser.
 const { chromium, firefox, webkit } = require('playwright');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const browserName = process.env.BROWSER || 'chromium';
 const base = process.env.CONSOLE_URL;
@@ -63,7 +66,7 @@ function moor(...args) {
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
     '/apps/shop/variables/edit', '/apps/shop/deploy', '/apps/shop/settings', '/account', '/account/keys', '/account/tokens', '/account/sessions',
-    '/settings', '/settings/users', '/settings/registries', '/settings/system', '/settings/audit', '/projects', '/projects/default', '/previews', '/apps/shop/environments', '/apps/shop?env=staging', '/apps/shop/logs?env=staging', '/apps/shop/variables?env=staging', '/apps/shop/access', '/apps/shop/access?env=staging'];
+    '/settings', '/settings/users', '/settings/registries', '/settings/notifications', '/notifications', '/settings/system', '/settings/audit', '/projects', '/projects/default', '/previews', '/apps/shop/environments', '/apps/shop?env=staging', '/apps/shop/logs?env=staging', '/apps/shop/variables?env=staging', '/apps/shop/access', '/apps/shop/access?env=staging', '/apps/shop/cron', '/apps/shop/metrics', '/apps/shop/metrics?range=live', '/apps/shop/metrics?range=7d'];
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
     for (const path of pages) {
@@ -84,7 +87,7 @@ function moor(...args) {
 
   // The palette, from the keyboard. If WebKit gave up on the page's script, load it again.
   await visit(page, base + '/');
-  for (let tries = 3; ; tries--) {
+  for (let tries = 5; ; tries--) {
     await page.keyboard.press('/');
     try {
       await page.waitForSelector('#palette[open]', { timeout: 5000 });
@@ -226,6 +229,54 @@ function moor(...args) {
   await page.waitForSelector('.secret-once');
   check('a token is shown once', (await page.textContent('.secret-once')).includes('moor_'));
   quiet('the tokens');
+
+  // A folder chosen on the deploy page goes up, with its folders, and deploys as a site.
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'moorage-check-'));
+  fs.mkdirSync(path.join(folder, 'site', 'css'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'site', 'index.html'), '<p>a folder</p>');
+  fs.writeFileSync(path.join(folder, 'site', 'css', 'main.css'), 'p { color: teal }');
+  fs.writeFileSync(path.join(folder, 'site', '.env'), 'SECRET=1');
+  await visit(page, base + '/apps/dropped/deploy');
+  await page.setInputFiles('#site-folder', path.join(folder, 'site'));
+  await page.click('.dropzone button[type=submit]');
+  await page.waitForURL('**/deployments/dep_*', { timeout: 60000 });
+  const chosen = await page.textContent('main');
+  check('a chosen folder deploys', chosen.includes('Uploaded site') && chosen.includes('Live'), chosen.slice(0, 200));
+  check('and its release has an address of its own', await page.locator('a:has-text("This release")').count() === 1);
+  quiet('choosing a folder');
+
+  // Files dropped on the page. A real drag cannot be scripted, so that it is told of one, which
+  // WebKit does not let a script do: it loses what the event carries.
+  await visit(page, base + '/apps/dropped/deploy');
+  const dropTarget = page.locator('[data-dropzone]');
+  const canTell = await dropTarget.evaluate(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['x'], 'x.txt'));
+    const event = new DragEvent('drop', { dataTransfer: data });
+    return !!event.dataTransfer && event.dataTransfer.files.length === 1;
+  });
+  if (canTell) {
+    await dropTarget.evaluate(form => {
+      const data = new DataTransfer();
+      data.items.add(new File(['<p>a drop</p>'], 'index.html', { type: 'text/html' }));
+      form.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+    });
+    await page.waitForURL('**/deployments/dep_*', { timeout: 60000 });
+    check('a drop deploys', (await page.textContent('main')).includes('Live'));
+    quiet('dropping files');
+
+    // What is wrong with what is dropped is said where it was dropped.
+    await visit(page, base + '/apps/dropped/deploy');
+    await dropTarget.evaluate(form => {
+      const data = new DataTransfer();
+      data.items.add(new File(['[processes.web]\ncommand = "./run"\n'], 'moorage.toml'));
+      form.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+    });
+    await page.waitForSelector('[data-drop-error]:not([hidden])', { timeout: 60000 });
+    check('a drop that is refused says why', (await page.textContent('[data-drop-error]')).includes('source'));
+    problems.length = 0; // the browser itself mentions the refusal
+  }
+  fs.rmSync(folder, { recursive: true, force: true });
 
   // An app made and deleted, which asks for its name first.
   await visit(page, base + '/new');

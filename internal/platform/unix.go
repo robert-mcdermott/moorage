@@ -41,9 +41,11 @@ func LockFile(path string) (*Lock, error) {
 	return &Lock{f: f}, nil
 }
 
-// Unlock releases the lock.
+// Unlock releases the lock. Closing the file alone would not, while a child process caught between
+// fork and exec still holds a copy of its descriptor.
 func (l *Lock) Unlock() error {
-	return l.f.Close()
+	err := unix.Flock(int(l.f.Fd()), unix.LOCK_UN)
+	return errors.Join(err, l.f.Close())
 }
 
 // AddressInUse reports whether an error says something else listens on an address.
