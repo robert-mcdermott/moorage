@@ -34,8 +34,11 @@ function moor(...args) {
   // WebKit on Linux also gives up on a resource now and then, with an internal error of its own.
   const letGo = text => /WebKit encountered an internal error/.test(text) ||
     /\/api\/v1\//.test(text) && /can.t establish a connection|was interrupted while the page was loading|due to access control checks/.test(text);
-  page.on('console', m => { if (m.type() === 'error' && !letGo(m.text())) { problems.push(m.text()); } });
-  page.on('pageerror', e => { if (!letGo(String(e))) { problems.push(String(e)); } });
+  // What was let go is kept, to say so if something then does not work.
+  const letGoOf = [];
+  const heard = text => { if (letGo(text)) { letGoOf.push(text); } else { problems.push(text); } };
+  page.on('console', m => { if (m.type() === 'error') { heard(m.text()); } });
+  page.on('pageerror', e => heard(String(e)));
   const quiet = what => {
     check(`${what}: nothing went wrong in the page`, problems.length === 0, problems.join(' | '));
     problems.length = 0;
@@ -93,8 +96,17 @@ function moor(...args) {
       await page.waitForSelector('#palette[open]', { timeout: 5000 });
       break;
     } catch (e) {
+      // Whether the page's script ran, and whether the page has the keyboard, say what went wrong.
+      const state = await page.evaluate(() => ({
+        ready: document.readyState,
+        scriptRan: !document.querySelector('[data-palette-open]').hidden,
+        focused: document.hasFocus(),
+        active: document.activeElement && document.activeElement.tagName,
+      })).catch(err => String(err));
+      console.log(`note  ${browserName}: the palette did not open: ${JSON.stringify(state)}; let go of: ${letGoOf.slice(-3).join(' | ') || 'nothing'}`);
       if (tries <= 1) { throw e; }
       await visit(page, page.url());
+      await page.bringToFront();
     }
   }
   await page.keyboard.type('logs shop');
