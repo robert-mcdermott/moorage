@@ -22,6 +22,8 @@ type Var struct {
 	Secret bool
 	// Build makes the variable available to builds too.
 	Build bool
+	// ProductionOnly keeps previews from inheriting it.
+	ProductionOnly bool
 	// AllEnvs reports a variable set for every environment of the app,
 	// which an environment's own variable of the same name overrides.
 	AllEnvs   bool
@@ -72,7 +74,7 @@ func (db *DB) Vars(ctx context.Context, app, env string) ([]Var, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Reader.QueryContext(ctx, `SELECT name, value, value_enc, secret, build, env_id IS NULL, updated_by, updated_at
+	rows, err := db.Reader.QueryContext(ctx, `SELECT name, value, value_enc, secret, build, production_only, env_id IS NULL, updated_by, updated_at
 		FROM vars WHERE app_id = ? AND (env_id = ? OR env_id IS NULL) ORDER BY name, env_id IS NULL`, appID, envID)
 	if err != nil {
 		return nil, err
@@ -83,7 +85,7 @@ func (db *DB) Vars(ctx context.Context, app, env string) ([]Var, error) {
 		var v Var
 		var value, by sql.NullString
 		var updated int64
-		if err := rows.Scan(&v.Name, &value, &v.Sealed, &v.Secret, &v.Build, &v.AllEnvs, &by, &updated); err != nil {
+		if err := rows.Scan(&v.Name, &value, &v.Sealed, &v.Secret, &v.Build, &v.ProductionOnly, &v.AllEnvs, &by, &updated); err != nil {
 			return nil, err
 		}
 		v.Value, v.UpdatedBy, v.UpdatedAt = value.String, by.String, time.UnixMilli(updated).UTC()
@@ -132,8 +134,8 @@ func (db *DB) ChangeVars(ctx context.Context, app, env string, ch VarChange) ([]
 			if v.Secret {
 				value, sealed = nil, v.Sealed
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO vars (id, app_id, env_id, name, value, value_enc, secret, build, updated_by, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ids.New(ids.Var), appID, scope, v.Name, value, sealed, v.Secret, v.Build,
+			if _, err := tx.ExecContext(ctx, `INSERT INTO vars (id, app_id, env_id, name, value, value_enc, secret, build, production_only, updated_by, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ids.New(ids.Var), appID, scope, v.Name, value, sealed, v.Secret, v.Build, v.ProductionOnly,
 				nullString(ch.By), now); err != nil {
 				return err
 			}
@@ -153,23 +155,45 @@ func (db *DB) Config(ctx context.Context, app, env string) ([]ConfigVar, error) 
 	return config(ctx, db.Reader, appID, envID)
 }
 
+// config reads what an environment runs with: the app's variables for every environment,
+// then for a preview production's, unless they are for production only, then its own.
 func config(ctx context.Context, q querier, appID, envID string) ([]ConfigVar, error) {
-	rows, err := q.QueryContext(ctx, `SELECT name, value, value_enc, secret, build, coalesce(env_id, '')
-		FROM vars WHERE app_id = ? AND (env_id = ? OR env_id IS NULL)`, appID, envID)
+	var kind string
+	var production sql.NullString
+	if err := q.QueryRowContext(ctx, `SELECT e.kind, (SELECT p.id FROM environments p WHERE p.app_id = e.app_id AND p.kind = 'production')
+		FROM environments e WHERE e.id = ?`, envID).Scan(&kind, &production); err != nil {
+		return nil, err
+	}
+	inherited := ""
+	if kind == KindPreview {
+		inherited = production.String
+	}
+	rows, err := q.QueryContext(ctx, `SELECT name, value, value_enc, secret, build, coalesce(env_id, ''), production_only
+		FROM vars WHERE app_id = ? AND (env_id = ? OR env_id IS NULL OR (env_id = ? AND production_only = 0))`, appID, envID, inherited)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	rank := func(scope string) int {
+		switch scope {
+		case envID:
+			return 2
+		case inherited:
+			return 1
+		}
+		return 0
+	}
 	byName := map[string]ConfigVar{}
 	for rows.Next() {
 		var v ConfigVar
 		var value sql.NullString
-		if err := rows.Scan(&v.Name, &value, &v.Sealed, &v.Secret, &v.Build, &v.Scope); err != nil {
+		var productionOnly int
+		if err := rows.Scan(&v.Name, &value, &v.Sealed, &v.Secret, &v.Build, &v.Scope, &productionOnly); err != nil {
 			return nil, err
 		}
 		v.Value = value.String
-		if prev, ok := byName[v.Name]; ok && prev.Scope != "" {
-			continue // the environment's own variable wins
+		if prev, ok := byName[v.Name]; ok && rank(prev.Scope) >= rank(v.Scope) {
+			continue // the nearest one wins
 		}
 		byName[v.Name] = v
 	}

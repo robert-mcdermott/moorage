@@ -341,6 +341,19 @@ button.danger-solid { color: #fff; background: var(--fail); border-color: var(--
 :root[data-theme="dark"] button.danger-solid { color: #1b0c0a; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.danger-solid { color: #1b0c0a; } }
 
+.app-nav { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s4); border-bottom: 1px solid var(--line); }
+.app-nav .tabs { margin-bottom: -1px; border-bottom: 0; }
+.env-switch { display: flex; align-items: center; gap: var(--s2); padding-bottom: var(--s2); }
+.env-switch label { margin: 0; font-size: .82rem; color: var(--muted); font-weight: 400; }
+.env-switch select { width: auto; max-width: 14rem; padding: .25rem .5rem; font-size: .85rem; background: var(--surface); }
+.env-actions form { display: inline-block; margin-left: var(--s1); }
+.envs td { vertical-align: top; }
+.env-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s4); }
+.env-banner p { margin: 0; flex: 1 1 20rem; }
+.env-banner .env-actions form:first-child { margin-left: 0; }
+.lock-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); }
+.lock-offer p { margin: 0; flex: 1 1 20rem; }
+
 /* The dialog that asks first */
 .confirm { width: min(28rem, calc(100vw - 2rem)); padding: var(--s5); margin: 18vh auto auto; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .confirm::backdrop { background: var(--overlay); }

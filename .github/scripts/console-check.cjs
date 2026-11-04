@@ -48,7 +48,7 @@ function moor(...args) {
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
     '/apps/shop/variables/edit', '/apps/shop/deploy', '/apps/shop/settings', '/account', '/account/keys', '/account/tokens', '/account/sessions',
-    '/settings', '/settings/users', '/settings/registries', '/settings/system', '/settings/audit', '/projects', '/projects/default'];
+    '/settings', '/settings/users', '/settings/registries', '/settings/system', '/settings/audit', '/projects', '/projects/default', '/previews', '/apps/shop/environments', '/apps/shop?env=staging', '/apps/shop/logs?env=staging', '/apps/shop/variables?env=staging'];
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
     for (const path of pages) {
@@ -153,6 +153,20 @@ function moor(...args) {
   await page.waitForFunction(() => !location.search.includes('done='), null, { timeout: 5000 });
   check('what was done is said once', true);
   quiet('scaling');
+
+  // Another environment: chosen at the top, and kept by what is done there.
+  await page.goto(base + '/apps/shop');
+  await page.selectOption('#env-switch', 'staging');
+  await page.waitForURL('**/apps/shop?env=staging');
+  check('an environment is chosen at the top', await page.locator('text=shop · staging').count() > 0);
+  await page.fill('input[name="process.web"]', '2');
+  await page.click('button:has-text("Scale")');
+  await page.waitForSelector('text=web.2', { timeout: 15000 });
+  await page.waitForFunction(() => !location.search.includes('done='), null, { timeout: 5000 });
+  check('what is done there stays there', page.url().includes('env=staging'));
+  await page.goto(base + '/apps/shop/environments');
+  check('the environments are listed', await page.locator('a.app-name:has-text("staging")').count() === 1);
+  quiet('environments');
 
   // Variables: added, then edited as text with a look at what would change.
   await page.goto(base + '/apps/shop/variables');

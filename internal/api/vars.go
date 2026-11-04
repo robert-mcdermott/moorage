@@ -48,7 +48,7 @@ func (s *Server) changeVars(w http.ResponseWriter, r *http.Request) {
 	}
 	ch := deploy.ConfigChange{Unset: req.Unset, AllEnvs: req.AllEnvs, Restart: !req.NoRestart, By: who(r).Name}
 	for _, v := range req.Set {
-		ch.Set = append(ch.Set, deploy.VarValue{Name: v.Name, Value: v.Value, Secret: v.Secret, Build: v.Build})
+		ch.Set = append(ch.Set, deploy.VarValue{Name: v.Name, Value: v.Value, Secret: v.Secret, Build: v.Build, ProductionOnly: v.ProductionOnly})
 	}
 	res, err := s.deployer.Configure(r.Context(), app, env, ch)
 	var invalid *deploy.InvalidConfigError

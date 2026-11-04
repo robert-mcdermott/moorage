@@ -51,6 +51,8 @@ type Deployment struct {
 	CreatedAt  time.Time `json:"created_at"`
 	StartedAt  time.Time `json:"started_at,omitzero"`
 	FinishedAt time.Time `json:"finished_at,omitzero"`
+	// Warnings are what a promotion may surprise someone with.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Deployment statuses: queued, building, releasing and rolling_out while it
@@ -110,6 +112,8 @@ type VarSet struct {
 	Value  string `json:"value"`
 	Secret bool   `json:"secret,omitempty"`
 	Build  bool   `json:"build,omitempty"`
+	// ProductionOnly keeps previews from inheriting it.
+	ProductionOnly bool `json:"production_only,omitempty"`
 }
 
 // VarsResult says what a change of variables did.
@@ -417,13 +421,40 @@ type Environment struct {
 	// says, unless scaling said otherwise.
 	Formation map[string]int `json:"formation,omitempty"`
 	Instances []Instance     `json:"instances"`
+	// Kind is production, named or preview, and Branch what deploys to it, if a branch does.
+	Kind   string `json:"kind,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	// Pinned keeps a preview from expiring, and ExpiresAt says when it will otherwise.
+	Pinned    bool      `json:"pinned,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+	// LockedBy, if set, is who stopped deployments to it.
+	LockedBy   string    `json:"locked_by,omitempty"`
+	LastActive time.Time `json:"last_active_at,omitzero"`
+}
+
+// NewEnvironment makes a named environment.
+type NewEnvironment struct {
+	Name   string `json:"name"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// NewPreview makes a preview of a branch that was pushed.
+type NewPreview struct {
+	Branch string `json:"branch"`
+}
+
+// Promotion releases the build another environment runs.
+type Promotion struct {
+	From string `json:"from"`
 }
 
 // EnvironmentChange changes an environment.
 type EnvironmentChange struct {
 	// Formation sets how many instances of the named processes run, over the
 	// manifest's number, for this release and those to come.
-	Formation map[string]int `json:"formation"`
+	Formation map[string]int `json:"formation,omitempty"`
+	// Pinned keeps a preview from expiring.
+	Pinned *bool `json:"pinned,omitempty"`
 }
 
 // ReleaseDetail is a release, with what it runs.

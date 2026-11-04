@@ -128,6 +128,24 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 		r.plan.Exclude = b.Exclude
 	}
 	r.plan.Steps = preset
+	for name, e := range m.Environments {
+		if r.plan.Environments == nil {
+			r.plan.Environments = map[string]manifest.EnvPlan{}
+		}
+		over := manifest.EnvPlan{Branch: e.Branch, Env: e.Env}
+		for process, p := range e.Processes {
+			if p.Instances != nil {
+				if over.Instances == nil {
+					over.Instances = map[string]int{}
+				}
+				over.Instances[process] = *p.Instances
+			}
+		}
+		r.plan.Environments[name] = over
+	}
+	if m.Previews != nil {
+		r.plan.Previews = &manifest.PreviewPlan{Enabled: m.Previews.Enabled, Branches: m.Previews.Branches, TTL: m.Previews.TTL}
+	}
 	if m.Release != nil && (m.Release.Command != "" || m.Release.OnCreate != "") {
 		rel := *m.Release
 		r.plan.Release = &rel

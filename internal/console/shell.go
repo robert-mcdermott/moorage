@@ -9,6 +9,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/events"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -36,6 +37,8 @@ type appRow struct {
 	ChangedBy string
 	// Instances says how many are healthy, of how many.
 	Instances string
+	// OtherEnvs is how many environments it has beside production.
+	OtherEnvs int
 	// Last says what its newest deployment deployed, LastFailed that it failed
 	// while a release keeps serving, and Deploying that it is under way.
 	Last                  string
@@ -49,13 +52,17 @@ type crumb struct{ Label, Href string }
 type eventRow struct {
 	ID, App, Summary, Level string
 	At                      time.Time
+	// Env is its environment, unless that is production, and Where the address of both.
+	Env   string
+	Where string
 	// Href is the deployment it is about, if it is about one.
 	Href string
 }
 
 // eventRowOf draws an event for a timeline.
 func eventRowOf(e store.Event) eventRow {
-	row := eventRow{ID: e.ID, App: e.App, Summary: events.Summary(e), Level: events.Level(e.Type), At: e.At}
+	row := eventRow{ID: e.ID, App: e.App, Summary: events.Summary(e), Level: events.Level(e.Type), At: e.At, Env: envValue(e.Env)}
+	row.Where = appAddress(e.App, row.Env, "", nil)
 	if id, ok := e.Data["deployment"].(string); ok && id != "" {
 		row.Href = "/deployments/" + url.PathEscape(id)
 	}
@@ -87,6 +94,14 @@ func ago(t time.Time) string {
 		return plural(int(d.Hours()/24), "days") + " ago"
 	}
 	return t.Format("2 Jan 2006")
+}
+
+// agoOrDash says how long ago a time was, if it was at all.
+func agoOrDash(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return ago(t)
 }
 
 func plural(n int, unit string) string { return strconv.Itoa(n) + " " + unit }
@@ -157,7 +172,30 @@ func (c *Console) appData(r *http.Request, p auth.Principal, app, page, title st
 	if d.Access, err = c.auth.AppAccess(r.Context(), p, app); err != nil {
 		return d, err
 	}
+	d.Env = envValue(envOf(r))
+	envs, err := c.db.Environments(r.Context(), app)
+	if err != nil {
+		return d, err
+	}
+	for _, e := range envs {
+		d.EnvNames = append(d.EnvNames, e.Name)
+		if e.Name == envOf(r) {
+			d.EnvInfo = e
+		}
+	}
+	if d.Env != "" {
+		d.Title += " · " + d.Env
+		d.Heading += " · " + d.Env
+	}
 	return d, nil
+}
+
+// envValue is an environment as a page's addresses name it: production goes without.
+func envValue(env string) string {
+	if env == names.Production {
+		return ""
+	}
+	return env
 }
 
 func (c *Console) appURL(name string) string {
@@ -176,6 +214,7 @@ func (c *Console) palette(apps []store.AppSummary, admin bool, access map[string
 		{Label: "API tokens", Hint: "Account", Href: "/account/tokens"},
 		{Label: "Sessions", Hint: "Account", Href: "/account/sessions"},
 		{Label: "Projects", Hint: "Page", Href: "/projects"},
+		{Label: "Previews", Hint: "Page", Href: "/previews"},
 	}
 	if admin {
 		items = append(items,
@@ -192,6 +231,7 @@ func (c *Console) palette(apps []store.AppSummary, admin bool, access map[string
 		items = append(items,
 			paletteItem{Label: a.Name, Hint: "App", Href: base},
 			paletteItem{Label: "Deployments of " + a.Name, Hint: "App", Href: base + "/deployments"},
+			paletteItem{Label: "Environments of " + a.Name, Hint: "App", Href: base + "/environments"},
 		)
 		if can.Logs {
 			items = append(items, paletteItem{Label: "Logs of " + a.Name, Hint: "App", Href: base + "/logs"})

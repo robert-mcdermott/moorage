@@ -652,6 +652,67 @@ func (c *Client) ChangeProject(ctx context.Context, name string, change apitypes
 	return out, err
 }
 
+// Environments lists an app's environments.
+func (c *Client) Environments(ctx context.Context, app string) ([]apitypes.Environment, error) {
+	var out []apitypes.Environment
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/envs", nil, "", &out)
+	return out, err
+}
+
+// Previews lists the previews of every app the caller can see.
+func (c *Client) Previews(ctx context.Context) ([]apitypes.Environment, error) {
+	var out []apitypes.Environment
+	err := c.do(ctx, http.MethodGet, "/api/v1/previews", nil, "", &out)
+	return out, err
+}
+
+// CreateEnvironment makes a named environment.
+func (c *Client) CreateEnvironment(ctx context.Context, app string, req apitypes.NewEnvironment) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs", req, &out)
+	return out, err
+}
+
+// DeleteEnvironment removes an environment, with its data, logs and releases.
+func (c *Client) DeleteEnvironment(ctx context.Context, app, env string) error {
+	return c.do(ctx, http.MethodDelete, envDoc(app, env), nil, "", nil)
+}
+
+// CreatePreview makes a preview of a branch that was pushed.
+func (c *Client) CreatePreview(ctx context.Context, app, branch string) (apitypes.Deployment, error) {
+	var out apitypes.Deployment
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/previews", apitypes.NewPreview{Branch: branch}, &out)
+	return out, err
+}
+
+// PinEnvironment keeps a preview from expiring, or lets it.
+func (c *Client) PinEnvironment(ctx context.Context, app, env string, pinned bool) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPatch, envDoc(app, env), apitypes.EnvironmentChange{Pinned: &pinned}, &out)
+	return out, err
+}
+
+// Promote releases to an environment the build another one runs.
+func (c *Client) Promote(ctx context.Context, app, from, to string) (apitypes.Deployment, error) {
+	var out apitypes.Deployment
+	err := c.post(ctx, http.MethodPost, envPath(app, to, "promote"), apitypes.Promotion{From: from}, &out)
+	return out, err
+}
+
+// LockEnvironment stops deployments to an environment.
+func (c *Client) LockEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "lock"), struct{}{}, &out)
+	return out, err
+}
+
+// UnlockEnvironment lets an environment take deployments again.
+func (c *Client) UnlockEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "unlock"), struct{}{}, &out)
+	return out, err
+}
+
 // DeleteProject deletes a project that has no apps.
 func (c *Client) DeleteProject(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(name), nil, "", nil)

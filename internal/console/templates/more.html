@@ -4,6 +4,7 @@
 {{$ranges := .TimeRanges}}
 {{with .Logs}}
 <form class="log-tools" method="get" action="/apps/{{$app}}/logs" data-log-form>
+  {{with $.Env}}<input type="hidden" name="env" value="{{.}}">{{end}}
   <div class="log-tools-row">
     <div class="field">
       <label for="log-of">Instance</label>
@@ -76,14 +77,14 @@
 {{$app := .App.Name}}
 {{with .Variables}}
 {{if .Released}}<p class="notice-more muted small"><a href="/deployments/{{.Released}}">See the deployment</a></p>{{end}}
-{{if .BuildChanged}}<div class="notice warn" role="status"><p>A build variable reaches the app with its next build. <a href="/apps/{{$app}}">Redeploy it</a> to build with it now.</p></div>{{end}}
+{{if .BuildChanged}}<div class="notice warn" role="status"><p>A build variable reaches the app with its next build. <a href="/apps/{{$app}}{{envq $.Env}}">Redeploy it</a> to build with it now.</p></div>{{end}}
 {{if and .Unreleased $.Access.Manage}}
 <div class="notice warn pending" role="status">
   <div>
     <p><strong>Not released yet:</strong> {{range $i, $v := .Unreleased}}{{if $i}}, {{end}}<code>{{.Name}}</code> {{.Change}}{{end}}.</p>
     <p class="small">What runs now has the variables of its release.</p>
   </div>
-  <form method="post" action="/apps/{{$app}}/variables/release" data-busy="Releasing…">
+  <form method="post" action="/apps/{{$app}}/variables/release{{envq $.Env}}" data-busy="Releasing…">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     <button type="submit">Release them</button>
   </form>
@@ -99,15 +100,15 @@
 {{if $.Access.Manage}}<div class="page-actions">
   <details class="add-var" {{if not .Vars}}open{{end}}>
     <summary class="button">Add a variable</summary>
-    <form class="panel panel-pad var-form" method="post" action="/apps/{{$app}}/variables/set" data-busy="Saving…">
+    <form class="panel panel-pad var-form" method="post" action="/apps/{{$app}}/variables/set{{envq $.Env}}" data-busy="Saving…">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <div class="field"><label for="var-name">Name</label><input id="var-name" name="name" required autocomplete="off" spellcheck="false" placeholder="API_URL" pattern="[A-Za-z_][A-Za-z0-9_]*"></div>
       <div class="field"><label for="var-value">Value</label><textarea id="var-value" name="value" rows="2" autocomplete="off" spellcheck="false"></textarea></div>
-      {{template "var-flags" dict "HasRelease" .HasRelease "Prefix" "new"}}
+      {{template "var-flags" (dict "HasRelease" .HasRelease "IsProduction" (not $.Env))}}
       <div class="actions"><button type="submit">Add it</button></div>
     </form>
   </details>
-  <a class="button quiet" href="/apps/{{$app}}/variables/edit">Edit as text</a>
+  <a class="button quiet" href="/apps/{{$app}}/variables/edit{{envq $.Env}}">Edit as text</a>
 </div>{{end}}
 {{if .Vars}}
 <div class="panel table-scroll">
@@ -119,15 +120,17 @@
       <td class="var-name"><code>{{.Name}}</code>{{if .Secret}} <span class="badge">Secret</span>{{end}}{{if .Build}} <span class="badge info">Build</span>{{end}}</td>
       <td class="var-value">{{if .Secret}}<span class="muted" aria-label="Hidden">{{mask}}</span>{{else}}<code class="wrap">{{.Value}}</code>{{end}}</td>
       <td data-label="From" class="muted small">
-        {{if eq .Source "manifest"}}moorage.toml{{else if eq .Source "app"}}Every environment{{else}}This environment{{end}}
+        {{if eq .Source "manifest"}}moorage.toml{{else if eq .Source "app"}}Every environment{{else if eq .Source "production"}}Inherited from production{{else}}This environment{{end}}
         {{if .Overridden}}<span class="badge warn">Overridden</span>{{end}}
         {{if .UpdatedBy}}<div><time datetime="{{iso .UpdatedAt}}">{{ago .UpdatedAt}}</time> by {{.UpdatedBy}}</div>{{end}}
       </td>
       <td class="var-actions">
         {{if not $.Access.Manage}}
+        {{else if eq .Source "production"}}
+        <span class="muted small">Set one here to override it</span>
         {{else if ne .Source "manifest"}}
         {{if .Secret}}
-        <form method="post" action="/apps/{{$app}}/variables/reveal" data-confirm="Show the value of {{.Name}}? That you did is recorded.">
+        <form method="post" action="/apps/{{$app}}/variables/reveal{{envq $.Env}}" data-confirm="Show the value of {{.Name}}? That you did is recorded.">
           <input type="hidden" name="csrf" value="{{$csrf}}">
           <input type="hidden" name="name" value="{{.Name}}">
           <button class="quiet small" type="submit">Reveal</button>
@@ -135,7 +138,7 @@
         {{end}}
         <details class="row-edit">
           <summary class="button quiet small">Change</summary>
-          <form class="var-form" method="post" action="/apps/{{$app}}/variables/set" data-busy="Saving…">
+          <form class="var-form" method="post" action="/apps/{{$app}}/variables/set{{envq $.Env}}" data-busy="Saving…">
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <input type="hidden" name="name" value="{{.Name}}">
             {{if .Secret}}<input type="hidden" name="was_secret" value="1">{{end}}
@@ -147,7 +150,7 @@
             <div class="actions"><button type="submit">Save</button></div>
           </form>
         </details>
-        <form method="post" action="/apps/{{$app}}/variables/unset" data-confirm="Remove {{.Name}}? It takes effect at once." data-busy="Removing…">
+        <form method="post" action="/apps/{{$app}}/variables/unset{{envq $.Env}}" data-confirm="Remove {{.Name}}? It takes effect at once." data-busy="Removing…">
           <input type="hidden" name="csrf" value="{{$csrf}}">
           <input type="hidden" name="name" value="{{.Name}}">
           {{if eq .Source "app"}}<input type="hidden" name="all_envs" value="1">{{end}}
@@ -177,6 +180,7 @@
   <label class="check"><input type="checkbox" name="secret" value="1"> Secret: sealed, and never shown again</label>
   <label class="check"><input type="checkbox" name="build" value="1"> Available to builds</label>
   <label class="check"><input type="checkbox" name="all_envs" value="1"> For every environment</label>
+  {{if .IsProduction}}<label class="check"><input type="checkbox" name="production_only" value="1"> Not for previews: they inherit production's variables otherwise</label>{{end}}
   {{if .HasRelease}}<label class="check"><input type="checkbox" name="hold" value="1"> Save without releasing</label>{{end}}
 </div>
 {{end}}
@@ -202,7 +206,7 @@
     </tbody>
   </table>
   <p class="muted small">{{.Unchanged}} left as they are.</p>
-  <form method="post" action="/apps/{{$app}}/variables/apply" data-busy="Applying…">
+  <form method="post" action="/apps/{{$app}}/variables/apply{{envq $.Env}}" data-busy="Applying…">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     <input type="hidden" name="text" value="{{$.Variables.Editor}}">
     {{if $.Variables.SecretNew}}<input type="hidden" name="secret_new" value="1">{{end}}
@@ -213,13 +217,13 @@
   {{end}}
 </section>
 {{end}}
-<form class="panel panel-pad block var-editor" method="post" action="/apps/{{$app}}/variables/preview">
+<form class="panel panel-pad block var-editor" method="post" action="/apps/{{$app}}/variables/preview{{envq $.Env}}">
   <input type="hidden" name="csrf" value="{{$csrf}}">
   <label for="vars-text">Variables</label>
   <textarea id="vars-text" name="text" rows="16" spellcheck="false" autocomplete="off">{{.Editor}}</textarea>
   <label class="check"><input type="checkbox" name="secret_new" value="1"{{if .SecretNew}} checked{{end}}> Make the variables added here secrets</label>
   <label class="check"><input type="checkbox" name="build_new" value="1"{{if .BuildNew}} checked{{end}}> Make those available to builds</label>
-  <div class="actions"><button class="{{if .Preview}}quiet{{end}}" type="submit">See what changes</button><a class="button quiet" href="/apps/{{$app}}/variables">Back without changing</a></div>
+  <div class="actions"><button class="{{if .Preview}}quiet{{end}}" type="submit">See what changes</button><a class="button quiet" href="/apps/{{$app}}/variables{{envq $.Env}}">Back without changing</a></div>
 </form>
 {{end}}
 {{end}}

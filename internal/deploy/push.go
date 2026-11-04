@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/robert-mcdermott/moorage/internal/gitserver"
+	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -24,24 +26,26 @@ type Pushes struct {
 // the branch stays where it was.
 func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 	out := progress{p.Progress}
-	env, chosen := p.Option("env")
-	if chosen && env != "production" {
-		return fmt.Errorf("there is no environment %q: only production exists until named environments arrive", env)
-	}
+	chosen, picked := p.Option("env")
 	var target *gitserver.Update
+	targetEnv, targetKind := names.Production, store.KindProduction
 	for i := range p.Updates {
 		u := &p.Updates[i]
 		switch {
 		case u.Deletion():
+			ps.branchDeleted(ctx, p, u, out)
 		case u.Branch() == "":
 			out.printf("moorage  %s: tags are kept, not deployed", strings.TrimPrefix(u.Ref, "refs/tags/"))
-		case chosen || u.Branch() == p.DefaultBranch:
+		default:
+			env, kind, why := ps.destination(ctx, p, u, chosen, picked)
+			if why != "" {
+				out.printf("moorage  %s is kept, not deployed: %s", u.Branch(), why)
+				continue
+			}
 			if target != nil {
 				return errors.New("the push updates two branches that would deploy: push one at a time")
 			}
-			target = u
-		default:
-			out.printf("moorage  %s is kept, not deployed: %s deploys (previews of other branches arrive in 0.4.0)", u.Branch(), p.DefaultBranch)
+			target, targetEnv, targetKind = u, env, kind
 		}
 	}
 	if target == nil {
@@ -51,9 +55,30 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 		out.printf("moorage  %s is kept, not deployed: the push asked to skip the deploy", target.Branch())
 		return nil
 	}
+	if err := ps.Deployer.checkLock(ctx, p.App, targetEnv); err != nil {
+		var locked *LockedError
+		if errors.As(err, &locked) {
+			out.printf("moorage  %s is kept, not deployed: %v", target.Branch(), err)
+			return nil
+		}
+		return err
+	}
+	if targetKind == store.KindPreview {
+		name, err := ps.Deployer.PreviewName(ctx, p.App, target.Branch())
+		if err != nil {
+			var limit *NotPreviewableError
+			if errors.As(err, &limit) {
+				out.printf("moorage  %s is kept, not deployed: %v", target.Branch(), err)
+				return nil
+			}
+			return err
+		}
+		targetEnv = name
+	}
 
 	src := Source{
-		Type: "git-push", Ref: target.Ref, Commit: target.New, Message: firstLine(target.Message),
+		Type: SourcePush, Ref: target.Ref, Commit: target.New, Message: firstLine(target.Message),
+		EnvKind: targetKind, Branch: target.Branch(),
 		Fill: func(dir string) (int, error) {
 			ex, err := p.Export(target.New, dir)
 			if n := len(ex.Symlinks); n > 0 {
@@ -68,7 +93,7 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 			return ex.Files, err
 		},
 	}
-	dep, created, err := ps.Deployer.SubmitSource(ctx, p.App, "production", p.By, src)
+	dep, created, err := ps.Deployer.SubmitSource(ctx, p.App, targetEnv, p.By, src)
 	if err != nil {
 		return fmt.Errorf("the deployment could not start: %v", err)
 	}
@@ -101,6 +126,54 @@ func (ps *Pushes) Receive(ctx context.Context, p *gitserver.Push) error {
 		return fmt.Errorf("deployment %s %s: %s", dep.ID, dep.Status, reason)
 	}
 	return nil
+}
+
+// destination says where a pushed branch deploys, or why it does not.
+func (ps *Pushes) destination(ctx context.Context, p *gitserver.Push, u *gitserver.Update, chosen string, picked bool) (env, kind, why string) {
+	if picked {
+		if chosen == names.Production {
+			return names.Production, store.KindProduction, ""
+		}
+		if err := names.ValidateEnv(chosen); err != nil {
+			return "", "", err.Error()
+		}
+		kind, err := ps.Deployer.db.EnvKind(ctx, p.App, chosen)
+		if err != nil {
+			return "", "", err.Error()
+		}
+		return chosen, kind, ""
+	}
+	if u.Branch() == p.DefaultBranch {
+		return names.Production, store.KindProduction, ""
+	}
+	// An environment this branch was given earlier.
+	if e, err := ps.Deployer.db.EnvironmentOfBranch(ctx, p.App, u.Branch()); err == nil {
+		return e.Name, e.Kind, ""
+	}
+	// What the commit's own manifest says.
+	var declared *manifest.Manifest
+	if data, err := p.ReadFile(u.New, manifest.FileName); err == nil {
+		if m, err := manifest.Parse(data, manifest.FileName); err == nil {
+			declared = m
+		}
+	}
+	return branchTarget(declared, u.Branch())
+}
+
+// branchDeleted destroys the preview of a branch that is gone.
+func (ps *Pushes) branchDeleted(ctx context.Context, p *gitserver.Push, u *gitserver.Update, out progress) {
+	if u.Branch() == "" {
+		return
+	}
+	e, err := ps.Deployer.db.EnvironmentOfBranch(ctx, p.App, u.Branch())
+	if err != nil || e.Kind != store.KindPreview {
+		return
+	}
+	if err := ps.Deployer.DeleteEnvironment(ctx, p.App, e.Name, p.By); err != nil {
+		out.printf("moorage  the preview %s stays: %v", e.Name, err)
+		return
+	}
+	out.printf("moorage  destroyed the preview %s, with its branch", e.Name)
 }
 
 // progress writes lines to the client; once the client has gone, writes

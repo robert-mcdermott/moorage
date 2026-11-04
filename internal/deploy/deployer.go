@@ -31,6 +31,7 @@ type Runtime interface {
 	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan) error
 	Retire(app, env string)
 	Forget(app string)
+	ForgetEnv(app, env string)
 	Restart(ctx context.Context, app, env string) error
 	Scale(ctx context.Context, app, env string, change map[string]int) (map[string]int, error)
 	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error
@@ -57,6 +58,8 @@ type Options struct {
 	Repos *gitserver.Repos
 	// ForgetApp has the router let go of an app's files, which are about to move or go.
 	ForgetApp func(app string)
+	// LastActive says when an environment last had a request, since the server started.
+	LastActive func(app, env string) time.Time
 	// URL returns an environment's address, for the log.
 	URL func(app, env string) string
 	// Builds bounds how many builds run at once (default: half the CPUs).
@@ -162,6 +165,9 @@ type Source struct {
 	// its name.
 	Ref, Commit, Message string
 	Fill                 func(dir string) (files int, err error)
+	// EnvKind and Branch say what kind of environment to make if it does not exist yet,
+	// and which branch deploys to it: a named one, unless said otherwise.
+	EnvKind, Branch string
 }
 
 // The types of source that a deployment builds. SourceImage is a deployment of an
@@ -175,6 +181,9 @@ const (
 // SubmitSource is Submit for any source.
 func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src Source) (store.Deployment, bool, error) {
 	if err := names.ValidateApp(app); err != nil {
+		return store.Deployment{}, false, err
+	}
+	if err := d.checkLock(ctx, app, env); err != nil {
 		return store.Deployment{}, false, err
 	}
 	buildID := ids.New(ids.Build)
@@ -195,6 +204,10 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 		os.RemoveAll(dir)
 		return store.Deployment{}, false, err
 	}
+	if err := d.ensureEnv(ctx, app, env, src.EnvKind, src.Branch); err != nil {
+		os.RemoveAll(dir)
+		return store.Deployment{}, false, err
+	}
 	dep := store.Deployment{
 		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: src.Type,
 		SourceRef: src.Ref, SourceCommit: src.Commit, SourceMessage: src.Message, Status: store.Queued,
@@ -207,6 +220,24 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 	d.emit(ctx, events.DeploymentQueued, dep, nil)
 	d.enqueue(dep)
 	return dep, created, nil
+}
+
+// ensureEnv makes an environment that a deployment names, if it does not exist yet.
+func (d *Deployer) ensureEnv(ctx context.Context, app, env, kind, branch string) error {
+	if env == names.Production {
+		return nil
+	}
+	if kind == "" {
+		kind = store.KindNamed
+	}
+	created, err := d.db.CreateEnvironment(ctx, app, env, kind, branch)
+	if err != nil {
+		return err
+	}
+	if created {
+		d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentCreated, App: app, Env: env, Data: map[string]any{"kind": kind, "branch": branch}})
+	}
+	return nil
 }
 
 // Follow passes a deployment's log lines to fn as they are written, until
@@ -535,6 +566,9 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	if plan.Kind == manifest.KindStatic {
 		d.opts.Runtime.Retire(dep.App, dep.Env) // processes of an earlier release are no longer needed
 	}
+	if dep.Env == names.Production {
+		d.declareEnvironments(ctx, dep.App, plan, log)
+	}
 	if firstRelease && plan.Release != nil && plan.Release.OnCreate != "" {
 		build.Marker(log, "▸ on_create  %s", plan.Release.OnCreate)
 		if err := d.runOnce(ctx, dep, rel, b, plan, plan.Release.OnCreate, log); err != nil {
@@ -542,6 +576,24 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 		}
 	}
 	return rel, nil
+}
+
+// declareEnvironments makes the environments production's manifest names, and keeps their
+// branches as it says. One it no longer names stays: it may have data. A failure here does
+// not undo a release that is live, and the log says so.
+func (d *Deployer) declareEnvironments(ctx context.Context, app string, plan manifest.Plan, log io.Writer) {
+	for name, e := range plan.Environments {
+		if name == names.Production || name == "preview" {
+			continue
+		}
+		err := d.ensureEnv(ctx, app, name, store.KindNamed, e.Branch)
+		if err == nil && e.Branch != "" {
+			err = d.db.SetEnvironmentBranch(ctx, app, name, e.Branch)
+		}
+		if err != nil {
+			build.Marker(log, "             the environment %s could not be made: %v", name, err)
+		}
+	}
 }
 
 func (d *Deployer) runOnce(ctx context.Context, dep store.Deployment, rel store.Release, b store.Build, plan manifest.Plan, command string, log io.Writer) error {
@@ -568,6 +620,8 @@ type PublishRequest struct {
 	// Config, if not nil, replaces the environment's variables (a rollback
 	// that restores an earlier release's configuration).
 	Config []store.ConfigVar
+	// Warnings are written to the deployment's log.
+	Warnings []string
 }
 
 // Publish publishes a build that needs no building (an upload, the build
@@ -577,6 +631,14 @@ func (d *Deployer) Publish(ctx context.Context, req PublishRequest) (store.Relea
 	app, env, b, plan := req.App, req.Env, req.Build, req.Plan
 	if req.Reason == "rollback" || req.Reason == "config" {
 		plan.Release = nil // release commands run once, when a build is first deployed
+	}
+	if req.Reason == "deploy" {
+		if err := d.checkLock(ctx, app, env); err != nil {
+			return store.Release{}, store.Deployment{}, err
+		}
+		if err := d.ensureEnv(ctx, app, env, store.KindNamed, ""); err != nil {
+			return store.Release{}, store.Deployment{}, err
+		}
 	}
 	dep := store.Deployment{
 		ID: ids.New(ids.Deployment), App: app, Env: env, SourceType: req.Source, Status: store.RollingOut,
@@ -592,6 +654,9 @@ func (d *Deployer) Publish(ctx context.Context, req PublishRequest) (store.Relea
 	}
 	defer logFile.Close()
 	build.Marker(logFile, "moorage  %s · %s · %s", app, env, dep.ID)
+	for _, warning := range req.Warnings {
+		build.Marker(logFile, "moorage  warning: %s", warning)
+	}
 	rel, err := d.publish(ctx, dep, b, plan, req.Reason, req.Config, logFile)
 	if err != nil {
 		var rollout *reconcile.RolloutError

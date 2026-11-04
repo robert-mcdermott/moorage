@@ -53,6 +53,7 @@ func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 		}
 	}
 	w.Header().Set("X-Request-Id", info.id)
+	rt.active.Store(rte.app+"/"+rte.env, start)
 	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
 	rte.handler.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), infoKey{}, info)))
 	rt.access(rte, accessEntry{
@@ -112,6 +113,14 @@ func (rt *Router) access(rte route, e accessEntry) {
 	rt.logsMu.Unlock()
 	line, _ := json.Marshal(e)
 	f.Write(append(line, '\n'))
+}
+
+// LastActive says when an environment last had a request, since the server started.
+func (rt *Router) LastActive(app, env string) time.Time {
+	if at, ok := rt.active.Load(app + "/" + env); ok {
+		return at.(time.Time)
+	}
+	return time.Time{}
 }
 
 // ForgetApp lets go of an app's files, which are moving or going: its access logs, and the

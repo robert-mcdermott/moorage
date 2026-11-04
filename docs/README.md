@@ -29,6 +29,8 @@ how it works inside and where it is going.
 - [Anything else](other.md): your own build, a script, an app that is
   already built
 - [Variables and secrets](variables.md)
+- [Previews and environments](previews.md): a place of its own for every branch,
+  staging, promoting and locks
 
 ## Reference
 
@@ -50,6 +52,10 @@ how it works inside and where it is going.
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
 | `moor releases` | Lists an app's releases; `show` one, and `diff` two |
 | `moor rollback [vN]` | Serves an earlier release again, in a moment |
+| `moor environments` | Lists an app's environments; `create` and `delete` one |
+| `moor previews` | Lists the previews of branches; `create`, `pin`, `unpin` and `destroy` one |
+| `moor promote --from ENV` | Releases what one environment runs to another, without building it again |
+| `moor lock`, `moor unlock` | Stops deployments to an environment, and lets them go on |
 | `moor redeploy` | Builds the current release's source again, and rolls it out |
 | `moor ps` | Lists the app's instances: status, health, port, PID |
 | `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |

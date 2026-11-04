@@ -75,7 +75,7 @@ for i in itertools.count():
         print(f"ERROR: could not reach the database (attempt {i})", file=sys.stderr, flush=True)
     time.sleep(0.5)
 PY
-(cd "$app" && "$moor" deploy --server "http://127.0.0.1:$port" > /dev/null)
+(cd "$app" && "$moor" deploy --server "http://127.0.0.1:$port" > /dev/null && "$moor" deploy --server "http://127.0.0.1:$port" --env staging > /dev/null)
 echo "ok    the app is deployed"
 
 export CONSOLE_URL="http://$console:$port"

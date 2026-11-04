@@ -56,10 +56,13 @@ Once the remote is there, the other commands find the app from it:
 | Push | What happens |
 |---|---|
 | The production branch | Deployed to production. The production branch is the repository's default branch: `main`, or, if the first push had no `main`, the first branch it pushed. |
-| Another branch | Kept, not deployed (previews of other branches arrive in 0.4.0). |
+| A branch named in `[environments.NAME]` | Deployed to that environment. |
+| Another branch | Deployed to [a preview of its own](previews.md), at its own address. |
 | A tag | Kept, not deployed. |
-| `git push moorage --delete BRANCH` | The branch is deleted; the production branch cannot be. |
+| `git push moorage --delete BRANCH` | The branch is deleted, and its preview destroyed; the production branch cannot be. |
 | A commit whose message contains `[skip deploy]` | Kept, not deployed. |
+
+**A locked environment** [takes no deployments](previews.md#locks): the commits are kept, and not deployed, and the push says so.
 
 **A failed deploy fails the push.** The deploy runs before the branch moves:
 if it fails, git reports the push as rejected, with the deployment's ID and
@@ -82,7 +85,7 @@ go on side by side.
 |---|---|
 | `skip-deploy` | Keep the commits without deploying them. |
 | `detach` | Accept the push at once; the deploy goes on (follow it with `moor deployments follow ID`). |
-| `env=production` | Deploy this branch to production, whatever its name. |
+| `env=NAME` | Deploy this branch to that environment, which must exist, whatever the branch's name. |
 
 ```bash
 git push -o detach moorage main

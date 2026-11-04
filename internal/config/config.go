@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/robert-mcdermott/moorage/internal/names"
 )
 
 // Config is the content of server.toml.
@@ -355,6 +357,16 @@ func (c Config) PublicURL(host string) string {
 		}
 	}
 	return c.Proxy.ExternalScheme + "://" + host + port
+}
+
+// EnvHost is the hostname of an app's environment.
+func (c Config) EnvHost(app, env string) string {
+	return names.Label(app, env) + "." + c.Domain
+}
+
+// EnvURL is the address of an app's environment.
+func (c Config) EnvURL(app, env string) string {
+	return c.PublicURL(c.EnvHost(app, env))
 }
 
 func checkListen(addr string) error {

@@ -12,7 +12,6 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/dotenv"
-	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -67,8 +66,8 @@ func (c *Console) showVars(w http.ResponseWriter, r *http.Request, p auth.Princi
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}
 	d.Tab = "variables"
-	d.App = appView{Name: app, URL: c.appURL(app)}
-	view, err := c.varsView(r.Context(), app)
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, envOf(r))}
+	view, err := c.varsView(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -98,12 +97,12 @@ func revealedValue(r *http.Request) string {
 // revealVariable shows a secret's value, this once, and keeps a record of who saw it.
 func (c *Console) revealVariable(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
 	name := r.PostFormValue("name")
-	value, err := c.deployer.RevealVar(r.Context(), app, names.Production, name)
+	value, err := c.deployer.RevealVar(r.Context(), app, envOf(r), name)
 	result := "ok"
 	if err != nil {
 		result = "failed"
 	}
-	c.auth.Audit(r.Context(), store.AuditEntry{Actor: p.Name, IP: c.auth.ClientIP(r), Action: "secret.reveal", Target: app + "/" + names.Production + "/" + name, Result: result})
+	c.auth.Audit(r.Context(), store.AuditEntry{Actor: p.Name, IP: c.auth.ClientIP(r), Action: "secret.reveal", Target: app + "/" + envOf(r) + "/" + name, Result: result})
 	if err != nil {
 		var notSecret *deploy.NotSecretError
 		if errors.Is(err, store.ErrNotFound) || errors.As(err, &notSecret) {
@@ -123,20 +122,20 @@ var varNotices = map[string]string{
 	"none":     "Nothing changed.",
 }
 
-func (c *Console) varsView(ctx context.Context, app string) (varsView, error) {
+func (c *Console) varsView(ctx context.Context, app, env string) (varsView, error) {
 	var view varsView
 	var err error
-	if view.Vars, err = deploy.ListVars(ctx, c.db, app, names.Production); err != nil {
+	if view.Vars, err = deploy.ListVars(ctx, c.db, app, env); err != nil {
 		return view, err
 	}
-	_, _, err = c.db.CurrentRelease(ctx, app, names.Production)
+	_, _, err = c.db.CurrentRelease(ctx, app, env)
 	switch {
 	case err == nil:
 		view.HasRelease = true
 	case !errors.Is(err, store.ErrNotFound):
 		return view, err
 	}
-	if view.Unreleased, err = deploy.UnreleasedVars(ctx, c.db, app, names.Production); err != nil {
+	if view.Unreleased, err = deploy.UnreleasedVars(ctx, c.db, app, env); err != nil {
 		return view, err
 	}
 	return view, nil
@@ -157,7 +156,7 @@ func (c *Console) variablesPage(w http.ResponseWriter, r *http.Request) {
 // configure applies a change of variables and goes back to the page, saying what it did.
 func (c *Console) configure(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, ch deploy.ConfigChange) {
 	ch.By = p.Name
-	res, err := c.deployer.Configure(lasting(r), app, names.Production, ch)
+	res, err := c.deployer.Configure(lasting(r), app, envOf(r), ch)
 	var invalid *deploy.InvalidConfigError
 	var rollout *reconcile.RolloutError
 	switch {
@@ -183,7 +182,7 @@ func (c *Console) configure(w http.ResponseWriter, r *http.Request, p auth.Princ
 			next.Set("build", "1")
 		}
 	}
-	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"/variables?"+next.Encode(), http.StatusSeeOther)
+	http.Redirect(w, r, appAddress(app, envOf(r), "/variables", next), http.StatusSeeOther)
 }
 
 func checked(r *http.Request, name string) bool { return r.PostFormValue(name) != "" }
@@ -198,7 +197,7 @@ func (c *Console) setVariable(w http.ResponseWriter, r *http.Request, p auth.Pri
 		c.showVars(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: fmt.Sprintf("Give %s a new value: a secret's cannot be read back to keep.", name)})
 		return
 	}
-	ch.Set = []deploy.VarValue{{Name: name, Value: value, Secret: secret, Build: checked(r, "build")}}
+	ch.Set = []deploy.VarValue{{Name: name, Value: value, Secret: secret, Build: checked(r, "build"), ProductionOnly: checked(r, "production_only")}}
 	c.configure(w, r, p, app, ch)
 }
 
@@ -209,7 +208,7 @@ func (c *Console) unsetVariable(w http.ResponseWriter, r *http.Request, p auth.P
 }
 
 func (c *Console) releaseVariables(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	_, dep, err := c.deployer.ReleaseVars(lasting(r), app, names.Production, p.Name)
+	_, dep, err := c.deployer.ReleaseVars(lasting(r), app, envOf(r), p.Name)
 	if errors.Is(err, store.ErrNotFound) {
 		c.showVars(w, r, p, app, http.StatusConflict, &failure{Message: "There is nothing to release them with: nothing is deployed yet."})
 		return
@@ -223,7 +222,7 @@ func (c *Console) releaseVariables(w http.ResponseWriter, r *http.Request, p aut
 		c.internal(w, err)
 		return
 	}
-	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"/variables?"+url.Values{"done": {"released"}, "released": {dep.ID}}.Encode(), http.StatusSeeOther)
+	http.Redirect(w, r, appAddress(app, envOf(r), "/variables", url.Values{"done": {"released"}, "released": {dep.ID}}), http.StatusSeeOther)
 }
 
 // editorText writes an environment's own variables as the editor holds them.
@@ -313,7 +312,7 @@ func (c *Console) editVariablesPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	current, err := c.db.Vars(r.Context(), app, names.Production)
+	current, err := c.db.Vars(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -332,8 +331,8 @@ func (c *Console) showEditor(w http.ResponseWriter, r *http.Request, p auth.Prin
 		return
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}, {"Variables", "/apps/" + url.PathEscape(app) + "/variables"}}
-	d.App = appView{Name: app, URL: c.appURL(app)}
-	if _, _, err := c.db.CurrentRelease(r.Context(), app, names.Production); err == nil {
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, envOf(r))}
+	if _, _, err := c.db.CurrentRelease(r.Context(), app, envOf(r)); err == nil {
 		view.HasRelease = true
 	}
 	d.Variables = view
@@ -345,7 +344,7 @@ func (c *Console) showEditor(w http.ResponseWriter, r *http.Request, p auth.Prin
 func (c *Console) previewVariables(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
 	text := r.PostFormValue("text")
 	view := varsView{Editor: text, SecretNew: checked(r, "secret_new"), BuildNew: checked(r, "build_new")}
-	current, err := c.db.Vars(r.Context(), app, names.Production)
+	current, err := c.db.Vars(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -363,7 +362,7 @@ func (c *Console) previewVariables(w http.ResponseWriter, r *http.Request, p aut
 func (c *Console) applyVariables(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
 	text := r.PostFormValue("text")
 	view := varsView{Editor: text, SecretNew: checked(r, "secret_new"), BuildNew: checked(r, "build_new")}
-	current, err := c.db.Vars(r.Context(), app, names.Production)
+	current, err := c.db.Vars(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -374,7 +373,7 @@ func (c *Console) applyVariables(w http.ResponseWriter, r *http.Request, p auth.
 		return
 	}
 	if len(ch.Set) == 0 && len(ch.Unset) == 0 {
-		http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"/variables?done=none", http.StatusSeeOther)
+		http.Redirect(w, r, appAddress(app, envOf(r), "/variables", url.Values{"done": {"none"}}), http.StatusSeeOther)
 		return
 	}
 	ch.Restart = !checked(r, "hold")

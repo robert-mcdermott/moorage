@@ -289,6 +289,12 @@
           },
           "url": {
             "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -407,6 +413,13 @@
           "app": {
             "type": "string"
           },
+          "branch": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
           "formation": {
             "additionalProperties": {
               "type": "integer"
@@ -419,8 +432,21 @@
             },
             "type": "array"
           },
+          "kind": {
+            "type": "string"
+          },
+          "last_active_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "locked_by": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
           },
           "release": {
             "$ref": "#/components/schemas/Release"
@@ -444,11 +470,11 @@
               "type": "integer"
             },
             "type": "object"
+          },
+          "pinned": {
+            "type": "boolean"
           }
         },
-        "required": [
-          "formation"
-        ],
         "type": "object"
       },
       "Event": {
@@ -774,6 +800,31 @@
         ],
         "type": "object"
       },
+      "NewEnvironment": {
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "NewPreview": {
+        "properties": {
+          "branch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "branch"
+        ],
+        "type": "object"
+      },
       "NewProject": {
         "properties": {
           "name": {
@@ -939,6 +990,17 @@
             "type": "boolean"
           }
         },
+        "type": "object"
+      },
+      "Promotion": {
+        "properties": {
+          "from": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from"
+        ],
         "type": "object"
       },
       "Registry": {
@@ -1375,6 +1437,9 @@
           "name": {
             "type": "string"
           },
+          "production_only": {
+            "type": "boolean"
+          },
           "secret": {
             "type": "boolean"
           },
@@ -1718,7 +1783,164 @@
         "x-moorage-permission": "admin"
       }
     },
+    "/apps/{app}/envs": {
+      "get": {
+        "operationId": "getAppsAppEnvs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Environment"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an app's environments",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      },
+      "post": {
+        "operationId": "postAppsAppEnvs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewEnvironment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Make a named environment",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}": {
+      "delete": {
+        "operationId": "deleteAppsAppEnvsEnv",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Remove an environment that is not production, and everything of it: a preview takes a deployer, and a named environment a maintainer",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      },
       "get": {
         "operationId": "getAppsAppEnvsEnv",
         "parameters": [
@@ -2052,6 +2274,63 @@
         "x-moorage-permission": "read"
       }
     },
+    "/apps/{app}/envs/{env}/lock": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvLock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Stop deployments to an environment",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}/logs": {
       "get": {
         "operationId": "getAppsAppEnvsEnvLogs",
@@ -2203,6 +2482,73 @@
           "apps"
         ],
         "x-moorage-permission": "logs"
+      }
+    },
+    "/apps/{app}/envs/{env}/promote": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvPromote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Promotion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deployment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Release the build another environment runs",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
       }
     },
     "/apps/{app}/envs/{env}/redeploy": {
@@ -2600,6 +2946,63 @@
         "x-moorage-permission": "deploy"
       }
     },
+    "/apps/{app}/envs/{env}/unlock": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvUnlock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Let deployments to an environment go on",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}/vars": {
       "get": {
         "operationId": "getAppsAppEnvsEnvVars",
@@ -2788,6 +3191,65 @@
           "apps"
         ],
         "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/previews": {
+      "post": {
+        "operationId": "postAppsAppPreviews",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPreview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deployment"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Deploy a preview of a branch that was pushed",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
       }
     },
     "/audit": {
@@ -3751,6 +4213,48 @@
           "openapi.json"
         ],
         "x-moorage-permission": "public"
+      }
+    },
+    "/previews": {
+      "get": {
+        "operationId": "getPreviews",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Environment"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List the previews you can see, of every app",
+        "tags": [
+          "previews"
+        ],
+        "x-moorage-permission": "read"
       }
     },
     "/projects": {

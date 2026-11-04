@@ -197,7 +197,10 @@
 
   // What was done is said once, not again on reloading.
   if (location.search.indexOf('done=') >= 0 && window.history.replaceState) {
-    history.replaceState(null, '', location.pathname);
+    var kept = new URLSearchParams(location.search);
+    kept.delete('done');
+    kept.delete('released');
+    history.replaceState(null, '', location.pathname + (kept.toString() ? '?' + kept.toString() : ''));
   }
 
   // The parts of a page that change: the server draws them again, so that there is one
@@ -753,6 +756,8 @@
     if (!timeline || event.transient) { return; }
     var only = timeline.getAttribute('data-app');
     if (only && event.app !== only) { return; }
+    var onlyEnv = timeline.getAttribute('data-env') || (only ? 'production' : '');
+    if (onlyEnv && event.env && event.env !== onlyEnv) { return; }
     if (timeline.querySelector('[data-id="' + event.id + '"]')) { return; }
 
     var li = document.createElement('li');
@@ -767,8 +772,9 @@
     if (event.app && !only) {
       var where = document.createElement('a');
       where.className = 'where';
-      where.href = '/apps/' + encodeURIComponent(event.app);
-      where.textContent = event.app;
+      var otherEnv = event.env && event.env !== 'production';
+      where.href = '/apps/' + encodeURIComponent(event.app) + (otherEnv ? '?env=' + encodeURIComponent(event.env) : '');
+      where.textContent = otherEnv ? event.app + ' · ' + event.env : event.app;
       what.appendChild(where);
       what.appendChild(document.createTextNode(' '));
     }
@@ -832,6 +838,7 @@
 
   function followNextDeployment(event) {
     if (!waitingFor || event.type !== 'deployment.queued' || event.app !== waitingFor.getAttribute('data-wait-deployment')) { return; }
+    if (event.env && event.env !== (waitingFor.getAttribute('data-env') || 'production')) { return; }
     var id = event.data && event.data.deployment;
     if (id) { location.href = '/deployments/' + encodeURIComponent(id); }
   }

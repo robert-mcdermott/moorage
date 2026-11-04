@@ -48,6 +48,50 @@ type Plan struct {
 
 	// Notes say what detection found and decided.
 	Notes []string `json:"notes,omitempty"`
+
+	// Environments are the manifest's [environments.<name>]: "preview" applies to every
+	// preview.
+	Environments map[string]EnvPlan `json:"environments,omitempty"`
+	// Previews is the manifest's [previews].
+	Previews *PreviewPlan `json:"previews,omitempty"`
+}
+
+// EnvPlan is what an environment changes of a plan.
+type EnvPlan struct {
+	Branch    string            `json:"branch,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Instances map[string]int    `json:"instances,omitempty"`
+}
+
+// PreviewPlan says what previews an app wants.
+type PreviewPlan struct {
+	Enabled  *bool    `json:"enabled,omitempty"`
+	Branches []string `json:"branches,omitempty"`
+	TTL      Duration `json:"ttl,omitempty"`
+}
+
+// ForEnv returns the plan as an environment runs it, with what the manifest says of that
+// environment. kind is "preview" for a preview, whose overrides are those of "preview".
+func (p Plan) ForEnv(name, kind string) Plan {
+	key := name
+	if kind == "preview" {
+		key = "preview"
+	}
+	over, ok := p.Environments[key]
+	if !ok {
+		return p
+	}
+	if len(over.Env) > 0 {
+		env := make(map[string]string, len(p.Env)+len(over.Env))
+		for k, v := range p.Env {
+			env[k] = v
+		}
+		for k, v := range over.Env {
+			env[k] = v
+		}
+		p.Env = env
+	}
+	return p.WithFormation(over.Instances)
 }
 
 // ContainerPlan says how an app's image is made and how its containers run.

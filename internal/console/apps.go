@@ -154,10 +154,7 @@ func wanted(plan manifest.Plan, formation map[string]int) int {
 }
 
 func (c *Console) instances(app string) []reconcile.InstanceInfo {
-	if c.runtime == nil {
-		return nil
-	}
-	return c.runtime.Instances(app, names.Production)
+	return c.runtimeInstances(app, names.Production)
 }
 
 // appRows draws the apps list: each with how it stands.
@@ -179,9 +176,13 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 	if err != nil {
 		return nil, err
 	}
+	envCounts, err := c.db.EnvironmentCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows := make([]appRow, 0, len(apps))
 	for _, a := range apps {
-		row := appRow{Name: a.Name, URL: c.appURL(a.Name), Project: a.Project}
+		row := appRow{Name: a.Name, URL: c.appURL(a.Name), Project: a.Project, OtherEnvs: envCounts[a.Name] - 1}
 		plan, known := plans[a.Name]
 		static := known && plan.Kind != manifest.KindProcess
 		want, healthy := 0, 0
@@ -240,11 +241,14 @@ func (c *Console) lookupApp(w http.ResponseWriter, r *http.Request, p auth.Princ
 		c.noSuchApp(w, app)
 		return "", false
 	}
-	if _, err := c.db.EnvID(r.Context(), app, names.Production); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			c.noSuchApp(w, app)
-		} else {
+	if _, err := c.db.EnvID(r.Context(), app, envOf(r)); err != nil {
+		switch {
+		case !errors.Is(err, store.ErrNotFound):
 			c.internal(w, err)
+		case envOf(r) != names.Production:
+			c.message(w, http.StatusNotFound, data{Title: "Not found", Heading: "There is no such environment", Message: "It may have been removed, as a preview is when its branch goes.", Link: "/apps/" + url.PathEscape(app) + "/environments", LinkText: "The app's environments"})
+		default:
+			c.noSuchApp(w, app)
 		}
 		return "", false
 	}
@@ -298,12 +302,15 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}}
 	d.Tab = "overview"
-	view, err := c.appView(r.Context(), app)
+	view, err := c.appView(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
 	d.App = view
+	if d.Env != "" {
+		d.EnvRows = []environmentRow{c.environmentRow(r, d.EnvInfo, d.Access)}
+	}
 	d.Poll = view.Deploying
 	d.RefreshOn = app
 	d.Notice = notices[r.URL.Query().Get("done")]
@@ -314,9 +321,9 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 // recentDeployments is how many the app's page shows.
 const recentDeployments = 5
 
-func (c *Console) appView(ctx context.Context, app string) (appView, error) {
-	view := appView{Name: app, URL: c.appURL(app), Engine: c.hasEngine()}
-	deps, err := c.db.Deployments(ctx, app, names.Production, recentDeployments+1)
+func (c *Console) appView(ctx context.Context, app, env string) (appView, error) {
+	view := appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: c.hasEngine()}
+	deps, err := c.db.Deployments(ctx, app, env, recentDeployments+1)
 	if err != nil {
 		return view, err
 	}
@@ -325,7 +332,7 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 		last = &deps[0]
 		view.Deploying = inProgress(deps[0])
 	}
-	rel, b, err := c.db.CurrentRelease(ctx, app, names.Production)
+	rel, b, err := c.db.CurrentRelease(ctx, app, env)
 	hasRelease := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return view, err
@@ -349,12 +356,17 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 			}
 		}
 		if !view.Static {
-			formation, err := c.db.Formation(ctx, app, names.Production)
+			formation, err := c.db.Formation(ctx, app, env)
 			if err != nil {
 				return view, err
 			}
+			kind, err := c.db.EnvKind(ctx, app, env)
+			if err != nil {
+				return view, err
+			}
+			plan = plan.ForEnv(env, kind)
 			want = wanted(plan, formation)
-			view.Processes = c.processViews(app, rel.Version, plan, formation)
+			view.Processes = c.processViews(app, env, rel.Version, plan, formation)
 			for _, proc := range view.Processes {
 				for _, in := range proc.Instances {
 					if in.Status.Kind == "ok" && !in.Replaced {
@@ -364,7 +376,7 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 			}
 		}
 		if rel.Version > 1 {
-			if _, prev, err := c.db.ReleaseVersion(ctx, app, names.Production, rel.Version-1); err == nil && !prev.Collected {
+			if _, prev, err := c.db.ReleaseVersion(ctx, app, env, rel.Version-1); err == nil && !prev.Collected {
 				view.Previous = rel.Version - 1
 			}
 		}
@@ -375,12 +387,12 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 	}
 	if len(deps) > recentDeployments {
 		deps = deps[:recentDeployments]
-		view.Older = "/apps/" + url.PathEscape(app) + "/deployments"
+		view.Older = appAddress(app, env, "/deployments", nil)
 	}
 	for _, dep := range deps {
 		view.Recent = append(view.Recent, deploymentRowOf(dep, current))
 	}
-	list, err := c.db.Events(ctx, store.EventFilter{App: app, Limit: 8})
+	list, err := c.db.Events(ctx, store.EventFilter{App: app, Env: env, AndApp: true, Limit: 8})
 	if err != nil {
 		return view, err
 	}
@@ -390,9 +402,9 @@ func (c *Console) appView(ctx context.Context, app string) (appView, error) {
 	return view, nil
 }
 
-func (c *Console) processViews(app string, version int, plan manifest.Plan, formation map[string]int) []processView {
+func (c *Console) processViews(app, env string, version int, plan manifest.Plan, formation map[string]int) []processView {
 	byName := map[string][]instanceView{}
-	for _, in := range c.instances(app) {
+	for _, in := range c.runtimeInstances(app, env) {
 		byName[in.Process] = append(byName[in.Process], instanceView{
 			Name: fmt.Sprintf("%s.%d", in.Process, in.Index), Status: instanceStatus(in), Version: in.Version,
 			Port: in.Port, PID: in.PID, Restarts: in.Restarts, Started: in.StartedAt, LastExit: exitText(in),
@@ -470,6 +482,7 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 		scale    *reconcile.ScaleError
 		back     *deploy.CannotRollBackError
 		redeploy *deploy.CannotRedeployError
+		locked   *deploy.LockedError
 	)
 	switch {
 	case errors.As(err, &rollout):
@@ -480,6 +493,8 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(back.Error())})
 	case errors.As(err, &redeploy):
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(redeploy.Error())})
+	case errors.As(err, &locked):
+		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(locked.Error())})
 	case errors.Is(err, store.ErrNotFound):
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: "Nothing is deployed yet."})
 	default:
@@ -488,7 +503,7 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 }
 
 func (c *Console) restart(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	if err := c.deployer.Restart(lasting(r), app, names.Production, p.Name); err != nil {
+	if err := c.deployer.Restart(lasting(r), app, envOf(r), p.Name); err != nil {
 		var rollout *reconcile.RolloutError
 		if errors.As(err, &rollout) || errors.Is(err, store.ErrNotFound) {
 			c.actionFailed(w, r, p, app, err)
@@ -498,11 +513,11 @@ func (c *Console) restart(w http.ResponseWriter, r *http.Request, p auth.Princip
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
 		return
 	}
-	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"?done=restarted", http.StatusSeeOther)
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"restarted"}}), http.StatusSeeOther)
 }
 
 func (c *Console) redeploy(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	dep, err := c.deployer.Redeploy(lasting(r), app, names.Production, p.Name)
+	dep, err := c.deployer.Redeploy(lasting(r), app, envOf(r), p.Name)
 	if err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
@@ -516,7 +531,7 @@ func (c *Console) rollback(w http.ResponseWriter, r *http.Request, p auth.Princi
 		c.showApp(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "That is not a release to go back to."})
 		return
 	}
-	_, dep, err := c.deployer.Rollback(lasting(r), app, names.Production, p.Name, version, r.PostFormValue("with_config") != "")
+	_, dep, err := c.deployer.Rollback(lasting(r), app, envOf(r), p.Name, version, r.PostFormValue("with_config") != "")
 	if err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
@@ -530,7 +545,7 @@ const scalePrefix = "process."
 // scale changes the numbers that differ from what runs: one left alone stays the
 // manifest's to decide.
 func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
-	_, b, err := c.db.CurrentRelease(r.Context(), app, names.Production)
+	_, b, err := c.db.CurrentRelease(r.Context(), app, envOf(r))
 	if err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
@@ -540,12 +555,17 @@ func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal
 		c.internal(w, err)
 		return
 	}
-	formation, err := c.db.Formation(r.Context(), app, names.Production)
+	formation, err := c.db.Formation(r.Context(), app, envOf(r))
 	if err != nil {
 		c.internal(w, err)
 		return
 	}
-	running := plan.WithFormation(formation).Processes
+	kind, err := c.db.EnvKind(r.Context(), app, envOf(r))
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	running := plan.ForEnv(envOf(r), kind).WithFormation(formation).Processes
 	change := map[string]int{}
 	for field, values := range r.PostForm {
 		name, ok := strings.CutPrefix(field, scalePrefix)
@@ -562,14 +582,14 @@ func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal
 		}
 	}
 	if len(change) == 0 {
-		http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"?done=unchanged", http.StatusSeeOther)
+		http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"unchanged"}}), http.StatusSeeOther)
 		return
 	}
-	if _, err := c.deployer.Scale(lasting(r), app, names.Production, p.Name, change); err != nil {
+	if _, err := c.deployer.Scale(lasting(r), app, envOf(r), p.Name, change); err != nil {
 		c.actionFailed(w, r, p, app, err)
 		return
 	}
-	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"?done=scaled", http.StatusSeeOther)
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"scaled"}}), http.StatusSeeOther)
 }
 
 func (c *Console) hasEngine() bool { return c.deployer != nil && c.deployer.HasEngine() }
@@ -621,11 +641,15 @@ func (c *Console) showDeploy(w http.ResponseWriter, r *http.Request, p auth.Prin
 	if exists {
 		d.Crumbs = append(d.Crumbs, crumb{app, "/apps/" + url.PathEscape(app)})
 	}
-	d.App = appView{Name: app, URL: c.appURL(app), Engine: c.hasEngine()}
+	env := envOf(r)
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: c.hasEngine()}
 	d.Heading = "Deploy " + app
 	d.Error = problem
 	d.Image = image
 	d.Commands = []string{"moor deploy --app " + app}
+	if env != names.Production {
+		d.Commands = []string{"moor deploy --app " + app + " --env " + env}
+	}
 	d.GitCommands = []string{"moor keys add", "moor git remote --app " + app, "git push moorage main"}
 	d.LoginCommand = "moor login " + c.cfg.PublicURL(c.cfg.ConsoleHost)
 	d.MaxUpload = humanSize(deploy.MaxUpload)
@@ -652,7 +676,12 @@ func (c *Console) deployImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.audited(w, r, p, func(w http.ResponseWriter) {
-		dep, err := c.deployer.DeployImage(lasting(r), app, names.Production, p.Name, image)
+		dep, err := c.deployer.DeployImage(lasting(r), app, envOf(r), p.Name, image)
+		var locked *deploy.LockedError
+		if errors.As(err, &locked) {
+			c.showDeploy(w, r, p, app, http.StatusConflict, sentence(err.Error()), image)
+			return
+		}
 		if err != nil {
 			c.internal(w, err)
 			return
@@ -738,10 +767,11 @@ func (c *Console) deployArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.audited(w, r, p, func(w http.ResponseWriter) {
-		dep, _, err := c.deployer.Submit(lasting(r), app, names.Production, p.Name, part)
+		dep, _, err := c.deployer.Submit(lasting(r), app, envOf(r), p.Name, part)
 		var invalid *deploy.InvalidUploadError
+		var locked *deploy.LockedError
 		switch {
-		case errors.As(err, &invalid):
+		case errors.As(err, &invalid), errors.As(err, &locked):
 			c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), "")
 			return
 		case err != nil:

@@ -120,8 +120,8 @@ func TestDeployRejectsBadRequests(t *testing.T) {
 	if _, _, err := c.DeployStatic(ctx, "Bad_Name", "production", site, manifest.Static{}, nil); !errors.As(err, &apiErr) || apiErr.Status != 422 {
 		t.Errorf("invalid app name: %v", err)
 	}
-	if _, _, err := c.DeployStatic(ctx, "docs", "staging", site, manifest.Static{}, nil); !errors.As(err, &apiErr) || apiErr.Status != 422 {
-		t.Errorf("unsupported environment: %v", err)
+	if _, _, err := c.DeployStatic(ctx, "docs", "Not_A_Name", site, manifest.Static{}, nil); !errors.As(err, &apiErr) || apiErr.Status != 422 {
+		t.Errorf("invalid environment name: %v", err)
 	}
 	bad := manifest.Static{Redirects: []manifest.Redirect{{From: "/a", To: "/b", Status: 404}}}
 	if _, _, err := c.DeployStatic(ctx, "docs", "production", site, bad, nil); !errors.As(err, &apiErr) || apiErr.Status != 422 {

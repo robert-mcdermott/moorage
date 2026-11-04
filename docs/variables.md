@@ -37,6 +37,16 @@ The key that encrypts secrets, `keys/master.key` in the data directory, must
 be backed up apart from the database. A server whose secrets were encrypted
 with another key, or without its key, refuses to start.
 
+## In other environments
+
+A variable belongs to one environment, or with `--all-envs` to all of them. [A preview](previews.md)
+also inherits production's, and shows them as inherited; setting one of the same name on the preview
+overrides it. Keep one from previews with `--production-only`:
+
+```bash
+moor env set --secret --production-only STRIPE_KEY
+```
+
 ## More
 
 - `--all-envs` sets a variable for every environment of the app; an

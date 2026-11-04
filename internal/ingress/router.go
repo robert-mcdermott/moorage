@@ -30,6 +30,9 @@ import (
 // snapshot replaced atomically by Reload, so a request always sees one
 // consistent table and deploys never interrupt requests in flight.
 type Router struct {
+	// active holds when each environment last had a request, by "app/env".
+	active sync.Map
+
 	cfg     config.Config
 	db      *store.DB
 	dataDir string
@@ -116,9 +119,6 @@ func (rt *Router) Reload(ctx context.Context) error {
 	}
 	used := map[string]*static.Site{}
 	for _, r := range routes {
-		if r.Env != names.Production {
-			continue // other environments arrive with previews
-		}
 		var plan manifest.Plan
 		if err := json.Unmarshal(r.Build.Plan, &plan); err != nil {
 			rt.log.Error("cannot read a build's plan", "app", r.App, "build", r.Build.ID, "err", err)
@@ -150,7 +150,10 @@ func (rt *Router) Reload(ctx context.Context) error {
 			rt.log.Error("build plan kind not served by this version", "app", r.App, "kind", plan.Kind)
 			continue
 		}
-		next.routes[r.App+"."+rt.cfg.Domain] = route{app: r.App, env: r.Env, handler: h}
+		if r.Env != names.Production {
+			h = noindex(h)
+		}
+		next.routes[rt.cfg.EnvHost(r.App, r.Env)] = route{app: r.App, env: r.Env, handler: h}
 	}
 	rt.sites = used
 	rt.table.Store(next)
@@ -297,4 +300,12 @@ func isLocal(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// noindex keeps an environment that is not production out of search engines.
+func noindex(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Robots-Tag", "noindex")
+		next.ServeHTTP(w, r)
+	})
 }

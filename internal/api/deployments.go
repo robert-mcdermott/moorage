@@ -17,7 +17,7 @@ import (
 
 func (s *Server) deploymentDoc(d store.Deployment) apitypes.Deployment {
 	doc := apitypes.Deployment{
-		ID: d.ID, App: d.App, Env: d.Env, URL: s.appURL(d.App), Source: d.SourceType, Status: d.Status,
+		ID: d.ID, App: d.App, Env: d.Env, URL: s.envURL(d.App, d.Env), Source: d.SourceType, Status: d.Status,
 		Ref: d.SourceRef, Commit: d.SourceCommit, Message: d.SourceMessage,
 		Build: d.BuildID, Error: d.Error, Output: d.Output, CreatedBy: d.CreatedBy,
 		CreatedAt: d.CreatedAt, StartedAt: d.StartedAt, FinishedAt: d.FinishedAt,

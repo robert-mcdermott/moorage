@@ -92,33 +92,45 @@ type InvalidNameError struct{ Err error }
 
 func (e *InvalidNameError) Error() string { return e.Err.Error() }
 
-// quiesce takes an app's environment out of service, once no deployment is under way, and
-// returns with its release lock held.
+// quiesce takes an app's environments out of service, once no deployment is under way, and
+// returns with their release locks held.
 func (d *Deployer) quiesce(ctx context.Context, app string) (release func(), err error) {
-	if _, err := d.db.EnvID(ctx, app, names.Production); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, fmt.Errorf("no app %q: %w", app, store.ErrNotFound)
-		}
-		return nil, err
-	}
-	lock := d.envLock(app, names.Production)
-	lock.Lock()
-	deps, err := d.db.Deployments(ctx, app, names.Production, 1)
-	if err == nil && len(deps) > 0 && !store.Final(deps[0].Status) {
-		err = &AppBusyError{app}
-	}
+	envs, err := d.db.Environments(ctx, app)
 	if err != nil {
-		lock.Unlock()
 		return nil, err
+	}
+	if len(envs) == 0 {
+		return nil, fmt.Errorf("no app %q: %w", app, store.ErrNotFound)
+	}
+	var held []func()
+	release = func() {
+		for _, unlock := range held {
+			unlock()
+		}
+	}
+	for _, e := range envs {
+		lock := d.envLock(app, e.Name)
+		lock.Lock()
+		held = append(held, lock.Unlock)
+		deps, err := d.db.Deployments(ctx, app, e.Name, 1)
+		if err == nil && len(deps) > 0 && !store.Final(deps[0].Status) {
+			err = &AppBusyError{app}
+		}
+		if err != nil {
+			release()
+			return nil, err
+		}
 	}
 	if d.opts.Runtime != nil {
-		d.opts.Runtime.Retire(app, names.Production)
+		for _, e := range envs {
+			d.opts.Runtime.Retire(app, e.Name)
+		}
 		d.opts.Runtime.Forget(app)
 	}
 	if d.opts.ForgetApp != nil {
 		d.opts.ForgetApp(app)
 	}
-	return lock.Unlock, nil
+	return release, nil
 }
 
 // DeleteApp removes an app: its instances, variables, releases, builds, logs and
@@ -218,15 +230,25 @@ func (d *Deployer) RenameApp(ctx context.Context, app, name, by string) error {
 	d.opts.Events.Publish(ctx, store.Event{Type: events.AppRenamed, App: name, Actor: by, Data: map[string]any{"from": app}})
 	d.log.Info("renamed an app", "from", app, "to", name, "by", by)
 	if d.opts.Runtime != nil {
-		// A static site has no instances to start.
-		if _, b, err := d.db.CurrentRelease(ctx, name, names.Production); err == nil {
+		envs, err := d.db.Environments(ctx, name)
+		if err != nil {
+			return err
+		}
+		var failed error
+		for _, e := range envs {
+			// A static site has no instances to start, nor an environment with no release.
+			_, b, err := d.db.CurrentRelease(ctx, name, e.Name)
+			if err != nil {
+				continue
+			}
 			var plan manifest.Plan
-			if err := json.Unmarshal(b.Plan, &plan); err == nil && plan.Kind == manifest.KindProcess {
-				if err := d.opts.Runtime.Restart(ctx, name, names.Production); err != nil {
-					return err
+			if json.Unmarshal(b.Plan, &plan) == nil && plan.Kind == manifest.KindProcess {
+				if err := d.opts.Runtime.Restart(ctx, name, e.Name); err != nil && failed == nil {
+					failed = err
 				}
 			}
 		}
+		return failed
 	}
 	return nil
 }

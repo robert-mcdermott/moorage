@@ -240,6 +240,28 @@ Pages get strong ETags and ranges; files whose names carry a content hash
 `.br` and `.gz` files next to a file are served to browsers that accept
 them. See [Static sites](static.md).
 
+## `[previews]`
+
+[Previews](previews.md) are on unless this says otherwise.
+
+| Key | Default | |
+|---|---|---|
+| `enabled` | `true` | A preview for each branch pushed. |
+| `branches` | every branch | Globs of the branches that get one; `!` leaves some out: `["*", "!dependabot/*"]`. |
+| `ttl` | `"7d"` | Destroyed after this long without a deployment or a request. |
+
+## `[environments.NAME]`
+
+What is different about [an environment](previews.md#named-environments), which deploying the
+manifest makes if it is not there. `NAME` is `production`, a name such as `staging`, or `preview`, which
+applies to every preview.
+
+| Key | |
+|---|---|
+| `branch` | The branch whose pushes deploy to it. |
+| `env` | Variables, over those of `[env]`. |
+| `processes.web.instances` | How many instances of that process run. |
+
 ## `[env]`
 
 Variables for the app, at build and run time, such as `LOG_LEVEL = "info"`.
@@ -294,6 +316,7 @@ and `moor manifest validate` warns that they have no effect yet:
 | `app.watch`, `app.root` | a later release |
 | `[vars]` | a later release (declared variables) |
 | `[resources]` and `[storage]` outside a container | a later release |
-| `[[cron]]`, `[[routes]]`, `[previews]`, `[environments]`, `[services]`, `processes.*.sleep` | later releases |
+| `[[cron]]`, `[[routes]]`, `[services]`, `processes.*.sleep` | later releases |
+| `previews.access`, `previews.sleep_after`, `previews.data`; `access`, `sleep_after` and `resources` in `[environments.*]` | later releases |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

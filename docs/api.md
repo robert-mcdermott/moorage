@@ -67,6 +67,10 @@ exist; one that your role does not allow answers 403, and says which role would.
 
 ## Logs
 
+`GET /api/v1/apps/{app}/envs` lists its environments, and `GET /api/v1/previews` the previews of
+every app you can see, with when each expires. `POST` to `/envs` makes one, and to `/previews` one of a branch;
+`POST /envs/{env}/promote`, `/lock` and `/unlock` do what they say, and `PATCH` with `pinned` keeps a preview.
+
 `GET /api/v1/apps/{app}/envs/{env}/logs` streams an environment's logs as NDJSON, newest last:
 `tail` lines, then with `follow=1` new ones as they come. `source` chooses from `stdout`,
 `stderr`, `moorage`, `build`, `access` and `events`; `process`, `instance`, `grep`,

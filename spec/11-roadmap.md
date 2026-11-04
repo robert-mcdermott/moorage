@@ -888,6 +888,21 @@ directory, supervises it, and serves it on its own hostname.
 4. **Previews and environments.** Branch previews (naming, inheritance, TTL,
    pinning, limits, destroyed with their branch), named environments,
    `promote`, deploy locks, the Previews page.
+   - Done in slice 4: a pushed branch gets its own preview at `<app>--<env>`,
+     with production's variables except those marked `--production-only`, its own
+     data, `noindex`, and an end when its branch goes or after `[previews] ttl` of
+     no deployment or request; pinning, a limit of ten; named environments from
+     `[environments.NAME]`, `moor environments create` or `moor deploy --env`;
+     `moor promote`, with a warning if build variables differ; `moor lock`; roles
+     on all of them; an **Environments** tab, a **Previews** page and an
+     environment chosen on every page of an app.
+   - Found by slice 4: a lock refuses deployments, where the design had them
+     built and held until unlocking. Holding needs a further state of a
+     deployment and something to release what is held, and git keeps the commit
+     anyway, so the design now says what was built. A glob's `*` must cross
+     slashes, since branches have them, so `path.Match` would not do. A deployer
+     can destroy a preview by deleting its branch, so the console and the API let
+     them do so directly; removing a named environment still takes a maintainer.
 5. **Sleep and wake.** Idle sleep with the waking-up page; per-process
    opt-out.
 6. **Access gates.** Password, sign-in (with identity headers), share links,

@@ -39,7 +39,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -50,7 +50,7 @@ func pageNames() []string {
 func parseTemplates(source fs.FS, asset func(string) string) (map[string]*template.Template, error) {
 	base, err := template.New("pages").Funcs(template.FuncMap{
 		"asset": asset, "ago": ago, "iso": iso, "clock": clock, "date": func(t time.Time) string { return t.Format("2 Jan 2006") },
-		"mask": func() string { return secretMask }, "countText": countText, "size": humanSizeOf,
+		"mask": func() string { return secretMask }, "countText": countText, "size": humanSizeOf, "envq": envQuery, "agoOrDash": agoOrDash, "untilText": untilText, "bareURL": bareURL,
 		"orDash": orNone,
 		"orNobody": func(s string) string {
 			if s == "" {
@@ -156,6 +156,15 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("GET /previews", c.previewsPage)
+	mux.HandleFunc("GET /apps/{app}/environments", c.environmentsPage)
+	mux.HandleFunc("POST /apps/{app}/environments", c.action(c.createEnvironment))
+	mux.HandleFunc("POST /apps/{app}/previews", c.action(c.createPreview))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/delete", c.environmentAction(c.deleteEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/lock", c.environmentAction(c.lockEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/unlock", c.environmentAction(c.unlockEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/pin", c.environmentAction(c.pinEnvironment))
+	mux.HandleFunc("POST /apps/{app}/environments/{env}/promote", c.environmentAction(c.promoteEnvironment))
 	mux.HandleFunc("GET /apps/{app}/settings", c.appSettingsPage)
 	mux.HandleFunc("POST /apps/{app}/settings/move", c.actionWith(auth.ScopeAdmin, maxForm, c.moveApp))
 	mux.HandleFunc("POST /apps/{app}/settings/rename", c.actionWith(auth.ScopeAdmin, maxForm, c.renameApp))
@@ -261,8 +270,14 @@ type data struct {
 	Projects []projectRow
 	Project  projectView
 
-	// Access says what the viewer may do with the app the page is about.
-	Access auth.Access
+	// Access says what the viewer may do with the app the page is about. Env is the
+	// environment in its addresses, empty for production; EnvNames are the app's
+	// environments, EnvInfo that one, and EnvRows a list of them.
+	Access   auth.Access
+	Env      string
+	EnvNames []string
+	EnvInfo  store.Environment
+	EnvRows  []environmentRow
 	// Usage says how much room it takes.
 	Usage deploy.AppUsage
 

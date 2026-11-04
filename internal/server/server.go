@@ -79,6 +79,8 @@ type Options struct {
 	// GCMinAge, if set, overrides how old a build must be before garbage
 	// collection may remove it (tests shorten it).
 	GCMinAge time.Duration
+	// PreviewSweep, if set, overrides how often previews are looked at (tests shorten it).
+	PreviewSweep time.Duration
 }
 
 // authorizeGit decides a Smart HTTP request by the API token in its password:
@@ -258,17 +260,23 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Runtime: runtime,
 		Reload:  router.Reload,
 		URL: func(app, env string) string {
-			return cfg.PublicURL(app + "." + cfg.Domain)
+			return cfg.EnvURL(app, env)
 		},
-		GCMinAge:  opts.GCMinAge,
-		Secrets:   keyring,
-		Events:    bus,
-		Repos:     repos,
-		ForgetApp: router.ForgetApp,
+		GCMinAge:   opts.GCMinAge,
+		Secrets:    keyring,
+		Events:     bus,
+		Repos:      repos,
+		ForgetApp:  router.ForgetApp,
+		LastActive: router.LastActive,
 	}, log)
 	// Running builds are stopped (and recorded as failed) before the
 	// database closes.
 	defer deployer.Shutdown()
+	sweep := opts.PreviewSweep
+	if sweep == 0 {
+		sweep = time.Hour
+	}
+	go deployer.Sweep(ctx, sweep)
 	authn := &auth.Service{
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,

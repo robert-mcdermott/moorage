@@ -33,6 +33,10 @@ const (
 	AppRestarted         = "app.restarted"
 	AppRenamed           = "app.renamed"
 	AppDeleted           = "app.deleted"
+	EnvironmentCreated   = "environment.created"
+	EnvironmentDeleted   = "environment.deleted"
+	EnvironmentLocked    = "environment.locked"
+	EnvironmentUnlocked  = "environment.unlocked"
 	ServerStarted        = "server.started"
 )
 
@@ -165,9 +169,9 @@ func Level(kind string) string {
 		return "fail"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
-	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed:
+	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked:
 		return "info"
-	case AppDeleted:
+	case AppDeleted, EnvironmentDeleted, EnvironmentLocked:
 		return "warn"
 	}
 	return ""
@@ -229,6 +233,8 @@ func Summary(e store.Event) string {
 		return "Deployment canceled"
 	case ReleaseCreated:
 		switch reason := text(e, "reason"); reason {
+		case "promote":
+			return fmt.Sprintf("Promoted%s: v%d now serves in %s", by, number(e, "version"), e.Env)
 		case "rollback":
 			return fmt.Sprintf("Rolled back%s: v%d now serves", by, number(e, "version"))
 		case "config":
@@ -261,6 +267,17 @@ func Summary(e store.Event) string {
 		return "Renamed from " + text(e, "from") + by
 	case AppDeleted:
 		return "Deleted" + by
+	case EnvironmentCreated:
+		if branch := text(e, "branch"); branch != "" {
+			return "Environment " + e.Env + " made, for the branch " + branch
+		}
+		return "Environment " + e.Env + " made"
+	case EnvironmentDeleted:
+		return "Environment " + e.Env + " removed" + by
+	case EnvironmentLocked:
+		return e.Env + " locked" + by + ": it takes no deployments"
+	case EnvironmentUnlocked:
+		return e.Env + " unlocked" + by
 	case ServerStarted:
 		if v := text(e, "version"); v != "" {
 			return "The server started, version " + v

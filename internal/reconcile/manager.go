@@ -25,7 +25,6 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
-	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/shim"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -391,9 +390,6 @@ func (m *Manager) ensure(ctx context.Context) {
 		return
 	}
 	for _, r := range routes {
-		if r.Env != names.Production {
-			continue
-		}
 		plan, err := readPlan(r.Build)
 		if err != nil || plan.Kind != manifest.KindProcess {
 			continue
@@ -408,7 +404,7 @@ func (m *Manager) ensure(ctx context.Context) {
 			formation, err = m.db.Formation(ctx, r.App, r.Env)
 		}
 		if err == nil {
-			err = m.ensureEnv(ctx, es, rel, r.Build, plan.WithFormation(formation))
+			err = m.ensureEnv(ctx, es, rel, r.Build, plan.ForEnv(r.Env, r.Kind).WithFormation(formation))
 		}
 		if err != nil && ctx.Err() == nil {
 			m.log.Error("cannot start an instance", "app", r.App, "env", r.Env, "err", err)

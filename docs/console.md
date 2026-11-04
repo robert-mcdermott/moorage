@@ -47,6 +47,9 @@ deployments change as they do. From here:
 | **Roll back** | Serves the release before this one again, as a new release, in seconds. A deployment's page rolls back to that one, and can restore the variables it ran with. | `moor rollback` |
 | **Scale** | Says how many instances of each process run. | `moor scale` |
 
+When an app has more than one environment, its pages have a choice of which one at the top,
+and everything on them is about that one.
+
 An app's **Settings** are for maintainers: moving it to another project, renaming it, and
 deleting it.
 
@@ -76,6 +79,15 @@ had; `0` turns a process off.
 ```bash
 moor scale web=3 worker=1
 ```
+
+## Environments and previews
+
+An app's **Environments** tab lists [where it runs](previews.md): each with its status, address and
+release. From here you make an environment or a preview of a branch, **Promote** what one runs to
+production, **Lock** one against deployments, **Pin** a preview and **Remove** or **Destroy** what you no longer need.
+
+**Previews** in the sidebar has those of every app you can see, with when each was last used and
+when it expires.
 
 ## A deployment
 
