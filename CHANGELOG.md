@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **One line to install (wave 3, slice 1).** `curl … install.sh | sh` on macOS and Linux, and `irm … install.ps1 | iex` in PowerShell on Windows 11. Each picks the file for the computer from the latest release, requires exactly one matching SHA-256 checksum, runs the downloaded program's version check, and only then puts it in place, so a failed download never replaces a working copy. Neither needs administrator rights: `moor` goes to `~/.local/bin`, or to `/usr/local/bin` as root, or on Windows to `%LocalAppData%\Programs\Moorage`, which is added to the user `PATH`. Running one again upgrades `moor` without disturbing a running server or its apps, including on Windows, where the running file is moved aside; `MOOR_VERSION` installs a particular release. See [Installing Moorage](docs/install.md).
+
 ## 0.2.0 (2026-11-03)
 
 Moorage 0.2.0 is for teams. `git push` deploys an app, over SSH or HTTPS, with no `git` or `sshd` needed on the server, and shows the build in your terminal. Accounts, sign-in from any machine and scoped API tokens say who did what. Apps with a `Containerfile`, or an image from a registry, run in containers under Podman or Docker, released and rolled back like any other app. `moor trust` makes browsers accept the certificates of a server's own CA, `moor server doctor` checks a server and says how to fix what it finds, and `moor server proxy-config nginx` writes the configuration for running behind nginx. The documentation has moved up to `docs/`, with complete examples. The web console comes in 0.3.0.

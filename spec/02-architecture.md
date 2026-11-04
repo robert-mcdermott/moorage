@@ -301,8 +301,10 @@ To run plain HTTP behind an existing TLS proxy such as nginx instead, set
 
 ### Install walkthrough
 
-1. Download the `moor` binary for the platform (or use the install script /
-   OS package) and put it on `PATH`.
+1. Install `moor`: `install.sh` piped from `curl` on macOS and Linux, or
+   `install.ps1` piped into `iex` on Windows, which pick the file for the platform
+   and check it against the release's checksums. As root, it goes to
+   `/usr/local/bin`.
 2. `sudo moor server init` asks a few questions — preset, domain, whether
    Moorage terminates TLS or sits behind your TLS proxy, admin email — checks
    DNS and ports as it goes, and writes `server.toml`. Behind a proxy, it also

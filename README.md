@@ -49,19 +49,23 @@ binary with its state in SQLite, and everything else is built in.
 
 ## Quick start
 
-Try it on your own computer (Linux or macOS). Get `moor` from the
-[latest release](https://github.com/robert-mcdermott/moorage/releases/latest)
-— here for a Mac with Apple silicon; the
-[installation guide](docs/install.md) has the others and checks the
-download's checksum:
+Try it on your own computer. On macOS or Linux:
 
 ```bash
-curl -fLo moor https://github.com/robert-mcdermott/moorage/releases/latest/download/moor-darwin-arm64
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | sh
 ```
 
-```bash
-chmod +x moor && sudo mv moor /usr/local/bin/
+In PowerShell on Windows 11:
+
+```powershell
+irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
+
+That picks the file for your computer from the
+[latest release](https://github.com/robert-mcdermott/moorage/releases/latest), checks
+its checksum and needs no administrator rights. The
+[installation guide](docs/install.md) has the details, and how to read the script
+first.
 
 Start a server for this computer only (apps at `http://<app>.localhost:8080`):
 

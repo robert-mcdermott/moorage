@@ -673,19 +673,39 @@ directory, supervises it, and serves it on its own hostname.
 
 ### Wave 3
 
-1. **Console foundation.** Layout and CSS design tokens (light and dark),
+1. **Installing.** One line to get `moor`: `install.sh` for macOS and Linux, piped
+   from `curl`, and `install.ps1` for Windows 11, piped into `iex`. Each picks the
+   file for the computer, checks it against the release's checksums and its own
+   version, and only then puts it in place, needing no administrator rights. The
+   README and the documentation lead with them.
+   - Done in slice 1:
+     - `install.sh` (POSIX sh) and `install.ps1` (Windows PowerShell 5.1 and later) at
+       the top of the repository: the pattern of checks a release must pass before it
+       replaces what is there, and settings through the environment, since a pipe takes
+       no options.
+     - As root, `install.sh` installs to `/usr/local/bin`, because a system service
+       should not run from someone's home directory. `moor server install` runs the
+       binary from where it finds it.
+     - Upgrading says what it upgraded from, and that a server goes on with the old
+       version until it restarts.
+     - Verified by tests that run both scripts as they are, against a release in a
+       directory with downloads standing in: each thing that can be wrong with a
+       download, leaving the installed copy alone. CI runs them for real against the
+       published releases: on Linux on x64 and ARM, macOS, Windows on x64 and Windows 11
+       on ARM, in both PowerShells, as root, and upgrading under a running server.
+2. **Console foundation.** Layout and CSS design tokens (light and dark),
    templates, the first-run wizard, grown from the account pages of wave 2,
    slice 3 (sign-in, the claim, CSRF-protected forms), the event
    bus with one SSE stream, the activity timeline, the command palette.
-2. **Apps and deployments.** The dashboard; the app overview with
+3. **Apps and deployments.** The dashboard; the app overview with
    environments and instances; deployments with the live stage timeline and
    log, the resolved manifest and the release diff; deploy, rollback,
    redeploy, restart and scale actions.
-3. **Logs, variables and settings.** The live log viewer (instances, sources,
+4. **Logs, variables and settings.** The live log viewer (instances, sources,
    search, time range, download); variables with secret, source and override
    badges and bulk edit; account pages (SSH keys, tokens, sessions); server
    settings; the System page with the `doctor` results.
-4. **Release 0.3.0.**
+5. **Release 0.3.0.**
 
 ## 0.4.0: previews and sharing (planned)
 

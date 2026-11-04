@@ -152,6 +152,41 @@ jobs:
       - name: Upgrade from the last release
         run: .github/scripts/upgrade-check.sh
 
+  install-unix:
+    # Runs install.sh for real, piped into a shell, against the published releases.
+    name: Install (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        if: runner.os == 'Linux'
+        run: |
+          sh -n install.sh
+          dash -n install.sh
+          shellcheck --shell=sh install.sh
+      - name: Install, upgrade and install as root
+        run: .github/scripts/install-check.sh
+
+  install-windows:
+    # Runs install.ps1 for real, piped into Invoke-Expression, in Windows PowerShell
+    # and PowerShell, on x64 and on Windows 11 for ARM.
+    name: Install (${{ matrix.os }}, ${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+        shell: [powershell, pwsh]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and upgrade
+        shell: ${{ matrix.shell }}
+        run: .github/scripts/install-check.ps1
+
   service:
     # Installs the server as a system service (systemd, launchd), restarts it
     # with an app under load, and checks the app kept running (spike S2).
