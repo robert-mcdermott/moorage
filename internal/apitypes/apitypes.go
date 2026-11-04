@@ -421,6 +421,8 @@ type Environment struct {
 	// says, unless scaling said otherwise.
 	Formation map[string]int `json:"formation,omitempty"`
 	Instances []Instance     `json:"instances"`
+	// Asleep says that its instances are stopped until a request wakes it.
+	Asleep bool `json:"asleep,omitempty"`
 	// Kind is production, named or preview, and Branch what deploys to it, if a branch does.
 	Kind   string `json:"kind,omitempty"`
 	Branch string `json:"branch,omitempty"`

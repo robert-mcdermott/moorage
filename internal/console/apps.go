@@ -44,6 +44,8 @@ type appView struct {
 	Events     []eventRow
 	// Deploying says that a deployment is under way.
 	Deploying bool
+	// Asleep says that its instances are stopped until a request wakes it.
+	Asleep bool
 	// Previous is the release a rollback goes back to, if there is one to serve.
 	Previous int
 	// Engine says whether this server can run containers.
@@ -88,7 +90,7 @@ type instanceView struct {
 func inProgress(d store.Deployment) bool { return !store.Final(d.Status) }
 
 // appStatus says how an app stands, from its newest deployment and its instances.
-func appStatus(hasRelease, static bool, want, healthy int, last *store.Deployment) status {
+func appStatus(hasRelease, static, asleep bool, want, healthy int, last *store.Deployment) status {
 	switch {
 	case last != nil && inProgress(*last):
 		return status{"Deploying", "info pulse"}
@@ -98,6 +100,8 @@ func appStatus(hasRelease, static bool, want, healthy int, last *store.Deploymen
 		return status{"Not deployed", ""}
 	case static:
 		return status{"Live", "ok"}
+	case asleep:
+		return status{"Sleeping", "info"}
 	case want == 0:
 		return status{"Scaled to zero", ""}
 	case healthy >= want:
@@ -164,6 +168,7 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 		return nil, err
 	}
 	plans := map[string]manifest.Plan{}
+	asleep := map[string]bool{}
 	for _, r := range routes {
 		if r.Env != names.Production {
 			continue
@@ -171,6 +176,7 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 		if plan, err := readPlan(r.Build); err == nil {
 			plans[r.App] = plan
 		}
+		asleep[r.App] = r.Asleep
 	}
 	latest, err := c.db.LatestDeployments(ctx, names.Production)
 	if err != nil {
@@ -209,7 +215,7 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 			row.LastFailed = d.Status == store.Failed && a.Production != nil
 			row.Deploying = inProgress(d)
 		}
-		row.Status = appStatus(a.Production != nil, static, want, healthy, last)
+		row.Status = appStatus(a.Production != nil, static, asleep[a.Name], want, healthy, last)
 		rows = append(rows, row)
 	}
 	return rows, nil
@@ -231,6 +237,22 @@ func (c *Console) appsPage(w http.ResponseWriter, r *http.Request, p auth.Princi
 		d.Poll = d.Poll || row.Deploying
 	}
 	c.render(w, http.StatusOK, "apps", d)
+}
+
+func (c *Console) sleepApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	if err := c.deployer.Sleep(lasting(r), app, envOf(r), p.Name); err != nil {
+		c.actionFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"slept"}}), http.StatusSeeOther)
+}
+
+func (c *Console) wakeApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	if err := c.deployer.Wake(lasting(r), app, envOf(r), p.Name); err != nil {
+		c.actionFailed(w, r, p, app, err)
+		return
+	}
+	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"woken"}}), http.StatusSeeOther)
 }
 
 // lookupApp reads the {app} path value, and answers if there is no such app that the
@@ -271,6 +293,8 @@ func (c *Console) noSuchApp(w http.ResponseWriter, app string) {
 // notices are what an action may say on the page it returns to. The address names
 // one: nothing of a request's own is shown.
 var notices = map[string]string{
+	"slept":     "It is asleep. The next request wakes it.",
+	"woken":     "It is awake.",
 	"restarted": "Its instances were replaced.",
 	"scaled":    "It now runs as many instances as you asked.",
 	"unchanged": "It already runs that many instances.",
@@ -381,7 +405,10 @@ func (c *Console) appView(ctx context.Context, app, env string) (appView, error)
 			}
 		}
 	}
-	view.Status = appStatus(hasRelease, view.Static, want, healthy, last)
+	if e, err := c.db.Environment(ctx, app, env); err == nil {
+		view.Asleep = !e.AsleepAt.IsZero() && hasRelease && !view.Static
+	}
+	view.Status = appStatus(hasRelease, view.Static, view.Asleep, want, healthy, last)
 	if hasRelease && last != nil && last.Status == store.Failed {
 		view.LastFailed = last.ID
 	}
@@ -483,6 +510,7 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 		back     *deploy.CannotRollBackError
 		redeploy *deploy.CannotRedeployError
 		locked   *deploy.LockedError
+		sleep    *deploy.NotSleepableError
 	)
 	switch {
 	case errors.As(err, &rollout):
@@ -495,6 +523,8 @@ func (c *Console) actionFailed(w http.ResponseWriter, r *http.Request, p auth.Pr
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(redeploy.Error())})
 	case errors.As(err, &locked):
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(locked.Error())})
+	case errors.As(err, &sleep):
+		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: sentence(sleep.Error())})
 	case errors.Is(err, store.ErrNotFound):
 		c.showApp(w, r, p, app, http.StatusConflict, &failure{Message: "Nothing is deployed yet."})
 	default:

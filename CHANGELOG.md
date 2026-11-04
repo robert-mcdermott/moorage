@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Sleep and wake (wave 4, slice 5).** An environment left idle stops its instances, and the next request starts them and waits: a browser gets a page that says it is waking up, and reloads itself. Previews do it after 30 minutes unless told otherwise, and others with `sleep_after` in `[environments.NAME]`. `sleep = false` keeps a process running, `moor sleep` and `moor wake` do it by hand, and it stays asleep across a restart of the server.
 - **Previews (wave 4, slice 4).** Push a branch, and it gets its own build at its own address, `shop--my-branch.apps.example.com`, with production's variables (except those set `--production-only`), its own empty data directory and `noindex`. Deleting the branch destroys it, and so does going unused for seven days, unless it is pinned. **Previews** in the console and `moor previews` have them all. If you push other branches to a Moorage remote today, note that they will now deploy: `enabled = false` in `[previews]` keeps them as they were.
 - **Named environments.** `[environments.staging]` with a branch, `moor environments create`, or `moor deploy --env staging`: a place that stays, with its own address, variables and data. Every page of an app in the console and every command with `--env` works on them.
 - **`moor promote --from staging`.** Releases the exact build one environment runs to another, in seconds, and warns if it was built with other build variables.

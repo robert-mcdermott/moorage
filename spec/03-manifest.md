@@ -408,7 +408,7 @@ exposed as `$MOORAGE_DATA_DIR` (native) or mounted into containers.
 | `enabled` | `true` (if previews are enabled server-side) | Create an environment per pushed branch. |
 | `branches` | `["*"]` | Glob filters, whose `*` crosses slashes; prefix `!` to exclude (`"!dependabot/*"`). |
 | `ttl` | `"7d"` | Delete after this long without a deploy or request. |
-| `sleep_after` | `"30m"` | Stop instances after this long without requests; wake on next request. |
+| `sleep_after` | `"30m"` | Stop instances after this long without requests; wake on next request. `"off"` never does. |
 | `access` | server default | `public`, `password`, `login`, `share`. |
 | `data` | `"empty"` | `empty` or `copy` (copy production's data directory when created). |
 

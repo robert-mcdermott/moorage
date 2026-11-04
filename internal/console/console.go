@@ -156,6 +156,8 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("POST /apps/{app}/sleep", c.action(c.sleepApp))
+	mux.HandleFunc("POST /apps/{app}/wake", c.action(c.wakeApp))
 	mux.HandleFunc("GET /previews", c.previewsPage)
 	mux.HandleFunc("GET /apps/{app}/environments", c.environmentsPage)
 	mux.HandleFunc("POST /apps/{app}/environments", c.action(c.createEnvironment))

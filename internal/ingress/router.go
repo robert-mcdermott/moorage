@@ -30,8 +30,12 @@ import (
 // snapshot replaced atomically by Reload, so a request always sees one
 // consistent table and deploys never interrupt requests in flight.
 type Router struct {
-	// active holds when each environment last had a request, by "app/env".
+	// active holds when each environment last had a request, and open how many it has going
+	// on, by "app/env".
 	active sync.Map
+	open   sync.Map
+	// sleeper says which environments are asleep.
+	sleeper atomic.Pointer[Sleeper]
 
 	cfg     config.Config
 	db      *store.DB
@@ -51,6 +55,12 @@ type Router struct {
 
 	logsMu     sync.Mutex
 	accessLogs map[string]*logs.File // by "app/env"
+}
+
+// Sleeper says which environments are asleep, and wakes them for requests.
+type Sleeper interface {
+	Asleep(app, env string) bool
+	WakeFor(app, env string) <-chan struct{}
 }
 
 // PoolSource provides the backend pool of an environment of a process app.
@@ -86,6 +96,9 @@ func NewRouter(cfg config.Config, db *store.DB, dataDir string, log *slog.Logger
 
 // SetPools sets where the pools of process apps come from.
 func (rt *Router) SetPools(ps PoolSource) { rt.pools = ps }
+
+// SetSleeper sets what says which environments are asleep. Until then, none are.
+func (rt *Router) SetSleeper(s Sleeper) { rt.sleeper.Store(&s) }
 
 // Trusted returns the trusted proxy prefixes.
 func (rt *Router) Trusted() []netip.Prefix { return rt.trusted }

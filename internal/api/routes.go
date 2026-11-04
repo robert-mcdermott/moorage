@@ -184,6 +184,8 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/apps/{app}/envs/{env}/promote", perm: canDeploy, handler: s.promote, summary: "Release the build another environment runs", request: apitypes.Promotion{}, response: apitypes.Deployment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/lock", perm: canDeploy, handler: s.lock, summary: "Stop deployments to an environment", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/unlock", perm: canDeploy, handler: s.unlock, summary: "Let deployments to an environment go on", response: apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/sleep", perm: canDeploy, handler: s.sleep, summary: "Stop an environment's instances until a request wakes it", response: apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/wake", perm: canDeploy, handler: s.wake, summary: "Start an environment that is asleep, and answer when it is ready", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/previews", perm: canDeploy, handler: s.createPreview, status: http.StatusAccepted, summary: "Deploy a preview of a branch that was pushed", request: apitypes.NewPreview{}, response: apitypes.Deployment{}},
 		{method: "GET", path: "/previews", perm: canRead, handler: s.previews, summary: "List the previews you can see, of every app", response: []apitypes.Environment{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}", perm: canRead, handler: s.environment, summary: "How an environment stands: its release, formation and instances", response: apitypes.Environment{}},

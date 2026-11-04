@@ -37,6 +37,8 @@ const (
 	EnvironmentDeleted   = "environment.deleted"
 	EnvironmentLocked    = "environment.locked"
 	EnvironmentUnlocked  = "environment.unlocked"
+	EnvironmentSlept     = "environment.slept"
+	EnvironmentWoke      = "environment.woke"
 	ServerStarted        = "server.started"
 )
 
@@ -169,7 +171,7 @@ func Level(kind string) string {
 		return "fail"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
 		return "warn"
-	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked:
+	case DeploymentQueued, DeploymentStarted, ReleaseCreated, ConfigChanged, ScaleChanged, AppRestarted, AppRenamed, EnvironmentCreated, EnvironmentUnlocked, EnvironmentWoke:
 		return "info"
 	case AppDeleted, EnvironmentDeleted, EnvironmentLocked:
 		return "warn"
@@ -274,6 +276,16 @@ func Summary(e store.Event) string {
 		return "Environment " + e.Env + " made"
 	case EnvironmentDeleted:
 		return "Environment " + e.Env + " removed" + by
+	case EnvironmentSlept:
+		if e.Actor == "" {
+			return e.Env + " went to sleep: nothing was using it"
+		}
+		return e.Env + " put to sleep" + by
+	case EnvironmentWoke:
+		if e.Actor == "" {
+			return e.Env + " woke for a request"
+		}
+		return e.Env + " woken" + by
 	case EnvironmentLocked:
 		return e.Env + " locked" + by + ": it takes no deployments"
 	case EnvironmentUnlocked:

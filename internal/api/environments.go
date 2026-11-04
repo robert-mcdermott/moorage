@@ -13,8 +13,9 @@ import (
 // describeEnv fills in what the store says of an environment.
 func (s *Server) describeEnv(ctx context.Context, doc *apitypes.Environment, e store.Environment) {
 	doc.Kind, doc.Branch, doc.Pinned, doc.LockedBy, doc.LastActive = e.Kind, e.Branch, e.Pinned, e.LockedBy, e.LastActive
+	doc.Asleep = !e.AsleepAt.IsZero()
 	if e.Kind == store.KindPreview && !e.Pinned {
-		doc.ExpiresAt = s.deployer.PreviewActive(ctx, e).Add(s.deployer.PreviewTTL(ctx, e.App, e.Name))
+		doc.ExpiresAt = s.deployer.EnvironmentActive(ctx, e).Add(s.deployer.PreviewTTL(ctx, e.App, e.Name))
 	}
 }
 
@@ -73,11 +74,12 @@ func (s *Server) environmentFailed(w http.ResponseWriter, err error) bool {
 		preview    *deploy.NotPreviewableError
 		invalid    *store.InvalidNameError
 		redeploy   *deploy.CannotRedeployError
+		sleepless  *deploy.NotSleepableError
 	)
 	switch {
 	case err == nil:
 		return false
-	case errors.As(err, &production), errors.As(err, &busy), errors.As(err, &locked), errors.As(err, &preview), errors.As(err, &redeploy):
+	case errors.As(err, &production), errors.As(err, &busy), errors.As(err, &locked), errors.As(err, &preview), errors.As(err, &redeploy), errors.As(err, &sleepless):
 		problem(w, http.StatusConflict, "conflict", sentenceOf(err))
 	case errors.As(err, &invalid):
 		problem(w, http.StatusUnprocessableEntity, "invalid_environment_name", err.Error())
@@ -175,6 +177,22 @@ func (s *Server) lock(w http.ResponseWriter, r *http.Request) {
 func (s *Server) unlock(w http.ResponseWriter, r *http.Request) {
 	app, env, ok := s.target(w, r)
 	if !ok || s.environmentFailed(w, s.deployer.Unlock(r.Context(), app, env, who(r).Name)) {
+		return
+	}
+	s.environment(w, r)
+}
+
+func (s *Server) sleep(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok || s.environmentFailed(w, s.deployer.Sleep(lasting(r), app, env, who(r).Name)) {
+		return
+	}
+	s.environment(w, r)
+}
+
+func (s *Server) wake(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok || s.environmentFailed(w, s.deployer.Wake(lasting(r), app, env, who(r).Name)) {
 		return
 	}
 	s.environment(w, r)

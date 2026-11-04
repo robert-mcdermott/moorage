@@ -34,6 +34,7 @@ type Runtime interface {
 	ForgetEnv(app, env string)
 	Restart(ctx context.Context, app, env string) error
 	Scale(ctx context.Context, app, env string, change map[string]int) (map[string]int, error)
+	Settle(ctx context.Context, app, env string) error
 	RunOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, command string, timeout time.Duration, log io.Writer) error
 }
 
@@ -58,6 +59,8 @@ type Options struct {
 	Repos *gitserver.Repos
 	// ForgetApp has the router let go of an app's files, which are about to move or go.
 	ForgetApp func(app string)
+	// Busy says whether an environment has requests going on, such as a stream.
+	Busy func(app, env string) bool
 	// LastActive says when an environment last had a request, since the server started.
 	LastActive func(app, env string) time.Time
 	// URL returns an environment's address, for the log.
@@ -88,6 +91,11 @@ type Deployer struct {
 	mu     sync.Mutex
 	queues map[string]*queue      // by app/env
 	locks  map[string]*sync.Mutex // the release phase of an environment
+
+	started  time.Time
+	asleep   sync.Map // of app/env, as long as a request should wait for it
+	wakingMu sync.Mutex
+	waking   map[string]chan struct{} // by app/env: closes when it has woken
 }
 
 type queue struct {
@@ -110,12 +118,18 @@ func New(db *store.DB, opts Options, log *slog.Logger) *Deployer {
 		opts.URL = func(app, env string) string { return "" }
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Deployer{
+	d := &Deployer{
 		db: db, opts: opts, log: log, ctx: ctx, cancel: cancel,
-		slots:  make(chan struct{}, opts.Builds),
-		queues: map[string]*queue{},
-		locks:  map[string]*sync.Mutex{},
+		slots:   make(chan struct{}, opts.Builds),
+		queues:  map[string]*queue{},
+		locks:   map[string]*sync.Mutex{},
+		started: time.Now(),
+		waking:  map[string]chan struct{}{},
 	}
+	if err := d.loadAsleep(ctx); err != nil {
+		log.Error("cannot read which environments are asleep", "err", err)
+	}
+	return d
 }
 
 // Shutdown stops the running deployments (they are recorded as failed)
@@ -526,6 +540,7 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	lock := d.envLock(dep.App, dep.Env)
 	lock.Lock()
 	defer lock.Unlock()
+	defer d.release(ctx, dep.App, dep.Env)()
 
 	_, _, prevErr := d.db.CurrentRelease(ctx, dep.App, dep.Env)
 	firstRelease := errors.Is(prevErr, store.ErrNotFound)

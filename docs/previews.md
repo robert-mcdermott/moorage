@@ -52,6 +52,9 @@ once, to seed it.
 **It runs what the branch says,** with the number of instances production's manifest gives
 it, or `[environments.preview]` overrides.
 
+**It sleeps** when nothing has asked it for anything for 30 minutes, and [wakes](#sleeping) for
+the next request.
+
 **It expires** when nothing has deployed to it or asked it for anything for seven days, or what
 `ttl` says. Pin one to keep it. An app may have ten at a time; a push beyond that is kept and
 not deployed, and says so.
@@ -158,12 +161,56 @@ moor unlock --env production
 The page of a rollback offers the lock. Once it is unlocked, the next push deploys, or
 `moor redeploy` builds what was kept.
 
+## Sleeping
+
+An environment nobody is using need not use the machine. A preview goes to sleep after 30 minutes
+without a request, and any other environment does if you ask it to:
+
+```toml
+[previews]
+sleep_after = "2h"
+
+[environments.staging]
+sleep_after = "30m"
+
+[environments.preview]
+sleep_after = "off"
+```
+
+Asleep, its instances are stopped; its address, data, logs and releases stay. A request wakes it and
+waits for it, so that the one who asked notices no more than a slow answer:
+
+- **A browser** waits up to two seconds, and then gets a short page that says it is waking up, and
+  reloads itself until it is ready.
+- **Anything else** waits up to 30 seconds, and then gets a `503` with `Retry-After`.
+
+It does not go to sleep with a request still going on, such as a stream or a WebSocket. A process that
+must keep running, such as a worker that takes jobs from elsewhere, can say so, and stays up while the
+others sleep. A static site has nothing to stop, and never sleeps.
+
+```toml
+[processes.worker]
+command = "python worker.py"
+sleep = false
+```
+
+Put one to sleep yourself, or wake one without waiting for a request. Deploying, restarting or scaling
+wakes it too:
+
+```bash
+moor sleep --env staging
+```
+
+```bash
+moor wake --env staging
+```
+
 ## Who may do what
 
 | | Viewer | Deployer | Maintainer |
 |---|---|---|---|
 | See environments and previews | ✓ | ✓ | ✓ |
-| Make environments and previews, deploy, promote, lock and pin | | ✓ | ✓ |
+| Make environments and previews, deploy, promote, lock, pin and put to sleep | | ✓ | ✓ |
 | Destroy a preview | | ✓ | ✓ |
 | Remove a named environment | | | ✓ |
 

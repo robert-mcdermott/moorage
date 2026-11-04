@@ -173,6 +173,9 @@ func (d *Deployer) sourceOf(ctx context.Context, app string, b store.Build) (Sou
 
 // Restart replaces an environment's instances without downtime.
 func (d *Deployer) Restart(ctx context.Context, app, env, by string) error {
+	if err := d.Wake(ctx, app, env, by); err != nil {
+		return err
+	}
 	if err := d.opts.Runtime.Restart(ctx, app, env); err != nil {
 		return err
 	}
@@ -183,6 +186,9 @@ func (d *Deployer) Restart(ctx context.Context, app, env, by string) error {
 // Scale changes how many instances of the named processes an environment runs, and
 // returns how many of each it now runs.
 func (d *Deployer) Scale(ctx context.Context, app, env, by string, change map[string]int) (map[string]int, error) {
+	if err := d.Wake(ctx, app, env, by); err != nil {
+		return nil, err
+	}
 	running, err := d.opts.Runtime.Scale(ctx, app, env, change)
 	if err != nil {
 		return nil, err

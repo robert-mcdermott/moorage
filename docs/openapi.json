@@ -413,6 +413,9 @@
           "app": {
             "type": "string"
           },
+          "asleep": {
+            "type": "boolean"
+          },
           "branch": {
             "type": "string"
           },
@@ -2946,6 +2949,63 @@
         "x-moorage-permission": "deploy"
       }
     },
+    "/apps/{app}/envs/{env}/sleep": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvSleep",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Stop an environment's instances until a request wakes it",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
+      }
+    },
     "/apps/{app}/envs/{env}/unlock": {
       "post": {
         "operationId": "postAppsAppEnvsEnvUnlock",
@@ -3191,6 +3251,63 @@
           "apps"
         ],
         "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/wake": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvWake",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Start an environment that is asleep, and answer when it is ready",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "deploy"
       }
     },
     "/apps/{app}/previews": {

@@ -133,6 +133,7 @@ An entry is a command (`worker = "python -m tasks.worker"`) or a table:
 | `health` | a TCP check of `$PORT` | See below. |
 | `stop_signal` | `"TERM"` | The signal that asks the process to stop: `TERM`, `INT`, `QUIT`, `HUP`, `USR1` or `USR2`. |
 | `stop_timeout` | `"30s"` | How long the process may take to stop before it is killed. |
+| `sleep` | `true` | Whether it stops while its environment [sleeps](previews.md#sleeping). |
 | `restart` | `"always"` | When an exited process is restarted: `always`, `on-failure` or `never`. Restarts slow down when a process keeps failing. |
 
 `health`:
@@ -249,6 +250,7 @@ them. See [Static sites](static.md).
 | `enabled` | `true` | A preview for each branch pushed. |
 | `branches` | every branch | Globs of the branches that get one; `!` leaves some out: `["*", "!dependabot/*"]`. |
 | `ttl` | `"7d"` | Destroyed after this long without a deployment or a request. |
+| `sleep_after` | `"30m"` | [Sleeps](previews.md#sleeping) after this long without a request; `"off"` never. |
 
 ## `[environments.NAME]`
 
@@ -261,6 +263,7 @@ applies to every preview.
 | `branch` | The branch whose pushes deploy to it. |
 | `env` | Variables, over those of `[env]`. |
 | `processes.web.instances` | How many instances of that process run. |
+| `sleep_after` | [Sleeps](previews.md#sleeping) after this long without a request. By default a preview does after 30 minutes, and others never do; `"off"` says never. |
 
 ## `[env]`
 
@@ -316,7 +319,7 @@ and `moor manifest validate` warns that they have no effect yet:
 | `app.watch`, `app.root` | a later release |
 | `[vars]` | a later release (declared variables) |
 | `[resources]` and `[storage]` outside a container | a later release |
-| `[[cron]]`, `[[routes]]`, `[services]`, `processes.*.sleep` | later releases |
-| `previews.access`, `previews.sleep_after`, `previews.data`; `access`, `sleep_after` and `resources` in `[environments.*]` | later releases |
+| `[[cron]]`, `[[routes]]`, `[services]` | later releases |
+| `previews.access`, `previews.data`; `access` and `resources` in `[environments.*]` | later releases |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

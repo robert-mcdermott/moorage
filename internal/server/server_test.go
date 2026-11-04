@@ -62,13 +62,13 @@ func (w *testLogWriter) Write(p []byte) (int, error) {
 // short delays.
 func testOptions(ready func(Addrs)) Options {
 	return Options{
-		Ready:        ready,
-		ShimEnv:      testroles.ShimEnv,
-		ShellEnv:     testroles.ShellEnv,
-		BackoffMin:   50 * time.Millisecond,
-		Tick:         200 * time.Millisecond,
-		GCMinAge:     time.Millisecond,
-		PreviewSweep: 100 * time.Millisecond,
+		Ready:            ready,
+		ShimEnv:          testroles.ShimEnv,
+		ShellEnv:         testroles.ShellEnv,
+		BackoffMin:       50 * time.Millisecond,
+		Tick:             200 * time.Millisecond,
+		GCMinAge:         time.Millisecond,
+		EnvironmentSweep: 100 * time.Millisecond,
 	}
 }
 

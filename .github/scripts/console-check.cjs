@@ -178,6 +178,15 @@ function moor(...args) {
   check('what is done there stays there', page.url().includes('env=staging'));
   await page.goto(base + '/apps/shop/environments');
   check('the environments are listed', await page.locator('a.app-name:has-text("staging")').count() === 1);
+  await page.goto(base + '/apps/shop?env=staging');
+  await page.click('button:has-text("Sleep")');
+  await page.waitForSelector('#confirm[open]');
+  await page.click('[data-confirm-yes]');
+  await page.waitForSelector('button:has-text("Wake")', { timeout: 30000 });
+  check('an app can be put to sleep', await page.locator('.badge:has-text("Sleeping")').count() > 0);
+  await page.click('button:has-text("Wake")');
+  await page.waitForSelector('button:has-text("Sleep")', { timeout: 30000 });
+  check('and woken', page.url().includes('env=staging') || await page.locator('text=shop · staging').count() > 0);
   quiet('environments');
 
   // Variables: added, then edited as text with a look at what would change.

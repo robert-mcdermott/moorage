@@ -110,7 +110,7 @@ type Previews struct {
 	Enabled    *bool    `toml:"enabled"`
 	Branches   []string `toml:"branches"`
 	TTL        Duration `toml:"ttl"`
-	SleepAfter Duration `toml:"sleep_after"`
+	SleepAfter string   `toml:"sleep_after"`
 	Access     string   `toml:"access"`
 	Data       string   `toml:"data"`
 }
@@ -280,6 +280,12 @@ func (m *Manifest) validateTables() []string {
 		}
 		if m.Previews.Data != "" && !oneOf(m.Previews.Data, []string{"empty", "copy"}) {
 			add("previews.data %q must be empty or copy", m.Previews.Data)
+		}
+	}
+	if m.Previews != nil && m.Previews.SleepAfter != "" && m.Previews.SleepAfter != "off" {
+		var d Duration
+		if err := d.UnmarshalText([]byte(m.Previews.SleepAfter)); err != nil {
+			add("previews.sleep_after: %v (or \"off\")", err)
 		}
 	}
 	for name, e := range m.Environments {

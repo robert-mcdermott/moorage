@@ -345,3 +345,29 @@ func lockCommand(use, short, long string, run func(*cobra.Command, *client.Clien
 	cmd.Flags().StringVar(&env, "env", names.Production, "environment")
 	return cmd
 }
+
+func newSleepCmd() *cobra.Command {
+	return lockCommand("sleep", "Stop an environment's instances until a request wakes it",
+		`Stop an environment's instances, except processes with sleep = false, until a
+request wakes it. A preview does this by itself after 30 minutes with no requests,
+and any environment can with sleep_after in [environments.NAME].`,
+		func(cmd *cobra.Command, c *client.Client, app, env string) error {
+			if _, err := c.SleepEnvironment(cmd.Context(), app, env); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s of %s is asleep. The next request wakes it, or: moor wake\n", env, app)
+			return nil
+		})
+}
+
+func newWakeCmd() *cobra.Command {
+	return lockCommand("wake", "Start an environment that is asleep", "Start an environment that is asleep, and return when it is ready.",
+		func(cmd *cobra.Command, c *client.Client, app, env string) error {
+			e, err := c.WakeEnvironment(cmd.Context(), app, env)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s of %s is awake.\n\n  %s\n", env, app, e.URL)
+			return nil
+		})
+}

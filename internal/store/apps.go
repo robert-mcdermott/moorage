@@ -67,6 +67,8 @@ type Route struct {
 	Kind    string
 	Version int
 	Build   Build
+	// Asleep says that its instances are stopped until a request wakes it.
+	Asleep bool
 }
 
 // EnsureApp creates the app if it does not exist yet, with its production
@@ -436,7 +438,7 @@ func (db *DB) ReleasesBefore(ctx context.Context, app, env string, before, limit
 
 // Routes lists every environment that serves a release, with its build.
 func (db *DB) Routes(ctx context.Context) ([]Route, error) {
-	rows, err := db.Reader.QueryContext(ctx, `SELECT a.name, e.name, e.kind, r.version,
+	rows, err := db.Reader.QueryContext(ctx, `SELECT a.name, e.name, e.kind, r.version, e.asleep_at IS NOT NULL,
 			b.id, b.app_id, b.source_type, b.artifact_kind, b.artifact_ref, b.plan, b.files, b.size_bytes, b.created_at
 		FROM environments e
 		JOIN apps a ON a.id = e.app_id
@@ -452,7 +454,7 @@ func (db *DB) Routes(ctx context.Context) ([]Route, error) {
 		var plan string
 		var created int64
 		b := &rt.Build
-		if err := rows.Scan(&rt.App, &rt.Env, &rt.Kind, &rt.Version,
+		if err := rows.Scan(&rt.App, &rt.Env, &rt.Kind, &rt.Version, &rt.Asleep,
 			&b.ID, &b.AppID, &b.SourceType, &b.ArtifactKind, &b.ArtifactRef, &plan, &b.Files, &b.SizeBytes, &created); err != nil {
 			return nil, err
 		}

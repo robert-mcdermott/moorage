@@ -88,6 +88,8 @@ type environmentRow struct {
 	LockedBy                     string
 	Active, Expires              time.Time
 	Status                       status
+	// Asleep says that its instances are stopped until a request wakes it.
+	Asleep bool
 	// CanAct and CanRemove say what the viewer may do with it.
 	CanAct, CanRemove bool
 }
@@ -102,11 +104,12 @@ func (c *Console) environmentRow(r *http.Request, e store.Environment, access au
 		row.Status = status{"Live", "ok"}
 	}
 	if c.deployer != nil && e.Kind == store.KindPreview {
-		row.Active = c.deployer.PreviewActive(r.Context(), e)
+		row.Active = c.deployer.EnvironmentActive(r.Context(), e)
 		if !e.Pinned {
 			row.Expires = row.Active.Add(c.deployer.PreviewTTL(r.Context(), e.App, e.Name))
 		}
 	}
+	row.Asleep = !e.AsleepAt.IsZero()
 	if deps, err := c.db.Deployments(r.Context(), e.App, e.Name, 1); err == nil && len(deps) > 0 {
 		switch {
 		case inProgress(deps[0]):
@@ -114,6 +117,9 @@ func (c *Console) environmentRow(r *http.Request, e store.Environment, access au
 		case deps[0].Status == store.Failed && e.Version == 0:
 			row.Status = status{"Deploy failed", "fail"}
 		}
+	}
+	if row.Asleep && row.Status.Label == "Live" {
+		row.Status = status{"Sleeping", "info"}
 	}
 	if e.Version > 0 && row.Status.Label == "Live" {
 		if _, b, err := c.db.CurrentRelease(r.Context(), e.App, e.Name); err == nil {

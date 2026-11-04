@@ -58,9 +58,11 @@ type Plan struct {
 
 // EnvPlan is what an environment changes of a plan.
 type EnvPlan struct {
-	Branch    string            `json:"branch,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Instances map[string]int    `json:"instances,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	// SleepAfter is how long it may sit idle: a duration, or off.
+	SleepAfter string            `json:"sleep_after,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
+	Instances  map[string]int    `json:"instances,omitempty"`
 }
 
 // PreviewPlan says what previews an app wants.
@@ -68,6 +70,49 @@ type PreviewPlan struct {
 	Enabled  *bool    `json:"enabled,omitempty"`
 	Branches []string `json:"branches,omitempty"`
 	TTL      Duration `json:"ttl,omitempty"`
+	// SleepAfter is how long one may sit idle: a duration, or off.
+	SleepAfter string `json:"sleep_after,omitempty"`
+}
+
+// DefaultPreviewSleep is how long a preview may sit idle, unless its manifest says otherwise.
+const DefaultPreviewSleep = 30 * time.Minute
+
+// SleepAfter says how long an environment may sit idle before it sleeps, or 0 if it never
+// does. [environments.NAME] says, or for a preview [environments.preview] or [previews]; a
+// preview sleeps by default, and the others do not.
+func (p Plan) SleepAfter(name, kind string) time.Duration {
+	key := name
+	if kind == "preview" {
+		key = "preview"
+	}
+	said := p.Environments[key].SleepAfter
+	if said == "" && kind == "preview" {
+		if p.Previews != nil {
+			said = p.Previews.SleepAfter
+		}
+		if said == "" {
+			return DefaultPreviewSleep
+		}
+	}
+	if said == "" || said == "off" {
+		return 0
+	}
+	var d Duration
+	if d.UnmarshalText([]byte(said)) != nil {
+		return 0
+	}
+	return d.Std()
+}
+
+// Sleeping returns the plan as an environment runs it asleep: without the processes that sleep.
+func (p Plan) Sleeping() Plan {
+	stopped := map[string]int{}
+	for name, proc := range p.Processes {
+		if proc.Sleep == nil || *proc.Sleep {
+			stopped[name] = 0
+		}
+	}
+	return p.WithFormation(stopped)
 }
 
 // ForEnv returns the plan as an environment runs it, with what the manifest says of that

@@ -15,6 +15,8 @@ type page struct {
 	Heading string
 	Message string
 	Detail  string
+	// Refresh, if set, is how many seconds until the page reloads itself.
+	Refresh int
 }
 
 func (p page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +53,16 @@ func nothingDeployed(name string) page {
 		Title:   name + " has not been deployed yet",
 		Heading: "“" + name + "” has not been deployed yet",
 		Message: "The app exists, but nothing has been deployed to it so far.",
+	}
+}
+
+func wakingUp(name string) page {
+	return page{
+		Status:  http.StatusServiceUnavailable,
+		Title:   name + " is waking up",
+		Heading: "“" + name + "” is waking up",
+		Message: "Nothing has asked for it in a while, so it went to sleep. It is starting now, and this page will load by itself when it is ready.",
+		Refresh: 2,
 	}
 }
 
@@ -93,6 +105,9 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+{{- if .Refresh}}
+<meta http-equiv="refresh" content="{{.Refresh}}">
+{{- end}}
 <title>{{.Title}}</title>
 <link rel="icon" href="{{.Favicon}}">
 <style>

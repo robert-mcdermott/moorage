@@ -26,6 +26,7 @@ typing part of a name.
 | **Down** | None is |
 | **Deploying** | A deployment is under way |
 | **Live** | A static site being served |
+| **Sleeping** | Nothing used it for a while, so its instances are stopped, and [the next request wakes it](previews.md#sleeping) |
 | **Scaled to zero** | It was asked to run no instances |
 | **Deploy failed** | Its first deployment failed, so that nothing is served |
 | **Not deployed** | It has never had a release |
@@ -46,6 +47,7 @@ deployments change as they do. From here:
 | **Restart** | Replaces the instances, without downtime. | `moor restart` |
 | **Roll back** | Serves the release before this one again, as a new release, in seconds. A deployment's page rolls back to that one, and can restore the variables it ran with. | `moor rollback` |
 | **Scale** | Says how many instances of each process run. | `moor scale` |
+| **Sleep** and **Wake** | Stops its instances until a request wakes it, and starts them again. | `moor sleep`, `moor wake` |
 
 When an app has more than one environment, its pages have a choice of which one at the top,
 and everything on them is about that one.

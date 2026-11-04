@@ -713,6 +713,20 @@ func (c *Client) UnlockEnvironment(ctx context.Context, app, env string) (apityp
 	return out, err
 }
 
+// SleepEnvironment stops an environment's instances until a request wakes it.
+func (c *Client) SleepEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "sleep"), struct{}{}, &out)
+	return out, err
+}
+
+// WakeEnvironment starts an environment that is asleep, and returns when it is ready.
+func (c *Client) WakeEnvironment(ctx context.Context, app, env string) (apitypes.Environment, error) {
+	var out apitypes.Environment
+	err := c.post(ctx, http.MethodPost, envPath(app, env, "wake"), struct{}{}, &out)
+	return out, err
+}
+
 // DeleteProject deletes a project that has no apps.
 func (c *Client) DeleteProject(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(name), nil, "", nil)

@@ -295,6 +295,7 @@ func (d *Deployer) DeleteEnvironment(ctx context.Context, app, env, by string) e
 	for _, id := range ids {
 		os.Remove(LogPath(root, app, id))
 	}
+	d.asleep.Delete(sleepKey(app, env))
 	d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentDeleted, App: app, Env: env, Actor: by})
 	d.log.Info("deleted an environment", "app", app, "env", env, "by", by)
 	return nil
@@ -318,8 +319,8 @@ func (d *Deployer) PreviewTTL(ctx context.Context, app, env string) time.Duratio
 	return DefaultPreviewTTL
 }
 
-// PreviewActive says when a preview last did something: a deployment or a request.
-func (d *Deployer) PreviewActive(ctx context.Context, e store.Environment) time.Time {
+// EnvironmentActive says when an environment last did something: a deployment or a request.
+func (d *Deployer) EnvironmentActive(ctx context.Context, e store.Environment) time.Time {
 	active := e.CreatedAt
 	if e.LastActive.After(active) {
 		active = e.LastActive
@@ -327,21 +328,28 @@ func (d *Deployer) PreviewActive(ctx context.Context, e store.Environment) time.
 	if e.ReleasedAt.After(active) {
 		active = e.ReleasedAt
 	}
-	if deps, err := d.db.Deployments(ctx, e.App, e.Name, 1); err == nil && len(deps) > 0 && deps[0].CreatedAt.After(active) {
-		active = deps[0].CreatedAt
+	if deps, err := d.db.Deployments(ctx, e.App, e.Name, 1); err == nil && len(deps) > 0 {
+		for _, at := range []time.Time{deps[0].CreatedAt, deps[0].FinishedAt} {
+			if at.After(active) {
+				active = at
+			}
+		}
 	}
 	return active
 }
 
-// SweepPreviews notes how recently each preview had a request, and destroys those that
-// have outlasted their time, unless they are pinned.
-func (d *Deployer) SweepPreviews(ctx context.Context, now time.Time) {
-	previews, err := d.db.Previews(ctx)
+// SweepEnvironments notes how recently each environment had a request, destroys the previews
+// that have outlasted their time, unless they are pinned, and puts to sleep those left idle.
+func (d *Deployer) SweepEnvironments(ctx context.Context, now time.Time) {
+	list, err := d.db.AllEnvironments(ctx)
 	if err != nil {
-		d.log.Warn("look at the previews", "err", err)
+		d.log.Warn("look at the environments", "err", err)
 		return
 	}
-	for _, e := range previews {
+	for _, e := range list {
+		if e.Kind != store.KindPreview && d.sleepAfter(ctx, e) == 0 {
+			continue
+		}
 		if d.opts.LastActive != nil {
 			if at := d.opts.LastActive(e.App, e.Name); at.After(e.LastActive) {
 				if err := d.db.SetLastActive(ctx, e.App, e.Name, at); err == nil {
@@ -349,21 +357,18 @@ func (d *Deployer) SweepPreviews(ctx context.Context, now time.Time) {
 				}
 			}
 		}
-		if e.Pinned {
+		if e.Kind == store.KindPreview && !e.Pinned && now.Sub(d.EnvironmentActive(ctx, e)) >= d.PreviewTTL(ctx, e.App, e.Name) {
+			d.log.Info("a preview has outlasted its time", "app", e.App, "env", e.Name)
+			if err := d.DeleteEnvironment(ctx, e.App, e.Name, "moorage"); err != nil {
+				d.log.Warn("destroy a preview", "app", e.App, "env", e.Name, "err", err)
+			}
 			continue
 		}
-		active := d.PreviewActive(ctx, e)
-		if now.Sub(active) < d.PreviewTTL(ctx, e.App, e.Name) {
-			continue
-		}
-		d.log.Info("a preview has outlasted its time", "app", e.App, "env", e.Name, "last_active", active)
-		if err := d.DeleteEnvironment(ctx, e.App, e.Name, "moorage"); err != nil {
-			d.log.Warn("destroy a preview", "app", e.App, "env", e.Name, "err", err)
-		}
+		d.sweepSleep(ctx, e, now)
 	}
 }
 
-// Sweep looks at the previews every so often, until ctx ends.
+// Sweep looks at the environments every so often, until ctx ends.
 func (d *Deployer) Sweep(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -372,7 +377,7 @@ func (d *Deployer) Sweep(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			d.SweepPreviews(ctx, time.Now())
+			d.SweepEnvironments(ctx, time.Now())
 		}
 	}
 }

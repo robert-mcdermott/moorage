@@ -72,9 +72,6 @@ func Lint(m *Manifest) []string {
 		if m.Previews.Data != "" {
 			notYet("previews.data", "a preview's data directory starts empty")
 		}
-		if m.Previews.SleepAfter != 0 {
-			notYet("previews.sleep_after", "sleeping arrives in a later release")
-		}
 		if m.Previews.Access != "" {
 			notYet("previews.access", "access gates arrive in a later release")
 		}
@@ -82,9 +79,6 @@ func Lint(m *Manifest) []string {
 	for name, e := range m.Environments {
 		if e.Resources != nil {
 			notYet("environments."+name+".resources", "a later release")
-		}
-		if e.SleepAfter != "" {
-			notYet("environments."+name+".sleep_after", "sleeping arrives in a later release")
 		}
 		if e.Access != "" {
 			notYet("environments."+name+".access", "access gates arrive in a later release")
@@ -95,11 +89,6 @@ func Lint(m *Manifest) []string {
 	}
 	if m.Static != nil && len(m.Processes) > 0 {
 		notYet("[static] beside [processes]", "serving both arrives with [[routes]]; the processes serve the app")
-	}
-	for _, name := range sortedNames(m.Processes) {
-		if p := m.Processes[name]; p.Sleep != nil {
-			notYet("processes."+name+".sleep", "sleeping environments arrive in a later release")
-		}
 	}
 	sort.Strings(w)
 	return w

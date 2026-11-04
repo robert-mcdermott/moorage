@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/ingress/static"
@@ -37,6 +38,65 @@ func setInstance(r *http.Request, id string) {
 	}
 }
 
+func (rt *Router) openCount(key string) *atomic.Int64 {
+	if n, ok := rt.open.Load(key); ok {
+		return n.(*atomic.Int64)
+	}
+	n, _ := rt.open.LoadOrStore(key, new(atomic.Int64))
+	return n.(*atomic.Int64)
+}
+
+// Busy says whether an environment has requests going on, such as a stream or a WebSocket,
+// which it would lose by going to sleep.
+func (rt *Router) Busy(app, env string) bool {
+	return rt.openCount(app+"/"+env).Load() > 0
+}
+
+// How long a request waits for an environment to wake: a browser's moment before it is told
+// what is happening, and for anything else, a client that may not know what to do with a page.
+var (
+	wakeHoldBrowser = 2 * time.Second
+	wakeHoldClient  = 30 * time.Second
+)
+
+// awaitAwake holds a request for an environment that is asleep, and wakes it. It says whether
+// to go on: if it took too long, it has answered with what the client should do.
+func (rt *Router) awaitAwake(w http.ResponseWriter, r *http.Request, rte route) bool {
+	sleeper := rt.sleeper.Load()
+	if sleeper == nil || !(*sleeper).Asleep(rte.app, rte.env) {
+		return true
+	}
+	done := (*sleeper).WakeFor(rte.app, rte.env)
+	browser := wantsPage(r)
+	hold := wakeHoldClient
+	if browser {
+		hold = wakeHoldBrowser
+	}
+	timer := time.NewTimer(hold)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-r.Context().Done():
+		return false
+	case <-timer.C:
+	}
+	w.Header().Set("Retry-After", "2")
+	if browser {
+		wakingUp(rte.app).ServeHTTP(w, r)
+	} else {
+		http.Error(w, rte.app+" is waking up: try again in a moment\n", http.StatusServiceUnavailable)
+	}
+	return false
+}
+
+// wantsPage says whether a request is a browser's going to a page, which can be shown one that
+// says what is happening, and reloads itself.
+func wantsPage(r *http.Request) bool {
+	return (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+		r.Header.Get("Upgrade") == "" && strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
 // serveApp serves a request for an app and writes it to the app's access
 // log. A request ID from a trusted proxy is kept; otherwise one is made.
 func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
@@ -53,9 +113,15 @@ func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 		}
 	}
 	w.Header().Set("X-Request-Id", info.id)
-	rt.active.Store(rte.app+"/"+rte.env, start)
+	key := rte.app + "/" + rte.env
+	rt.active.Store(key, start)
+	open := rt.openCount(key)
+	open.Add(1)
+	defer open.Add(-1)
 	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-	rte.handler.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), infoKey{}, info)))
+	if rt.awaitAwake(rec, r, rte) {
+		rte.handler.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), infoKey{}, info)))
+	}
 	rt.access(rte, accessEntry{
 		Time:     start.UTC(),
 		ID:       info.id,

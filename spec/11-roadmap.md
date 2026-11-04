@@ -905,6 +905,18 @@ directory, supervises it, and serves it on its own hostname.
      them do so directly; removing a named environment still takes a maintainer.
 5. **Sleep and wake.** Idle sleep with the waking-up page; per-process
    opt-out.
+   - Done in slice 5: an environment idle for `sleep_after` stops its instances,
+     unless a request is going on, and a process with `sleep = false` stays up.
+     A request wakes it and waits: two seconds for a browser, then a page that
+     reloads itself; 30 seconds for anything else, then a `503` with `Retry-After`.
+     `moor sleep`, `moor wake`, buttons and a status in the console. Previews sleep
+     after 30 minutes by default; other environments only when they say so.
+   - Found by slice 5: an environment must keep saying it is asleep until it has
+     finished waking, or a request arriving meanwhile finds no instance, and is told
+     the app is down. A release must wake it without the separate step, since the
+     release holds the environment's lock. Idle time must count from the end of a
+     deployment, not its start, or a slow build is followed at once by sleep. Those
+     waiting are not those who began the wake: it goes on if they leave.
 6. **Access gates.** Password, sign-in (with identity headers), share links,
    IP allow-lists, default gates per environment kind, `noindex` outside
    production; an independent review of the gate, cookie and CSRF design.

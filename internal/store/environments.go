@@ -31,14 +31,16 @@ type Environment struct {
 	LockedAt time.Time
 	// LastActive is when it last served a request, as far as the server has noted.
 	LastActive time.Time
-	CreatedAt  time.Time
+	// AsleepAt, if set, is when its instances were stopped until a request wakes it.
+	AsleepAt  time.Time
+	CreatedAt time.Time
 	// Version, ReleasedAt and ReleasedBy describe its current release, if any.
 	Version    int
 	ReleasedAt time.Time
 	ReleasedBy string
 }
 
-const environmentColumns = `e.id, a.name, e.name, e.kind, e.branch, e.pinned, e.locked_by, e.locked_at, e.last_active_at, e.created_at,
+const environmentColumns = `e.id, a.name, e.name, e.kind, e.branch, e.pinned, e.locked_by, e.locked_at, e.last_active_at, e.asleep_at, e.created_at,
 	r.version, r.created_at, r.created_by
 	FROM environments e JOIN apps a ON a.id = e.app_id LEFT JOIN releases r ON r.id = e.current_release_id`
 
@@ -46,9 +48,9 @@ func scanEnvironment(row interface{ Scan(...any) error }) (Environment, error) {
 	var e Environment
 	var branch, lockedBy, releasedBy sql.NullString
 	var pinned int
-	var lockedAt, lastActive, version, releasedAt sql.NullInt64
+	var lockedAt, lastActive, asleepAt, version, releasedAt sql.NullInt64
 	var created int64
-	if err := row.Scan(&e.ID, &e.App, &e.Name, &e.Kind, &branch, &pinned, &lockedBy, &lockedAt, &lastActive, &created, &version, &releasedAt, &releasedBy); err != nil {
+	if err := row.Scan(&e.ID, &e.App, &e.Name, &e.Kind, &branch, &pinned, &lockedBy, &lockedAt, &lastActive, &asleepAt, &created, &version, &releasedAt, &releasedBy); err != nil {
 		return e, err
 	}
 	e.Branch, e.Pinned, e.LockedBy, e.ReleasedBy = branch.String, pinned != 0, lockedBy.String, releasedBy.String
@@ -58,6 +60,9 @@ func scanEnvironment(row interface{ Scan(...any) error }) (Environment, error) {
 	}
 	if lastActive.Valid {
 		e.LastActive = time.UnixMilli(lastActive.Int64).UTC()
+	}
+	if asleepAt.Valid {
+		e.AsleepAt = time.UnixMilli(asleepAt.Int64).UTC()
 	}
 	if releasedAt.Valid {
 		e.ReleasedAt = time.UnixMilli(releasedAt.Int64).UTC()
@@ -86,6 +91,11 @@ func (db *DB) listEnvironments(ctx context.Context, where string, args ...any) (
 // previews.
 func (db *DB) Environments(ctx context.Context, app string) ([]Environment, error) {
 	return db.listEnvironments(ctx, `a.name = ?`, app)
+}
+
+// AllEnvironments lists the environments of every app.
+func (db *DB) AllEnvironments(ctx context.Context) ([]Environment, error) {
+	return db.listEnvironments(ctx, `1 = 1`)
 }
 
 // Previews lists the previews of every app.
@@ -174,6 +184,16 @@ func (db *DB) CreateEnvironment(ctx context.Context, app, name, kind, branch str
 		return err
 	})
 	return created, err
+}
+
+// SetEnvironmentBranch says which branch deploys to an environment.
+// SetAsleep says whether an environment's instances are stopped until a request wakes it.
+func (db *DB) SetAsleep(ctx context.Context, app, name string, asleep bool) error {
+	var at any
+	if asleep {
+		at = time.Now().UnixMilli()
+	}
+	return db.updateEnvironment(ctx, app, name, `asleep_at = ?`, at)
 }
 
 // SetEnvironmentBranch says which branch deploys to an environment.

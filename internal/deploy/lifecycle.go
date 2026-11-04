@@ -169,6 +169,7 @@ func (d *Deployer) DeleteApp(ctx context.Context, app, by string, keepData bool)
 			d.log.Warn("remove the files of a deleted app", "app", app, "dir", dir, "err", err)
 		}
 	}
+	d.reloadAsleep(ctx, app)
 	d.opts.Events.Publish(ctx, store.Event{Type: events.AppDeleted, App: app, Actor: by, Data: map[string]any{"kept_data": keepData}})
 	d.log.Info("deleted an app", "app", app, "by", by, "kept_data", keepData)
 	return nil
@@ -227,6 +228,7 @@ func (d *Deployer) RenameApp(ctx context.Context, app, name, by string) error {
 			d.log.Warn("reload the routes after renaming an app", "app", name, "err", err)
 		}
 	}
+	d.reloadAsleep(ctx, app)
 	d.opts.Events.Publish(ctx, store.Event{Type: events.AppRenamed, App: name, Actor: by, Data: map[string]any{"from": app}})
 	d.log.Info("renamed an app", "from", app, "to", name, "by", by)
 	if d.opts.Runtime != nil {
