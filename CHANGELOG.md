@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Drop a folder in the console (wave 5, slice 4).** On an app's **Deploy** page, drop a folder or choose one, and it is a live static site a moment later. `.git` and `.env` files stay out of it. See [static sites](docs/static.md).
+- **Every release of a static site at its own address.** `docs--production--v12.apps.example.com` serves that release as long as it is kept, behind the same gate as its environment, to compare versions or show someone an exact build. `moor releases` lists them.
 - **Notifications (wave 5, slice 3).** Moorage says when a deployment fails, an app keeps crashing, a cron job fails or the server's disk is nearly full: in the console for those it concerns, with no setup, and through signed webhooks, Slack, Microsoft Teams, Discord and email for whatever rules you add, of the whole server, a project or an app. One crash-looping app sends one message and not hundreds, then a word when it recovers. `moor notifications`, and see [Notifications](docs/notifications.md).
 - **Metrics (wave 5, slice 2).** Requests, response times, CPU and memory for every environment, kept for a year with nothing else to run. An app's **Metrics** tab has them as charts from the last 15 minutes to the last 30 days, with each release marked, its page has the last hour at a glance, and the list of apps has each one's requests. `moor metrics`, and `/metrics` for Prometheus.
 - **Cron jobs (wave 5, slice 1).** `[[cron]]` in the manifest: five-field schedules or `@daily` and `@every 15m`, time zones, time limits, what to do about overlaps, and which environments. `moor cron`, and a **Cron** tab with when each next runs and how it last went. The last 100 runs of each are kept, with what they said.

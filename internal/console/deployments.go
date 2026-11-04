@@ -14,6 +14,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/ids"
+	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -37,6 +38,8 @@ type deploymentRow struct {
 	Current bool
 	// CanRollBack says that its release can be served again.
 	CanRollBack bool
+	// ReleaseURL is its release's own address, for a static site's that is kept.
+	ReleaseURL string
 }
 
 // deploymentView is the page of a deployment.
@@ -136,7 +139,7 @@ func tookText(d time.Duration) string {
 	return fmt.Sprintf("%d min %d s", int(d.Minutes()), int(d.Seconds())%60)
 }
 
-func deploymentRowOf(d store.Deployment, current int) deploymentRow {
+func (c *Console) deploymentRowOf(d store.Deployment, current int) deploymentRow {
 	row := deploymentRow{
 		ID: d.ID, Status: deploymentStatus(d.Status), What: sourceText(d), By: d.CreatedBy, At: d.CreatedAt, Version: d.Version,
 	}
@@ -147,6 +150,9 @@ func deploymentRowOf(d store.Deployment, current int) deploymentRow {
 	}
 	row.Current = d.Version > 0 && d.Version == current
 	row.CanRollBack = d.Status == store.Live && d.Version > 0 && !row.Current && !d.BuildCollected
+	if d.Version > 0 && d.BuildKind == manifest.KindStatic && !d.BuildCollected {
+		row.ReleaseURL = c.cfg.ReleaseURL(d.App, d.Env, d.Version)
+	}
 	return row
 }
 
@@ -197,7 +203,7 @@ func (c *Console) deploymentsList(w http.ResponseWriter, r *http.Request) {
 		d.Older = appAddress(app, env, "/deployments", url.Values{"before": {strconv.FormatInt(last.CreatedAt.UnixMilli(), 10) + "/" + last.ID}})
 	}
 	for _, dep := range deps {
-		d.Deployments = append(d.Deployments, deploymentRowOf(dep, current))
+		d.Deployments = append(d.Deployments, c.deploymentRowOf(dep, current))
 		d.Poll = d.Poll || inProgress(dep)
 	}
 	d.RefreshOn = app
@@ -271,7 +277,7 @@ func (c *Console) deploymentView(r *http.Request, dep store.Deployment) (deploym
 		return deploymentView{}, err
 	}
 	view := deploymentView{
-		deploymentRow: deploymentRowOf(dep, current), App: dep.App, Env: dep.Env, URL: c.cfg.EnvURL(dep.App, dep.Env),
+		deploymentRow: c.deploymentRowOf(dep, current), App: dep.App, Env: dep.Env, URL: c.cfg.EnvURL(dep.App, dep.Env),
 		Running: inProgress(dep), Error: sentence(dep.Error), Output: dep.Output, LogCount: len(lines),
 	}
 	for _, s := range deploy.Stages(dep, lines, time.Now()) {

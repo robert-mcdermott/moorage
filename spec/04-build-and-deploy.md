@@ -37,7 +37,7 @@ production deploy skips straight to the release phase.
 | **Git push over SSH** | `git push moorage main` | Day-to-day developer flow |
 | **Git push over HTTPS** | Same, with an API token via `moor git credential` helper | Networks that block SSH |
 | **Directory upload** | `moor deploy [DIR]` (tars the directory, honouring `.gitignore` and `.moorignore`, and always leaving out `.git`, `node_modules`, `.venv` and `__pycache__`, which the build makes again) | Quick iteration, repos hosted elsewhere, no git at all |
-| **Static upload** | `moor deploy --static ./site`, or drag a folder into the console | Docs, reports, SPAs |
+| **Static upload** | `moor deploy --static ./site`, or drag a folder into the console (which leaves out `.git` and `.env` files, and refuses a folder whose manifest builds or runs) | Docs, reports, SPAs |
 | **Artifact upload** | `moor deploy --artifact [DIR]`: an app ready to run (a compiled binary, a script for an interpreter on the host), run with the manifest's `[processes]` | Binaries built in CI |
 | **Image** | `moor deploy --image registry/app:tag` | Images built in CI |
 | **Remote repository** *(Phase 3)* | Connect a repository URL; deploy on webhook (GitHub, GitLab, Gitea, generic HMAC) or by polling | Code hosted on a forge, PR previews with status checks |

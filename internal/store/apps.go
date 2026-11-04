@@ -40,9 +40,12 @@ type Release struct {
 	CreatedAt time.Time
 	// Current reports whether the environment serves this release.
 	Current bool
-	// Files and SizeBytes describe the build.
-	Files     int
-	SizeBytes int64
+	// Files and SizeBytes describe the build, and Kind what it is; BuildCollected says that it has
+	// been removed to save space.
+	Files          int
+	SizeBytes      int64
+	Kind           string
+	BuildCollected bool
 	// AppID and Config are set when the release is created or is the
 	// current one: the variables it runs with, and the app they belong to.
 	AppID  string
@@ -416,7 +419,8 @@ func (db *DB) ReleasesBefore(ctx context.Context, app, env string, before, limit
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Reader.QueryContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, b.files, b.size_bytes
+	rows, err := db.Reader.QueryContext(ctx, `SELECT r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, b.files, b.size_bytes,
+			COALESCE(json_extract(b.plan, '$.kind'), ''), b.collected_at IS NOT NULL
 		FROM releases r JOIN builds b ON b.id = r.build_id
 		WHERE r.env_id = ? AND (? = 0 OR r.version < ?) ORDER BY r.version DESC LIMIT ?`, envID, before, before, limit)
 	if err != nil {
@@ -428,7 +432,7 @@ func (db *DB) ReleasesBefore(ctx context.Context, app, env string, before, limit
 		var r Release
 		var by sql.NullString
 		var created int64
-		if err := rows.Scan(&r.ID, &r.Version, &r.BuildID, &r.Reason, &by, &created, &r.Files, &r.SizeBytes); err != nil {
+		if err := rows.Scan(&r.ID, &r.Version, &r.BuildID, &r.Reason, &by, &created, &r.Files, &r.SizeBytes, &r.Kind, &r.BuildCollected); err != nil {
 			return nil, err
 		}
 		r.CreatedBy = by.String

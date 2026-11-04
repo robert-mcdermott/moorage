@@ -7,6 +7,7 @@ package ingress
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -83,6 +84,10 @@ type routeTable struct {
 	prefixed map[string][]route
 	// apps holds every app name, deployed or not.
 	apps map[string]bool
+	// permalinks has what each served environment's static releases go through, by
+	// names.PermalinkBase, and releases those that have been asked for, by hostname.
+	permalinks map[string]route
+	releases   sync.Map
 }
 
 type route struct {
@@ -94,6 +99,9 @@ type route struct {
 	prefix     string
 	strip      bool
 	proxyToken string
+	// release says that this is one release of an environment's at an address of its own: it
+	// needs nothing awake, and keeps nothing awake.
+	release bool
 }
 
 // lookup finds what serves a hostname and a path: the longest path that fits, or else the
@@ -109,6 +117,61 @@ func (t *routeTable) lookup(host, path string) (rte route, rest string, ok bool)
 	}
 	rte, ok = t.routes[host]
 	return rte, path, ok
+}
+
+// find is lookup, and also the addresses of static releases.
+func (rt *Router) find(t *routeTable, host, path string) (rte route, rest string, ok bool) {
+	if rte, rest, ok = t.lookup(host, path); ok {
+		return rte, rest, true
+	}
+	rte, ok = rt.permalink(t, host)
+	return rte, path, ok
+}
+
+// permalinkOf reads a hostname as the address of a release of an environment that is served.
+func (rt *Router) permalinkOf(t *routeTable, host string) (env route, version int, ok bool) {
+	label, ok := strings.CutSuffix(host, "."+rt.cfg.Domain)
+	if !ok {
+		return route{}, 0, false
+	}
+	base, version, ok := names.ParsePermalink(label)
+	if !ok {
+		return route{}, 0, false
+	}
+	env, ok = t.permalinks[base]
+	return env, version, ok
+}
+
+// permalink finds what serves one release of a static site: a release that is kept and is a static
+// site, behind the gate that its environment has now. It looks only when asked, so that a server
+// with many old releases pays for none of them until someone wants one.
+func (rt *Router) permalink(t *routeTable, host string) (route, bool) {
+	env, version, ok := rt.permalinkOf(t, host)
+	if !ok {
+		return route{}, false
+	}
+	if found, ok := t.releases.Load(host); ok {
+		return found.(route), true
+	}
+	_, b, err := rt.db.ReleaseVersion(context.Background(), env.app, env.env, version)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			rt.log.Error("cannot read a release", "app", env.app, "env", env.env, "version", version, "err", err)
+		}
+		return route{}, false
+	}
+	var plan manifest.Plan
+	if b.Collected || json.Unmarshal(b.Plan, &plan) != nil || plan.Kind != manifest.KindStatic {
+		return route{}, false
+	}
+	site, err := rt.loadSite(b, plan)
+	if err != nil {
+		rt.log.Error("cannot serve a release", "app", env.app, "build", b.ID, "err", err)
+		return route{}, false
+	}
+	env.handler, env.release = noindex(site), true
+	t.releases.Store(host, env)
+	return env, true
 }
 
 // NewRouter returns a router with an empty table; call Reload to fill it.
@@ -175,7 +238,7 @@ func (rt *Router) Reload(ctx context.Context) error {
 		return err
 	}
 	old := rt.table.Load()
-	next := &routeTable{generation: old.generation + 1, routes: map[string]route{}, prefixed: map[string][]route{}, apps: map[string]bool{}}
+	next := &routeTable{generation: old.generation + 1, routes: map[string]route{}, prefixed: map[string][]route{}, permalinks: map[string]route{}, apps: map[string]bool{}}
 	for _, n := range appNames {
 		next.apps[n] = true
 	}
@@ -224,6 +287,7 @@ func (rt *Router) Reload(ctx context.Context) error {
 			continue
 		}
 		next.routes[rt.cfg.EnvHost(r.App, r.Env)] = rte
+		next.permalinks[names.PermalinkBase(r.App, r.Env)] = rte
 	}
 	domains, err := rt.db.AllDomains(ctx)
 	if err != nil {
@@ -279,7 +343,7 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := rt.table.Load()
-	if rte, rest, ok := t.lookup(host, r.URL.Path); ok {
+	if rte, rest, ok := rt.find(t, host, r.URL.Path); ok {
 		if rte.prefix != "" {
 			switch {
 			case rest == "":
@@ -302,6 +366,10 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if rt.cfg.Routing == "path" && host == rt.cfg.Domain {
 		rt.noPathRoute(w, r, t)
+		return
+	}
+	if env, version, ok := rt.permalinkOf(t, host); ok {
+		releaseNotKept(env.app, version).ServeHTTP(w, r)
 		return
 	}
 	if app, ok := rt.appOf(host); ok {
@@ -388,7 +456,13 @@ func (rt *Router) platform(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == proxyCheckPrefix || strings.HasPrefix(r.URL.Path, proxyCheckPrefix+"/"):
 		rt.proxyCheck(w, r)
 	case isGatePath(r.URL.Path):
-		if rte, ok := rt.table.Load().routes[hostname(r.Host)]; ok {
+		t := rt.table.Load()
+		host := hostname(r.Host)
+		rte, ok := t.routes[host]
+		if !ok {
+			rte, ok = rt.permalink(t, host)
+		}
+		if ok {
 			rt.gateEndpoint(w, r, rte, r.URL.Path)
 		} else {
 			notFound.ServeHTTP(w, r)

@@ -381,7 +381,7 @@ func (rt *Router) admit(w http.ResponseWriter, r *http.Request, rte route) (*ide
 // stillAdmitted looks again at someone who was let in, for what goes on for a long time, such as a
 // stream or a WebSocket: the gate as it now stands, and whatever let them in.
 func (rt *Router) stillAdmitted(ctx context.Context, r *http.Request, rte route, who *identity) bool {
-	now, _, ok := rt.table.Load().lookup(hostname(r.Host), r.URL.Path)
+	now, _, ok := rt.find(rt.table.Load(), hostname(r.Host), r.URL.Path)
 	if !ok || now.gate.envID != rte.gate.envID || now.gate.generation != rte.gate.generation || now.gate.mode != rte.gate.mode || !now.gate.allowed(rt.clientAddress(r)) {
 		return false
 	}
@@ -570,7 +570,7 @@ type RouteInfo struct {
 // RouteFor says what a hostname and a path serve. Only what is in the routing table has an answer,
 // so that nothing the console is told by a browser can send anyone anywhere else.
 func (rt *Router) RouteFor(host, path string) (RouteInfo, bool) {
-	rte, _, ok := rt.table.Load().lookup(host, path)
+	rte, _, ok := rt.find(rt.table.Load(), host, path)
 	if !ok {
 		return RouteInfo{}, false
 	}

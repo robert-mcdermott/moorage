@@ -411,6 +411,15 @@ func ParseTrusted(s string) (netip.Prefix, error) {
 	return netip.PrefixFrom(a, a.BitLen()), nil
 }
 
+// ReleaseURL is the address of one release of a static site. With path routing there is none: apps
+// have no hostnames of their own.
+func (c Config) ReleaseURL(app, env string, version int) string {
+	if c.Routing == "path" {
+		return ""
+	}
+	return c.PublicURL(names.PermalinkLabel(app, env, version) + "." + c.Domain)
+}
+
 // NotificationsAllowed parses [notifications] allow.
 func (c Config) NotificationsAllowed() ([]netip.Prefix, error) {
 	out := make([]netip.Prefix, 0, len(c.Notifications.Allow))

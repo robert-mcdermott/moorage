@@ -241,10 +241,14 @@ memory per site.
 - Optional directory listings (`[static] listing = true`) for internal file
   shares and artifact sites.
 - Deploys and rollbacks switch the document root atomically.
-- **Release permalinks** *(Phase 2)*: because old static builds cost nothing
-  to serve, every retained static release is also reachable at its own
-  immutable URL (`<app>--<env>--v12.<base-domain>`, same gate), which is handy
-  for comparing versions or linking a reviewer to an exact build.
+- **Release permalinks:** because old static builds cost nothing to serve, every
+  retained static release is also reachable at its own immutable URL
+  (`<app>--<env>--v12.<base-domain>`, naming production too, under the gate its
+  environment has now), which is handy for comparing versions or linking a
+  reviewer to an exact build. The router looks a release up when it is first
+  asked for, so that old releases cost nothing until then. They do not wake or
+  keep awake an environment, and are not offered to search engines. Path routing
+  has none: they need hostnames.
 
 ## Metrics and access logs
 

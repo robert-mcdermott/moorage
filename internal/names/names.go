@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,49 @@ var appPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,38}[a-z0-9]$`)
 var reserved = map[string]bool{
 	"moorage": true, "console": true, "api": true, "git": true, "www": true,
 	"admin": true, "status": true, "assets": true, "login": true, "auth": true,
+}
+
+// permalinkBaseLength leaves a DNS label room for --v and seven digits.
+const permalinkBaseLength = 53
+
+// PermalinkBase is what the hostnames of an environment's releases start with: <app>--<env>, naming
+// production as well, so that it cannot be read as an environment's own hostname.
+func PermalinkBase(app, env string) string {
+	if env == "" {
+		env = Production
+	}
+	label := app + "--" + env
+	if len(label) <= permalinkBaseLength {
+		return label
+	}
+	room := permalinkBaseLength - len(app) - len("--") - len("-") - 6
+	cut := env
+	if room < len(cut) {
+		cut = strings.TrimRight(cut[:room], "-")
+	}
+	return app + "--" + cut + "-" + shortHash(env)
+}
+
+// PermalinkLabel is the hostname of one release of an environment: <app>--<env>--v<version>.
+func PermalinkLabel(app, env string, version int) string {
+	return PermalinkBase(app, env) + "--v" + strconv.Itoa(version)
+}
+
+// ParsePermalink reads such a hostname, which says the same thing in only one way.
+func ParsePermalink(label string) (base string, version int, ok bool) {
+	i := strings.LastIndex(label, "--v")
+	if i <= 0 {
+		return "", 0, false
+	}
+	digits := label[i+len("--v"):]
+	if len(digits) == 0 || len(digits) > 7 || digits[0] == '0' {
+		return "", 0, false
+	}
+	version, err := strconv.Atoi(digits)
+	if err != nil || version <= 0 || strconv.Itoa(version) != digits {
+		return "", 0, false
+	}
+	return label[:i], version, true
 }
 
 // Production is the environment every app has.

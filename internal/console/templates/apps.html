@@ -247,7 +247,7 @@
     {{range .}}
       <tr>
         <td><a class="plain" href="/deployments/{{.ID}}"><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span></a></td>
-        <td class="nowrap">{{if .Version}}<a href="/deployments/{{.ID}}">v{{.Version}}</a>{{if .Current}} <span class="muted small">serving</span>{{end}}{{else}}<a href="/deployments/{{.ID}}">Details</a>{{end}}</td>
+        <td class="nowrap">{{if .Version}}<a href="/deployments/{{.ID}}">v{{.Version}}</a>{{if .Current}} <span class="muted small">serving</span>{{end}}{{with .ReleaseURL}} <a class="small" href="{{.}}" aria-label="This release at its own address">view</a>{{end}}{{else}}<a href="/deployments/{{.ID}}">Details</a>{{end}}</td>
         <td class="clip-cell">{{.What}}</td>
         <td class="muted"><time datetime="{{iso .At}}">{{ago .At}}</time>{{with .By}} by {{.}}{{end}}</td>
         <td class="muted nowrap" data-label="Took">{{with .Took}}{{.}}{{else}}—{{end}}</td>
@@ -307,6 +307,7 @@
         <button class="quiet" type="submit">Redeploy</button>
       </form>
       {{end}}
+      {{with .ReleaseURL}}<a class="button quiet" href="{{.}}">This release</a>{{end}}
       {{if eq .Status.Label "Live"}}<a class="button quiet" href="{{.URL}}">Open</a>{{end}}
     </div>
   </section>
@@ -407,6 +408,21 @@
 {{if .Crumbs}}{{if gt (len .Crumbs) 1}}{{template "app-tabs" .}}{{end}}{{end}}
 {{with .Error}}<p class="notice fail" role="alert">{{.}}</p>{{end}}
 {{$csrf := .CSRF}}
+<form class="panel panel-pad dropzone block-after" method="post" action="/apps/{{.App.Name}}/deploy/site{{envq .Env}}" enctype="multipart/form-data" data-dropzone data-max="{{.MaxUploadBytes}}">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <h2>A static site: drop its folder here</h2>
+  <p class="muted">Its files are served as they are, with nothing to build and nothing that runs, up to {{.MaxUpload}}. A <code>moorage.toml</code> at its top says how, and <code>.git</code> and <code>.env</code> files stay out.</p>
+  <div class="dropzone-choose">
+    <label for="site-folder">Or choose a folder</label>
+    <input id="site-folder" type="file" name="file" webkitdirectory multiple required>
+    <button class="quiet" type="submit">Upload and deploy</button>
+  </div>
+  <div class="dropzone-progress" data-drop-progress hidden>
+    <progress max="100" value="0" aria-label="Uploading"></progress>
+    <span class="muted small" data-drop-status role="status"></span>
+  </div>
+  <p class="notice fail" data-drop-error role="alert" hidden></p>
+</form>
 <div class="deploy-ways">
   <section class="panel panel-pad">
     <h2>From its directory</h2>

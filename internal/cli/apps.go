@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -587,8 +588,13 @@ func newReleasesCmd() *cobra.Command {
 			if asJSON {
 				return printJSON(cmd.OutOrStdout(), rels)
 			}
+			addresses := slices.ContainsFunc(rels, func(r apitypes.Release) bool { return r.URL != "" })
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "\tRELEASE\tREASON\tFILES\tSIZE\tCREATED")
+			if addresses {
+				fmt.Fprintln(w, "\tRELEASE\tREASON\tFILES\tSIZE\tCREATED\tADDRESS")
+			} else {
+				fmt.Fprintln(w, "\tRELEASE\tREASON\tFILES\tSIZE\tCREATED")
+			}
 			for _, r := range rels {
 				mark := ""
 				if r.Current {
@@ -598,7 +604,11 @@ func newReleasesCmd() *cobra.Command {
 				if r.Files > 0 {
 					files = strconv.Itoa(r.Files)
 				}
-				fmt.Fprintf(w, "%s\tv%d\t%s\t%s\t%s\t%s\n", mark, r.Version, r.Reason, files, humanBytes(r.Size), ago(r.CreatedAt))
+				fmt.Fprintf(w, "%s\tv%d\t%s\t%s\t%s\t%s", mark, r.Version, r.Reason, files, humanBytes(r.Size), ago(r.CreatedAt))
+				if addresses {
+					fmt.Fprintf(w, "\t%s", orDash(r.URL))
+				}
+				fmt.Fprintln(w)
 			}
 			return w.Flush()
 		},

@@ -988,6 +988,13 @@ directory, supervises it, and serves it on its own hostname.
      A server with a nearly full disk tells you so on the first day: the scratch server here did.
 4. **Static extras.** Drag-and-drop static deploys in the console; static
    release permalinks.
+   - Done in slice 4: both. A chosen folder also works with no scripts, since browsers send its
+     files' paths as their names.
+   - Found by slice 4: a folder dropped by hand holds what its owner cannot see, so that `.env` and
+     `.git` must stay out, and one with a manifest that builds or runs would publish its source, and
+     is refused. A label of DNS has no room for `--v` and seven digits after the longest names, so
+     that those are cut by a shorter length than other hostnames. The gate has to find a release's
+     address by the same way as the request did, in all three places that look routes up.
 5. **Release 0.5.0.** Exit check: 50 or more environments on a 4 vCPU / 8 GB
    VM with sleep enabled.
 

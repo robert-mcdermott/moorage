@@ -736,6 +736,12 @@ func (d *Deployer) collect(app string, keep int) {
 		d.db.MarkCollected(ctx, b.ID)
 		d.log.Info("removed an old build", "app", app, "build", b.ID)
 	}
+	if len(builds) > 0 {
+		// What served an old release is gone from where the router has it.
+		if err := d.opts.Reload(ctx); err != nil {
+			d.log.Warn("reload the routes", "app", app, "err", err)
+		}
+	}
 	known, err := d.db.BuildIDs(ctx, app)
 	if err != nil {
 		return

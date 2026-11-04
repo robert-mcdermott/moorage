@@ -1592,6 +1592,9 @@
           "size": {
             "type": "integer"
           },
+          "url": {
+            "type": "string"
+          },
           "version": {
             "type": "integer"
           }
@@ -1634,6 +1637,9 @@
           },
           "size": {
             "type": "integer"
+          },
+          "url": {
+            "type": "string"
           },
           "version": {
             "type": "integer"

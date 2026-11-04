@@ -272,7 +272,11 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request) {
 			page.NextCursor = encodeCursor(strconv.Itoa(rels[i-1].Version))
 			break
 		}
-		page.Items = append(page.Items, release(rel))
+		doc := release(rel)
+		if rel.Kind == manifest.KindStatic && !rel.BuildCollected {
+			doc.URL = s.cfg.ReleaseURL(app, env, rel.Version)
+		}
+		page.Items = append(page.Items, doc)
 	}
 	writeJSON(w, http.StatusOK, page)
 }

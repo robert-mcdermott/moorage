@@ -164,6 +164,7 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /apps/{app}/deploy", c.deployPage)
 	mux.HandleFunc("POST /apps/{app}/deploy/image", c.deployImage)
 	mux.HandleFunc("POST /apps/{app}/deploy/archive", c.deployArchive)
+	mux.HandleFunc("POST /apps/{app}/deploy/site", c.deploySite)
 	mux.HandleFunc("POST /apps/{app}/restart", c.action(c.restart))
 	mux.HandleFunc("POST /apps/{app}/redeploy", c.action(c.redeploy))
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
@@ -336,6 +337,7 @@ type data struct {
 	Image                 string
 	Commands, GitCommands []string
 	MaxUpload             string
+	MaxUploadBytes        int64
 
 	// The timeline.
 	Events    []eventRow

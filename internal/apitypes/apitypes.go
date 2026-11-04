@@ -27,6 +27,8 @@ type Release struct {
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by,omitempty"`
 	Current   bool      `json:"current"`
+	// URL is this release's own address, for a static site's that is kept.
+	URL string `json:"url,omitempty"`
 }
 
 // Deployment is the job that produces a release: a deploy, a rollback. A

@@ -342,6 +342,16 @@ details > summary { cursor: pointer; font-weight: 600; }
 .narrow { max-width: 30rem; }
 .narrow h2 { margin-bottom: var(--s1); font-size: 1.05rem; }
 .narrow form { margin-top: var(--s4); }
+.dropzone { border: 2px dashed var(--line); transition: border-color .12s, background-color .12s; }
+.dropzone h2 { margin-bottom: var(--s1); font-size: 1.05rem; }
+.dropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone-choose { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-top: var(--s3); }
+.dropzone-choose label { margin: 0; }
+.dropzone-choose input { width: auto; max-width: 100%; flex: 0 1 auto; }
+.dropzone-progress { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-top: var(--s3); }
+.dropzone-progress progress { flex: 1 1 12rem; accent-color: var(--accent); }
+.dropzone .notice { margin: var(--s3) 0 0; }
+.block-after { margin-bottom: var(--s4); }
 .deploy-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); gap: var(--s4); }
 .deploy-ways > * { min-width: 0; }
 .deploy-ways select { min-width: 0; max-width: 100%; }

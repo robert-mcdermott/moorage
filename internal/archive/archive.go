@@ -113,6 +113,19 @@ func cleanName(name string) (string, error) {
 	return clean, nil
 }
 
+// CleanName returns the name of an uploaded file as a clean relative slash path, or an error if it
+// is absolute or leaves where it is going.
+func CleanName(name string) (string, error) {
+	clean, err := cleanName(name)
+	if err != nil {
+		return "", err
+	}
+	if clean == "." || !filepath.IsLocal(filepath.FromSlash(clean)) {
+		return "", fmt.Errorf("%q is not a file's name", name)
+	}
+	return clean, nil
+}
+
 // Write packs the regular files and directories under dir into w as a
 // gzip-compressed tar stream. Directories named .git are left out, and so is
 // anything skip returns true for (rel is a slash path relative to dir).
