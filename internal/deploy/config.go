@@ -135,6 +135,38 @@ func (d *Deployer) ReleaseVars(ctx context.Context, app, env, by string) (store.
 	return d.Publish(ctx, PublishRequest{App: app, Env: env, By: by, Source: "config", Reason: "config", Build: current, Plan: plan})
 }
 
+// NotSecretError says that a variable has nothing sealed to reveal.
+type NotSecretError struct{ Name string }
+
+func (e *NotSecretError) Error() string {
+	return e.Name + " is not a secret: its value is already shown."
+}
+
+// RevealVar reads the value of a secret set for an environment, or for all of them.
+func (d *Deployer) RevealVar(ctx context.Context, app, env, name string) (string, error) {
+	vars, err := d.db.Config(ctx, app, env)
+	if err != nil {
+		return "", err
+	}
+	for _, v := range vars {
+		if v.Name != name {
+			continue
+		}
+		if !v.Secret {
+			return "", &NotSecretError{name}
+		}
+		appID, _, err := d.db.Scope(ctx, app, env)
+		if err != nil {
+			return "", err
+		}
+		if d.opts.Secrets == nil {
+			return "", errors.New("this server cannot open secrets")
+		}
+		return d.opts.Secrets.Open(ctx, appID, v.Scope, v.Name, v.Sealed)
+	}
+	return "", fmt.Errorf("no variable %s: %w", name, store.ErrNotFound)
+}
+
 // ConfigResult says what a configuration change did.
 type ConfigResult struct {
 	// AppCreated reports an app created by the change (variables can be set

@@ -45,7 +45,7 @@ how it works inside and where it is going.
 | `moor registry login HOST` | Keeps a private container registry's credentials on the server |
 | `moor trust` | Trusts the server's CA on this machine |
 | `moor server doctor` | Checks the server and what it depends on, and says how to fix what it finds |
-| `moor apps` | Lists the apps |
+| `moor apps` | Lists the apps; `create` one in a project, and `move` one to another |
 | `moor events` | Shows what happened on the server; `-f` follows it |
 | `moor deployments` | Lists an app's deployments; `show` and `follow` one |
 | `moor releases` | Lists an app's releases; `show` one, and `diff` two |
@@ -55,12 +55,14 @@ how it works inside and where it is going.
 | `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |
 | `moor restart` | Replaces the instances without downtime |
 | `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |
-| `moor env` | Lists and changes variables and secrets |
+| `moor env` | Lists and changes variables and secrets; `reveal` reads a secret |
 | `moor manifest explain` | Shows how Moorage will build and run the app |
 | `moor server status` | Shows the server and its service |
 | `moor login [URL]` | Signs in to a server, approving it in a browser |
 | `moor whoami` | Shows who you are signed in as |
 | `moor password` | Changes your password |
+| `moor projects` | Lists your projects; `create`, `show`, `set`, `add-member`, `remove-member` and `delete` them |
+| `moor audit` | Shows who did what, for administrators |
 | `moor tokens` | Lists your API tokens; `create` and `revoke` them |
 | `moor server users` | Lists the users; `create`, `invite`, `role`, `disable` and `enable` them |
 

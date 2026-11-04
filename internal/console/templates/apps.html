@@ -4,9 +4,9 @@
 <nav class="tabs" aria-label="This app">
   <a href="/apps/{{.App.Name}}"{{if eq .Tab "overview"}} aria-current="page"{{end}}>Overview</a>
   <a href="/apps/{{.App.Name}}/deployments"{{if eq .Tab "deployments"}} aria-current="page"{{end}}>Deployments</a>
-  <a href="/apps/{{.App.Name}}/logs"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>
-  <a href="/apps/{{.App.Name}}/variables"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
-  <a href="/apps/{{.App.Name}}/deploy"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>
+  {{if .Access.Logs}}<a href="/apps/{{.App.Name}}/logs"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>{{end}}
+  {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/variables"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
+  <a href="/apps/{{.App.Name}}/deploy"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
 </nav>
 {{end}}
 
@@ -30,14 +30,15 @@
 {{if .Apps}}
 <div class="panel table-scroll" data-apps{{if .Poll}} data-poll{{end}}>
   <table class="apps">
-    <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
+    <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Project</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
     <tbody>
     {{range .Apps}}
       <tr data-app-row="{{.Name}}">
         <td><a class="app-name" href="/apps/{{.Name}}">{{.Name}}</a></td>
         <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{with .Instances}}<span class="muted small nowrap"> {{.}}</span>{{end}}</td>
         <td><a href="{{.URL}}">{{.URL}}</a></td>
-        <td>{{if .Version}}v{{.Version}}{{else}}—{{end}}</td>
+        <td data-label="Project"><a class="quiet-link" href="/projects/{{.Project}}">{{.Project}}</a></td>
+        <td data-label="Release">{{if .Version}}v{{.Version}}{{else}}—{{end}}</td>
         <td class="muted">
           {{if not .ChangedAt.IsZero}}<time datetime="{{iso .ChangedAt}}">{{ago .ChangedAt}}</time>{{with .ChangedBy}} by {{.}}{{end}}{{else}}—{{end}}
           {{with .Last}}<div class="small clip">{{.}}</div>{{end}}
@@ -67,7 +68,7 @@
   <section class="panel panel-pad app-head">
     <div class="app-summary">
       <p>{{template "status" .Status}}{{if .LastFailed}} <a class="badge fail" href="/deployments/{{.LastFailed}}">Last deployment failed</a>{{end}}</p>
-      <p><a href="{{.URL}}">{{.URL}}</a></p>
+      <p><a href="{{.URL}}">{{.URL}}</a> <span class="muted small">· project <a class="quiet-link" href="/projects/{{$.Access.Project.Name}}">{{$.Access.Project.Name}}</a>, you are {{$.Access.Role}}</span></p>
       {{with .Release}}
       <p class="muted">
         {{if .Deployment}}<a href="/deployments/{{.Deployment}}">v{{.Version}}</a>{{else}}v{{.Version}}{{end}}{{with .Source}}: {{.}}{{end}},
@@ -77,6 +78,7 @@
       <p class="muted">Nothing is deployed yet.</p>
       {{end}}
     </div>
+    {{if $.Access.Deploy}}
     <div class="actions app-actions">
       <a class="button" href="/apps/{{.Name}}/deploy">Deploy</a>
       {{if .Release}}
@@ -99,6 +101,7 @@
       {{end}}
       {{end}}
     </div>
+    {{end}}
   </section>
 </div>
 
@@ -133,7 +136,7 @@
     </table>
   </div>
 </section>
-<section class="block" data-refresh="scale">
+{{if $.Access.Deploy}}<section class="block" data-refresh="scale">
   <div class="section-heading"><h2>Scale</h2></div>
   <form class="panel panel-pad scale" method="post" action="/apps/{{.Name}}/scale" data-busy="Scaling…">
     <input type="hidden" name="csrf" value="{{$csrf}}">
@@ -146,13 +149,13 @@
     <button class="quiet" type="submit">Scale</button>
     <p class="hint small scale-note">The number stays for the releases to come.</p>
   </form>
-</section>
+</section>{{end}}
 {{end}}
 {{else}}
 <section class="block panel empty">
   <h2>Nothing is deployed yet</h2>
   <p>Deploy it from its directory, with <code>git push</code>, or from an image.</p>
-  <div class="actions"><a class="button" href="/apps/{{.Name}}/deploy">How to deploy it</a></div>
+  {{if $.Access.Deploy}}<div class="actions"><a class="button" href="/apps/{{.Name}}/deploy">How to deploy it</a></div>{{end}}
 </section>
 {{end}}
 
@@ -206,7 +209,7 @@
 <section class="panel empty">
   <h2>No deployments yet</h2>
   <p>Each one will be here, with its log and what it changed.</p>
-  <div class="actions"><a class="button" href="/apps/{{.App.Name}}/deploy">How to deploy it</a></div>
+  {{if .Access.Deploy}}<div class="actions"><a class="button" href="/apps/{{.App.Name}}/deploy">How to deploy it</a></div>{{end}}
 </section>
 {{end}}
 </div>
@@ -225,7 +228,7 @@
       <p class="muted"><time datetime="{{iso .At}}">{{ago .At}}</time>{{with .By}} by {{.}}{{end}}{{with .Took}}, took {{.}}{{end}} <span class="small">· {{.ID}}</span></p>
     </div>
     <div class="actions app-actions">
-      {{if .CanRollBack}}
+      {{if and .CanRollBack $.Access.Deploy}}
       <form class="rollback" method="post" action="/apps/{{$app}}/rollback" data-busy="Rolling back…" data-confirm="Serve v{{.Version}} of {{$app}} again?">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <input type="hidden" name="version" value="{{.Version}}">
@@ -233,7 +236,7 @@
         <label class="check"><input type="checkbox" name="with_config" value="1"> With the variables it ran with</label>
       </form>
       {{end}}
-      {{if .Redeployable}}
+      {{if and .Redeployable $.Access.Deploy}}
       <form method="post" action="/apps/{{$app}}/redeploy" data-busy="Starting…">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <button class="quiet" type="submit">Redeploy</button>
@@ -267,7 +270,9 @@
 
 <section class="block">
   <div class="section-heading"><h2>Log</h2><span class="badge live-status" data-log-status hidden></span></div>
-  {{if or .Log .Running}}
+  {{if not $.Access.Logs}}
+  <p class="panel panel-pad muted">Viewers of this project may not read logs.</p>
+  {{else if or .Log .Running}}
   {{if .Omitted}}<p class="muted small">Showing the last lines: {{.Omitted}} earlier ones are left out. <code>moor deployments follow {{.ID}}</code> prints them all.</p>{{end}}
   <pre class="log" tabindex="0" aria-label="The deployment's log" data-log data-log-id="{{.ID}}" data-log-count="{{.LogCount}}"{{if .Running}} data-log-follow{{end}}>{{range .Log}}<span class="line s-{{.Stream}}" title="{{iso .At}}">{{.Text}}
 </span>{{end}}</pre>
@@ -310,16 +315,26 @@
 {{end}}
 
 {{define "new-app"}}
+{{template "failure" .}}
 <section class="panel panel-pad narrow">
   <h2>What is it called?</h2>
-  <p class="muted">It will be at its own address, under this name. Deploying it is what creates it.</p>
-  {{with .Error}}<p class="alert" role="alert">{{.}}</p>{{end}}
-  <form method="get" action="/new">
+  <p class="muted">It will be at its own address, under this name.</p>
+  {{if .Projects}}
+  <form method="post" action="/new">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
     <label for="name">Name</label>
-    <input id="name" name="name" value="{{.Name}}" required autofocus autocomplete="off" spellcheck="false" pattern="[a-z0-9][a-z0-9-]*">
-    <p class="hint small">Lowercase letters, digits and hyphens.</p>
+    <input id="name" name="name" value="{{.Name}}" required autofocus autocomplete="off" spellcheck="false" pattern="[a-z][a-z0-9\-]{1,38}[a-z0-9]">
+    <p class="hint small">Lowercase letters, digits and hyphens, at least three.</p>
+    <label for="project">Project</label>
+    <select id="project" name="project">
+      {{$chosen := .Image}}
+      {{range .Projects}}<option value="{{.Name}}"{{if eq .Name $chosen}} selected{{end}}>{{.Name}}</option>{{end}}
+    </select>
     <div class="actions"><button type="submit">Next</button></div>
   </form>
+  {{else}}
+  <p class="notice warn">You have no project you may make apps in. A maintainer of one can add you.</p>
+  {{end}}
 </section>
 {{end}}
 

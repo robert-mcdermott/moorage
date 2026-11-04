@@ -13,6 +13,8 @@ type App struct {
 	URL        string    `json:"url"`
 	CreatedAt  time.Time `json:"created_at"`
 	Production *Release  `json:"production,omitempty"`
+	// Project is the project it is in.
+	Project string `json:"project,omitempty"`
 }
 
 // Release is one numbered release of an environment.
@@ -481,4 +483,72 @@ type Check struct {
 	Status string `json:"status"`
 	Detail string `json:"detail"`
 	Fix    string `json:"fix,omitempty"`
+}
+
+// Project holds apps, whose members have roles in it.
+type Project struct {
+	Name string `json:"name"`
+	// Role is the caller's role in it.
+	Role string `json:"role,omitempty"`
+	// Everyone is the role of those who are not members, if any.
+	Everyone string `json:"everyone,omitempty"`
+	// ViewersSeeLogs says whether viewers may read logs.
+	ViewersSeeLogs bool      `json:"viewers_see_logs"`
+	Apps           []string  `json:"apps,omitempty"`
+	Members        []Member  `json:"members,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// Member is someone's role in a project.
+type Member struct {
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+	Role  string `json:"role"`
+}
+
+// NewProject creates a project.
+type NewProject struct {
+	Name string `json:"name"`
+}
+
+// ProjectChange changes who may do what in a project without being a member of it.
+type ProjectChange struct {
+	// Everyone is a role, or "none". Left out, it stays as it is.
+	Everyone *string `json:"everyone,omitempty"`
+	// ViewersSeeLogs, left out, stays as it is.
+	ViewersSeeLogs *bool `json:"viewers_see_logs,omitempty"`
+}
+
+// MemberChange gives someone a role in a project.
+type MemberChange struct {
+	Role string `json:"role"`
+}
+
+// NewApp creates an app in a project.
+type NewApp struct {
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+}
+
+// AppChange moves an app to another project.
+type AppChange struct {
+	Project string `json:"project"`
+}
+
+// RevealedVar is a secret's value.
+type RevealedVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// AuditEntry is a record of who did what.
+type AuditEntry struct {
+	ID     string         `json:"id"`
+	At     time.Time      `json:"at"`
+	Actor  string         `json:"actor"`
+	IP     string         `json:"ip,omitempty"`
+	Action string         `json:"action"`
+	Target string         `json:"target,omitempty"`
+	Result string         `json:"result"`
+	Data   map[string]any `json:"data,omitempty"`
 }

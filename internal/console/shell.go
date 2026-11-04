@@ -28,6 +28,8 @@ const maxListedApps = 500
 // appRow is a line of the apps list.
 type appRow struct {
 	Name, URL string
+	// Project is the project it is in.
+	Project   string
 	Status    status
 	Version   int
 	ChangedAt time.Time
@@ -102,14 +104,28 @@ func (c *Console) requireUser(w http.ResponseWriter, r *http.Request) (auth.Prin
 
 // shellData is what every page of the console's frame needs.
 func (c *Console) shellData(r *http.Request, p auth.Principal, page, title string) (data, []store.AppSummary, error) {
-	apps, err := c.db.AppsAfter(r.Context(), "", maxListedApps)
+	all, err := c.db.AppsAfter(r.Context(), "", maxListedApps)
+	if err != nil {
+		return data{}, nil, err
+	}
+	visible, err := c.auth.Visible(r.Context(), p)
+	if err != nil {
+		return data{}, nil, err
+	}
+	apps := make([]store.AppSummary, 0, len(all))
+	for _, a := range all {
+		if visible(a.Name) {
+			apps = append(apps, a)
+		}
+	}
+	access, err := c.projectAccess(r, p)
 	if err != nil {
 		return data{}, nil, err
 	}
 	d := data{
 		Title: title, Heading: title, Page: page,
 		User: p.Name, Admin: p.Admin, CSRF: auth.CSRFToken(p.CookieValue),
-		Palette: c.palette(apps, p.Admin),
+		Palette: c.palette(apps, p.Admin, access),
 	}
 	for _, a := range apps {
 		d.AppNames = append(d.AppNames, a.Name)
@@ -117,12 +133,39 @@ func (c *Console) shellData(r *http.Request, p auth.Principal, page, title strin
 	return d, apps, nil
 }
 
+// projectAccess says what someone may do in each project, by its name.
+func (c *Console) projectAccess(r *http.Request, p auth.Principal) (map[string]auth.Access, error) {
+	projects, err := c.db.Projects(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]auth.Access, len(projects))
+	for _, project := range projects {
+		if out[project.Name], err = c.auth.ProjectAccess(r.Context(), p, project); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// appData is what every page about an app needs: the frame, and what the viewer may do.
+func (c *Console) appData(r *http.Request, p auth.Principal, app, page, title string) (data, error) {
+	d, _, err := c.shellData(r, p, page, title)
+	if err != nil {
+		return d, err
+	}
+	if d.Access, err = c.auth.AppAccess(r.Context(), p, app); err != nil {
+		return d, err
+	}
+	return d, nil
+}
+
 func (c *Console) appURL(name string) string {
 	return c.cfg.PublicURL(name + "." + c.cfg.Domain)
 }
 
 // palette is what the command palette offers.
-func (c *Console) palette(apps []store.AppSummary, admin bool) []paletteItem {
+func (c *Console) palette(apps []store.AppSummary, admin bool, access map[string]auth.Access) []paletteItem {
 	items := []paletteItem{
 		{Label: "Apps", Hint: "Page", Href: "/"},
 		{Label: "Activity", Hint: "Page", Href: "/activity"},
@@ -132,6 +175,7 @@ func (c *Console) palette(apps []store.AppSummary, admin bool) []paletteItem {
 		{Label: "SSH keys", Hint: "Account", Href: "/account/keys"},
 		{Label: "API tokens", Hint: "Account", Href: "/account/tokens"},
 		{Label: "Sessions", Hint: "Account", Href: "/account/sessions"},
+		{Label: "Projects", Hint: "Page", Href: "/projects"},
 	}
 	if admin {
 		items = append(items,
@@ -139,17 +183,26 @@ func (c *Console) palette(apps []store.AppSummary, admin bool) []paletteItem {
 			paletteItem{Label: "Users", Hint: "Server", Href: "/settings/users"},
 			paletteItem{Label: "Container registries", Hint: "Server", Href: "/settings/registries"},
 			paletteItem{Label: "System", Hint: "Server", Href: "/settings/system"},
+			paletteItem{Label: "Audit log", Hint: "Server", Href: "/settings/audit"},
 		)
 	}
 	for _, a := range apps {
+		base := "/apps/" + url.PathEscape(a.Name)
+		can := access[a.Project]
 		items = append(items,
-			paletteItem{Label: a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name)},
-			paletteItem{Label: "Deployments of " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/deployments"},
-			paletteItem{Label: "Logs of " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/logs"},
-			paletteItem{Label: "Variables of " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/variables"},
-			paletteItem{Label: "Deploy " + a.Name, Hint: "App", Href: "/apps/" + url.PathEscape(a.Name) + "/deploy"},
-			paletteItem{Label: "Open " + a.Name, Hint: "Its address", Href: c.appURL(a.Name), External: true},
+			paletteItem{Label: a.Name, Hint: "App", Href: base},
+			paletteItem{Label: "Deployments of " + a.Name, Hint: "App", Href: base + "/deployments"},
 		)
+		if can.Logs {
+			items = append(items, paletteItem{Label: "Logs of " + a.Name, Hint: "App", Href: base + "/logs"})
+		}
+		if can.Deploy {
+			items = append(items,
+				paletteItem{Label: "Variables of " + a.Name, Hint: "App", Href: base + "/variables"},
+				paletteItem{Label: "Deploy " + a.Name, Hint: "App", Href: base + "/deploy"},
+			)
+		}
+		items = append(items, paletteItem{Label: "Open " + a.Name, Hint: "Its address", Href: c.appURL(a.Name), External: true})
 	}
 	return append(items,
 		paletteItem{Label: "Use the system's theme", Hint: "Theme", Action: "theme:system"},
@@ -172,7 +225,16 @@ func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	d.FilterApp = q.Get("app")
 	before := q.Get("before")
-	list, err := c.db.Events(r.Context(), store.EventFilter{App: d.FilterApp, Before: before, Limit: activityPage + 1})
+	visible, err := c.auth.Visible(r.Context(), p)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if d.FilterApp != "" && !visible(d.FilterApp) {
+		c.noSuchApp(w, d.FilterApp)
+		return
+	}
+	list, err := c.visibleEvents(r, visible, store.EventFilter{App: d.FilterApp, Before: before, Limit: activityPage + 1})
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -194,6 +256,30 @@ func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
 		d.Stream = "/api/v1/events/stream?after=" + url.QueryEscape(list[0].ID)
 	}
 	c.render(w, http.StatusOK, "activity", d)
+}
+
+// visibleEvents lists the events someone may see, reading on past those they may not.
+func (c *Console) visibleEvents(r *http.Request, visible func(string) bool, f store.EventFilter) ([]store.Event, error) {
+	want := f.Limit
+	var out []store.Event
+	for {
+		list, err := c.db.Events(r.Context(), f)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range list {
+			if visible(e.App) {
+				out = append(out, e)
+				if len(out) == want {
+					return out, nil
+				}
+			}
+		}
+		if len(list) < f.Limit {
+			return out, nil
+		}
+		f.Before = list[len(list)-1].ID
+	}
 }
 
 func (c *Console) welcome(w http.ResponseWriter, r *http.Request) {

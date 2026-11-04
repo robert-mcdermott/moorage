@@ -20,6 +20,14 @@ var reserved = map[string]bool{
 // Production is the environment every app has.
 const Production = "production"
 
+// ValidateProject reports why name cannot be a project's name, or nil.
+func ValidateProject(name string) error {
+	if !appPattern.MatchString(name) {
+		return fmt.Errorf("a project's name must be 3 to 40 lowercase letters, digits and hyphens, starting with a letter")
+	}
+	return nil
+}
+
 // ValidateApp reports why name cannot be an app name, or nil.
 func ValidateApp(name string) error {
 	switch {

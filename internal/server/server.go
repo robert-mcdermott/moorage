@@ -89,14 +89,55 @@ func authorizeGit(r *http.Request, authn *auth.Service, password, app string, pu
 	if err != nil {
 		return "", gitserver.ErrBadCredentials
 	}
-	scope := auth.ScopeRead
-	if push {
-		scope = auth.ScopeDeploy
-	}
-	if !p.Can(scope) || !p.CanApp(app) {
-		return "", gitserver.ErrForbidden
+	if err := allowGit(r.Context(), authn, p, app, push); err != nil {
+		return "", err
 	}
 	return p.Name, nil
+}
+
+// allowGit says whether someone may reach an app's repository: to read it, or to push,
+// which deploys.
+func allowGit(ctx context.Context, authn *auth.Service, p auth.Principal, app string, push bool) error {
+	access, err := authn.AppAccess(ctx, p, app)
+	if err != nil {
+		return err
+	}
+	if push && !access.Deploy || !push && !access.See {
+		return gitserver.ErrForbidden
+	}
+	return nil
+}
+
+// pruneAudit keeps the audit log to its retention period, until ctx ends.
+func pruneAudit(ctx context.Context, db *store.DB, log *slog.Logger) {
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		if _, err := db.PruneAudit(ctx, time.Now().Add(-auth.AuditRetention)); err != nil && ctx.Err() == nil {
+			log.Warn("prune the audit log", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// auditedPushes keeps a record of every push.
+type auditedPushes struct {
+	gitserver.Receiver
+	auth *auth.Service
+}
+
+func (a auditedPushes) Receive(ctx context.Context, p *gitserver.Push) error {
+	err := a.Receiver.Receive(ctx, p)
+	result := "ok"
+	if err != nil {
+		result = "failed"
+	}
+	a.auth.Audit(ctx, store.AuditEntry{Actor: p.By, Action: "git.push", Target: p.App, Result: result})
+	return err
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully. The
@@ -209,6 +250,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return err
 	}
 	go runtime.Run(ctx)
+	go pruneAudit(ctx, db, log)
 	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
@@ -241,7 +283,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 
 	// The git server: Smart HTTP on the console's hostname, SSH on its own
 	// port.
-	git := &gitserver.Server{Repos: repos, Receiver: &deploy.Pushes{Deployer: deployer}, Log: log}
+	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
 	console.Handle("/api/", api.New(db, cfg, cfg.DataDir, authn, runtime, deployer, keyring, bus, log))
 	console.Handle("/git/", &gitserver.HTTP{Git: git, Authorize: func(r *http.Request, password, app string, push bool) (string, error) {
@@ -324,6 +366,13 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 			Key: func(ctx context.Context, key ssh.PublicKey) (string, bool) {
 				p, _, err := authn.Key(ctx, ssh.FingerprintSHA256(key))
 				return p.Name, err == nil
+			},
+			Authorize: func(ctx context.Context, fingerprint, app string, push bool) error {
+				p, _, err := authn.Key(ctx, fingerprint)
+				if err != nil {
+					return gitserver.ErrForbidden
+				}
+				return allowGit(ctx, authn, p, app, push)
 			},
 			Used: func(fingerprint string) {
 				if k, err := db.SSHKeyByFingerprint(ctx, fingerprint); err == nil {

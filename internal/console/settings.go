@@ -38,6 +38,10 @@ type settingsView struct {
 	Registries []store.Registry
 	// What the form said, when it was refused.
 	FormEmail, FormName, FormRole, FormHost, FormUser string
+	// Who did what.
+	Audit                             []store.AuditEntry
+	AuditExport                       string
+	FormActor, FormAction, FormTarget string
 	// The system.
 	Checks            []doctor.Check
 	Fails, Warns, Oks int
@@ -100,7 +104,7 @@ func (c *Console) adminAction(next func(http.ResponseWriter, *http.Request, auth
 			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "This is for administrators", Message: "Ask one of them, if it needs changing.", Link: "/", LinkText: "Back to the start"})
 			return
 		}
-		next(w, r, p)
+		c.audited(w, r, p, func(w http.ResponseWriter) { next(w, r, p) })
 	})
 }
 

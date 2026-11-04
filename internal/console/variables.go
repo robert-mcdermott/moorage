@@ -35,6 +35,8 @@ type varsView struct {
 	Released string
 	// BuildChanged says that a variable builds use was changed.
 	BuildChanged bool
+	// Revealed names a secret just asked for, and RevealedValue has its value, this once.
+	Revealed, RevealedValue string
 }
 
 // varsPreview says what a text would change.
@@ -54,9 +56,13 @@ type varChangeRow struct {
 func (p varsPreview) Empty() bool { return len(p.Rows) == 0 }
 
 func (c *Console) showVars(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure) {
-	d, _, err := c.shellData(r, p, "apps", "Variables of "+app)
+	d, err := c.appData(r, p, app, "apps", "Variables of "+app)
 	if err != nil {
 		c.internal(w, err)
+		return
+	}
+	if !d.Access.Deploy {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not see that", Message: "Your role in the project " + d.Access.Project.Name + " does not show variables.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
 		return
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}
@@ -70,10 +76,45 @@ func (c *Console) showVars(w http.ResponseWriter, r *http.Request, p auth.Princi
 	query := r.URL.Query()
 	view.Released = query.Get("released")
 	view.BuildChanged = query.Get("build") == "1"
+	view.Revealed, view.RevealedValue = revealedName(r), revealedValue(r)
 	d.Variables = view
 	d.Notice = varNotices[query.Get("done")]
 	d.Failure = failed
 	c.render(w, code, "variables", d)
+}
+
+type revealKey struct{ name bool }
+
+func revealedName(r *http.Request) string {
+	s, _ := r.Context().Value(revealKey{true}).(string)
+	return s
+}
+
+func revealedValue(r *http.Request) string {
+	s, _ := r.Context().Value(revealKey{false}).(string)
+	return s
+}
+
+// revealVariable shows a secret's value, this once, and keeps a record of who saw it.
+func (c *Console) revealVariable(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	name := r.PostFormValue("name")
+	value, err := c.deployer.RevealVar(r.Context(), app, names.Production, name)
+	result := "ok"
+	if err != nil {
+		result = "failed"
+	}
+	c.auth.Audit(r.Context(), store.AuditEntry{Actor: p.Name, IP: c.auth.ClientIP(r), Action: "secret.reveal", Target: app + "/" + names.Production + "/" + name, Result: result})
+	if err != nil {
+		var notSecret *deploy.NotSecretError
+		if errors.Is(err, store.ErrNotFound) || errors.As(err, &notSecret) {
+			c.showVars(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
+			return
+		}
+		c.internal(w, err)
+		return
+	}
+	ctx := context.WithValue(context.WithValue(r.Context(), revealKey{true}, name), revealKey{false}, value)
+	c.showVars(w, r.WithContext(ctx), p, app, http.StatusOK, nil)
 }
 
 var varNotices = map[string]string{
@@ -108,10 +149,6 @@ func (c *Console) variablesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	app, ok := c.lookupApp(w, r, p)
 	if !ok {
-		return
-	}
-	if !p.Can(auth.ScopeDeploy) {
-		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not see that", Message: "Your account cannot see variables.", Link: "/", LinkText: "Back to the start"})
 		return
 	}
 	c.showVars(w, r, p, app, http.StatusOK, nil)
@@ -285,9 +322,13 @@ func (c *Console) editVariablesPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Console) showEditor(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, view varsView, failed *failure) {
-	d, _, err := c.shellData(r, p, "apps", "Edit the variables of "+app)
+	d, err := c.appData(r, p, app, "apps", "Edit the variables of "+app)
 	if err != nil {
 		c.internal(w, err)
+		return
+	}
+	if !d.Access.Manage {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Changing variables takes being a maintainer of the project " + d.Access.Project.Name + ".", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
 		return
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}, {"Variables", "/apps/" + url.PathEscape(app) + "/variables"}}

@@ -72,17 +72,21 @@ func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	p := who(r)
+	visible, err := s.auth.Visible(r.Context(), who(r))
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	page := apitypes.Page[apitypes.App]{Items: []apitypes.App{}}
 	for i, a := range apps {
 		if i == limit {
 			page.NextCursor = encodeCursor(apps[i-1].Name)
 			break
 		}
-		if !p.CanApp(a.Name) {
+		if !visible(a.Name) {
 			continue
 		}
-		app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt}
+		app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt, Project: a.Project}
 		if a.Production != nil {
 			rel := release(*a.Production)
 			app.Production = &rel

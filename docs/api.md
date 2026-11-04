@@ -54,6 +54,15 @@ the queued deployment, as a deploy does. `GET …/releases/{version}` has a rele
 resolved manifest, and `GET …/releases/{version}/diff/{other}` what changed between two:
 of variables, their names only.
 
+## Projects
+
+`GET /api/v1/projects` lists those you have a role in, and `/projects/{project}` has one
+with its apps and members. An app that you have no role with answers 404, as if it did not
+exist; one that your role does not allow answers 403, and says which role would. `PUT` and
+`DELETE /projects/{project}/members/{user}` change who is what, by email address or ID.
+`POST /apps` makes an app in a project, and `PATCH /apps/{app}` moves one. `POST
+…/vars/{name}/reveal` reads a secret, and is recorded, as is everything at `GET /audit`.
+
 ## Logs
 
 `GET /api/v1/apps/{app}/envs/{env}/logs` streams an environment's logs as NDJSON, newest last:

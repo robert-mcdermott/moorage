@@ -19,8 +19,10 @@ import (
 	"testing"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/client"
 	"github.com/robert-mcdermott/moorage/internal/config"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 // consoleUser signs in to a server's console, with what a browser sends: the console's
@@ -1025,4 +1027,318 @@ func TestConsoleSettings(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, `"listen.http"`) {
 		t.Errorf("%d %s", res.StatusCode, body)
 	}
+}
+
+// addTeammate makes an account, through the pages, and signs its owner in.
+func addTeammate(t *testing.T, cfg config.Config, addrs Addrs, admin *consoleUser, email string) *consoleUser {
+	t.Helper()
+	res, body := admin.post("/settings/users/create", url.Values{"csrf": {admin.token()}, "email": {email}, "role": {"member"}})
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	link := regexp.MustCompile(`/invite\?code=([^<"\s]+)`).FindStringSubmatch(body)
+	if link == nil {
+		t.Fatalf("no link in: %s", body)
+	}
+	u := &consoleUser{t: t, addr: addrs.HTTP, host: cfg.ConsoleHost}
+	if res, body := u.post("/invite", url.Values{"code": {link[1]}, "password": {"a passphrase of their own"}, "confirm": {"a passphrase of their own"}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	return u
+}
+
+// TestProjectsAndRoles has someone go through each role in a project, in the pages.
+func TestProjectsAndRoles(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	owner := signIn(t, cfg, addrs)
+	ctx := context.Background()
+	ownerToken := owner.token()
+
+	// A project, an app in it, and an app in the default project.
+	res, body := owner.post("/projects", url.Values{"csrf": {ownerToken}, "name": {"payments"}})
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/projects/payments" {
+		t.Fatalf("%d %s %s", res.StatusCode, res.Header.Get("Location"), body)
+	}
+	if res, _ := owner.post("/projects", url.Values{"csrf": {ownerToken}, "name": {"payments"}}); res.StatusCode != http.StatusConflict {
+		t.Errorf("the same name: %d", res.StatusCode)
+	}
+	if res, _ := owner.post("/projects", url.Values{"csrf": {ownerToken}, "name": {"Not A Name"}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("a bad name: %d", res.StatusCode)
+	}
+	if res, _ := owner.post("/new", url.Values{"csrf": {ownerToken}, "name": {"ledger"}, "project": {"payments"}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d", res.StatusCode)
+	}
+	plan := appPlan(nil)
+	if _, err := deployApp(t, c, "ledger", plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := deployApp(t, c, "shop", plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := setSecret(c, "ledger", "API_KEY", "a-long-secret-of-the-ledger"); err != nil {
+		t.Fatal(err)
+	}
+	_, list := owner.get("/")
+	contains(t, "the owner's apps", list, `data-app-row="ledger"`, `data-app-row="shop"`, "payments")
+
+	// Someone who is nothing in the project sees nothing of it.
+	ana := addTeammate(t, cfg, addrs, owner, "ana@example.com")
+	anaToken := ana.token()
+	_, list = ana.get("/")
+	contains(t, "her apps", list, `data-app-row="shop"`)
+	if strings.Contains(list, "ledger") {
+		t.Errorf("an app she has no role with, on every page:\n%s", list)
+	}
+	for _, path := range []string{"/apps/ledger", "/apps/ledger/logs", "/apps/ledger/variables", "/apps/ledger/deployments", "/apps/ledger/deploy", "/projects/payments", "/activity?app=ledger"} {
+		if res, _ := ana.get(path); res.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: %d", path, res.StatusCode)
+		}
+	}
+	for _, path := range []string{"/apps/ledger/restart", "/apps/ledger/redeploy", "/apps/ledger/rollback", "/apps/ledger/scale", "/apps/ledger/variables/set", "/apps/ledger/deploy/image", "/projects/payments/settings"} {
+		if res, _ := ana.post(path, url.Values{"csrf": {anaToken}, "image": {"nginx:1"}, "name": {"X"}}); res.StatusCode != http.StatusNotFound {
+			t.Errorf("POST %s: %d", path, res.StatusCode)
+		}
+	}
+	if res, _ := ana.post("/projects", url.Values{"csrf": {anaToken}, "name": {"mine"}}); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a member making a project: %d", res.StatusCode)
+	}
+	deps, err := c.Deployments(ctx, "ledger", "production", 1)
+	if err != nil || len(deps) == 0 {
+		t.Fatalf("%v %v", deps, err)
+	}
+	if res, _ := ana.get("/deployments/" + deps[0].ID); res.StatusCode != http.StatusNotFound {
+		t.Errorf("its deployment: %d", res.StatusCode)
+	}
+	if res, _ := ana.get("/api/v1/deployments/" + deps[0].ID); res.StatusCode != http.StatusNotFound {
+		t.Errorf("its deployment, through the API: %d", res.StatusCode)
+	}
+	_, activity := ana.get("/activity")
+	if strings.Contains(activity, "ledger") {
+		t.Errorf("its events:\n%s", activity)
+	}
+	_, events := ana.get("/api/v1/events")
+	if strings.Contains(events, "ledger") || !strings.Contains(events, "shop") {
+		t.Errorf("its events, through the API:\n%s", events)
+	}
+	_, apps := ana.get("/api/v1/apps")
+	if strings.Contains(apps, "ledger") {
+		t.Errorf("the API's list:\n%s", apps)
+	}
+	_, projects := ana.get("/projects")
+	if strings.Contains(projects, "payments") {
+		t.Errorf("a project she has no role in:\n%s", projects)
+	}
+	if strings.Contains(projects, `name="name"`) {
+		t.Errorf("a member is offered to make a project:\n%s", projects)
+	}
+
+	// A viewer sees it and its logs, and acts on nothing.
+	res, _ = owner.post("/projects/payments/members/set", url.Values{"csrf": {ownerToken}, "email": {"ana@example.com"}, "role": {"viewer"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d", res.StatusCode)
+	}
+	res, body = owner.post("/projects/payments/members/set", url.Values{"csrf": {ownerToken}, "email": {"nobody@example.com"}, "role": {"viewer"}})
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "no account") {
+		t.Errorf("no such account: %d", res.StatusCode)
+	}
+	_, page := ana.get("/apps/ledger")
+	contains(t, "the app for a viewer", page, "web.1", "you are viewer", `/apps/ledger/logs`)
+	for _, hidden := range []string{"/apps/ledger/restart", "/apps/ledger/redeploy", "/apps/ledger/scale", "/apps/ledger/variables", `/apps/ledger/deploy"`} {
+		if strings.Contains(page, hidden) {
+			t.Errorf("a viewer is offered %s:\n%s", hidden, page)
+		}
+	}
+	if res, _ := ana.post("/apps/ledger/restart", url.Values{"csrf": {anaToken}}); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a viewer restarting: %d", res.StatusCode)
+	}
+	if res, _ := ana.get("/apps/ledger/logs"); res.StatusCode != http.StatusOK {
+		t.Errorf("a viewer's logs: %d", res.StatusCode)
+	}
+	if res, _ := ana.get("/apps/ledger/variables"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a viewer's variables: %d", res.StatusCode)
+	}
+	if res, _ := ana.post("/projects/payments/members/set", url.Values{"csrf": {anaToken}, "email": {"ana@example.com"}, "role": {"maintainer"}}); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a viewer making herself a maintainer: %d", res.StatusCode)
+	}
+	_, page = ana.get("/projects/payments")
+	contains(t, "the project for a viewer", page, "ana@example.com", "ledger")
+	if strings.Contains(page, "members/set") {
+		t.Errorf("a viewer is offered the members:\n%s", page)
+	}
+
+	// Logs can be kept from viewers.
+	res, _ = owner.post("/projects/payments/settings", url.Values{"csrf": {ownerToken}, "everyone": {"none"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d", res.StatusCode)
+	}
+	if res, _ := ana.get("/apps/ledger/logs"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("logs kept from a viewer: %d", res.StatusCode)
+	}
+	_, page = ana.get("/deployments/" + deps[0].ID)
+	contains(t, "a deployment for such a viewer", page, "may not read logs")
+	if strings.Contains(page, "▸ rollout") {
+		t.Errorf("the log:\n%s", page)
+	}
+	if res, _ := ana.get("/api/v1/deployments/" + deps[0].ID + "/log"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("the log, through the API: %d", res.StatusCode)
+	}
+	owner.post("/projects/payments/settings", url.Values{"csrf": {ownerToken}, "everyone": {"none"}, "viewers_see_logs": {"1"}})
+
+	// A deployer acts on it, and sees its variables without changing them.
+	owner.post("/projects/payments/members/set", url.Values{"csrf": {ownerToken}, "email": {"ana@example.com"}, "role": {"deployer"}})
+	if res, _ := ana.post("/apps/ledger/restart", url.Values{"csrf": {anaToken}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("a deployer restarting: %d", res.StatusCode)
+	}
+	_, page = ana.get("/apps/ledger/variables")
+	contains(t, "the variables for a deployer", page, "API_KEY", "••••••••")
+	for _, hidden := range []string{"variables/set", "variables/unset", "variables/reveal", "variables/edit"} {
+		if strings.Contains(page, hidden) {
+			t.Errorf("a deployer is offered %s:\n%s", hidden, page)
+		}
+	}
+	for _, path := range []string{"/apps/ledger/variables/set", "/apps/ledger/variables/unset", "/apps/ledger/variables/apply", "/apps/ledger/variables/reveal"} {
+		if res, _ := ana.post(path, url.Values{"csrf": {anaToken}, "name": {"API_KEY"}, "value": {"x"}}); res.StatusCode != http.StatusForbidden {
+			t.Errorf("a deployer on %s: %d", path, res.StatusCode)
+		}
+	}
+	if res, _ := ana.get("/apps/ledger/variables/edit"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a deployer's editor: %d", res.StatusCode)
+	}
+
+	// A maintainer changes them, reveals a secret, and answers for the members.
+	owner.post("/projects/payments/members/set", url.Values{"csrf": {ownerToken}, "email": {"ana@example.com"}, "role": {"maintainer"}})
+	res, body = ana.post("/apps/ledger/variables/reveal", url.Values{"csrf": {anaToken}, "name": {"API_KEY"}})
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "a-long-secret-of-the-ledger") {
+		t.Errorf("revealing: %d", res.StatusCode)
+	}
+	_, page = ana.get("/apps/ledger/variables")
+	if strings.Contains(page, "a-long-secret-of-the-ledger") {
+		t.Errorf("the secret again:\n%s", page)
+	}
+	if res, body := ana.post("/apps/ledger/variables/reveal", url.Values{"csrf": {anaToken}, "name": {"NOTHING"}}); res.StatusCode != http.StatusConflict {
+		t.Errorf("no such secret: %d %s", res.StatusCode, body)
+	}
+	revealed, err := c.RevealVar(ctx, "ledger", "production", "API_KEY")
+	if err != nil || revealed.Value != "a-long-secret-of-the-ledger" {
+		t.Errorf("%+v %v", revealed, err)
+	}
+	var problem *client.APIError
+	if _, err := c.RevealVar(ctx, "ledger", "production", "NOTHING"); !errors.As(err, &problem) || problem.Status != http.StatusNotFound {
+		t.Errorf("%v", err)
+	}
+	res, _ = ana.post("/projects/payments/members/set", url.Values{"csrf": {anaToken}, "email": {"owner@example.com"}, "role": {"viewer"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Errorf("a maintainer adding someone: %d", res.StatusCode)
+	}
+	_, page = ana.get("/projects/payments")
+	contains(t, "the project for a maintainer", page, "owner@example.com", "members/remove", "Everyone else")
+
+	// Without a role in the default project, nobody makes an app in it by deploying.
+	owner.post("/projects/default/settings", url.Values{"csrf": {ownerToken}, "everyone": {"none"}, "viewers_see_logs": {"1"}})
+	_, list = ana.get("/")
+	if strings.Contains(list, `data-app-row="shop"`) {
+		t.Errorf("shop, with no role left:\n%s", list)
+	}
+	if res, _ := ana.post("/new", url.Values{"csrf": {anaToken}, "name": {"her-app"}, "project": {"default"}}); res.StatusCode != http.StatusForbidden {
+		t.Errorf("making an app: %d", res.StatusCode)
+	}
+	if res, _ := ana.post("/new", url.Values{"csrf": {anaToken}, "name": {"her-app"}, "project": {"payments"}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("making an app where she may: %d", res.StatusCode)
+	}
+
+	// Deleting a project: empty, and not the default.
+	if res, body := owner.post("/projects/payments/delete", url.Values{"csrf": {ownerToken}}); res.StatusCode != http.StatusConflict || !strings.Contains(body, "still has apps") {
+		t.Errorf("%d", res.StatusCode)
+	}
+	if res, _ := owner.post("/projects/default/delete", url.Values{"csrf": {ownerToken}}); res.StatusCode != http.StatusConflict {
+		t.Errorf("the default: %d", res.StatusCode)
+	}
+	if _, err := c.CreateProject(ctx, "empty"); err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := owner.post("/projects/empty/delete", url.Values{"csrf": {ownerToken}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("%d", res.StatusCode)
+	}
+	if res, _ := ana.post("/projects/payments/delete", url.Values{"csrf": {anaToken}}); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a maintainer deleting a project: %d", res.StatusCode)
+	}
+
+	// Who did what.
+	ana.post("/login", url.Values{"email": {"ana@example.com"}, "password": {"wrong"}})
+	_, page = owner.get("/settings/audit")
+	contains(t, "the audit log", page, "ana@example.com", "secret.reveal", "signin", "/apps/ledger/restart", "POST /projects", "refused", "failed")
+	_, page = owner.get("/settings/audit?actor=ana@example.com&action=secret")
+	contains(t, "a search of it", page, "secret.reveal", "ledger/production/API_KEY")
+	if strings.Contains(page, "POST /new") {
+		t.Errorf("not asked for:\n%s", page)
+	}
+	if strings.Contains(page, "a-long-secret-of-the-ledger") {
+		t.Errorf("a secret in the log:\n%s", page)
+	}
+	if res, _ := ana.get("/settings/audit"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a member reading it: %d", res.StatusCode)
+	}
+	res, export := owner.get("/api/v1/audit?format=ndjson&actor=ana@example.com")
+	if res.StatusCode != http.StatusOK || !strings.Contains(export, `"action":"secret.reveal"`) || !strings.Contains(res.Header.Get("Content-Disposition"), "attachment") {
+		t.Errorf("the export: %d\n%s", res.StatusCode, export)
+	}
+	entries, err := c.Audit(ctx, client.AuditQuery{Limit: 200, Action: "signin"})
+	if err != nil || len(entries) == 0 {
+		t.Errorf("%v %v", entries, err)
+	}
+}
+
+func setSecret(c *client.Client, app, name, value string) error {
+	_, err := c.ChangeVars(context.Background(), app, "production", apitypes.VarsChange{Set: []apitypes.VarSet{{Name: name, Value: value, Secret: true}}})
+	return err
+}
+
+// TestGitByRole keeps pushes to those who may deploy.
+func TestGitByRole(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	if _, err := c.CreateProject(context.Background(), "payments"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateApp(context.Background(), "ledger", "payments"); err != nil {
+		t.Fatal(err)
+	}
+	owner := signIn(t, cfg, addrs)
+	addTeammate(t, cfg, addrs, owner, "ana@example.com")
+	authn := testAuth(t, cfg)
+	ana, err := authn.DB.UserByEmail(context.Background(), "ana@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := auth.Principal{UserID: ana.ID, Name: ana.Email}
+	allowed := func(push bool) bool { return allowGit(context.Background(), authn, p, "ledger", push) == nil }
+	if allowed(false) || allowed(true) {
+		t.Error("no role, and she reaches it")
+	}
+	if _, err := c.SetMember(context.Background(), "payments", ana.Email, store.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if !allowed(false) || allowed(true) {
+		t.Errorf("a viewer: reads %v, pushes %v", allowed(false), allowed(true))
+	}
+	if _, err := c.SetMember(context.Background(), "payments", ana.Email, store.RoleDeployer); err != nil {
+		t.Fatal(err)
+	}
+	if !allowed(false) || !allowed(true) {
+		t.Errorf("a deployer: reads %v, pushes %v", allowed(false), allowed(true))
+	}
+}
+
+// testAuth opens the server's database a second time, as its checks read it.
+func testAuth(t *testing.T, cfg config.Config) *auth.Service {
+	t.Helper()
+	db, err := store.Open(context.Background(), NewLayout(cfg.DataDir).Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return &auth.Service{DB: db}
 }

@@ -389,20 +389,69 @@ func newAppsCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "NAME\tURL\tRELEASE\tDEPLOYED")
+			fmt.Fprintln(w, "NAME\tPROJECT\tURL\tRELEASE\tDEPLOYED")
 			for _, a := range apps {
 				release, deployed := "-", "-"
 				if a.Production != nil {
 					release = "v" + strconv.Itoa(a.Production.Version)
 					deployed = ago(a.Production.CreatedAt)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", a.Name, a.URL, release, deployed)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", a.Name, orDash(a.Project), a.URL, release, deployed)
 			}
 			return w.Flush()
 		},
 	}
 	conn.addFlags(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	var createConn, moveConn connection
+	var project, moveTo string
+	create := &cobra.Command{
+		Use:   "create NAME",
+		Short: "Create an app in a project",
+		Long: `Create an app, before its first deployment. Deploying also creates one, in the
+default project: this is how an app starts in another.`,
+		Example: "  moor apps create shop --project payments",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := createConn.client()
+			if err != nil {
+				return err
+			}
+			a, err := c.CreateApp(cmd.Context(), args[0], project)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Created %s in the project %s. It will be at %s.\n", a.Name, a.Project, a.URL)
+			return nil
+		},
+	}
+	createConn.addFlags(create)
+	create.Flags().StringVar(&project, "project", "", "the project it goes in (default: the default project)")
+	move := &cobra.Command{
+		Use:     "move NAME --project PROJECT",
+		Short:   "Put an app in another project",
+		Long:    "Put an app in another project. It takes being a maintainer of both.",
+		Example: "  moor apps move shop --project payments",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if moveTo == "" {
+				return usageError{errors.New("say which project: --project NAME")}
+			}
+			c, err := moveConn.client()
+			if err != nil {
+				return err
+			}
+			a, err := c.MoveApp(cmd.Context(), args[0], moveTo)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is now in the project %s.\n", a.Name, a.Project)
+			return nil
+		},
+	}
+	moveConn.addFlags(move)
+	move.Flags().StringVar(&moveTo, "project", "", "the project it goes in")
+	cmd.AddCommand(create, move)
 	return cmd
 }
 

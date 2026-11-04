@@ -78,11 +78,12 @@ hosting needs VM-level isolation and is out of scope.
 
 ## Authorisation
 
-Apps belong to exactly one **project**. Small installations can use a single
-default project that everyone belongs to. Until projects arrive in wave 4, every
-user may do everything with every app, and only an admin manages users; token
-scopes narrow what a token can do: `read` the first row below, `deploy` up to the
-third, and `admin` the rest.
+Apps belong to exactly one **project**. Small installations can use the default project,
+in which everyone is a maintainer until an administrator says otherwise. A project can give
+everyone who is not a member a role, or none, in which case they cannot tell that its apps
+exist: the API answers 404, and lists and feeds leave them out. Token scopes narrow what a
+token can do, whatever its owner's role: `read` the first two rows below, `deploy` up to the
+fourth, and `admin` the rest.
 
 | Capability | Viewer | Deployer | Maintainer | Admin |
 |---|:-:|:-:|:-:|:-:|
@@ -95,10 +96,11 @@ third, and `admin` the rest.
 
 ¹ Configurable per project, because logs can contain sensitive data.
 
-Authorisation is enforced in the API layer only (the console just hides what
-you cannot do). Every route declares its required permission, in one table, and a
-test enumerates all routes to guarantee none is missing and each kind of caller
-gets what it should.
+`auth.Service.AppAccess` is the one place that says what someone may do with an app. The
+API's routes each declare the permission they need, in one table, and a test enumerates
+all routes to guarantee none is missing and each kind of caller gets what it should. The
+console's forms act on the server directly, so they ask `AppAccess` too, and its pages hide
+what its answer does not allow. Git asks it for every push and clone, over SSH and HTTPS.
 
 ## Secrets
 

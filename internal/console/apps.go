@@ -181,7 +181,7 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 	}
 	rows := make([]appRow, 0, len(apps))
 	for _, a := range apps {
-		row := appRow{Name: a.Name, URL: c.appURL(a.Name)}
+		row := appRow{Name: a.Name, URL: c.appURL(a.Name), Project: a.Project}
 		plan, known := plans[a.Name]
 		static := known && plan.Kind != manifest.KindProcess
 		want, healthy := 0, 0
@@ -231,10 +231,11 @@ func (c *Console) appsPage(w http.ResponseWriter, r *http.Request, p auth.Princi
 	c.render(w, http.StatusOK, "apps", d)
 }
 
-// lookupApp reads the {app} path value, and answers if there is no such app.
+// lookupApp reads the {app} path value, and answers if there is no such app that the
+// viewer can see.
 func (c *Console) lookupApp(w http.ResponseWriter, r *http.Request, p auth.Principal) (string, bool) {
 	app := r.PathValue("app")
-	if names.ValidateApp(app) != nil || !p.CanApp(app) {
+	if names.ValidateApp(app) != nil {
 		c.noSuchApp(w, app)
 		return "", false
 	}
@@ -244,6 +245,15 @@ func (c *Console) lookupApp(w http.ResponseWriter, r *http.Request, p auth.Princ
 		} else {
 			c.internal(w, err)
 		}
+		return "", false
+	}
+	access, err := c.auth.AppAccess(r.Context(), p, app)
+	if err != nil {
+		c.internal(w, err)
+		return "", false
+	}
+	if !access.See {
+		c.noSuchApp(w, app)
 		return "", false
 	}
 	return app, true
@@ -280,7 +290,7 @@ type failure struct {
 }
 
 func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure) {
-	d, _, err := c.shellData(r, p, "apps", app)
+	d, err := c.appData(r, p, app, "apps", app)
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -418,15 +428,20 @@ func (c *Console) actionWith(scope string, limit int64, next func(http.ResponseW
 			c.refused(w)
 			return
 		}
-		if !p.Can(scope) {
-			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your account cannot do that.", Link: "/", LinkText: "Back to the start"})
-			return
-		}
 		app, ok := c.lookupApp(w, r, p)
 		if !ok {
 			return
 		}
-		next(w, r, p, app)
+		access, err := c.auth.AppAccess(r.Context(), p, app)
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		if scope == auth.ScopeAdmin && !access.Manage || scope == auth.ScopeDeploy && !access.Deploy {
+			c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your role in the project " + access.Project.Name + " does not allow it.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
+			return
+		}
+		c.audited(w, r, p, func(w http.ResponseWriter) { next(w, r, p, app) })
 	})
 }
 
@@ -558,31 +573,6 @@ func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal
 
 func (c *Console) hasEngine() bool { return c.deployer != nil && c.deployer.HasEngine() }
 
-// newApp asks for a name; deploying is what creates an app.
-func (c *Console) newApp(w http.ResponseWriter, r *http.Request) {
-	p, ok := c.requireUser(w, r)
-	if !ok {
-		return
-	}
-	d, _, err := c.shellData(r, p, "apps", "New app")
-	if err != nil {
-		c.internal(w, err)
-		return
-	}
-	d.Crumbs = []crumb{{"Apps", "/"}}
-	if name := strings.TrimSpace(r.URL.Query().Get("name")); name != "" {
-		d.Name = name
-		if err := names.ValidateApp(name); err != nil {
-			d.Error = sentence(err.Error())
-			c.render(w, http.StatusUnprocessableEntity, "new-app", d)
-			return
-		}
-		http.Redirect(w, r, "/apps/"+url.PathEscape(name)+"/deploy", http.StatusSeeOther)
-		return
-	}
-	c.render(w, http.StatusOK, "new-app", d)
-}
-
 // deployPage says how to deploy an app, which need not exist yet: the first deployment
 // creates it.
 func (c *Console) deployPage(w http.ResponseWriter, r *http.Request) {
@@ -591,15 +581,28 @@ func (c *Console) deployPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app := r.PathValue("app")
-	if names.ValidateApp(app) != nil || !p.CanApp(app) {
+	if names.ValidateApp(app) != nil {
 		c.noSuchApp(w, app)
+		return
+	}
+	access, err := c.auth.AppAccess(r.Context(), p, app)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !access.See {
+		c.noSuchApp(w, app)
+		return
+	}
+	if !access.Deploy {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your role in the project " + access.Project.Name + " does not allow deploying.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
 		return
 	}
 	c.showDeploy(w, r, p, app, http.StatusOK, "", "")
 }
 
 func (c *Console) showDeploy(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, problem, image string) {
-	d, _, err := c.shellData(r, p, "apps", "Deploy "+app)
+	d, err := c.appData(r, p, app, "apps", "Deploy "+app)
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -647,12 +650,14 @@ func (c *Console) deployImage(w http.ResponseWriter, r *http.Request) {
 		c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), image)
 		return
 	}
-	dep, err := c.deployer.DeployImage(lasting(r), app, names.Production, p.Name, image)
-	if err != nil {
-		c.internal(w, err)
-		return
-	}
-	http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	c.audited(w, r, p, func(w http.ResponseWriter) {
+		dep, err := c.deployer.DeployImage(lasting(r), app, names.Production, p.Name, image)
+		if err != nil {
+			c.internal(w, err)
+			return
+		}
+		http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	})
 }
 
 // deployForm guards the forms that may create an app: there may be none yet to look up.
@@ -679,12 +684,21 @@ func (c *Console) deployGuard(w http.ResponseWriter, r *http.Request, token stri
 		return p, "", false
 	}
 	app := r.PathValue("app")
-	if names.ValidateApp(app) != nil || !p.CanApp(app) {
+	if names.ValidateApp(app) != nil {
 		c.noSuchApp(w, app)
 		return p, "", false
 	}
-	if !p.Can(auth.ScopeDeploy) {
-		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your account cannot deploy.", Link: "/", LinkText: "Back to the start"})
+	access, err := c.auth.AppAccess(r.Context(), p, app)
+	if err != nil {
+		c.internal(w, err)
+		return p, "", false
+	}
+	if !access.See {
+		c.noSuchApp(w, app)
+		return p, "", false
+	}
+	if !access.Deploy {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not do that", Message: "Your role in the project " + access.Project.Name + " does not allow deploying.", Link: "/", LinkText: "Back to the start"})
 		return p, "", false
 	}
 	return p, app, true
@@ -722,15 +736,17 @@ func (c *Console) deployArchive(w http.ResponseWriter, r *http.Request) {
 		c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, "Choose an archive to upload.", "")
 		return
 	}
-	dep, _, err := c.deployer.Submit(lasting(r), app, names.Production, p.Name, part)
-	var invalid *deploy.InvalidUploadError
-	switch {
-	case errors.As(err, &invalid):
-		c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), "")
-		return
-	case err != nil:
-		c.internal(w, err)
-		return
-	}
-	http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	c.audited(w, r, p, func(w http.ResponseWriter) {
+		dep, _, err := c.deployer.Submit(lasting(r), app, names.Production, p.Name, part)
+		var invalid *deploy.InvalidUploadError
+		switch {
+		case errors.As(err, &invalid):
+			c.showDeploy(w, r, p, app, http.StatusUnprocessableEntity, sentence(err.Error()), "")
+			return
+		case err != nil:
+			c.internal(w, err)
+			return
+		}
+		http.Redirect(w, r, "/deployments/"+dep.ID, http.StatusSeeOther)
+	})
 }

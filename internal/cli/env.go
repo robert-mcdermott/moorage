@@ -55,7 +55,7 @@ for the next deploy).`,
 	}
 	f.add(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
-	cmd.AddCommand(newEnvListCmd(), newEnvSetCmd(), newEnvUnsetCmd(), newEnvImportCmd(), newEnvExportCmd())
+	cmd.AddCommand(newEnvListCmd(), newEnvRevealCmd(), newEnvSetCmd(), newEnvUnsetCmd(), newEnvImportCmd(), newEnvExportCmd())
 	return cmd
 }
 
@@ -253,6 +253,35 @@ Use - to read standard input.`,
 		},
 	}
 	f.add(cmd, true)
+	return cmd
+}
+
+func newEnvRevealCmd() *cobra.Command {
+	var f envFlags
+	cmd := &cobra.Command{
+		Use:   "reveal NAME",
+		Short: "Print a secret's value",
+		Long: `Print a secret's value. It takes being a maintainer of the app's project, and is
+recorded in the audit log.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			appName, _, err := resolveApp(f.app)
+			if err != nil {
+				return err
+			}
+			c, err := f.conn.client()
+			if err != nil {
+				return err
+			}
+			revealed, err := c.RevealVar(cmd.Context(), appName, f.env, args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), revealed.Value)
+			return nil
+		},
+	}
+	f.add(cmd)
 	return cmd
 }
 

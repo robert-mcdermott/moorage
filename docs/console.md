@@ -16,7 +16,7 @@ first deployment, and says when it is live.
 ## Apps
 
 Every app: how it stands, its address, its release and its last deployment, changing as
-they do. **New app** asks for a name, and says how to deploy it. Filter the list by
+they do. **New app** asks for a name and a project, and says how to deploy it. Filter the list by
 typing part of a name.
 
 | Status | |
@@ -122,6 +122,19 @@ its next build: **Redeploy** builds it now.
 once. Take a line out and the variable goes; a secret shows as `••••••••`, which keeps its
 value if left. **See what changes** says what it would do before it does it.
 
+Maintainers can **Reveal** a secret, which shows its value once, and is recorded.
+
+```bash
+moor env reveal STRIPE_KEY
+```
+
+## Projects
+
+**Projects** lists those you have a role in. A project's page has its apps and members, and
+for its maintainers who else may do what. The console shows you what your role allows: a
+viewer sees an app without its buttons, and nobody sees what they have no role in. See
+[Projects and roles](accounts.md#projects-and-roles).
+
 ## Your account
 
 Your name at the foot of the sidebar goes to your account: changing your password, which
@@ -142,6 +155,7 @@ For administrators.
 - **Users:** add someone, and send them the link it makes: the server sends no email. Change
   a role, disable an account, or make a new link for someone who has lost their password.
 - **Registries:** the credentials of private container registries, sealed.
+- **Audit log:** [who did what](accounts.md#who-did-what), to search and to download.
 - **System:** what the server runs, and what [`moor server doctor`](troubleshooting.md) finds,
   with how to fix it.
 

@@ -28,10 +28,10 @@ moor env set --secret DATABASE_URL
 
 asks for the value without showing it (or reads it from standard input:
 `moor env set --secret DATABASE_URL < url.txt`), so it stays out of your
-shell's history. A secret is stored encrypted, never shown again by the
-command line or the API, handed to the app without being written to disk,
-and replaced by `[secret]` where the app, its build or its release command
-prints it (for values of six characters or more).
+shell's history. A secret is stored encrypted, listed without its value, handed to the app
+without being written to disk, and replaced by `[secret]` where the app, its build or its
+release command prints it (for values of six characters or more). A maintainer can read one
+back with `moor env reveal NAME`, which is recorded in the [audit log](accounts.md#who-did-what).
 
 The key that encrypts secrets, `keys/master.key` in the data directory, must
 be backed up apart from the database. A server whose secrets were encrypted

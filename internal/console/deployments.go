@@ -156,7 +156,7 @@ func (c *Console) deploymentsList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d, _, err := c.shellData(r, p, "apps", "Deployments of "+app)
+	d, err := c.appData(r, p, app, "apps", "Deployments of "+app)
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -217,7 +217,7 @@ func (c *Console) deploymentPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep, err := c.db.Deployment(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && !p.CanApp(dep.App)) {
+	if errors.Is(err, store.ErrNotFound) {
 		notFound()
 		return
 	}
@@ -225,9 +225,13 @@ func (c *Console) deploymentPage(w http.ResponseWriter, r *http.Request) {
 		c.internal(w, err)
 		return
 	}
-	d, _, err := c.shellData(r, p, "apps", "Deployment of "+dep.App)
+	d, err := c.appData(r, p, dep.App, "apps", "Deployment of "+dep.App)
 	if err != nil {
 		c.internal(w, err)
+		return
+	}
+	if !d.Access.See {
+		notFound()
 		return
 	}
 	app := dep.App
@@ -237,6 +241,9 @@ func (c *Console) deploymentPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		c.internal(w, err)
 		return
+	}
+	if !d.Access.Logs {
+		view.Log, view.LogCount, view.Omitted = nil, 0, 0
 	}
 	d.Deployment = view
 	d.Poll = view.Running

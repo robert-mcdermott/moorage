@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -35,7 +36,16 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	if app == "" {
 		app = p.App
 	}
-	list, err := s.db.Events(r.Context(), store.EventFilter{App: app, Env: env, Before: cursor, Limit: limit + 1})
+	visible, err := s.auth.Visible(r.Context(), p)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if app != "" && !visible(app) {
+		problem(w, http.StatusNotFound, "not_found", "There is no app "+app+" that you can see.")
+		return
+	}
+	list, err := s.visibleEvents(r.Context(), visible, store.EventFilter{App: app, Env: env, Before: cursor, Limit: limit + 1})
 	if err != nil {
 		s.internal(w, err)
 		return
@@ -69,8 +79,25 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	if app == "" {
 		app = p.App
 	}
+	visible, err := s.auth.Visible(r.Context(), p)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if app != "" && !visible(app) {
+		problem(w, http.StatusNotFound, "not_found", "There is no app "+app+" that you can see.")
+		return
+	}
+	// Who may see what changes while a stream stays open, and new apps appear in it: it
+	// looks again every minute.
+	seen := time.Now()
 	wanted := func(e store.Event) bool {
-		return (app == "" || e.App == app) && (env == "" || e.Env == env)
+		if time.Since(seen) > time.Minute || (e.App != "" && !visible(e.App)) {
+			if again, err := s.auth.Visible(r.Context(), p); err == nil {
+				visible, seen = again, time.Now()
+			}
+		}
+		return visible(e.App) && (app == "" || e.App == app) && (env == "" || e.Env == env)
 	}
 
 	// Following starts first, so that nothing falls between the two.
@@ -103,10 +130,13 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			for _, e := range missed {
+				last = e.ID
+				if !wanted(e) {
+					continue
+				}
 				if write(e) != nil {
 					return
 				}
-				last = e.ID
 			}
 			if len(missed) < 200 {
 				break
@@ -138,5 +168,30 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			flusher.Flush()
 		}
+	}
+}
+
+// visibleEvents lists events, keeping those someone may see. It reads on past what they
+// may not, so that a page is a full one if there is enough to fill it.
+func (s *Server) visibleEvents(ctx context.Context, visible func(string) bool, f store.EventFilter) ([]store.Event, error) {
+	want := f.Limit
+	var out []store.Event
+	for {
+		list, err := s.db.Events(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range list {
+			if visible(e.App) {
+				out = append(out, e)
+				if len(out) == want {
+					return out, nil
+				}
+			}
+		}
+		if len(list) < f.Limit {
+			return out, nil
+		}
+		f.Before = list[len(list)-1].ID
 	}
 }

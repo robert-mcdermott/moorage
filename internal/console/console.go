@@ -39,7 +39,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -52,6 +52,12 @@ func parseTemplates(source fs.FS, asset func(string) string) (map[string]*templa
 		"asset": asset, "ago": ago, "iso": iso, "clock": clock, "date": func(t time.Time) string { return t.Format("2 Jan 2006") },
 		"mask": func() string { return secretMask }, "countText": countText,
 		"orDash": orNone,
+		"orNobody": func(s string) string {
+			if s == "" {
+				return "Nobody"
+			}
+			return s
+		},
 		"dict": func(pairs ...any) map[string]any {
 			out := map[string]any{}
 			for i := 0; i+1 < len(pairs); i += 2 {
@@ -129,7 +135,17 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /assets/{file}", c.serveAsset)
 	mux.HandleFunc("GET /activity", c.activity)
 	mux.HandleFunc("GET /welcome", c.welcome)
-	mux.HandleFunc("GET /new", c.newApp)
+	mux.HandleFunc("GET /new", c.newAppPage)
+	mux.HandleFunc("POST /new", c.accountAction(c.createApp))
+	mux.HandleFunc("GET /projects", c.projectsPage)
+	mux.HandleFunc("POST /projects", c.adminAction(c.createProject))
+	mux.HandleFunc("GET /projects/{project}", c.projectPage)
+	mux.HandleFunc("POST /projects/{project}/settings", c.projectAction(c.changeProjectSettings))
+	mux.HandleFunc("POST /projects/{project}/members/set", c.projectAction(c.setProjectMember))
+	mux.HandleFunc("POST /projects/{project}/members/remove", c.projectAction(c.removeProjectMember))
+	mux.HandleFunc("POST /projects/{project}/delete", c.projectAction(c.deleteProject))
+	mux.HandleFunc("GET /settings/audit", c.auditPage)
+	mux.HandleFunc("POST /apps/{app}/variables/reveal", c.actionWith(auth.ScopeAdmin, maxForm, c.revealVariable))
 	mux.HandleFunc("GET /apps/{app}", c.appPage)
 	mux.HandleFunc("GET /apps/{app}/deployments", c.deploymentsList)
 	mux.HandleFunc("GET /apps/{app}/deploy", c.deployPage)
@@ -235,9 +251,14 @@ type data struct {
 	TimeRanges []struct{ Value, Label string }
 	Variables  varsView
 
-	// One's own account, and the administrator's pages.
+	// One's own account, the administrator's pages, and projects.
 	Account  accountView
 	Settings settingsView
+	Projects []projectRow
+	Project  projectView
+
+	// Access says what the viewer may do with the app the page is about.
+	Access auth.Access
 
 	// Deploying an app.
 	Image                 string

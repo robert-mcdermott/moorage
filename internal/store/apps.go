@@ -54,6 +54,8 @@ type AppSummary struct {
 	ID        string
 	Name      string
 	CreatedAt time.Time
+	// Project is the name of the project it is in.
+	Project string
 	// Production is the current production release, if any.
 	Production *Release
 }
@@ -90,7 +92,7 @@ func ensureApp(ctx context.Context, tx *sql.Tx, name string, now time.Time) (str
 		return "", false, err
 	}
 	id = ids.New(ids.App)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO apps (id, name, created_at) VALUES (?, ?, ?)`, id, name, now.UnixMilli()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO apps (id, name, project_id, created_at) VALUES (?, ?, ?, ?)`, id, name, defaultProjectID, now.UnixMilli()); err != nil {
 		return "", false, err
 	}
 	if _, err := tx.ExecContext(ctx,
@@ -355,10 +357,11 @@ func (db *DB) Apps(ctx context.Context) ([]AppSummary, error) {
 // AppsAfter lists up to limit apps (no limit if negative) by name, after the
 // name after.
 func (db *DB) AppsAfter(ctx context.Context, after string, limit int) ([]AppSummary, error) {
-	rows, err := db.Reader.QueryContext(ctx, `SELECT a.id, a.name, a.created_at,
+	rows, err := db.Reader.QueryContext(ctx, `SELECT a.id, a.name, a.created_at, coalesce(p.name, '`+DefaultProject+`'),
 			r.id, r.version, r.build_id, r.reason, r.created_by, r.created_at, b.files, b.size_bytes
 		FROM apps a
 		JOIN environments e ON e.app_id = a.id AND e.kind = 'production'
+		LEFT JOIN projects p ON p.id = a.project_id
 		LEFT JOIN releases r ON r.id = e.current_release_id
 		LEFT JOIN builds b ON b.id = r.build_id
 		WHERE a.name > ?
@@ -373,7 +376,7 @@ func (db *DB) AppsAfter(ctx context.Context, after string, limit int) ([]AppSumm
 		var created int64
 		var relID, buildID, reason, by sql.NullString
 		var version, relCreated, files, size sql.NullInt64
-		if err := rows.Scan(&a.ID, &a.Name, &created, &relID, &version, &buildID, &reason, &by, &relCreated, &files, &size); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &created, &a.Project, &relID, &version, &buildID, &reason, &by, &relCreated, &files, &size); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.UnixMilli(created).UTC()

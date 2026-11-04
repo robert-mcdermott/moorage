@@ -144,7 +144,7 @@ func (c *Console) accountAction(next func(http.ResponseWriter, *http.Request, au
 			c.refused(w)
 			return
 		}
-		next(w, r, p)
+		c.audited(w, r, p, func(w http.ResponseWriter) { next(w, r, p) })
 	})
 }
 

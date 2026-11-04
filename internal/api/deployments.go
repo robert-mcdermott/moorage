@@ -90,7 +90,12 @@ func (s *Server) lookupDeployment(w http.ResponseWriter, r *http.Request) (store
 		s.internal(w, err)
 		return d, false
 	}
-	if !who(r).CanApp(d.App) {
+	access, err := s.auth.AppAccess(r.Context(), who(r), d.App)
+	if err != nil {
+		s.internal(w, err)
+		return d, false
+	}
+	if !access.See {
 		problem(w, http.StatusNotFound, "not_found", "There is no deployment "+id+".")
 		return d, false
 	}
@@ -111,6 +116,15 @@ func (s *Server) deployment(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.lookupDeployment(w, r)
 	if !ok {
+		return
+	}
+	access, err := s.auth.AppAccess(r.Context(), who(r), d.App)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if msg := roleRefused(route{perm: canReadLogs}, access); msg != "" {
+		problem(w, http.StatusForbidden, "forbidden", msg)
 		return
 	}
 	follow := r.URL.Query().Get("follow") == "true"
@@ -141,7 +155,7 @@ func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	_, err := s.deployer.Follow(r.Context(), d.ID, func(l logs.Line) error {
+	_, err = s.deployer.Follow(r.Context(), d.ID, func(l logs.Line) error {
 		if err := write(l); err != nil {
 			return err
 		}

@@ -846,6 +846,28 @@ directory, supervises it, and serves it on its own hostname.
        the space, so that this stays true.
 2. **Projects and roles.** Projects; viewer, deployer and maintainer roles
    enforced in the API; the audit log in the API, CLI and console.
+   - Done in slice 2:
+     - Projects, with members, and viewer, deployer and maintainer roles; a role for everyone
+       else, or none; whether viewers read logs. Every existing app goes in a `default`
+       project where everyone is a maintainer, so that an upgrade changes nothing.
+     - One place decides (`auth.Service.AppAccess`), and the API's guard, the console's forms
+       and pages, and git over SSH and HTTPS all ask it. Those with no role cannot tell an
+       app exists: 404s, and lists, feeds and the palette leave it out. A token's scope still
+       narrows its owner's role.
+     - The audit log: every change through the API or the console, sign-ins, pushes and
+       secrets revealed, kept for a year, searched and exported from the API, `moor audit` and
+       Settings. Nothing of what was sent goes in it. Revealing a secret, which waited for
+       it, is here: `moor env reveal`, the API, and a button for maintainers.
+     - `moor projects`, `moor apps create` and `moor apps move`, with their routes; the
+       Projects pages; New app asks which project.
+     - Verified with someone going through each role in the pages, with real instances, and
+       every route as each kind of caller.
+   - Found by slice 2:
+     - The palette offered links that a role would refuse. It asks now.
+     - A first deployment makes its app in `default`, and with no role there it is refused:
+       an app elsewhere has to be made first, with `moor apps create --project`.
+     - Not yet: limits and quotas per project; moving an app in the console, which comes with
+       its settings in the next slice; two-factor sign-in, and single sign-on.
 3. **Apps' lifecycle.** Renaming and deleting an app, from the console's danger
    zone and with `moor apps rename` and `delete`: its instances, builds, logs and
    repository go, and what it keeps in its data directory is said first.

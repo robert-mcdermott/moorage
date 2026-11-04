@@ -84,9 +84,13 @@ func (c *Console) logsPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d, _, err := c.shellData(r, p, "apps", "Logs of "+app)
+	d, err := c.appData(r, p, app, "apps", "Logs of "+app)
 	if err != nil {
 		c.internal(w, err)
+		return
+	}
+	if !d.Access.Logs {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not read its logs", Message: "Viewers of the project " + d.Access.Project.Name + " may not read logs.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
 		return
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}

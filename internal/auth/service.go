@@ -458,11 +458,13 @@ func (s *Service) SignIn(ctx context.Context, email, password, ip string) (store
 	if !ok || u.ID == "" || u.PasswordHash == "" || u.Disabled() {
 		s.failed(keys...)
 		s.Security("a sign-in failed", "ip", ip, "email", email)
+		s.Audit(ctx, store.AuditEntry{Actor: email, IP: ip, Action: "signin", Result: "failed"})
 		return store.User{}, ErrBadCredentials
 	}
 	if s.Limits != nil {
 		s.Limits.Clear("signin-account:" + email)
 	}
+	s.Audit(ctx, store.AuditEntry{Actor: email, IP: ip, Action: "signin", Result: "ok"})
 	return u, nil
 }
 
