@@ -10,7 +10,7 @@ import (
 
 // killSession kills all that is in a session, including what is in process groups of its own, as a shell puts each job,
 // and what has outlived whoever started it.
-func killSession(leader int, _ uint64) {
+func killSession(leader int) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return

@@ -197,6 +197,17 @@ func TestTerminal(t *testing.T) {
 	w.term.Close()
 	waitUntil(t, "what it put in the background to go", func() bool { return !processAlive(background) })
 
+	// So it does if whoever led the session has gone already, which is what the end of a shell looks like.
+	w = openTerminal(t, c, "shop", client.TerminalOptions{TTY: true, Rows: 24, Cols: 80, Command: `sh -c 'set -m; sleep 1000 & echo background-is-$!; echo going; exit 0'`})
+	w.waitFor("going")
+	found = regexp.MustCompile(`background-is-(\d+)`).FindStringSubmatch(w.shown())
+	if found == nil {
+		t.Fatalf("%q", w.shown())
+	}
+	background, _ = strconv.Atoi(found[1])
+	w.wait()
+	waitUntil(t, "what it left behind to go", func() bool { return !processAlive(background) })
+
 	// Without a terminal, a command that has ended has ended, whether anyone has finished typing or not.
 	w = openTerminal(t, c, "shop", client.TerminalOptions{Command: `sh -c 'echo done-already; exit 3'`})
 	w.waitFor("done-already")

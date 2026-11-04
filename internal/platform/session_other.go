@@ -3,4 +3,4 @@
 package platform
 
 // killSession is left to the process group, here.
-func killSession(int, uint64) {}
+func killSession(int) {}

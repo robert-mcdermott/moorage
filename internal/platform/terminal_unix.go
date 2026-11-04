@@ -17,8 +17,6 @@ import (
 type Terminal struct {
 	cmd  *exec.Cmd
 	ptmx *os.File
-	// tty says which terminal this is, for finding all that has it.
-	tty uint64
 }
 
 // StartInTerminal starts cmd in a new pseudo-terminal, as the leader of its session, which is what makes it the terminal's
@@ -47,15 +45,10 @@ func StartInTerminal(cmd *exec.Cmd, size TerminalSize, _ TreeLimits, own func(tt
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setsid, cmd.SysProcAttr.Setctty, cmd.SysProcAttr.Ctty = true, true, 0
-	var device uint64
-	var st unix.Stat_t
-	if err := unix.Fstat(int(tty.Fd()), &st); err == nil {
-		device = uint64(st.Rdev)
-	}
 	if err := cmd.Start(); err != nil {
 		return fail(err)
 	}
-	return &Terminal{cmd: cmd, ptmx: ptmx, tty: device}, nil
+	return &Terminal{cmd: cmd, ptmx: ptmx}, nil
 }
 
 // Read reads what the command shows. Everything having left the terminal is the end of that, which Linux calls an error.
@@ -87,8 +80,8 @@ func (t *Terminal) Wait() (int, error) {
 // Kill kills all that is in the command's session. A shell puts each job in a process group of its own, so that is not only
 // the command's.
 func (t *Terminal) Kill() {
+	killSession(t.cmd.Process.Pid)
 	unix.Kill(-t.cmd.Process.Pid, unix.SIGKILL)
-	killSession(t.cmd.Process.Pid, t.tty)
 }
 
 // Close lets go of the terminal.
