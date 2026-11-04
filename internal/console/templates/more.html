@@ -690,9 +690,9 @@
 {{with .Backups}}
 <section class="panel panel-pad backup-head">
   <div>
-    <h2>{{if .Schedule}}On a schedule: <code>{{.Schedule}}</code>{{else}}No schedule yet{{end}}</h2>
+    <h2>{{if .InEffectSchedule}}On a schedule: <code>{{.InEffectSchedule}}</code>{{else}}No schedule yet{{end}}</h2>
     <p class="muted">{{if .Next.IsZero}}Backups happen when you ask for them.{{else}}The next one is <time datetime="{{iso .Next}}">{{untilText .Next}}</time>.{{end}} They go to <code>{{if .Bucket}}{{.Bucket}}{{else if .Path}}{{.Path}}{{else}}{{.Default}}{{end}}</code>.</p>
-    {{if and (not .Bucket) (not .Path)}}<p class="notice warn">That is on this server's own disk, which is a start and not a plan: if the disk goes, so do they. Say somewhere else below.</p>{{end}}
+    {{if .InEffectLocal}}<p class="notice warn">That is on this server's own disk, which is a start and not a plan: if the disk goes, so do they. Say somewhere else below.</p>{{end}}
     <p class="muted small">They leave out the master key, without which their secrets cannot be read. Keep <code>{{.KeyPath}}</code> safe, and apart from them. <a href="https://github.com/robert-mcdermott/moorage/blob/main/docs/backups.md">How to restore</a></p>
   </div>
   <form method="post" action="/settings/backups/now" data-busy="Starting…">

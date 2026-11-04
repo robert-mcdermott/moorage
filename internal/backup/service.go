@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -49,6 +50,8 @@ type Service struct {
 	Version        string
 	Domain         string
 	KeyFingerprint string
+	// Keys seals the private keys among the certificates.
+	Keys Keyed
 	// Tick, if set, overrides how often it looks at the schedule (tests).
 	Tick time.Duration
 
@@ -69,6 +72,7 @@ func (s *Service) Run(ctx context.Context) {
 	s.mu.Lock()
 	s.life = ctx
 	s.mu.Unlock()
+	s.clearLeftovers()
 	if err := s.DB.EndInterruptedBackups(ctx, time.Now()); err != nil && ctx.Err() == nil {
 		s.Log.Warn("note the backups that were interrupted", "err", err)
 	}
@@ -92,6 +96,26 @@ func (s *Service) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// clearLeftovers removes what a backup or a restore that was killed left in the data directory. A day old, since
+// one from the command line may still be going on.
+func (s *Service) clearLeftovers() {
+	for _, pattern := range []string{"backup-*", "restore-*"} {
+		names, _ := filepath.Glob(filepath.Join(s.DataDir, "tmp", pattern))
+		for _, name := range names {
+			if info, err := os.Stat(name); err == nil && time.Since(info.ModTime()) > 24*time.Hour {
+				_ = os.RemoveAll(name)
+			}
+		}
+	}
+}
+
+// Running says whether this server is making a backup now.
+func (s *Service) Running() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
 }
 
 // Wait returns when what is going on has ended.
@@ -180,20 +204,24 @@ func (s *Service) Start(ctx context.Context, trigger, by string) (store.Backup, 
 }
 
 func (s *Service) run(ctx context.Context, b store.Backup, dest Destination, cfg store.BackupConfig) {
-	result, err := Run(ctx, dest, Options{DataDir: s.DataDir, KeyFingerprint: s.KeyFingerprint, Version: s.Version, Domain: s.Domain})
+	result, err := Run(ctx, dest, Options{DataDir: s.DataDir, Keys: s.Keys, KeyFingerprint: s.KeyFingerprint, Version: s.Version, Domain: s.Domain})
 	done := context.WithoutCancel(ctx)
 	b.FinishedAt = time.Now().UTC()
 	if err != nil {
 		b.Status, b.Error = store.BackupFailed, firstLine(err.Error())
 		s.Log.Warn("a backup failed", "destination", dest.String(), "err", err)
-		s.Bus.Publish(done, store.Event{Type: events.BackupFailed, Actor: b.CreatedBy, Data: map[string]any{"destination": dest.String(), "error": b.Error}})
+		s.Bus.Publish(done, store.Event{Type: events.BackupFailed, Actor: b.CreatedBy, Data: map[string]any{"error": b.Error}})
 	} else {
 		b.Status, b.Name, b.SizeBytes = store.BackupDone, result.Name, result.Size
-		s.Log.Info("a backup is made", "destination", dest.String(), "name", result.Name, "files", result.Files, "bytes", result.Size)
-		s.Bus.Publish(done, store.Event{Type: events.BackupDone, Actor: b.CreatedBy, Data: map[string]any{"destination": dest.String(), "name": result.Name, "bytes": result.Size}})
+		s.Log.Info("a backup is made", "destination", dest.String(), "name", result.Name, "changed_while_read", len(result.Changed), "files", result.Files, "bytes", result.Size)
+		s.Bus.Publish(done, store.Event{Type: events.BackupDone, Actor: b.CreatedBy, Data: map[string]any{"name": result.Name, "bytes": result.Size}})
 		if b.Trigger == "schedule" {
-			if err := Prune(done, dest, cfg.Keep); err != nil {
+			gone, err := Prune(done, dest, cfg.Keep)
+			if err != nil {
 				s.Log.Warn("let go of old backups", "destination", dest.String(), "err", err)
+			}
+			if err := s.DB.ForgetBackups(done, gone); err != nil {
+				s.Log.Warn("forget old backups", "err", err)
 			}
 		}
 	}

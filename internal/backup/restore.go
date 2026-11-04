@@ -2,6 +2,7 @@ package backup
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -33,6 +34,8 @@ type RestoreOptions struct {
 	KeyFingerprint string
 	// Force replaces what the data directory holds, which is moved aside rather than lost.
 	Force bool
+	// Keys opens what the archive holds sealed: the master key.
+	Keys Keyed
 	// BeforeSwap, if set, runs once the archive has all arrived and is good, before anything changes:
 	// what is running from the data directory has to stop by then.
 	BeforeSwap func() error
@@ -173,7 +176,9 @@ func Restore(ctx context.Context, r io.Reader, digest string, o RestoreOptions) 
 	var dirs []deferred
 	asRoot := os.Geteuid() == 0
 	// That it could not be opened is said at once, and not after an hour of downloading it.
+	holdsKeys := false
 	accepted := func(m Manifest) error {
+		holdsKeys = m.IncludesKeys
 		if m.IncludesKeys {
 			return nil
 		}
@@ -189,6 +194,9 @@ func Restore(ctx context.Context, r io.Reader, digest string, o RestoreOptions) 
 	m, sum, err := read(ctx, io.TeeReader(r, hash), accepted, func(h *tar.Header, content io.Reader) error {
 		name, err := cleanEntry(h.Name)
 		if err != nil {
+			return err
+		}
+		if err := allowedEntry(name, h.Typeflag, holdsKeys); err != nil {
 			return err
 		}
 		if dir := path.Dir(name); dir != "." {
@@ -209,6 +217,21 @@ func Restore(ctx context.Context, r io.Reader, digest string, o RestoreOptions) 
 				return err
 			}
 		case tar.TypeReg:
+			if strings.HasSuffix(target, sealedSuffix) && strings.HasPrefix(name, "certs/") {
+				if o.Keys == nil {
+					return &RefusedError{"this backup needs the master key it was made with: put it in place first"}
+				}
+				sealed, err := io.ReadAll(io.LimitReader(content, 32<<20))
+				if err != nil {
+					return err
+				}
+				plain, err := openSealed(o.Keys, sealed)
+				if err != nil {
+					return &RefusedError{"this backup holds what its master key should open, and it does not: " + err.Error()}
+				}
+				target = strings.TrimSuffix(target, sealedSuffix)
+				content = bytes.NewReader(plain)
+			}
 			f, err := root.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 			if err != nil {
 				return err
@@ -347,6 +370,45 @@ func newAside(dataDir, stamp string) (string, error) {
 			return "", err
 		}
 	}
+}
+
+// allowedEntry says whether a backup should hold this at all. An archive can come from anywhere, and the server
+// that starts on what it restores runs as root: run/ and upgrades/ would tell it what to run, and keys/ whose it
+// is. Nothing a backup writes goes there, and a link where a server expects a directory of its own, which it would
+// then change the owner of, is not something it writes either.
+func allowedEntry(name string, kind byte, holdsKeys bool) error {
+	refuse := func() error {
+		return &RefusedError{fmt.Sprintf("this backup holds %s, which no backup should: it did not come from a server", name)}
+	}
+	parts := strings.Split(name, "/")
+	top := parts[0]
+	switch kind {
+	case tar.TypeReg, tar.TypeDir, tar.TypeSymlink:
+	default:
+		return nil // these are dropped
+	}
+	isLink := kind == tar.TypeSymlink
+	switch top {
+	case databaseName:
+		if kind != tar.TypeReg {
+			return refuse()
+		}
+	case "keys":
+		if !holdsKeys || isLink {
+			return refuse()
+		}
+	case "certs", "repos":
+		if isLink && (top == "certs" || len(parts) <= 2) {
+			return refuse()
+		}
+	case "data", "builds":
+		if isLink && len(parts) <= 3 {
+			return refuse()
+		}
+	default:
+		return refuse()
+	}
+	return nil
 }
 
 // cleanEntry refuses a name that would land outside the data directory. os.Root would stop it anyway.

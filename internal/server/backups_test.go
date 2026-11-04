@@ -167,7 +167,8 @@ func TestBackupSchedule(t *testing.T) {
 	if err != nil || got.Schedule != "@every 1s" || got.NextAt == nil {
 		t.Fatalf("%+v %v", got, err)
 	}
-	waitUntil(t, "several backups, of which two are kept", func() bool {
+	seen := map[string]bool{}
+	waitUntil(t, "several backups, of which two are kept, and on the record", func() bool {
 		list, err := c.Backups(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -176,10 +177,11 @@ func TestBackupSchedule(t *testing.T) {
 		for _, b := range list.Items {
 			if b.Status == "done" && b.Trigger == "schedule" {
 				finished++
+				seen[b.Name] = true
 			}
 		}
 		archives, _ := filepath.Glob(filepath.Join(where, "moorage-*.tar.gz"))
-		return finished >= 4 && len(archives) == 2
+		return len(seen) >= 4 && len(archives) == 2 && finished <= 3
 	})
 
 	// Somewhere that cannot be written to fails, and people are told.

@@ -25,8 +25,8 @@ type SSOConfig struct {
 	// TrustEmails lets an address join someone to the account that has it, when the provider does not say that
 	// it is verified. A provider that says that it is not is never believed.
 	TrustEmails bool
-	UpdatedBy    string
-	UpdatedAt    time.Time
+	UpdatedBy   string
+	UpdatedAt   time.Time
 }
 
 // Configured says whether it has been set up.

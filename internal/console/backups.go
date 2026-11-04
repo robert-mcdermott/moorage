@@ -22,7 +22,10 @@ type backupsView struct {
 	Default                                                   string
 	Next                                                      time.Time
 	Going                                                     bool
-	KeyPath                                                   string
+	// InEffect is what is saved, for what the page says of how things are while a form holds something else.
+	InEffectSchedule string
+	InEffectLocal    bool
+	KeyPath          string
 }
 
 type backupRow struct {
@@ -42,11 +45,17 @@ func (c *Console) showBackups(w http.ResponseWriter, r *http.Request, code int, 
 		return
 	}
 	view := backupsView{Kind: "path", Path: cfg.Destination, Endpoint: cfg.Endpoint, Region: cfg.Region, AccessKey: cfg.AccessKey, Schedule: cfg.Schedule, HasSecret: len(cfg.SealedSecret) > 0, Keep: cfg.Keep, Default: c.backups.DefaultDestination(), KeyPath: c.cfg.DataDir + "/keys/master.key"}
-	if form != nil {
-		view.Path, view.Endpoint, view.Region, view.AccessKey, view.Schedule, view.Keep = form.Destination, form.Endpoint, form.Region, form.AccessKey, form.Schedule, form.Keep
-	}
+	view.InEffectSchedule, view.InEffectLocal = cfg.Schedule, cfg.Destination == ""
 	if strings.HasPrefix(view.Path, "s3://") {
 		view.Kind, view.Bucket, view.Path = "s3", view.Path, ""
+	}
+	if form != nil {
+		// What was typed stays, as it was typed, and where it was typed.
+		view.Kind, view.Path, view.Bucket = "path", form.Destination, ""
+		if r.PostFormValue("kind") == "s3" {
+			view.Kind, view.Path, view.Bucket = "s3", "", form.Destination
+		}
+		view.Endpoint, view.Region, view.AccessKey, view.Schedule, view.Keep = form.Endpoint, form.Region, form.AccessKey, form.Schedule, form.Keep
 	}
 	view.Next, _ = c.backups.Next(r.Context())
 	list, err := c.db.Backups(r.Context(), 30)
@@ -62,11 +71,10 @@ func (c *Console) showBackups(w http.ResponseWriter, r *http.Request, code int, 
 		if !b.FinishedAt.IsZero() {
 			row.Took = tookText(b.FinishedAt.Sub(b.StartedAt))
 		}
-		if b.Status == store.BackupRunning {
-			view.Going = true
-		}
 		view.Items = append(view.Items, row)
 	}
+	// One from the command line that was killed would otherwise hold up every other until the server restarts.
+	view.Going = c.backups.Running()
 	d.Backups = view
 	d.Poll = view.Going
 	d.Failure = failed
@@ -93,11 +101,7 @@ func (c *Console) startBackup(w http.ResponseWriter, r *http.Request, p auth.Pri
 }
 
 func (c *Console) configureBackups(w http.ResponseWriter, r *http.Request, p auth.Principal) {
-	keep, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue("keep")))
-	if err != nil {
-		c.showBackups(w, r, http.StatusUnprocessableEntity, nil, &failure{Message: "How many to keep is a number."})
-		return
-	}
+	keep, keepErr := strconv.Atoi(strings.TrimSpace(r.PostFormValue("keep")))
 	form := backup.Form{Schedule: r.PostFormValue("schedule"), Keep: keep}
 	if r.PostFormValue("kind") == "s3" {
 		form.Destination = strings.TrimSpace(r.PostFormValue("bucket"))
@@ -109,7 +113,11 @@ func (c *Console) configureBackups(w http.ResponseWriter, r *http.Request, p aut
 	} else {
 		form.Destination = r.PostFormValue("path")
 	}
-	err = c.backups.Configure(r.Context(), form, p.Name)
+	if keepErr != nil {
+		c.showBackups(w, r, http.StatusUnprocessableEntity, &form, &failure{Message: "How many to keep is a number."})
+		return
+	}
+	err := c.backups.Configure(r.Context(), form, p.Name)
 	var refused *backup.RefusedError
 	switch {
 	case errors.As(err, &refused):

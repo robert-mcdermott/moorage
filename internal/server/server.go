@@ -11,11 +11,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	stdlog "log"
 	"log/slog"
 	"net"
-	"net/netip"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"time"
@@ -300,9 +301,22 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Tick:          opts.Tick,
 		Trusted:       router.Trusted(),
 		ToolchainBins: toolchains.BinDirs,
-		Secrets:       keyring,
-		Containers:    containers,
-		Events:        bus,
+		EnsureToolchain: func(ctx context.Context, name, version string) error {
+			log.Info("fetching a toolchain that an app needs", "toolchain", name, "version", version)
+			var uv *toolchain.Installed
+			if name == "python" {
+				found, err := toolchains.Ensure(ctx, "uv", "", nil, io.Discard)
+				if err != nil {
+					return err
+				}
+				uv = &found
+			}
+			_, err := toolchains.Ensure(ctx, name, version, uv, io.Discard)
+			return err
+		},
+		Secrets:    keyring,
+		Containers: containers,
+		Events:     bus,
 	}, log)
 	defer runtime.Shutdown()
 	router.SetPools(runtime)
@@ -388,7 +402,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
-	backups := &backup.Service{DB: db, Bus: bus, Keyring: keyring, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
+	backups := &backup.Service{DB: db, Bus: bus, Keyring: keyring, Keys: masterKey, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
 	backupCtx, stopBackups := context.WithCancel(ctx)
 	go backups.Run(backupCtx)
 	defer func() {

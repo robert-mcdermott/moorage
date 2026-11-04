@@ -401,10 +401,10 @@ type SSOConfig struct {
 	// EmailDomains says whose addresses a first sign-in may be from, separated by spaces.
 	EmailDomains string `json:"email_domains,omitempty"`
 	// Provision makes an account for someone new, the first time they sign in.
-	Provision  bool   `json:"provision"`
+	Provision bool `json:"provision"`
 	// TrustEmails lets an address join someone to an account when the provider does not say that it is verified.
-	TrustEmails bool `json:"trust_emails,omitempty"`
-	GroupClaim string `json:"group_claim,omitempty"`
+	TrustEmails bool   `json:"trust_emails,omitempty"`
+	GroupClaim  string `json:"group_claim,omitempty"`
 	// GroupRules says what groups mean, one to a line: "ops = admin" or "web-team = project web maintainer".
 	GroupRules string `json:"group_rules,omitempty"`
 	// PasswordsOff leaves signing in to the provider.
@@ -928,8 +928,8 @@ type ServerConfig struct {
 
 // ConfigUser is someone with an account. Nothing of how they sign in goes with them.
 type ConfigUser struct {
-	Email    string `json:"email" toml:"email"`
-	Name     string `json:"name,omitempty" toml:"name,omitempty"`
+	Email string `json:"email" toml:"email"`
+	Name  string `json:"name,omitempty" toml:"name,omitempty"`
 	// Role is admin or member. Left out, someone new is a member, and someone there stays as they are.
 	Role     string `json:"role,omitempty" toml:"role,omitempty"`
 	Disabled bool   `json:"disabled,omitempty" toml:"disabled,omitempty"`

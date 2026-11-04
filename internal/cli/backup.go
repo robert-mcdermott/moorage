@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -23,9 +25,13 @@ import (
 
 // s3FromEnvironment is an S3-compatible service's credentials, by the names that tools use for them.
 func s3FromEnvironment() backup.Credentials {
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = os.Getenv("AWS_DEFAULT_REGION")
+	}
 	return backup.Credentials{
-		Endpoint: os.Getenv("AWS_ENDPOINT_URL"), Region: os.Getenv("AWS_REGION"),
-		AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"), SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		Endpoint: os.Getenv("AWS_ENDPOINT_URL"), Region: region,
+		AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"), SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"), SessionToken: os.Getenv("AWS_SESSION_TOKEN"),
 	}
 }
 
@@ -36,6 +42,10 @@ func backupPlace(ctx context.Context, cfg config.Config, master secrets.MasterKe
 		return backup.Parse(to, s3FromEnvironment())
 	}
 	fallback := &backup.Service{DataDir: cfg.DataDir}
+	// Only if there is one: opening it would make one, and a restore on a new machine would then find a server there.
+	if _, err := os.Stat(layout.Database); err != nil {
+		return backup.Parse(fallback.DefaultDestination(), backup.Credentials{})
+	}
 	db, err := store.Open(ctx, layout.Database)
 	if err != nil {
 		return backup.Parse(fallback.DefaultDestination(), backup.Credentials{})
@@ -80,7 +90,9 @@ server's other keys in the backup, which then has to be kept as safe as they are
 			if err != nil {
 				return fmt.Errorf("this takes the server's master key: %w", err)
 			}
-			ctx := cmd.Context()
+			// Stopped, it cleans up after itself, and says that it stopped.
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
 			dest, err := backupPlace(ctx, cfg, master, to)
 			if err != nil {
 				return err
@@ -92,7 +104,7 @@ server's other keys in the backup, which then has to be kept as safe as they are
 			fmt.Fprintf(out, "Backing up to %s\n", dest)
 			record := noteBackup(ctx, layout.Database, dest.String())
 			result, err := backup.Run(ctx, dest, backup.Options{
-				DataDir: cfg.DataDir, IncludeKeys: includeKeys, KeyFingerprint: backup.Fingerprint(master),
+				DataDir: cfg.DataDir, IncludeKeys: includeKeys, Keys: master, KeyFingerprint: backup.Fingerprint(master),
 				Version: buildinfo.Version, Domain: cfg.Domain,
 				Log: func(format string, args ...any) { fmt.Fprintf(out, "  "+format+"\n", args...) },
 			})
@@ -251,8 +263,9 @@ A backup without keys needs the master key it was made with to be in place first
 			}
 			defer lock.Unlock()
 			fingerprint := ""
+			var keys backup.Keyed
 			if master, err := secrets.LoadMasterKey(layout.MasterKey, os.Getenv, false); err == nil {
-				fingerprint = backup.Fingerprint(master)
+				fingerprint, keys = backup.Fingerprint(master), master
 			}
 			r, digest, err := backup.Open(cmd.Context(), args[0], s3FromEnvironment())
 			if err != nil {
@@ -261,7 +274,7 @@ A backup without keys needs the master key it was made with to be in place first
 			defer r.Close()
 			out := cmd.OutOrStdout()
 			restored, err := backup.Restore(cmd.Context(), r, digest, backup.RestoreOptions{
-				DataDir: cfg.DataDir, KeyFingerprint: fingerprint, Force: force,
+				DataDir: cfg.DataDir, KeyFingerprint: fingerprint, Keys: keys, Force: force,
 				Log:        func(format string, args ...any) { fmt.Fprintf(out, "  "+format+"\n", args...) },
 				BeforeSwap: func() error { stopApps(cmd, cfg); return nil },
 			})

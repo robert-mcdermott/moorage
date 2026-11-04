@@ -331,7 +331,7 @@ func TestPruneKeepsTheNewest(t *testing.T) {
 		dest.Put(ctx, name+digestSuffix, strings.NewReader("y"))
 	}
 	dest.Put(ctx, "something-else.txt", strings.NewReader("mine"))
-	if err := Prune(ctx, dest, 2); err != nil {
+	if _, err := Prune(ctx, dest, 2); err != nil {
 		t.Fatal(err)
 	}
 	list, err := dest.List(ctx)
@@ -346,7 +346,7 @@ func TestPruneKeepsTheNewest(t *testing.T) {
 		}
 		t.Errorf("%v", names)
 	}
-	if err := Prune(ctx, dest, 0); err != nil { // keeps them all
+	if _, err := Prune(ctx, dest, 0); err != nil { // keeps them all
 		t.Fatal(err)
 	}
 	if list, _ := dest.List(ctx); len(list) != 2 {
@@ -448,7 +448,7 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "<InitiateMultipartUploadResult><UploadId>%s</UploadId></InitiateMultipartUploadResult>", id)
 	case r.Method == http.MethodPut && q.Has("partNumber"):
 		f.parts++
-		if f.failAt > 0 && f.parts == f.failAt {
+		if f.failAt > 0 && f.parts >= f.failAt {
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, "<Error><Code>SlowDown</Code><Message>not now</Message></Error>")
 			return
@@ -516,6 +516,7 @@ func TestS3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dest.(*S3).Pause = time.Millisecond
 	// Small, and in parts.
 	if err := dest.Put(ctx, "moorage-small.tar.gz", strings.NewReader("small")); err != nil {
 		t.Fatal(err)
@@ -727,5 +728,248 @@ func TestFailedRestorePutsItBack(t *testing.T) {
 	}
 	if info, err := os.Stat(empty); err != nil || !info.IsDir() {
 		t.Errorf("%v %v", info, err)
+	}
+}
+
+type testKey string
+
+func (k testKey) Derive(purpose string) []byte {
+	sum := sha256.Sum256([]byte(string(k) + purpose))
+	return sum[:]
+}
+
+// entriesOf lists what an archive holds, and what.
+func entriesOf(t *testing.T, archive []byte) map[string]string {
+	t.Helper()
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	out := map[string]string{}
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[h.Name] = string(body)
+	}
+}
+
+// TestPrivateKeysAreSealed: what an archive holds of a server's private keys is no use without the master key, and
+// comes back with it, so that browsers that trust the server's own authority still do.
+func TestPrivateKeysAreSealed(t *testing.T) {
+	from := newServerData(t)
+	if err := os.MkdirAll(filepath.Join(from, "certs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(from, "certs", "ca.key"), []byte("THE PRIVATE KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(from, "certs", "ca.crt"), []byte("the public one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := options(from)
+	o.Keys = testKey("the master key")
+	archive := archiveOf(t, from, o)
+	entries := entriesOf(t, archive)
+	for name, body := range entries {
+		if strings.Contains(body, "THE PRIVATE KEY") {
+			t.Errorf("%s holds it", name)
+		}
+	}
+	if entries["certs/ca.crt"] != "the public one" {
+		t.Errorf("%q", entries["certs/ca.crt"])
+	}
+	if _, ok := entries["certs/ca.key.sealed"]; !ok {
+		t.Errorf("%v", entries)
+	}
+
+	to := t.TempDir()
+	_, err := Restore(context.Background(), bytes.NewReader(archive), "", RestoreOptions{DataDir: to, KeyFingerprint: "abc", Keys: testKey("the master key")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(to, "certs", "ca.key")); got != "THE PRIVATE KEY" {
+		t.Errorf("%q", got)
+	}
+	// Tampered with, or with another key, it does not open.
+	_, err = Restore(context.Background(), bytes.NewReader(archive), "", RestoreOptions{DataDir: t.TempDir(), KeyFingerprint: "abc", Keys: testKey("another")})
+	refusedSaying(t, err, "does not")
+
+	// With no key to seal with, they are left out rather than left in the open.
+	o.Keys = nil
+	entries = entriesOf(t, archiveOf(t, from, o))
+	if _, ok := entries["certs/ca.key"]; ok {
+		t.Errorf("%v", entries)
+	}
+	if _, ok := entries["certs/ca.key.sealed"]; ok {
+		t.Errorf("%v", entries)
+	}
+}
+
+// TestBackupThroughAnAppsLinks: an app can turn what it owns into a link while it is being read, and a backup
+// should end up with its own files, and nobody else's.
+func TestBackupThroughAnAppsLinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("apps do not run as anyone else here")
+	}
+	from := newServerData(t)
+	secret := filepath.Join(from, "keys", "master.key")
+	if err := os.MkdirAll(filepath.Dir(secret), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte("THE MASTER KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(from, "data", "shop", "production")
+	other := filepath.Join(from, "data", "other", "production")
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "theirs"), []byte("ANOTHER APP'S"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Links it has left there are kept as links, and read as nothing more.
+	for name, to := range map[string]string{"key": secret, "dir": filepath.Dir(secret), "next": "../../other/production"} {
+		if err := os.Symlink(to, filepath.Join(env, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Swapped while a backup goes on. Many tries give it every chance.
+	file := filepath.Join(env, "flip")
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			os.Remove(file)
+			if i%2 == 0 {
+				os.WriteFile(file, []byte("mine"), 0o644)
+			} else {
+				os.Symlink(secret, file)
+			}
+		}
+	}()
+	defer func() { close(stop); wg.Wait() }()
+	for range 40 {
+		for name, body := range entriesOf(t, archiveOf(t, from, options(from))) {
+			if strings.Contains(body, "THE MASTER KEY") || (strings.Contains(body, "ANOTHER APP'S") && !strings.HasPrefix(name, "data/other/")) {
+				t.Fatalf("%s holds what it should not: %q", name, body)
+			}
+		}
+	}
+}
+
+// TestRestoreOnlyWhatABackupHolds: an archive can come from anywhere, and a server running as root starts on what it
+// restores: nothing that tells it what to run, whose it is, or where a directory really is.
+func TestRestoreOnlyWhatABackupHolds(t *testing.T) {
+	m := Manifest{Format: Format, Version: "0.6.0", KeyFingerprint: "abc"}
+	reg := func(name string) tar.Header { return tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644} }
+	link := func(name, to string) tar.Header {
+		return tar.Header{Name: name, Typeflag: tar.TypeSymlink, Linkname: to, Mode: 0o777}
+	}
+	for _, c := range []struct {
+		what  string
+		m     Manifest
+		entry tar.Header
+	}{
+		{"how to go back from an upgrade", m, reg("upgrades/last.json")},
+		{"what the shims run", m, reg("run/shims/x.spec.json")},
+		{"a toolchain", m, reg("toolchains/node/22/bin/node")},
+		{"the logs", m, link("logs", "/etc")},
+		{"keys it says it does not have", m, reg("keys/admin-token")},
+		{"a link for keys", Manifest{Format: Format, Version: "0.6.0", IncludesKeys: true}, link("keys/master.key", "/etc/shadow")},
+		{"a link for an environment", m, link("data/shop/production", "/etc")},
+		{"a link for an app's data", m, link("data/shop", "/etc")},
+		{"a link for a build", m, link("builds/shop/b1", "/etc")},
+		{"a link for the database", m, link("moorage.db", "/etc/passwd")},
+		{"a link in the certificates", m, link("certs/ca.key", "/etc/shadow")},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			to := t.TempDir()
+			_, err := Restore(context.Background(), bytes.NewReader(crafted(t, c.m, []tar.Header{c.entry})), "", RestoreOptions{DataDir: to, KeyFingerprint: "abc"})
+			refusedSaying(t, err, "no backup should")
+		})
+	}
+	// An app's own links, deeper down, are its own business.
+	to := t.TempDir()
+	_, err := Restore(context.Background(), bytes.NewReader(crafted(t, m, []tar.Header{
+		{Name: "data/shop/production/", Typeflag: tar.TypeDir, Mode: 0o755},
+		link("data/shop/production/current", "releases/1"),
+	})), "", RestoreOptions{DataDir: to, KeyFingerprint: "abc"})
+	if err != nil {
+		t.Errorf("%v", err)
+	}
+}
+
+func TestIncludeKeysNeedsTheKeyHere(t *testing.T) {
+	from := newServerData(t)
+	os.Remove(filepath.Join(from, "keys", "master.key"))
+	o := options(from)
+	o.IncludeKeys = true
+	var buf bytes.Buffer
+	_, _, err := Write(context.Background(), &buf, o)
+	refusedSaying(t, err, "keeps it elsewhere")
+}
+
+// TestS3TriesAgain: a service asks to be tried again now and then, and that should not cost a whole backup.
+func TestS3TriesAgain(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	s := &S3{Bucket: "b", Credentials: Credentials{Endpoint: srv.URL, AccessKey: "a", SecretKey: "s"}, Pause: time.Millisecond}
+	if err := s.Put(context.Background(), "x", strings.NewReader("small")); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 3 {
+		t.Errorf("%d", calls)
+	}
+	// One that goes on failing fails, in the end.
+	calls = -100
+	if err := s.Put(context.Background(), "x", strings.NewReader("small")); err == nil {
+		t.Error("it said it worked")
+	}
+	if calls != -100+requestTries {
+		t.Errorf("%d", calls)
+	}
+}
+
+// TestS3ThatGoesQuiet: a service that stops answering should not hold up a backup for ever.
+func TestS3ThatGoesQuiet(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	s := &S3{Bucket: "b", Credentials: Credentials{Endpoint: srv.URL, AccessKey: "a", SecretKey: "s"}, Pause: time.Millisecond, Timeout: 50 * time.Millisecond}
+	done := make(chan error, 1)
+	go func() { done <- s.Put(context.Background(), "x", strings.NewReader("small")) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("it said it worked")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("still waiting")
 	}
 }

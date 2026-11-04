@@ -424,9 +424,19 @@ func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release
 	}
 	var path []string
 	for _, t := range plan.Toolchains {
-		if t.Version != "system" && m.opts.ToolchainBins != nil {
-			path = append(path, m.opts.ToolchainBins(t.Name, t.Version)...)
+		if t.Version == "system" || m.opts.ToolchainBins == nil {
+			continue
 		}
+		bins := m.opts.ToolchainBins(t.Name, t.Version)
+		// A restored server has its builds and not their toolchains, which it fetches as it needs them, rather
+		// than run something else that happens to be on this machine's path.
+		if bins == nil && m.opts.EnsureToolchain != nil {
+			if err := m.opts.EnsureToolchain(ctx, t.Name, t.Version); err != nil {
+				return nil, nil, fmt.Errorf("this build needs %s %s, which is not here and could not be fetched: %w", t.Name, t.Version, err)
+			}
+			bins = m.opts.ToolchainBins(t.Name, t.Version)
+		}
+		path = append(path, bins...)
 	}
 	for _, p := range plan.Path {
 		path = append(path, filepath.Join(dir, filepath.FromSlash(p)))

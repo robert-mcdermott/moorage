@@ -2,7 +2,9 @@
 
 A backup holds what a server cannot make again: its database, the apps' repositories and builds,
 their data directories and the server's certificates. It is one file, and the server goes on
-running while it is made. Logs, toolchains and caches are left out, as they come back by themselves.
+running while it is made. Logs and caches are left out, and so are toolchains, which the server fetches again
+as the apps that need them start. Restored on a machine with no way out, those apps need a mirror, under
+`[toolchains]` in `server.toml`.
 
 ```bash
 moor server backup --to /mnt/backups
@@ -47,8 +49,9 @@ AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=eu-west-1 moor server
 ```
 
 For a service other than AWS, `AWS_ENDPOINT_URL` says where it is, and buckets are then addressed by
-path. Its parts go up as they are made, so that a backup needs neither memory nor disk for the whole
-of it. Without a `--to`, the command uses what **Settings → Backups** says.
+path. Temporary credentials need `AWS_SESSION_TOKEN` as well. Its parts go up as they are made, so that a backup
+needs neither memory nor disk for the whole of it, up to the 160 GB that its parts come to, and a part that fails
+is tried again. Without a `--to`, the command uses what **Settings → Backups** says.
 
 ## See what is there
 
@@ -80,13 +83,23 @@ that did not finish or that does not hash to what was noted when it was made. On
 has a database, `--force` moves what is there aside rather than deleting it. Any apps still running are
 stopped just before the swap. The server starts them again when it starts, and brings an older backup's
 database up to date. Everyone can sign in as before, and browsers that trusted the server's own CA still
-do.
+do, as its key comes back, sealed in the backup with the master key.
+
+Restore to a data directory at the same path as before: builds can hold links to their toolchains by their full
+paths. Without `--include-keys`, the server has a new SSH host key, so that those who push over SSH are told
+that it has changed.
+
+**Restore only your own backups.** What a server restores, it goes on to run, and it refuses what no backup
+should hold, such as keys in one that says it has none. A `.sha256` beside a backup shows that it is whole, and
+not who made it, so that whoever can write to where your backups go can change them: keep that as closed as the
+server.
 
 ## Apps with databases
 
 The data directories are read while the apps go on running, so that a file being written at that moment
 may be caught halfway. For most files that does not matter, but a database file copied while it is
-in use may not open again, and the command says how many files changed as they were read.
+in use may not open again, and the command says how many files changed as they were read: the server's log
+does for those it makes itself.
 
 If an app keeps a database in its data directory, have a [cron job](cron.md) dump it there
 shortly before the backup, and restore from the dump. For SQLite:

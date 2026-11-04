@@ -32,6 +32,33 @@ type S3 struct {
 	Client *http.Client
 	// Now, if set, overrides the time (tests).
 	Now func() time.Time
+	// Timeout, if set, overrides how long one request to change something may take, and Pause how long to wait
+	// before trying one again (tests).
+	Timeout, Pause time.Duration
+}
+
+// How requests are sent, where a service may be slow, or stop answering, for reasons of its own. Without limits, a
+// backup waiting on one that has gone quiet would wait for ever, and no other could start.
+const (
+	requestTimeout = 15 * time.Minute // enough for a part of 16 MiB over a slow line
+	requestTries   = 4
+)
+
+var s3Client = &http.Client{Transport: func() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = 2 * time.Minute
+	return t
+}()}
+
+// cancelOnClose ends a request's time once its answer has been read.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c cancelOnClose) Close() error {
+	defer c.cancel()
+	return c.ReadCloser.Close()
 }
 
 func (s *S3) String() string {
@@ -71,32 +98,78 @@ func (s *S3) key(name string) string {
 	return s.Prefix + "/" + name
 }
 
+// do sends a request, and again if the service asks for that or the line fails, as services do now and then: it
+// should not take a whole backup with it. Reading has no time limit, as a large backup takes as long as it takes,
+// and it is the service's first answer that is limited.
 func (s *S3) do(ctx context.Context, method string, u *url.URL, body []byte) (*http.Response, error) {
+	pause := s.Pause
+	if pause == 0 {
+		pause = time.Second
+	}
+	var res *http.Response
+	var err error
+	for try := 1; ; try++ {
+		res, err = s.send(ctx, method, u, body)
+		retry := err != nil && ctx.Err() == nil
+		if err == nil && (res.StatusCode >= 500 || res.StatusCode == http.StatusTooManyRequests) {
+			retry = true
+		}
+		if !retry || try == requestTries {
+			return res, err
+		}
+		if res != nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
+			res.Body.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pause):
+		}
+		pause *= 2
+	}
+}
+
+func (s *S3) send(ctx context.Context, method string, u *url.URL, body []byte) (*http.Response, error) {
+	cancel := func() {}
+	if method != http.MethodGet {
+		limit := s.Timeout
+		if limit == 0 {
+			limit = requestTimeout
+		}
+		ctx, cancel = context.WithTimeout(ctx, limit)
+	}
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), reader)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	now := time.Now
 	if s.Now != nil {
 		now = s.Now
 	}
+	if s.SessionToken != "" {
+		req.Header.Set("X-Amz-Security-Token", s.SessionToken)
+	}
 	sign(req, body, s.AccessKey, s.SecretKey, s.region(), "s3", now().UTC())
 	client := s.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = s3Client
 	}
 	res, err := client.Do(req)
 	if err != nil {
+		cancel()
 		var urlErr *url.Error
 		if errors.As(err, &urlErr) {
 			return nil, urlErr.Err
 		}
 		return nil, err
 	}
+	res.Body = cancelOnClose{res.Body, cancel}
 	return res, nil
 }
 

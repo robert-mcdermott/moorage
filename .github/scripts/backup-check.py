@@ -139,6 +139,8 @@ def all_there(from_where):
     print(f"--- restored from {from_where}", flush=True)
     wait_for("the app serves again", lambda: get("shop.localhost", "/")[0] == 200)
     check("the static site serves", b"the site" in get("docs.localhost", "/")[1])
+    wait_for("an app whose toolchain was left out serves again", lambda: get("noder.localhost", "/", timeout=200)[0] == 200, seconds=200)
+    check("and runs its own toolchain", str(data / "toolchains") in get("noder.localhost", "/")[1].decode(), str(get("noder.localhost", "/")[1]))
     check("the app's data is there", (data / "data" / "shop" / "production" / "notes.txt").read_text() == "written by the app")
     out = run_moor("run", "--app", "shop", "--", 'echo "length ${#THE_SECRET}"').stdout
     check("the secret opens", "length 7" in out, out)
@@ -169,6 +171,11 @@ def main():
     (app / "moorage.toml").write_text('[app]\nruntime = "command"\n\n[processes.web]\ncommand = "python3 -m http.server $PORT"\n\n[processes.web.health]\npath = "/"\n')
     run_moor("deploy", "--app", "shop", str(app))
     run_moor("env", "set", "--app", "shop", "--secret", "THE_SECRET", given="hunter2")
+    noder = work / "src" / "noder"
+    noder.mkdir(parents=True)
+    (noder / "server.js").write_text("require('http').createServer((q, s) => s.end(process.execPath)).listen(process.env.PORT, '127.0.0.1')")
+    (noder / "moorage.toml").write_text('[app]\nruntime = "command"\ntoolchains = ["node@22"]\n\n[processes.web]\ncommand = "node server.js"\nhealth = { startup = "180s" }\n')
+    run_moor("deploy", "--app", "noder", str(noder))
     site = work / "src" / "docs"
     site.mkdir(parents=True)
     (site / "index.html").write_text("<p>the site</p>")

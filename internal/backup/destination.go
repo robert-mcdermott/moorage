@@ -33,6 +33,8 @@ type Destination interface {
 // Credentials are an S3-compatible service's.
 type Credentials struct {
 	Endpoint, Region, AccessKey, SecretKey string
+	// SessionToken goes with temporary credentials.
+	SessionToken string
 }
 
 // Parse reads a destination: a path, or s3://bucket/prefix.

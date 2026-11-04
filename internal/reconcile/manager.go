@@ -55,6 +55,8 @@ type Options struct {
 	Trusted []netip.Prefix
 	// ToolchainBins returns the PATH directories of an installed toolchain.
 	ToolchainBins func(name, version string) []string
+	// EnsureToolchain fetches a toolchain that an app needs and this server does not have.
+	EnsureToolchain func(ctx context.Context, name, version string) error
 	// Secrets opens the sealed values of secret variables.
 	Secrets Opener
 	// Containers runs apps in containers; without it, the server has no

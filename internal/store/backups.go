@@ -161,6 +161,18 @@ func SchemaOf(ctx context.Context, path string) (int, error) {
 	return version, err
 }
 
+// ForgetBackups drops the records of backups that have gone from where they were.
+func (db *DB) ForgetBackups(ctx context.Context, names []string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		for _, name := range names {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM backups WHERE name = ?`, name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // MarkBackupInSnapshot notes in a copy of the database that the backup holding it worked: once
 // restored, that is true, and it would otherwise say that it was interrupted by the server stopping.
 func MarkBackupInSnapshot(ctx context.Context, path, name string, at time.Time) error {
@@ -169,6 +181,11 @@ func MarkBackupInSnapshot(ctx context.Context, path, name string, at time.Time) 
 		return err
 	}
 	defer conn.Close()
+	// A database from before backups, which the binary just installed has yet to bring up to date.
+	var tables int
+	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'backups'`).Scan(&tables); err != nil || tables == 0 {
+		return err
+	}
 	_, err = conn.ExecContext(ctx, `UPDATE backups SET status = ?, name = ?, finished_at = ? WHERE status = ?`, BackupDone, name, at.UnixMilli(), BackupRunning)
 	return err
 }
