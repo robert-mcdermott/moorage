@@ -87,7 +87,7 @@ function moor(...args) {
 
   // The palette, from the keyboard. If WebKit gave up on the page's script, load it again.
   await visit(page, base + '/');
-  for (let tries = 3; ; tries--) {
+  for (let tries = 5; ; tries--) {
     await page.keyboard.press('/');
     try {
       await page.waitForSelector('#palette[open]', { timeout: 5000 });

@@ -955,7 +955,7 @@ directory, supervises it, and serves it on its own hostname.
      now and then fails a navigation that interrupts a page's open stream, with an internal
      error of its own, which the browser check tries again.
 
-## 0.5.0: real apps, observed (planned)
+## 0.5.0: real apps, observed (released 2026-11-04)
 
 ### Wave 5
 
@@ -997,6 +997,17 @@ directory, supervises it, and serves it on its own hostname.
      address by the same way as the request did, in all three places that look routes up.
 5. **Release 0.5.0.** Exit check: 50 or more environments on a 4 vCPU / 8 GB
    VM with sleep enabled.
+   - Done by the release: `.github/scripts/capacity-check.sh`, in a cgroup of 4 CPUs and 8 GB on a
+     CI runner: 60 environments of 10 apps holding 64 MB each. All awake they held 4.9 GB and all
+     asleep 120 MB, of which the server 98 MB, at no measurable CPU. One woke in 0.13 s and all 60
+     together in 2.3 s; five served 4,100 requests a second, 95% within 12 ms, and none failed.
+     It runs when asked, or when it changes itself: the numbers are in `docs/install.md`.
+   - Found by the release: the limit is what apps hold, and not the platform. Two measurements
+     misled at first, both from the test app rather than Moorage: HTTP/1.0 used up local ports on
+     macOS, and two small writes with Nagle's algorithm on made every request on Linux take 41 ms.
+     Adding up RSS overstates memory (6.2 GB, against the cgroup's 4.9 GB), since instances share
+     pages. A scripted drop in WebKit has no file behind it, so that files dropped without a
+     folder need no reading through entries, which also takes away a way of failing.
 
 ## 0.6.0: hardened (planned)
 

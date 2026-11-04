@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-04)
+
+Moorage 0.5.0 is about apps once they are running. They can have cron jobs and one-off commands, charts of how they are doing, and notifications when they are not. Drop a folder in the console and it is a static site, with every release at an address of its own. A server of 4 CPUs and 8 GB holds 60 environments with sleep on, as [measured](docs/install.md#how-big-a-machine).
+
+Upgrading from 0.4.0 needs no steps of its own: replace `moor` and restart the server, and running apps are taken over without a restart. Some things behave differently:
+
+- **`[[cron]]` in a manifest now runs.** It was accepted and did nothing, and `moor manifest validate` warned of that. Its jobs start with the next deployment.
+- **`[vars.NAME]` now counts.** A deployment fails early if a `required` one is missing, and one to `generate` is made.
+- **`watch` in `[app]` now counts.** A push that touches none of those paths is kept, and not deployed.
+- **People are told when things fail.** In the console, maintainers of a project, its administrators and whoever pushed a deployment see notifications, with no setup. Nothing leaves the server until you add a channel and a rule.
+- **Metrics take room.** About 6 MB for a busy environment, kept for a year.
 
 ### Added
 

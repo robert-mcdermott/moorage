@@ -177,6 +177,8 @@ func Sign(secret string, at time.Time, body []byte) string {
 	return "t=" + strconv.FormatInt(at.Unix(), 10) + ",v1=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+var slackEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 func (s *Service) deliver(ctx context.Context, kind string, cfg Config, m Message) error {
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
@@ -185,14 +187,17 @@ func (s *Service) deliver(ctx context.Context, kind string, cfg Config, m Messag
 	}
 	var payload any
 	switch kind {
-	case KindSlack, KindTeams:
+	case KindSlack:
+		// What an app's build said can be in a message, and is not to call out to a channel.
+		payload = map[string]string{"text": slackEscape.Replace(m.text())}
+	case KindTeams:
 		payload = map[string]string{"text": m.text()}
 	case KindDiscord:
 		text := m.text()
 		if len(text) > 1900 {
-			text = text[:1900]
+			text = strings.ToValidUTF8(text[:1900], "")
 		}
-		payload = map[string]string{"content": text}
+		payload = map[string]any{"content": text, "allowed_mentions": map[string]any{"parse": []string{}}}
 	default:
 		payload = map[string]any{"type": m.Kind, "app": m.App, "env": m.Env, "summary": m.Summary, "link": m.Link, "at": m.At, "suppressed": m.Suppressed, "data": m.Data}
 	}
@@ -267,10 +272,8 @@ func (s *Service) sendEmail(ctx context.Context, cfg Config, m Message) error {
 	clean := strings.NewReplacer("\r", " ", "\n", " ")
 	var mail bytes.Buffer
 	fmt.Fprintf(&mail, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n", clean.Replace(cfg.From), clean.Replace(strings.Join(cfg.To, ", ")), clean.Replace(m.title()), time.Now().Format(time.RFC1123Z))
-	body := strings.ReplaceAll(m.text(), "\n", "\r\n")
-	// A line of a single dot would end the message.
-	body = strings.ReplaceAll(body, "\r\n.", "\r\n..")
-	mail.WriteString(body + "\r\n")
+	// What this writes to takes care of a line that starts with a dot.
+	mail.WriteString(strings.ReplaceAll(m.text(), "\n", "\r\n") + "\r\n")
 	if _, err := w.Write(mail.Bytes()); err != nil {
 		return err
 	}

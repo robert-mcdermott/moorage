@@ -258,8 +258,11 @@ func writeSiteFiles(dir string, next func() (SiteFile, error)) (left []string, e
 			return nil, fmt.Errorf("%s cannot be kept: a file is where a folder should be", rel)
 		}
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err != nil {
+		if errors.Is(err, fs.ErrExist) {
 			return nil, fmt.Errorf("%s is there twice", rel)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s cannot be kept under that name", rel)
 		}
 		n, err := io.Copy(out, io.LimitReader(f.Content, lim.MaxBytes-size+1))
 		if cerr := out.Close(); err == nil {

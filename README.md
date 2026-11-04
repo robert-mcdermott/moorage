@@ -43,9 +43,16 @@ binary with its state in SQLite, and everything else is built in.
 - **Configures apps with variables and secrets.** Secrets are encrypted on
   the server and handed to apps in memory only; every change is a new
   release.
+- **Runs what an app needs on a schedule.** Cron jobs in its manifest, and `moor run` for
+  a command now, with its variables and data, like `moor run -- python manage.py migrate`.
+- **Shows how it is doing, and says when it is not.** Requests, response times, CPU and memory
+  for each environment, kept for a year and ready for Prometheus. A failed deployment, a crash
+  loop or a failed cron job reaches those concerned in the console, and by webhook, Slack, Teams,
+  Discord or email: one message and not hundreds, then a word when it recovers.
 - **A web console.** Deploy, scale, restart and roll back from the browser; watch a
   deployment's stages and log as they happen; follow and search logs; change
-  variables. It works on a phone, and without scripts.
+  variables. Drop a folder on it and that is a static site. It works on a phone, and without
+  scripts.
 - **Accounts for a team.** Sign in from any machine by approving it in a
   browser; scoped API tokens for CI; SSH keys for pushing; each deploy records
   who did it. On your own computer you need none of this.
@@ -202,17 +209,20 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.4.0 is a server on Linux or macOS for a team: it builds and deploys
+Moorage 0.5.0 is a server on Linux or macOS for a team: it builds and deploys
 apps from their source or a `git push`, in containers or not, with accounts, projects
 and roles, an audit log and a [web console](docs/console.md). Every branch can have
 [its own preview and address](docs/previews.md), which sleeps when idle, and [who can
 reach it](docs/access.md) is up to you: a password, a sign-in, a share link. Apps can have
-[domains of their own](docs/domains.md). On Windows, `moor` works as a command line and
-`moor server run` works; the Windows service comes later.
+[domains of their own](docs/domains.md), [cron jobs and one-off commands](docs/cron.md),
+[metrics](docs/metrics.md) and [notifications](docs/notifications.md) when something goes
+wrong. On Windows, `moor` works as a command line and `moor server run` works; the Windows
+service comes later.
 
 Next, in the [roadmap](spec/11-roadmap.md):
 
-- **0.5.0, real apps, observed:** cron jobs and one-off runs, metrics, and notifications.
+- **0.6.0, hardened:** apps isolated from one another on Linux, backups to a path or S3,
+  single sign-on and two-factor sign-in, and upgrading itself with a way back.
 
 ## Building Moorage
 

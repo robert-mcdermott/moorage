@@ -212,9 +212,30 @@ func TestChatPayloads(t *testing.T) {
 			t.Fatal(tc.kind, err)
 		}
 		got := rc.messages()
-		if len(got) != 1 || !strings.Contains(fmt.Sprint(got[0][tc.key]), "this channel works") || len(got[0]) != 1 {
+		if len(got) != 1 || !strings.Contains(fmt.Sprint(got[0][tc.key]), "this channel works") {
 			t.Fatalf("%s: %v", tc.kind, got)
 		}
+	}
+}
+
+// TestMessagesCannotCallOut: what an app's build said can be in a message.
+func TestMessagesCannotCallOut(t *testing.T) {
+	s := &Service{Allow: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}
+	m := Message{Kind: events.DeploymentFailed, App: "shop", Summary: "<!channel> @everyone it failed", At: time.Now()}
+	rc := newReceiver(t)
+	if err := s.deliver(context.Background(), KindSlack, Config{URL: rc.URL}, m); err != nil {
+		t.Fatal(err)
+	}
+	if text := rc.messages()[0]["text"].(string); strings.Contains(text, "<!channel>") || !strings.Contains(text, "&lt;!channel&gt;") {
+		t.Errorf("%q", text)
+	}
+	discord := newReceiver(t)
+	if err := s.deliver(context.Background(), KindDiscord, Config{URL: discord.URL}, m); err != nil {
+		t.Fatal(err)
+	}
+	mentions, _ := discord.messages()[0]["allowed_mentions"].(map[string]any)
+	if parse, ok := mentions["parse"].([]any); !ok || len(parse) != 0 {
+		t.Errorf("%v", discord.messages()[0])
 	}
 }
 
