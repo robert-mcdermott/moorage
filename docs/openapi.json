@@ -925,6 +925,128 @@
         ],
         "type": "object"
       },
+      "MetricChart": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/MetricLine"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "unit",
+          "lines"
+        ],
+        "type": "object"
+      },
+      "MetricLine": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MetricPoint"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "points"
+        ],
+        "type": "object"
+      },
+      "MetricMark": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "version"
+        ],
+        "type": "object"
+      },
+      "MetricPoint": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "max": {
+            "type": "number"
+          },
+          "min": {
+            "type": "number"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "at",
+          "value",
+          "min",
+          "max"
+        ],
+        "type": "object"
+      },
+      "Metrics": {
+        "properties": {
+          "charts": {
+            "items": {
+              "$ref": "#/components/schemas/MetricChart"
+            },
+            "type": "array"
+          },
+          "deployments": {
+            "items": {
+              "$ref": "#/components/schemas/MetricMark"
+            },
+            "type": "array"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "step",
+          "charts",
+          "deployments"
+        ],
+        "type": "object"
+      },
       "NewApp": {
         "properties": {
           "name": {
@@ -3266,6 +3388,63 @@
           "apps"
         ],
         "x-moorage-permission": "logs"
+      }
+    },
+    "/apps/{app}/envs/{env}/metrics": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvMetrics",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metrics"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "What an environment did over a range (range= live, 1h, 24h, 7d or 30d): requests, response times, CPU and memory, with its deployments",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
       }
     },
     "/apps/{app}/envs/{env}/promote": {

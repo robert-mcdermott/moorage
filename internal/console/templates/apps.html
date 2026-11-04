@@ -8,6 +8,7 @@
   {{if .Access.Logs}}<a href="/apps/{{.App.Name}}/logs{{envq .Env}}"{{if eq .Tab "logs"}} aria-current="page"{{end}}>Logs</a>{{end}}
   {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/variables{{envq .Env}}"{{if eq .Tab "variables"}} aria-current="page"{{end}}>Variables</a>
   <a href="/apps/{{.App.Name}}/deploy{{envq .Env}}"{{if eq .Tab "deploy"}} aria-current="page"{{end}}>Deploy</a>{{end}}
+  <a href="/apps/{{.App.Name}}/metrics{{envq .Env}}"{{if eq .Tab "metrics"}} aria-current="page"{{end}}>Metrics</a>
   <a href="/apps/{{.App.Name}}/cron{{envq .Env}}"{{if eq .Tab "cron"}} aria-current="page"{{end}}>Cron</a>
   <a href="/apps/{{.App.Name}}/environments"{{if eq .Tab "environments"}} aria-current="page"{{end}}>Environments</a>
   <a href="/apps/{{.App.Name}}/access{{envq .Env}}"{{if eq .Tab "access"}} aria-current="page"{{end}}>Domains and access</a>
@@ -48,14 +49,15 @@
 {{if .Apps}}
 <div class="panel table-scroll" data-apps{{if .Poll}} data-poll{{end}}>
   <table class="apps">
-    <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Project</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
+    <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Project</th><th scope="col">Requests</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
     <tbody>
     {{range .Apps}}
       <tr data-app-row="{{.Name}}">
         <td><a class="app-name" href="/apps/{{.Name}}">{{.Name}}</a>{{if .OtherEnvs}} <a class="quiet-link muted small nowrap" href="/apps/{{.Name}}/environments" title="Its environments beside production">+{{.OtherEnvs}} env</a>{{end}}</td>
         <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{with .Instances}}<span class="muted small nowrap"> {{.}}</span>{{end}}</td>
-        <td><a href="{{.URL}}">{{.URL}}</a></td>
-        <td data-label="Project"><a class="quiet-link" href="/projects/{{.Project}}">{{.Project}}</a></td>
+        <td><a href="{{.URL}}">{{bareURL .URL}}</a></td>
+        <td data-label="Project" class="nowrap"><a class="quiet-link" href="/projects/{{.Project}}">{{.Project}}</a></td>
+        <td data-label="Requests" class="nowrap">{{if .Traffic}}{{.Spark}} <span class="muted small">{{.Traffic}}</span>{{else}}—{{end}}</td>
         <td data-label="Release">{{if .Version}}v{{.Version}}{{else}}—{{end}}</td>
         <td class="muted">
           {{if not .ChangedAt.IsZero}}<time datetime="{{iso .ChangedAt}}">{{ago .ChangedAt}}</time>{{with .ChangedBy}} by {{.}}{{end}}{{else}}—{{end}}
@@ -140,6 +142,14 @@
   </section>
 </div>
 
+{{with $.Glance}}
+<section class="block" data-refresh="glance">
+  <div class="section-heading"><h2>The last hour</h2><a class="small" href="/apps/{{$.App.Name}}/metrics{{envq $.Env}}">All of it</a></div>
+  <div class="glance">
+    {{range .}}<div class="panel tile"><div class="tile-label">{{.Label}}</div><div class="tile-value">{{.Value}}</div>{{.Spark}}</div>{{end}}
+  </div>
+</section>
+{{end}}
 {{if .Release}}
 {{if .Static}}
 <section class="block">
@@ -840,5 +850,47 @@
   </section>
   {{end}}
 </div>
+{{end}}
+{{end}}
+
+{{define "app-metrics"}}
+{{template "app-tabs" .}}
+{{with .Metrics}}
+<nav class="range-links" aria-label="Over how long">
+  {{range .Ranges}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+</nav>
+{{if .Empty}}
+<section class="panel empty">
+  <h2>Nothing to show for that yet</h2>
+  <p>Once it serves requests or runs instances, what it does shows here, ten seconds at a time for the last two hours, then by the minute and the hour.</p>
+</section>
+{{else}}
+<div class="charts" data-refresh="charts"{{if .Live}} data-poll{{end}}>
+  {{range .Charts}}
+  <section class="panel panel-pad chart-panel">
+    <h2>{{.Title}}</h2>
+    {{if .Empty}}
+    <p class="muted">Nothing for this range.</p>
+    {{else}}
+    {{if gt (len .Legend) 1}}
+    <ul class="chart-legend">
+      {{range .Legend}}<li><span class="chart-key s{{.Slot}}" aria-hidden="true"></span>{{.Name}} <strong>{{.Latest}}</strong></li>{{end}}
+    </ul>
+    {{else}}{{range .Legend}}<p class="chart-single"><strong>{{.Latest}}</strong> <span class="muted small">{{.Name}}, now</span></p>{{end}}{{end}}
+    <div class="chart" data-chart="{{.Data}}" tabindex="0" aria-label="{{.Title}}: use the arrow keys to read it">{{.SVG}}</div>
+    <details class="chart-numbers">
+      <summary>The numbers</summary>
+      <div class="table-scroll">
+        <table class="apps">
+          <thead><tr>{{range .Table.Head}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
+          <tbody>{{range .Table.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody>
+        </table>
+      </div>
+    </details>
+    {{end}}
+  </section>
+  {{end}}
+</div>
+{{end}}
 {{end}}
 {{end}}

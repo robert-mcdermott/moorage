@@ -970,6 +970,12 @@ directory, supervises it, and serves it on its own hostname.
 2. **Metrics.** Collection (cgroups, process sampling, engine statistics,
    the ingress), tiered storage, console charts with deploy markers,
    sparklines, the Prometheus endpoint.
+   - Done in slice 2: all of that, with `moor metrics`, on process-tree sampling until per-app
+     cgroups arrive with Linux isolation.
+   - Found by slice 2: charts were to be drawn on a canvas, but as SVG from the server they work
+     with no scripts, and a table of their numbers comes for free, so that the script adds only
+     what follows the pointer. A WebSocket's length is no response time. A chart must keep a
+     line's color as others come and go, so that its slot goes by its place among sorted names.
 3. **Notifications.** Webhooks, chat webhooks, email and in-console
    notifications, with rules and deduplication.
 4. **Static extras.** Drag-and-drop static deploys in the console; static

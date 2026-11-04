@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
+	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -40,7 +41,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run"}
+		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -101,6 +102,8 @@ type Options struct {
 	Keyring Keyring
 	// GateRoute says what a hostname and a path serve, for the sign-in gates.
 	GateRoute func(host, path string) (ingress.RouteInfo, bool)
+	// Metrics has what environments have been doing.
+	Metrics *metrics.Store
 }
 
 // Console serves the pages.
@@ -120,11 +123,12 @@ type Console struct {
 	started  time.Time
 	// gateRoute says what a hostname and a path serve, for the sign-in gates.
 	gateRoute func(host, path string) (ingress.RouteInfo, bool)
+	metrics   *metrics.Store
 }
 
 // New returns the pages' handler.
 func New(o Options) (http.Handler, error) {
-	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute}
+	c := &Console{auth: o.Auth, db: o.DB, cfg: o.Config, log: o.Log, source: embedded, deployer: o.Deployer, runtime: o.Runtime, keyring: o.Keyring, started: time.Now(), gateRoute: o.GateRoute, metrics: o.Metrics}
 	if o.Dir != "" {
 		c.source, c.dev = os.DirFS(o.Dir), true
 	}
@@ -161,6 +165,7 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /apps/{app}/rollback", c.action(c.rollback))
 	mux.HandleFunc("POST /apps/{app}/scale", c.action(c.scale))
 	mux.HandleFunc("GET /deployments/{id}", c.deploymentPage)
+	mux.HandleFunc("GET /apps/{app}/metrics", c.metricsPage)
 	mux.HandleFunc("GET /apps/{app}/cron", c.cronPage)
 	mux.HandleFunc("GET /apps/{app}/runs/{id}", c.runPage)
 	mux.HandleFunc("POST /apps/{app}/runs", c.action(c.startRun))
@@ -300,6 +305,9 @@ type data struct {
 	EnvRows  []environmentRow
 	// Gate says who may reach it, on its Access page.
 	Gate *accessView
+	// Metrics is an environment's charts, and Glance how it has been doing lately.
+	Metrics *metricsView
+	Glance  []glanceTile
 	// Cron is an environment's cron jobs and runs, and Run one of those.
 	Cron *cronView
 	Run  *runView

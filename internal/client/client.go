@@ -727,6 +727,13 @@ func (c *Client) WakeEnvironment(ctx context.Context, app, env string) (apitypes
 	return out, err
 }
 
+// Metrics reads what an environment did over a range: live, 1h, 24h, 7d or 30d.
+func (c *Client) Metrics(ctx context.Context, app, env, span string) (apitypes.Metrics, error) {
+	var out apitypes.Metrics
+	err := c.do(ctx, http.MethodGet, envPath(app, env, "metrics")+"?range="+url.QueryEscape(span), nil, "", &out)
+	return out, err
+}
+
 // CronJobs lists an environment's cron jobs.
 func (c *Client) CronJobs(ctx context.Context, app, env string) ([]apitypes.CronJob, error) {
 	var out []apitypes.CronJob

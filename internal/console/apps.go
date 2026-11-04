@@ -169,10 +169,12 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 	}
 	plans := map[string]manifest.Plan{}
 	asleep := map[string]bool{}
+	envIDs := map[string]string{}
 	for _, r := range routes {
 		if r.Env != names.Production {
 			continue
 		}
+		envIDs[r.App] = r.EnvID
 		if plan, err := readPlan(r.Build); err == nil {
 			plans[r.App] = plan
 		}
@@ -189,6 +191,11 @@ func (c *Console) appRows(ctx context.Context, apps []store.AppSummary) ([]appRo
 	rows := make([]appRow, 0, len(apps))
 	for _, a := range apps {
 		row := appRow{Name: a.Name, URL: c.appURL(a.Name), Project: a.Project, OtherEnvs: envCounts[a.Name] - 1}
+		if c.metrics != nil && envIDs[a.Name] != "" {
+			now := c.metrics.Glance(envIDs[a.Name], time.Now())
+			row.Traffic = formatValue("rate", now.RequestsPerMinute)
+			row.Spark = sparkline(now.Requests, "Requests a minute to "+a.Name+" over the last hour")
+		}
 		plan, known := plans[a.Name]
 		static := known && plan.Kind != manifest.KindProcess
 		want, healthy := 0, 0
@@ -334,6 +341,11 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 	d.App = view
 	if d.Env != "" {
 		d.EnvRows = []environmentRow{c.environmentRow(r, d.EnvInfo, d.Access)}
+	}
+	if view.Release != nil {
+		if envID, err := c.db.EnvID(r.Context(), app, envOf(r)); err == nil {
+			d.Glance = c.glance(envID, view.Static)
+		}
 	}
 	d.Poll = view.Deploying
 	d.RefreshOn = app

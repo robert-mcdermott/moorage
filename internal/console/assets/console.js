@@ -831,6 +831,118 @@
     }
   }
 
+  // Charts are all there without this: it says what is under the pointer, or the arrow keys.
+
+  function chartText(unit, v) {
+    if (unit === 'rate') { return (v >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(1) : v.toFixed(2).replace(/\.00$/, '')) + '/min'; }
+    if (unit === 'ms') { return v >= 1000 ? (v / 1000).toFixed(2) + ' s' : v >= 10 ? Math.round(v) + ' ms' : v.toFixed(1) + ' ms'; }
+    if (unit === 'percent') { return v >= 10 ? Math.round(v) + '%' : v.toFixed(1) + '%'; }
+    if (unit === 'bytes') {
+      var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+      var i = 0;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return (v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)) + ' ' + units[i];
+    }
+    return String(v);
+  }
+
+  function chartAt(chart, data, index) {
+    var svg = $('svg', chart);
+    var cross = $('.chart-cross', chart);
+    if (!cross) {
+      cross = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      cross.setAttribute('class', 'chart-cross');
+      cross.setAttribute('y1', data.top);
+      cross.setAttribute('y2', data.bottom);
+      svg.appendChild(cross);
+    }
+    var at = data.times[index];
+    var x = data.left + (data.right - data.left) * (at - data.from) / (data.to - data.from);
+    cross.setAttribute('x1', x);
+    cross.setAttribute('x2', x);
+    var tip = $('.chart-tip', chart);
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'chart-tip';
+      tip.setAttribute('role', 'status');
+      chart.appendChild(tip);
+    }
+    tip.textContent = '';
+    var when = document.createElement('time');
+    when.textContent = new Date(at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    tip.appendChild(when);
+    data.lines.forEach(function (line) {
+      var value = line.values[index];
+      if (value === null || value === undefined) { return; }
+      var row = document.createElement('div');
+      var key = document.createElement('span');
+      key.className = 'chart-key s' + line.slot;
+      var strong = document.createElement('strong');
+      strong.textContent = chartText(data.unit, value);
+      var name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = line.name;
+      row.appendChild(key);
+      row.appendChild(strong);
+      row.appendChild(name);
+      tip.appendChild(row);
+    });
+    var box = chart.getBoundingClientRect();
+    var left = x / data.width * box.width;
+    var wide = tip.offsetWidth;
+    tip.style.left = Math.max(0, left + 12 + wide > box.width ? left - 12 - wide : left + 12) + 'px';
+    tip.style.top = '4px';
+  }
+
+  function chartLeave(chart) {
+    var tip = $('.chart-tip', chart);
+    if (tip) { tip.remove(); }
+    var cross = $('.chart-cross', chart);
+    if (cross) { cross.remove(); }
+  }
+
+  function chartData(chart) {
+    try { return JSON.parse(chart.getAttribute('data-chart')); } catch (e) { return null; }
+  }
+
+  document.addEventListener('pointermove', function (e) {
+    var chart = e.target.closest ? e.target.closest('.chart[data-chart]') : null;
+    $$('.chart-tip').forEach(function (tip) {
+      if (tip.parentNode !== chart) { chartLeave(tip.parentNode); }
+    });
+    if (!chart) { return; }
+    var data = chartData(chart);
+    if (!data || data.times.length === 0) { return; }
+    var box = chart.getBoundingClientRect();
+    var x = (e.clientX - box.left) / box.width * data.width;
+    var at = data.from + (x - data.left) / (data.right - data.left) * (data.to - data.from);
+    var best = 0;
+    data.times.forEach(function (t, i) {
+      if (Math.abs(t - at) < Math.abs(data.times[best] - at)) { best = i; }
+    });
+    chart.setAttribute('data-index', best);
+    chartAt(chart, data, best);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    var chart = e.target.matches && e.target.matches('.chart[data-chart]') ? e.target : null;
+    if (!chart) { return; }
+    if (e.key === 'Escape') { chartLeave(chart); return; }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') { return; }
+    var data = chartData(chart);
+    if (!data || data.times.length === 0) { return; }
+    e.preventDefault();
+    var index = parseInt(chart.getAttribute('data-index'), 10);
+    if (isNaN(index)) { index = data.times.length; }
+    index = Math.min(data.times.length - 1, Math.max(0, index + (e.key === 'ArrowLeft' ? -1 : 1)));
+    chart.setAttribute('data-index', index);
+    chartAt(chart, data, index);
+  });
+
+  document.addEventListener('focusout', function (e) {
+    if (e.target.matches && e.target.matches('.chart[data-chart]')) { chartLeave(e.target); }
+  });
+
   // The page that says how to deploy an app goes to the deployment when one starts.
 
   var waitingFor = $('[data-wait-deployment]');

@@ -32,6 +32,7 @@ how it works inside and where it is going.
 - [Previews and environments](previews.md): a place of its own for every branch,
   staging, promoting, locks and sleeping
 - [Cron jobs and one-off commands](cron.md)
+- [Metrics](metrics.md): charts in the console, and for Prometheus
 - [Who can reach an app](access.md): passwords, signing in, share links and lists
   of addresses
 - [Your own domains, and paths](domains.md): hostnames of your own, several apps on one
@@ -70,6 +71,7 @@ how it works inside and where it is going.
 | `moor logs [-f]` | Shows the app's output, and with `--source` its builds, requests and events; `--grep`, `--since` and `--problems` narrow it down |
 | `moor restart [PROCESS]` | Replaces the instances without downtime |
 | `moor run -- COMMAND` | Runs a command in the current release, and ends with its exit status |
+| `moor metrics` | Shows requests, response times, CPU and memory over a range |
 | `moor cron` | Lists the cron jobs; `run` one now, `runs` and `log` show how they went |
 | `moor scale [PROCESS=N ...]` | Shows or changes how many instances of each process run |
 | `moor env` | Lists and changes variables and secrets; `reveal` reads a secret |

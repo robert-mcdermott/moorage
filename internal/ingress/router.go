@@ -24,6 +24,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
+	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -35,6 +36,8 @@ type Router struct {
 	// on, by "app/env".
 	active sync.Map
 	open   sync.Map
+	// metrics hears of requests.
+	metrics atomic.Pointer[metrics.Store]
 	// tokenOf is what shows an app that a request came through here.
 	tokenOf func(envID string) string
 	// sleeper says which environments are asleep, and gate lets people through their gates.
@@ -145,6 +148,9 @@ type envRoute struct {
 	route
 	static bool
 }
+
+// SetMetrics says what hears of requests.
+func (rt *Router) SetMetrics(m *metrics.Store) { rt.metrics.Store(m) }
 
 // SetProxyToken says what shows an app that a request came through here.
 func (rt *Router) SetProxyToken(token func(envID string) string) { rt.tokenOf = token }

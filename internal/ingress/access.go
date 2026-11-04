@@ -120,6 +120,10 @@ func (rt *Router) serveApp(w http.ResponseWriter, r *http.Request, rte route) {
 	// Those the gate turns away neither keep an environment alive, nor wake it.
 	if who, ok := rt.admit(rec, r, rte); ok {
 		rt.active.Store(key, start)
+		if m := rt.metrics.Load(); m != nil {
+			end := m.Begin(rte.gate.envID)
+			defer func() { end(rec.status, time.Since(start), rec.bytes) }()
+		}
 		ctx := context.WithValue(r.Context(), infoKey{}, info)
 		if who != nil {
 			user = who.user.Email

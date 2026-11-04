@@ -439,6 +439,46 @@ type Environment struct {
 	LastActive time.Time `json:"last_active_at,omitzero"`
 }
 
+// Metrics is what an environment did over a range.
+type Metrics struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+	// Step is how many seconds apart its points are.
+	Step        int           `json:"step"`
+	Charts      []MetricChart `json:"charts"`
+	Deployments []MetricMark  `json:"deployments"`
+}
+
+// MetricChart is one measure: requests, latency, cpu or memory.
+type MetricChart struct {
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	// Unit is rate (a minute), ms, percent (of one core) or bytes.
+	Unit  string       `json:"unit"`
+	Lines []MetricLine `json:"lines"`
+}
+
+// MetricLine is a line of a chart. A gap is where there is no point.
+type MetricLine struct {
+	Name   string        `json:"name"`
+	Points []MetricPoint `json:"points"`
+}
+
+// MetricPoint is a line at a moment.
+type MetricPoint struct {
+	At    time.Time `json:"at"`
+	Value float64   `json:"value"`
+	Min   float64   `json:"min"`
+	Max   float64   `json:"max"`
+}
+
+// MetricMark is a release, on a chart.
+type MetricMark struct {
+	At      time.Time `json:"at"`
+	Version int       `json:"version"`
+	By      string    `json:"by,omitempty"`
+}
+
 // Run is one running of a command of a release: a cron job's, or one someone asked for.
 type Run struct {
 	ID  string `json:"id"`

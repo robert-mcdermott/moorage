@@ -1,6 +1,7 @@
 package console
 
 import (
+	"html/template"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -39,6 +40,9 @@ type appRow struct {
 	Instances string
 	// OtherEnvs is how many environments it has beside production.
 	OtherEnvs int
+	// Traffic is its requests a minute of late, and Spark its last hour's.
+	Traffic string
+	Spark   template.HTML
 	// Last says what its newest deployment deployed, LastFailed that it failed
 	// while a release keeps serving, and Deploying that it is under way.
 	Last                  string

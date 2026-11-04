@@ -184,6 +184,7 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/apps/{app}/envs/{env}/promote", perm: canDeploy, handler: s.promote, summary: "Release the build another environment runs", request: apitypes.Promotion{}, response: apitypes.Deployment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/lock", perm: canDeploy, handler: s.lock, summary: "Stop deployments to an environment", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/unlock", perm: canDeploy, handler: s.unlock, summary: "Let deployments to an environment go on", response: apitypes.Environment{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/metrics", perm: canRead, handler: s.environmentMetrics, summary: "What an environment did over a range (range= live, 1h, 24h, 7d or 30d): requests, response times, CPU and memory, with its deployments", response: apitypes.Metrics{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/cron", perm: canRead, handler: s.cronJobs, summary: "List an environment's cron jobs, with when each next runs and how the last one went", response: []apitypes.CronJob{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/cron/{job}/run", perm: canDeploy, handler: s.runCronJob, status: http.StatusAccepted, summary: "Run a cron job now", response: apitypes.Run{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/runs", perm: canRead, handler: s.runs, summary: "List an environment's runs, newest first; job= is those of a cron job", response: []apitypes.Run{}},

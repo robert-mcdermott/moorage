@@ -72,6 +72,7 @@ func testOptions(ready func(Addrs)) Options {
 		EnvironmentSweep: 100 * time.Millisecond,
 		GateRecheck:      200 * time.Millisecond,
 		CronTick:         100 * time.Millisecond,
+		MetricsEvery:     200 * time.Millisecond,
 	}
 }
 

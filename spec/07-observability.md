@@ -70,7 +70,7 @@ OpenTelemetry (OTLP) logs endpoint, or a generic HTTP endpoint (JSON batches).
 
 | Metric | Source | Granularity |
 |---|---|---|
-| CPU %, memory (RSS / working set), threads, open files | Linux: cgroup files (native and containers alike); macOS: process-tree sampling; Windows: Job Object accounting; containers on macOS/Windows engines: the engine's stats API | Instance |
+| CPU %, memory (RSS / working set) | Process-tree sampling on Linux, macOS and Windows until per-app cgroups arrive with Linux isolation; the engine's statistics for containers; containers on macOS/Windows engines: the engine's stats API | Instance |
 | Restarts, uptime, OOM kills | Supervisor, cgroup `memory.events`, engine events | Instance |
 | Requests by status class, latency (p50/p95/p99), bytes in/out, in-flight, upstream errors | Ingress | Environment, route |
 | Build and deploy duration, success rate | Orchestrator | App |
@@ -100,13 +100,15 @@ High-volume data must not grind SQLite, so storage is tiered:
 
 The app overview shows sparklines (requests, latency p95, CPU, memory) per
 environment. The Metrics tab has full charts with range selection (live, 1 h,
-24 h, 7 d, 30 d), per-instance breakdowns, and deploy markers drawn on every
-chart so performance changes line up with releases.
+24 h, 7 d, 30 d), per-instance breakdowns, folded to processes past eight lines,
+and deploy markers drawn on every chart so performance changes line up with
+releases.
 
 ### Export
 
-- A Prometheus-compatible `/metrics` endpoint on the console host (token or
-  IP allow-list), labelled by app, environment, process and instance.
+- A Prometheus-compatible `/metrics` endpoint on the console host, with a token
+  that can read, labelled by app, environment, process and instance. It says only
+  what the token's holder could see, and of the server itself only to administrators.
 - OTLP metrics push (Phase 3).
 - *Planned (Phase 4):* app-provided metrics — an app declares a metrics path,
   Moorage scrapes it and shows custom charts.

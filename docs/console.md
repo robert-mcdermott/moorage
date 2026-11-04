@@ -17,7 +17,7 @@ first deployment, and says when it is live.
 
 Every app: how it stands, its address, its release and its last deployment, changing as
 they do. **New app** asks for a name and a project, and says how to deploy it. Filter the list by
-typing part of a name.
+typing part of a name. Each has a little line of its requests over the last hour.
 
 | Status | |
 |---|---|
@@ -90,6 +90,11 @@ production, **Lock** one against deployments, **Pin** a preview and **Remove** o
 
 **Previews** in the sidebar has those of every app you can see, with when each was last used and
 when it expires.
+
+## Metrics
+
+An app's **Metrics** tab has [charts](metrics.md) of its requests, response times, CPU and memory, for the chosen environment, from
+the last few minutes to the last 30 days, with each release marked. **The last hour** on its page has them at a glance.
 
 ## Cron
 
