@@ -284,6 +284,11 @@ func addFile(ctx context.Context, tw *tar.Writer, root *os.Root, rel, name strin
 	case info.Mode().IsRegular(), info.IsDir():
 	case info.Mode()&fs.ModeSymlink != 0:
 		if link, err = root.Readlink(rel); err != nil {
+			// It was a link when it was looked at. An app may have made it something else by now.
+			if now, statErr := root.Lstat(rel); statErr != nil || now.Mode()&fs.ModeSymlink == 0 {
+				sum.Changed = append(sum.Changed, name)
+				return nil
+			}
 			return err
 		}
 	default:

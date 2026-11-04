@@ -63,7 +63,7 @@ func main() {
 runtime = "binary"
 
 [processes.web]
-command = "server.exe"
+command = "./server.exe"
 health = { path = "/" }
 
 [resources]
