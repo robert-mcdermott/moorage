@@ -25,6 +25,8 @@ type accountView struct {
 	Scopes              []string
 	AppChoice           string
 	Expires             string
+	// Security is the page of how they sign in.
+	Security securityView
 }
 
 type sessionRow struct {
@@ -95,12 +97,13 @@ func (c *Console) showAccount(w http.ResponseWriter, r *http.Request, p auth.Pri
 }
 
 var accountNotices = map[string]string{
-	"password":     "Your password is changed, and your other sessions have ended.",
-	"key-added":    "The key is added. You can push with it now.",
-	"key-removed":  "The key is removed.",
-	"token-gone":   "The token is revoked: nothing can use it now.",
-	"session-gone": "That session has ended.",
-	"others-gone":  "Your other sessions have ended.",
+	"password":       "Your password is changed, and your other sessions have ended.",
+	"key-added":      "The key is added. You can push with it now.",
+	"key-removed":    "The key is removed.",
+	"token-gone":     "The token is revoked: nothing can use it now.",
+	"session-gone":   "That session has ended.",
+	"others-gone":    "Your other sessions have ended.",
+	"two-factor-off": "Two-factor sign-in is off.",
 }
 
 func (c *Console) loadProfile(ctx context.Context, p auth.Principal, view *accountView) error {

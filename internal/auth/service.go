@@ -135,7 +135,10 @@ type Service struct {
 	// ClaimFile holds the first-run claim code until the server is claimed.
 	ClaimFile string
 	Limits    *Limiter
-	Log       *slog.Logger
+	// Sealer seals second factors, and SecondFactorKey signs what is held between a password and a code.
+	Sealer          Sealer
+	SecondFactorKey []byte
+	Log             *slog.Logger
 	// Now, if set, replaces the clock (tests).
 	Now func() time.Time
 

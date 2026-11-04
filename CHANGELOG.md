@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Two-factor sign-in (wave 6, slice 3).** **Your account → Two-factor** adds a code from an authenticator app to signing in, with recovery codes for if you lose it. See [accounts](docs/accounts.md#two-factor-sign-in).
 - **Backups (wave 6, slice 2).** `moor server backup` and **Settings → Backups** make a backup of a running server, on demand or on a schedule, to a directory or a bucket on S3 or a service like it. `moor server restore` brings it all back: apps, data, secrets and accounts. A restore checks everything before it changes anything, and is tried in CI. See [backups](docs/backups.md).
 - **Apps kept apart on Linux (wave 6, slice 1).** A server running as root gives each app an operating system user of its own, and its builds another: its data is its own, its build is read-only, and other apps cannot read its secrets. `level = "sandbox"` under `[isolation]` in `server.toml` adds Landlock and `no_new_privs`. See [how apps are kept apart](docs/isolation.md).
 - **`[resources]` outside containers.** Memory, CPU and process limits for any app, enforced by the kernel where the server runs as root on Linux. Elsewhere an instance that stays over its memory limit is restarted, and the console says what is not held to. An instance killed for its memory says that it ran out of memory.

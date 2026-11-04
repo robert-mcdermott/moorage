@@ -234,6 +234,7 @@
   <a href="/account/keys"{{if eq .Tab "keys"}} aria-current="page"{{end}}>SSH keys</a>
   <a href="/account/tokens"{{if eq .Tab "tokens"}} aria-current="page"{{end}}>API tokens</a>
   <a href="/account/sessions"{{if eq .Tab "sessions"}} aria-current="page"{{end}}>Sessions</a>
+  <a href="/account/security"{{if eq .Tab "security"}} aria-current="page"{{end}}>Two-factor</a>
 </nav>
 {{end}}
 
@@ -261,6 +262,57 @@
     <div class="actions"><button type="submit">Change it</button></div>
   </form>
 </section>
+{{end}}
+
+{{define "account-security"}}
+{{template "account-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}
+{{with .Account.Security}}
+{{if .NewCodes}}
+<section class="panel panel-pad secret-once" role="status">
+  <h2>Two-factor sign-in is on</h2>
+  <p>If you lose your authenticator app, one of these gets you in, once each. Keep them somewhere safe: this is the only time they are shown.</p>
+  <ul class="recovery-codes">{{range .NewCodes}}<li><code>{{.}}</code></li>{{end}}</ul>
+</section>
+{{end}}
+{{if .On}}
+<section class="panel panel-pad{{if .NewCodes}} block{{end}}">
+  <h2><span class="badge ok">On</span> Two-factor sign-in</h2>
+  <p class="muted">Signing in takes your password and a code from your authenticator app. You have {{countText .CodesLeft "recovery code" "recovery codes"}} left.{{if not .NewCodes}} Turn it off and on again for new ones.{{end}}</p>
+  <form class="narrow-form" method="post" action="/account/security/off" data-confirm="Turn off two-factor sign-in?">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="field"><label for="off-password">Your password</label><input id="off-password" type="password" name="password" required autocomplete="current-password"></div>
+    <div class="actions"><button class="quiet danger" type="submit">Turn it off</button></div>
+  </form>
+</section>
+{{else if .URI}}
+<section class="panel panel-pad two-factor-setup">
+  <div class="qr" role="img" aria-label="A QR code to add this account to an authenticator app">{{.QR}}</div>
+  <div>
+    <h2>Add this account to your authenticator app</h2>
+    <p class="muted">Scan the code, or type this key by hand.</p>
+    {{template "command" .Key}}
+    <form method="post" action="/account/security/confirm" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="field"><label for="confirm-code">Then enter the code it shows, to show that it works</label>
+        <input id="confirm-code" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="8" spellcheck="false" autofocus>
+      </div>
+      <div class="actions"><button type="submit">Turn it on</button></div>
+    </form>
+  </div>
+</section>
+{{else}}
+<section class="panel panel-pad">
+  <h2><span class="badge">Off</span> Two-factor sign-in</h2>
+  <p class="muted">With this on, signing in takes your password and a code from an authenticator app on your phone, so that a password someone has found gets them nowhere.</p>
+  <form method="post" action="/account/security/start">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="actions"><button type="submit">Set it up</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
 {{end}}
 
 {{define "account-keys"}}
@@ -464,7 +516,7 @@
 {{end}}
 <div class="panel table-scroll{{if .Invitation}} block{{end}}">
   <table class="apps users">
-    <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Two-factor</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
     <tbody>
     {{range .Users}}
     <tr>
@@ -482,6 +534,12 @@
           <button class="quiet small" type="submit" data-autosubmit-button>Set</button>
         </form>
       </td>
+      <td data-label="Two-factor">{{if .SecondFactor}}<span class="badge ok">On</span>
+        <form class="inline-form" method="post" action="/settings/users/second-factor-off" data-confirm="Turn off two-factor sign-in for {{.Email}}? Do this for someone who has lost their authenticator app and their recovery codes.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="user" value="{{.ID}}">
+          <button class="quiet small" type="submit">Turn off</button>
+        </form>{{else}}<span class="muted">Off</span>{{end}}</td>
       <td data-label="Status">{{if .Disabled}}<span class="badge fail">Disabled</span>{{else if not .PasswordHash}}<span class="badge info">Invited</span>{{else}}<span class="badge ok">Active</span>{{end}}</td>
       <td class="row-end">
         <form class="inline-form" method="post" action="/settings/users/invite">

@@ -198,6 +198,8 @@ type Me struct {
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Code is from an authenticator app, or a recovery code, for an account that has one.
+	Code string `json:"code,omitempty"`
 }
 
 // LoginResult is a new session: the session cookie is set, and

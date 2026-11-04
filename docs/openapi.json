@@ -1035,6 +1035,9 @@
       },
       "LoginRequest": {
         "properties": {
+          "code": {
+            "type": "string"
+          },
           "email": {
             "type": "string"
           },

@@ -185,6 +185,20 @@ func (k *Keyring) dataKey(ctx context.Context, appID string) (cipher.AEAD, error
 	return aead, nil
 }
 
+// SealTOTP encrypts the secret of someone's second factor, with the master key.
+func (k *Keyring) SealTOTP(userID string, value []byte) []byte {
+	return seal(k.master, value, []byte("moorage totp\x00"+userID))
+}
+
+// OpenTOTP decrypts it.
+func (k *Keyring) OpenTOTP(userID string, sealed []byte) ([]byte, error) {
+	plain, err := open(k.master, sealed, []byte("moorage totp\x00"+userID))
+	if err != nil {
+		return nil, errors.New("this account's second factor cannot be decrypted")
+	}
+	return plain, nil
+}
+
 // SealBackup encrypts the secret key of where backups go, with the master key.
 func (k *Keyring) SealBackup(value string) []byte {
 	return seal(k.master, []byte(value), []byte("moorage backup destination"))

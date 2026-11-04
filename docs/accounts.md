@@ -143,6 +143,16 @@ moor audit --actor ana@example.com -n 20
 
 The API has it at `GET /api/v1/audit`, and `?format=ndjson` gives all of it, to keep.
 
+## Two-factor sign-in
+
+**Your account → Two-factor** adds a code from an authenticator app to signing in with a password: scan
+what it shows, and enter the code the app makes to turn it on. You get ten recovery codes, once each, for
+if you lose the app. Keep them somewhere safe.
+
+A code or a recovery code works once. Someone who has lost both can have an administrator turn it off
+for them, in **Settings → Users**, and a link to choose a new password does not get round it. API tokens
+and SSH keys are separate from it, and signing in from `moor login` goes through your browser.
+
 ## API tokens
 
 Tokens are for scripts, CI, and git over HTTPS. A token can do what its scope

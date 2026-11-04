@@ -67,6 +67,18 @@
 </form>
 {{end}}
 
+{{define "login-code"}}
+<h1>Enter the code</h1>
+<p>From your authenticator app, or one of your recovery codes.</p>
+<form method="post" action="/login/code" autocomplete="off">
+  <input type="hidden" name="next" value="{{.Next}}">
+  <label for="code">Code</label>
+  <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required spellcheck="false" autofocus>
+  {{template "alert" .}}
+  <div class="actions"><button type="submit">Sign in</button></div>
+</form>
+{{end}}
+
 {{define "invite"}}
 <h1>Choose a password</h1>
 <p>For <strong>{{.Email}}</strong>.</p>

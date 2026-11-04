@@ -341,6 +341,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		notifier.Wait()
 	}()
 	authn := &auth.Service{
+		Sealer: keyring, SecondFactorKey: masterKey.Derive("second factor v1"),
 		DB: db, LocalToken: tokenHash, Trusted: router.Trusted(), Secure: cfg.Proxy.ExternalScheme == "https",
 		ClaimFile: layout.ClaimCode, Limits: auth.NewLimiter(), Log: log,
 	}

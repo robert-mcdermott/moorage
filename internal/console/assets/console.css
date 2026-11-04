@@ -353,6 +353,12 @@ details > summary { cursor: pointer; font-weight: 600; }
 .dropzone .notice { margin: var(--s3) 0 0; }
 .block-after { margin-bottom: var(--s4); }
 .block-note { margin: var(--s2) 0 0; }
+.two-factor-setup { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: flex-start; }
+.two-factor-setup > div:last-child { flex: 1 1 20rem; min-width: 0; }
+.two-factor-setup h2 { margin-top: 0; font-size: 1.05rem; }
+.qr { flex: none; width: 13rem; padding: var(--s2); background: #fff; border-radius: var(--radius); }
+.qr svg { display: block; width: 100%; height: auto; }
+.recovery-codes { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--s1) var(--s3); margin: var(--s3) 0 0; padding: 0; list-style: none; }
 .backup-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--s3) var(--s5); }
 .backup-head > div { flex: 1 1 24rem; min-width: 0; }
 .backup-head h2 { margin-top: 0; font-size: 1.05rem; }

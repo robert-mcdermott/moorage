@@ -58,6 +58,8 @@ type setting struct{ Name, Value string }
 type userRow struct {
 	store.User
 	Self bool
+	// SecondFactor says that they have two-factor sign-in on.
+	SecondFactor bool
 }
 
 // adminData is what the administrator's pages begin with: they are for admins alone.
@@ -92,6 +94,7 @@ var settingsNotices = map[string]string{
 	"rule-removed":     "The rule is removed.",
 	"backup":           "A backup has started. This page says how it goes.",
 	"backups-set":      "That is where backups go now.",
+	"two-factor-off":   "Two-factor sign-in is off for them. They can sign in with their password, and set it up again.",
 }
 
 // adminAction guards a form for administrators.
@@ -197,8 +200,13 @@ func (c *Console) showUsers(w http.ResponseWriter, r *http.Request, code int, vi
 		c.internal(w, err)
 		return
 	}
+	secondFactors, err := c.db.UsersWithTOTP(r.Context())
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
 	for _, u := range list {
-		view.Users = append(view.Users, userRow{User: u, Self: u.ID == p.UserID})
+		view.Users = append(view.Users, userRow{User: u, Self: u.ID == p.UserID, SecondFactor: secondFactors[u.ID]})
 	}
 	d.Settings = view
 	d.Failure = failed

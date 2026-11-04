@@ -37,13 +37,13 @@ var embedded embed.FS
 // cards are the pages shown alone in a card, for someone not yet at home here;
 // the others are in the console's frame.
 var cards = map[string]bool{
-	"unclaimed": true, "setup": true, "login": true, "invite": true,
+	"unclaimed": true, "setup": true, "login": true, "login-code": true, "invite": true,
 	"device-enter": true, "device-confirm": true, "message": true,
 }
 
 func pageNames() []string {
-	names := []string{"apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
+	names := []string{"login-code", "apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
+		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -234,6 +234,11 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /settings/backups", c.backupsPage)
 	mux.HandleFunc("POST /settings/backups/now", c.adminAction(c.startBackup))
 	mux.HandleFunc("POST /settings/backups/config", c.adminAction(c.configureBackups))
+	mux.HandleFunc("GET /account/security", c.securityPage)
+	mux.HandleFunc("POST /account/security/start", c.accountAction(c.startSecondFactor))
+	mux.HandleFunc("POST /account/security/confirm", c.accountAction(c.confirmSecondFactor))
+	mux.HandleFunc("POST /account/security/off", c.accountAction(c.turnOffSecondFactor))
+	mux.HandleFunc("POST /settings/users/second-factor-off", c.adminAction(c.adminSecondFactorOff))
 	mux.HandleFunc("GET /notifications", c.inbox)
 	mux.HandleFunc("POST /notifications/read", c.accountAction(c.readInbox))
 	mux.HandleFunc("POST /projects/{project}/notifications", c.projectAction(c.addProjectRule))
@@ -248,6 +253,8 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("POST /setup", c.post(c.setup))
 	mux.HandleFunc("GET /login", c.loginPage)
 	mux.HandleFunc("POST /login", c.post(c.login))
+	mux.HandleFunc("GET /login/code", c.codePage)
+	mux.HandleFunc("POST /login/code", c.post(c.code))
 	mux.HandleFunc("POST /logout", c.post(c.logout))
 	mux.HandleFunc("GET /invite", c.invitePage)
 	mux.HandleFunc("POST /invite", c.post(c.invite))
@@ -469,6 +476,9 @@ func (c *Console) failed(w http.ResponseWriter, page string, d data, err error) 
 	case errors.Is(err, auth.ErrBadCredentials):
 		d.Error = "The email address or password is wrong."
 		c.render(w, http.StatusUnauthorized, page, d)
+	case errors.Is(err, auth.ErrSecondFactor):
+		d.Error = "That code is not right. Each one works once."
+		c.render(w, http.StatusUnauthorized, page, d)
 	default:
 		c.internal(w, err)
 	}
@@ -599,6 +609,57 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 		c.failed(w, "login", data{Title: "Sign in", Email: email, Next: next}, err)
 		return
 	}
+	needed, err := c.auth.NeedsSecondFactor(r.Context(), u.ID)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if needed {
+		http.SetCookie(w, c.pendingCookie(c.auth.PendingSecondFactor(u), secondFactorMaxAge))
+		http.Redirect(w, r, "/login/code?next="+url.QueryEscape(next), http.StatusSeeOther)
+		return
+	}
+	if c.startSession(w, r, u) {
+		http.Redirect(w, r, next, http.StatusSeeOther)
+	}
+}
+
+const secondFactorMaxAge = 300
+
+// pendingCookie is what a browser holds between a password and a code.
+func (c *Console) pendingCookie(value string, maxAge int) *http.Cookie {
+	return &http.Cookie{Name: "moorage_pending", Value: value, Path: "/login", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: c.auth.Secure}
+}
+
+func (c *Console) codePage(w http.ResponseWriter, r *http.Request) {
+	next := safeNext(r.URL.Query().Get("next"))
+	cookie, err := r.Cookie("moorage_pending")
+	if err == nil {
+		if _, err = c.auth.PendingUser(r.Context(), cookie.Value); err == nil {
+			c.render(w, http.StatusOK, "login-code", data{Title: "Sign in", Next: next})
+			return
+		}
+	}
+	http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+}
+
+func (c *Console) code(w http.ResponseWriter, r *http.Request) {
+	next := safeNext(r.PostFormValue("next"))
+	cookie, err := r.Cookie("moorage_pending")
+	if err != nil {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+		return
+	}
+	u, err := c.auth.PendingUser(r.Context(), cookie.Value)
+	if err != nil {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+		return
+	}
+	if err := c.auth.CheckSecondFactor(r.Context(), u, r.PostFormValue("code"), c.auth.ClientIP(r)); err != nil {
+		c.failed(w, "login-code", data{Title: "Sign in", Next: next}, err)
+		return
+	}
+	http.SetCookie(w, c.pendingCookie("", -1))
 	if c.startSession(w, r, u) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 	}
@@ -661,6 +722,11 @@ func (c *Console) invite(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		c.failed(w, "invite", d, err)
+		return
+	}
+	// A link replaces a password, and not a second factor.
+	if needed, err := c.auth.NeedsSecondFactor(r.Context(), u.ID); err != nil || needed {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	if u.Disabled() {
