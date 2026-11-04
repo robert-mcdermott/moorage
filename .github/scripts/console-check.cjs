@@ -45,6 +45,18 @@ function moor(...args) {
   await page.waitForURL('**/welcome');
   check('claiming the server goes to getting started', true);
 
+  // WebKit on Linux now and then gives up on a navigation that interrupts a stream the
+  // page holds, with an internal error of its own. Once more is enough.
+  const visit = async (page, url) => {
+    try {
+      return await page.goto(url);
+    } catch (e) {
+      if (!/internal error/.test(e.message)) { throw e; }
+      await page.waitForTimeout(250);
+      return page.goto(url);
+    }
+  };
+
   // Every page, wide and narrow, with nothing wider than the screen.
   const pages = ['/', '/activity', '/welcome', '/new', '/apps/shop', '/apps/shop/deployments', '/apps/shop/logs', '/apps/shop/variables',
     '/apps/shop/variables/edit', '/apps/shop/deploy', '/apps/shop/settings', '/account', '/account/keys', '/account/tokens', '/account/sessions',
@@ -52,7 +64,7 @@ function moor(...args) {
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
     for (const path of pages) {
-      const res = await page.goto(base + path);
+      const res = await visit(page, base + path);
       check(`${path} at ${width}px answers`, res.status() === 200, String(res.status()));
       const over = await page.evaluate(() => {
         const limit = document.documentElement.clientWidth;

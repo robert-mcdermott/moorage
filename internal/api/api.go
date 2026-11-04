@@ -564,6 +564,11 @@ func (s *Server) appURL(app string) string { return s.cfg.EnvURL(app, names.Prod
 func (s *Server) envURL(app, env string) string { return s.cfg.EnvURL(app, env) }
 
 func (s *Server) internal(w http.ResponseWriter, err error) {
+	if errors.Is(err, context.Canceled) {
+		// The client went away: there is nobody to answer, and nothing wrong.
+		w.WriteHeader(499)
+		return
+	}
 	s.log.Error("API request failed", "err", err)
 	problem(w, http.StatusInternalServerError, "internal", "The server could not complete the request; its log has the details.")
 }

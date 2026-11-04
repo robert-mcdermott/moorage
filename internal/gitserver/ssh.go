@@ -237,6 +237,24 @@ func (x *SSH) session(ctx context.Context, who, fingerprint string, ch ssh.Chann
 	}
 }
 
+// awaitClient gives a client a moment to hang up its side before the channel closes: one that
+// is still finishing a request that needed no pack, such as deleting a branch, would be told
+// the channel is gone instead of hearing how its push went.
+func awaitClient(ctx context.Context, ch ssh.Channel) {
+	done := make(chan struct{})
+	go func() {
+		io.Copy(io.Discard, ch)
+		close(done)
+	}()
+	wait := time.NewTimer(time.Second)
+	defer wait.Stop()
+	select {
+	case <-done:
+	case <-wait.C:
+	case <-ctx.Done():
+	}
+}
+
 // exec runs a git command and returns its exit status.
 func (x *SSH) exec(ctx context.Context, who, fingerprint, command, protocol string, ch ssh.Channel) uint32 {
 	service, app, err := parseCommand(command)
@@ -254,6 +272,7 @@ func (x *SSH) exec(ctx context.Context, who, fingerprint, command, protocol stri
 	switch service {
 	case "git-receive-pack":
 		err = x.Git.receivePack(ctx, app, who, ch, out, false, false, protocol)
+		awaitClient(ctx, ch)
 	case "git-upload-pack":
 		err = x.Git.uploadPack(ctx, app, io.NopCloser(ch), out, false, false, protocol)
 	}
