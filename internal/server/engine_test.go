@@ -4,6 +4,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 // recordingEngine is a program that writes down everything it is asked, and answers as a daemon that is down does if down exists.
@@ -144,5 +147,34 @@ func TestNoEngineAtAll(t *testing.T) {
 	contains(t, "the deploy page", page, "no container engine", "Nothing else")
 	if strings.Contains(page, `action="/apps/shop/deploy/image`) {
 		t.Errorf("it offers to deploy an image:\n%s", page)
+	}
+}
+
+// TestWhichEngineAServerKeepsTo: what was recorded counts while something here needs it, which includes a current release with nothing running, as when it is asleep.
+func TestWhichEngineAServerKeepsTo(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	apiClient(t, cfg, addrs)
+	db := testAuth(t, cfg).DB
+	log := slog.New(slog.DiscardHandler)
+	if err := db.PutSetting(ctx, settingContainerEngine, "/opt/bin/docker", "moorage"); err != nil {
+		t.Fatal(err)
+	}
+	if got := recordedEngine(ctx, db, log); got != "" {
+		t.Errorf("with nothing here needing it: %q", got)
+	}
+	appID, _, err := db.EnsureApp(ctx, "boxed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateBuild(ctx, store.Build{ID: "bld_boxed", AppID: appID, SourceType: "test", ArtifactKind: "image", ArtifactRef: "example/app", Plan: json.RawMessage(`{"kind":"process","container":{"image":"example/app"}}`), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Publish(ctx, "boxed", "production", "bld_boxed", "deploy", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := recordedEngine(ctx, db, log); got != "/opt/bin/docker" {
+		t.Errorf("with a current release in a container: %q", got)
 	}
 }

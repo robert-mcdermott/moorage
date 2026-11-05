@@ -175,7 +175,7 @@ type SourceOptions struct {
 	Prepare func(*Engine)
 	// NewDriver makes the driver for an engine.
 	NewDriver func(*Engine) *Driver
-	// Pin records an engine once a container has started under it, as that stays with it.
+	// Pin records an engine once something has been built, fetched or started under it, as that stays with it.
 	Pin func(bin string)
 	// Kept is how long an answer stands, for tests.
 	Kept time.Duration
@@ -297,22 +297,23 @@ func (s *Source) orUnknown() Status {
 	return st
 }
 
-// Used says that a container has started under the engine as last found, which stays with it from now on. An engine that only answered is not chosen by that,
-// so that one found by chance is not what a server keeps to once it has another.
-func (s *Source) Used() {
+// Claim gives the engine as last found, for something to be built, fetched or started under it, and from then on this server stays with that engine: an image is in the
+// store of the engine that made it, and another would not have it. An engine that only answered is not chosen by that, so that one found by chance holds nothing.
+func (s *Source) Claim() *Engine {
 	if s == nil {
-		return
+		return nil
 	}
 	s.mu.Lock()
-	pin := !s.pinned && s.engine != nil
-	bin := ""
+	e := s.engine
+	pin := e != nil && !s.pinned
 	if pin {
-		s.pinned, bin = true, s.engine.Bin
+		s.pinned = true
 	}
 	s.mu.Unlock()
 	if pin && s.o.Pin != nil {
-		s.o.Pin(bin)
+		s.o.Pin(e.Bin)
 	}
+	return e
 }
 
 // preferred is what to ask first: what it was told to prefer, or once it has run something here, what it ran it with.

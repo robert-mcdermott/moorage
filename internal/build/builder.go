@@ -225,7 +225,7 @@ func (b *Builder) buildImage(ctx context.Context, job Job, plan manifest.Plan, a
 	if st := b.Engines.Status(ctx); !st.Ready() {
 		return Result{}, &Error{Msg: st.Problem(), Err: st.Err()}
 	}
-	engine := b.Engines.Engine()
+	engine := b.Engines.Claim()
 	c := *plan.Container
 	timeout := plan.BuildTimeout.Std()
 	buildCtx, cancel := context.WithTimeout(ctx, timeout)

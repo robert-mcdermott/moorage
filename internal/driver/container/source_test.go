@@ -126,11 +126,13 @@ func TestSource(t *testing.T) {
 	if st := s.Status(ctx); !st.Ready() || s.Driver() != before || len(pinned) != 0 {
 		t.Errorf("started: %+v %v", st, pinned)
 	}
-	// Answering chooses nothing: running something under it does.
-	s.Used()
-	s.Used()
+	// Answering chooses nothing: making or running something under it does.
+	if e := s.Claim(); e == nil || e.Bin != podman {
+		t.Errorf("claimed: %+v", e)
+	}
+	s.Claim()
 	if len(pinned) != 1 || pinned[0] != podman {
-		t.Errorf("used: %v", pinned)
+		t.Errorf("claimed: %v", pinned)
 	}
 
 	// What it ran stays with it, even when another is answering and it is not.
@@ -153,7 +155,32 @@ func TestSource(t *testing.T) {
 	}
 }
 
-// TestOneThatOnlyAnsweredIsNotKeptTo: until a container has run, a server takes whichever answers, so that one found by chance does not hold it.
+// TestOneThatHasMadeSomethingIsKeptTo: an image is in the store of the engine that built it. Docker can answer first as a machine starts, and Podman half a minute
+// later, in the middle of a deployment, and the image is not there for what comes next.
+func TestOneThatHasMadeSomethingIsKeptTo(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	engineScript(t, dir, "podman", "exit 1")
+	docker := engineScript(t, dir, "docker", answers)
+	s := NewSource(SourceOptions{Kept: time.Nanosecond, NewDriver: func(e *Engine) *Driver { return &Driver{engine: e} }})
+	if st := s.Status(ctx); st.Bin != docker {
+		t.Fatalf("%+v", st)
+	}
+	if e := s.Claim(); e == nil || e.Bin != docker {
+		t.Fatalf("%+v", e)
+	}
+	engineScript(t, dir, "podman", answers)
+	if st := s.Status(ctx); st.Bin != docker || s.Engine().Bin != docker {
+		t.Errorf("with the other answering too: %+v", st)
+	}
+	var nothing *Source
+	if nothing.Claim() != nil {
+		t.Error("no source")
+	}
+}
+
+// TestOneThatOnlyAnsweredIsNotKeptTo: until something has been made under one, a server takes whichever answers, so that one found by chance does not hold it.
 func TestOneThatOnlyAnsweredIsNotKeptTo(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

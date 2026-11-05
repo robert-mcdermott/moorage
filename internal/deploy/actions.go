@@ -18,6 +18,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -76,17 +77,32 @@ func (d *Deployer) WantsEngine(ctx context.Context) bool {
 	if d == nil {
 		return false
 	}
-	routes, err := d.db.Routes(ctx)
+	wants, err := RunsInContainers(ctx, d.db)
+	return err == nil && wants
+}
+
+// RunsInContainers says that something here needs an engine: a container that may be running, or a current release in one, even if it is asleep.
+func RunsInContainers(ctx context.Context, db *store.DB) (bool, error) {
+	lives, err := db.LiveInstances(ctx)
 	if err != nil {
-		return false
+		return false, err
+	}
+	for _, li := range lives {
+		if li.Driver == reconcile.DriverContainer {
+			return true, nil
+		}
+	}
+	routes, err := db.Routes(ctx)
+	if err != nil {
+		return false, err
 	}
 	for _, r := range routes {
 		var plan manifest.Plan
 		if json.Unmarshal(r.Build.Plan, &plan) == nil && plan.Container != nil {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // DeployImage queues the deployment of an image that comes without a manifest.

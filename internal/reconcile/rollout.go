@@ -326,7 +326,7 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 		if err != nil {
 			return in, fmt.Errorf("start the %s process: %w", name, err)
 		}
-		m.opts.Containers.Used()
+		m.opts.Containers.Claim()
 	} else {
 		spec, secretEnv, err := m.spec(ctx, es, rel, build, plan, in)
 		if err != nil {

@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -775,15 +774,7 @@ func listenError(addr string, err error) error {
 // containerSource is where this server gets its container engine from, when something wants one. Without one, apps that need
 // containers cannot be deployed, and everything else goes on.
 func containerSource(ctx context.Context, cfg config.Config, db *store.DB, keyring *secrets.Keyring, kept time.Duration, log *slog.Logger) *container.Source {
-	// What it last ran under counts only while something is still running under it. Otherwise it is free to take whichever answers.
-	var prefer string
-	if lives, err := db.LiveInstances(ctx); err != nil {
-		log.Warn("read which instances are running", "err", err)
-	} else if slices.ContainsFunc(lives, func(li store.LiveInstance) bool { return li.Driver == reconcile.DriverContainer }) {
-		if _, err := db.Setting(ctx, settingContainerEngine, &prefer); err != nil {
-			log.Warn("read which container engine this server used", "err", err)
-		}
-	}
+	prefer := recordedEngine(ctx, db, log)
 	return container.NewSource(container.SourceOptions{
 		Setting: cfg.Containers.Engine, Prefer: prefer, Kept: kept, Log: log,
 		Prepare: func(engine *container.Engine) {
@@ -813,6 +804,24 @@ func containerSource(ctx context.Context, cfg config.Config, db *store.DB, keyri
 			}
 		},
 	})
+}
+
+// recordedEngine is the engine that what is here was made with. It counts only while something still needs it, as an image is in the store of the engine that made
+// it. Otherwise the server is free to take whichever answers.
+func recordedEngine(ctx context.Context, db *store.DB, log *slog.Logger) string {
+	wanted, err := deploy.RunsInContainers(ctx, db)
+	if err != nil {
+		log.Warn("read what runs in containers", "err", err)
+		return ""
+	}
+	if !wanted {
+		return ""
+	}
+	var prefer string
+	if _, err := db.Setting(ctx, settingContainerEngine, &prefer); err != nil {
+		log.Warn("read which container engine this server used", "err", err)
+	}
+	return prefer
 }
 
 // settingContainerEngine records the engine that a server's containers run under, as they stay with it.

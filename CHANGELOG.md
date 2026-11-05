@@ -26,7 +26,7 @@ To upgrade from 0.8.0, run `moor server upgrade`. Running apps are taken over wi
 ### Changed
 
 - **A container engine is provably optional.** An app that does not run in a container never causes the server to ask for one, and a test holds it to that. The server finds out as it starts without waiting, and again only when something wants to know, so that starting Docker Desktop later or installing Podman needs no restart. `GET /api/v1/server` says how it stands, an image is refused at once if it cannot run, and anything else that needs one fails before it builds, with what to do. See [The engine](docs/containers.md#the-engine).
-- **`auto` prefers an engine that answers** to the first one found. Once a container has run under one, it stays with that one while anything is running under it, and until then an engine that only answered holds nothing.
+- **`auto` prefers an engine that answers** to the first one found. Once an image has been built or fetched under one, it stays with that one while anything here needs it, as the image is in its store, and until then an engine that only answered holds nothing.
 
 ### Fixed
 
