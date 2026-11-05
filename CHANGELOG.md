@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (2026-11-04)
+
+Moorage 0.8.0 can take itself beyond the firewall: it gets certificates from a public CA by itself, and has a preset for a server on the internet, with what two close reviews of it found fixed. It speaks gRPC and keeps sessions sticky. Its connections to GitHub, GitLab, Gitea, OpenTelemetry and syslog have now met the real thing.
+
+**It has not had an outside penetration test,** which this release was meant to include: that takes someone engaged to do it. Until then, [Security](docs/security.md) says what we would do, which is to keep a server on a network you control, or behind something that decides who reaches it.
+
+What has been tried: GitHub by hand, with a real repository, and GitLab, Gitea, an OpenTelemetry collector, syslog-ng, a gRPC client and Pebble in CI, on each change to that code. What has not: a certificate from Let's Encrypt itself, a record set at Cloudflare, a webhook delivered directly by GitHub, and a real fork on GitHub.
+
+To upgrade from 0.7.0, run `moor server upgrade`. Running apps are taken over without a restart, and `moor server upgrade --rollback` goes back. Some things to know:
+
+- **A static site no longer serves what starts with a dot,** except `.well-known`. If yours means to, say `dotfiles = true` under `[static]`.
+- **Viewers see less.** A release's manifest, which variables changed, and with `--viewers-see-logs=false` what a failed deployment printed and the commands people ran, are kept from them.
+- **A token limited to one app can no longer read projects,** and a token that can only read cannot mark notifications as read. A script that did either needs a different token.
+- **Reading an app that is not there answers 404 throughout.** A few routes gave an empty list or a 409.
+- **A deleted app's events go with it.** The audit log keeps what happened.
+- **A failed build or release command no longer quotes itself** in its message. A script that looked for the command there should look in the log.
 
 ### Added
 
@@ -23,6 +38,7 @@
 - **Deleting an app deletes its events,** so that whoever takes its name, perhaps in another project, does not inherit them. The audit log keeps what happened.
 - **A failed build or release command says how it ended and not what it was,** as more people read that than can read the command. The log still says.
 - **A static site no longer serves files and directories whose names start with a dot,** such as a `.env` or `.git` left in the directory, except `.well-known`. `dotfiles = true` under `[static]` serves them as before.
+- **Tried against the real thing.** `.github/scripts/real-services-check.py` drives GitLab, Gitea, an OpenTelemetry collector, syslog-ng, a gRPC client and Pebble in CI, and GitHub was tried by hand. They found that GitLab wants a Maintainer's token and asks for a fork's commit by its merge request's ref, and that `moor run` lost the quoting of the words it was given.
 - **`moor forge connect` checks a token with the forge,** and refuses one that it does not accept, or that cannot see the repository, and says so, leaving what was there as it was. Before, a bad token was taken, and found out from the first pull request. A forge that cannot answer at that moment is no reason to refuse.
 
 ### Fixed
@@ -30,6 +46,7 @@
 - **The list of apps could name those you cannot see.** Its cursor came from the next app, whoever's it was, so that going through the list one at a time read off every name on the server. Pages now end at what you can see, and do not come up short.
 - **An open log could outlast a role.** Following a deployment's log now ends within a minute of losing the right to read it, as other streams do.
 - **The address guard took some IPv6 addresses at face value.** `::7f00:1`, `64:ff9b::7f00:1` and `2002:7f00:1::` all stand for `127.0.0.1` on some networks, and are now judged as that.
+- Going away could wait for something that a container engine's command had left running, for as long as that ran. It now waits two seconds, as other commands do.
 - **An open redirect on static sites.** A path with a backslash in it, such as `/%5Cevil.example//`, was redirected to `/\evil.example/`, which browsers read as another site. A link on your domain could send someone anywhere. Such a path is now not found, as is one with a control character.
 - **A way to pass an identity to some apps.** A client could send `X.Moorage.User`, which an app served through CGI or the like reads as `X-Moorage-User`, the header Moorage uses to say who signed in. Every spelling of the platform's headers is now removed: underscores already were, and dots and the rest now are.
 - Renaming an app on Windows waits longer for a virus scanner to finish with its builds: six seconds was sometimes too few.

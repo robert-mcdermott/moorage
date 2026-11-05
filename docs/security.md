@@ -3,9 +3,9 @@
 Moorage is meant for a team that trusts one another, on a network it controls, showing work to people outside it. This page
 says what it protects, how, and what it does not. The [design document](../spec/08-security.md) has more depth.
 
-> **Where this stands.** Moorage is young, and has not had an outside security review. It has had close reviews of its own,
-> and tests for what is described here, but no one has been paid to break it. A penetration test is on the
-> [roadmap](../spec/11-roadmap.md) before Moorage is meant for the open internet. Until then, keep it on a network you control, or
+> **Where this stands.** Moorage is young, and has not had an outside security review. It has had close reviews of its own, the latest of what
+> faces the internet and of what a low-privilege account can reach, and tests for what is described here, but no one has been paid to break it. A
+> penetration test is on the [roadmap](../spec/11-roadmap.md). Until then, and whatever the `public` preset makes easy, keep it on a network you control, or
 > behind something that decides who reaches it.
 
 ## What it trusts, and what it does not

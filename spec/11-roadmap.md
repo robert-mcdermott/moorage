@@ -1144,7 +1144,7 @@ A product site and full documentation, so that people can find Moorage and try i
   breaking words in the middle at a laptop's width, which is fixed. The site says plainly what has not been proven, which is
   what wave 8 begins with.
 
-## 0.8.0: beyond the firewall (planned)
+## 0.8.0: beyond the firewall (released 2026-11-04)
 
 ### Wave 8
 
@@ -1162,6 +1162,11 @@ A product site and full documentation, so that people can find Moorage and try i
    - Needs the owner: the repository and the token are theirs to make, and
      fetching and deploying from a real repository on their machine is theirs
      to allow.
+   - Done (slice 1): GitHub by hand, with a real public repository and a real token. GitLab, Gitea, an OpenTelemetry collector and syslog-ng in containers in CI, driven by
+     `.github/scripts/real-services-check.py`, each time that code changes. Not tried: a webhook delivered directly by GitHub, as it cannot reach a server on a laptop, and a real
+     fork there.
+   - Found by slice 1: `moor forge connect` took any token, and now asks the forge; GitLab wants a Maintainer's token, and a fork's commit by its merge request's ref; `moor run` joined its words
+     without quoting them; a rollback on macOS could leave the server stopped.
 2. **ACME.** Internal ACME servers and public CAs; HTTP-01, TLS-ALPN-01 and
    DNS-01 wildcard certificates; the `public` preset.
    - Done (slice 2): `tls.mode = "acme"`, by certmagic: a certificate for each hostname the first time it is wanted, by HTTP-01 or TLS-ALPN-01,

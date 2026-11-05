@@ -221,7 +221,7 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.7.0 is a server on Linux, macOS or Windows for a team: it builds and deploys
+Moorage 0.8.0 is a server on Linux, macOS or Windows for a team: it builds and deploys
 apps from their source, a `git push` or [a forge](docs/forges.md), in containers or not, with accounts, projects
 and roles, an audit log and a [web console](docs/console.md). Every branch can have
 [its own preview and address](docs/previews.md), which sleeps when idle, and [who can
@@ -232,11 +232,12 @@ wrong. On Linux, [each app runs as a user of its own](docs/isolation.md). [Backu
 are built in, people can sign in with [a second factor, or through your identity provider](docs/sign-in.md),
 and a server [upgrades itself](docs/install.md#upgrading), with a way back. On Windows, it [runs as a service](docs/install.md#3-run-it-as-a-service) too, with apps held to their limits by Job Objects, though [not kept from the server](docs/isolation.md#on-windows).
 You can [get into an app](docs/interactive.md) with a terminal or from the console, and [send its logs and metrics elsewhere](docs/telemetry.md).
+It [gets certificates from a public CA](docs/tls.md#from-a-public-ca-with-acme) by itself, and speaks [gRPC](docs/other.md#grpc).
 
 Next, in the [roadmap](spec/11-roadmap.md):
 
-- **0.8.0, beyond the firewall:** certificates from ACME, public or your own, hardening for what faces the internet, with an
-  outside penetration test, and gRPC and sticky sessions.
+- **An outside penetration test,** which Moorage has not had: until it has, read [Security](docs/security.md) before putting a server on the internet.
+- **0.9.0, services:** PostgreSQL, MySQL, Redis and S3-compatible storage in containers, linked to apps, with their own copies for previews.
 
 ## Building Moorage
 

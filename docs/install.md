@@ -50,18 +50,18 @@ sudo sh install-moor.sh
 
 | Variable | `install.sh` | `install.ps1` | |
 |---|---|---|---|
-| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.7.0`. By default, the latest |
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.8.0`. By default, the latest |
 | `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
 | `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
 | `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
 | `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.7.0 sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.8.0 sh
 ```
 
 ```powershell
-$env:MOOR_VERSION = 'v0.7.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+$env:MOOR_VERSION = 'v0.8.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
 
 **On Windows,** `irm … | iex` reads the script into memory and runs it, so the
