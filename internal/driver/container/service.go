@@ -18,8 +18,8 @@ type ServiceSpec struct {
 	Image                       string
 	// Network is the one that a container app of its environment reaches it on, by Name.
 	Network string
-	// Volume is mounted at Mount.
-	Volume, Mount string
+	// Volumes are mounted where these say, by name.
+	Volumes map[string]string
 	// HostPort is published on the loopback address, for an app that does not run in a container.
 	HostPort, ContainerPort int
 	Vars                    map[string]string
@@ -42,6 +42,9 @@ func ServiceName(id string) string { return "moorage-svc-" + idPart(id) }
 // ServiceVolume is where a service keeps what it holds. A named volume, as a database belongs inside the engine's VM on macOS and Windows.
 func ServiceVolume(id string) string { return "moorage-svc-" + idPart(id) + "-data" }
 
+// ServiceMetadataVolume is where a service keeps what goes with its files, if it keeps it apart.
+func ServiceMetadataVolume(id string) string { return "moorage-svc-" + idPart(id) + "-meta" }
+
 // ServiceNetwork is the network of an environment's services and of its apps in containers.
 func ServiceNetwork(envID string) string { return "moorage-env-" + idPart(envID) }
 
@@ -57,8 +60,10 @@ func idPart(id string) string {
 // RunService starts a service's container, replacing any that is there. The data is in the volume, so that nothing is lost by starting afresh, and what it
 // was started with is always what is on record.
 func (d *Driver) RunService(ctx context.Context, s ServiceSpec) error {
-	if err := d.ensureVolume(ctx, s.Volume, s); err != nil {
-		return err
+	for _, name := range sortedKeys(s.Volumes) {
+		if err := d.ensureVolume(ctx, name, s); err != nil {
+			return err
+		}
 	}
 	if s.Network != "" {
 		if err := d.EnsureNetwork(ctx, s.Network); err != nil {
@@ -70,7 +75,9 @@ func (d *Driver) RunService(ctx context.Context, s ServiceSpec) error {
 	}
 	args := []string{"run", "-d", "--name", s.Name, "--restart=no", "--security-opt", "no-new-privileges"}
 	args = append(args, d.serviceLabels(s)...)
-	args = append(args, "-v", s.Volume+":"+s.Mount+volumeOptions())
+	for _, name := range sortedKeys(s.Volumes) {
+		args = append(args, "-v", name+":"+s.Volumes[name]+volumeOptions())
+	}
 	if s.Network != "" {
 		args = append(args, "--network", s.Network)
 	}

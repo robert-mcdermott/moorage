@@ -5,11 +5,16 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -115,7 +120,7 @@ func TestAPlanWithNoServicesAsksNothingOfAnEngine(t *testing.T) {
 	if err := f.m.CheckEngine(ctx, "shop", "production", store.KindProduction, plain); err != nil {
 		t.Fatal(err)
 	}
-	addresses, network, err := f.m.Addresses(ctx, "shop", "production", plain, false)
+	addresses, _, network, err := f.m.Addresses(ctx, "shop", "production", plain, false)
 	if err != nil || len(addresses) != 0 || network != "" {
 		t.Errorf("%v %q %v", addresses, network, err)
 	}
@@ -187,16 +192,16 @@ func TestMakingAService(t *testing.T) {
 	}
 
 	// A native app gets the loopback address, and one in a container a name on a network.
-	addresses, network, err := f.m.Addresses(ctx, "shop", "production", plan, false)
+	addresses, _, network, err := f.m.Addresses(ctx, "shop", "production", plan, false)
 	if err != nil || network != "" || addresses["DATABASE_URL"] != "postgres://app:"+password+"@127.0.0.1:40001/app?sslmode=disable" {
 		t.Errorf("native: %v %q %v", addresses, network, err)
 	}
-	addresses, network, err = f.m.Addresses(ctx, "shop", "production", plan, true)
+	addresses, _, network, err = f.m.Addresses(ctx, "shop", "production", plan, true)
 	if err != nil || !strings.HasPrefix(network, "moorage-env-") || addresses["DATABASE_URL"] != "postgres://app:"+password+"@"+container.ServiceName(rec.ID)+":5432/app?sslmode=disable" {
 		t.Errorf("in a container: %v %q %v", addresses, network, err)
 	}
 	// A release that does not name it does not get it, so that going back behaves.
-	if addresses, _, _ := f.m.Addresses(ctx, "shop", "production", manifest.Plan{Services: map[string]manifest.ServicePlan{"other": {Type: manifest.ServicePostgres, Env: "OTHER_URL"}}}, false); len(addresses) != 0 {
+	if addresses, _, _, _ := f.m.Addresses(ctx, "shop", "production", manifest.Plan{Services: map[string]manifest.ServicePlan{"other": {Type: manifest.ServicePostgres, Env: "OTHER_URL"}}}, false); len(addresses) != 0 {
 		t.Errorf("%v", addresses)
 	}
 
@@ -329,29 +334,108 @@ func TestWhatAnEnvironmentGets(t *testing.T) {
 		}
 		return strings.Join(sortedNames(wanted), " ")
 	}
-	if have := got("production", store.KindProduction); have != "db stats" {
+	if have := got("production", store.KindProduction); have != "db files stats" {
 		t.Error(have)
 	}
 	// A preview has what is not for production alone.
 	if _, err := f.db.CreateEnvironment(ctx, "shop", "topic", store.KindPreview, "topic"); err != nil {
 		t.Fatal(err)
 	}
-	if have := got("topic", store.KindPreview); have != "db" {
+	if have := got("topic", store.KindPreview); have != "db files" {
 		t.Error(have)
 	}
 	// Production can use a real database by setting its own address, and then needs no engine.
 	if _, err := f.db.ChangeVars(ctx, "shop", "production", store.VarChange{By: "me", Set: []store.Var{{Name: "DATABASE_URL", Value: "postgres://elsewhere"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if have := got("production", store.KindProduction); have != "stats" {
+	if have := got("production", store.KindProduction); have != "files stats" {
 		t.Error(have)
 	}
 	// Set for every environment, it is weaker than a service.
 	if _, err := f.db.ChangeVars(ctx, "shop", "production", store.VarChange{AllEnvs: true, By: "me", Set: []store.Var{{Name: "STATS_URL", Value: "postgres://elsewhere"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if have := got("production", store.KindProduction); have != "stats" {
+	if have := got("production", store.KindProduction); have != "files stats" {
 		t.Error(have)
+	}
+}
+
+func TestAServiceOfS3(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	// What stands in for it, on the port that it will publish.
+	var made []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 Credential=moorage/") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		made = append(made, r.Method+" "+r.URL.Path)
+	}))
+	defer server.Close()
+	_, portText, _ := net.SplitHostPort(server.Listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	f.m.o.AllocPort = func(context.Context) (int, error) { return port, nil }
+	plan := manifest.Plan{Kind: manifest.KindProcess, Services: map[string]manifest.ServicePlan{"files": {Type: manifest.ServiceS3, Env: "S3_ENDPOINT", Previews: "own"}}}
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", plan, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := f.db.Service(ctx, "shop", "production", "files")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Version != "1.10.0" || rec.Type != manifest.ServiceS3 {
+		t.Errorf("%+v", rec)
+	}
+	if strings.Join(made, " ") != "PUT /app" {
+		t.Errorf("what it asked of it: %v", made)
+	}
+	asked := f.asked()
+	for _, want := range []string{
+		"pull docker.io/versity/versitygw:v1.10.0", "VGW_META_SIDECAR=/data/meta", "VGW_BACKEND_ARGS=/data/s3", "VGW_HEALTH=/health", ":/data/s3 ", ":/data/meta ",
+		fmt.Sprintf("-p 127.0.0.1:%d:7070", port), "/health",
+	} {
+		if !strings.Contains(asked, want) {
+			t.Errorf("no %q in:\n%s", want, asked)
+		}
+	}
+	password := strings.TrimPrefix(string(rec.Sealed), "sealed:")
+	if strings.Contains(asked, password) {
+		t.Errorf("its secret is on a command line:\n%s", asked)
+	}
+
+	// What is secret is kept apart from what is not, and what is not goes under the names that clients look for.
+	secret, plain, _, err := f.m.Addresses(ctx, "shop", "production", plan, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
+	if plain["S3_ENDPOINT"] != endpoint || plain["S3_BUCKET"] != "app" || plain["S3_ACCESS_KEY_ID"] != "moorage" || plain["AWS_ENDPOINT_URL"] != endpoint || plain["AWS_REGION"] != "us-east-1" {
+		t.Errorf("%v", plain)
+	}
+	if secret["S3_SECRET_ACCESS_KEY"] != password || secret["AWS_SECRET_ACCESS_KEY"] != password || len(secret) != 2 {
+		t.Errorf("%v", secret)
+	}
+	// With a name of its own, it leaves those names for another.
+	named := manifest.Plan{Services: map[string]manifest.ServicePlan{"files": {Type: manifest.ServiceS3, Env: "UPLOADS"}}}
+	secret, plain, _, err = f.m.Addresses(ctx, "shop", "production", named, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(plain["UPLOADS_ENDPOINT"], ":7070") || !strings.HasPrefix(plain["UPLOADS_ENDPOINT"], "http://moorage-svc-") || plain["AWS_REGION"] != "" || secret["UPLOADS_SECRET_ACCESS_KEY"] != password {
+		t.Errorf("%v %v", plain, secret)
+	}
+	// A service cannot become another kind of thing.
+	other := manifest.Plan{Kind: manifest.KindProcess, Services: map[string]manifest.ServicePlan{"files": {Type: manifest.ServicePostgres, Version: "18", Env: "DATABASE_URL"}}}
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", other, io.Discard); err == nil || !strings.Contains(err.Error(), "a service of s3") {
+		t.Errorf("%v", err)
+	}
+	// Both of its volumes go with it.
+	if err := f.m.Remove(ctx, "shop", "production", "files", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if asked := f.asked(); !strings.Contains(asked, "volume rm -f "+rec.Volume) || !strings.Contains(asked, "volume rm -f "+container.ServiceMetadataVolume(rec.ID)) {
+		t.Errorf("%s", asked)
 	}
 }
 

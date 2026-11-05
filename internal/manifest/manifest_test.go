@@ -413,6 +413,13 @@ env = "VECTORS_URL"
 			t.Errorf("%s: %v", name, err)
 		}
 	}
+	s3 := Service{Type: ServiceS3}.Plan()
+	if got := strings.Join(s3.Variables(), " "); !strings.Contains(got, "S3_ENDPOINT S3_BUCKET S3_REGION S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY") || !strings.Contains(got, "AWS_SECRET_ACCESS_KEY") {
+		t.Error(got)
+	}
+	if got := strings.Join(Service{Type: ServiceS3, Env: "UPLOADS"}.Plan().Variables(), " "); !strings.Contains(got, "UPLOADS_ENDPOINT") || strings.Contains(got, "AWS") || strings.Contains(got, "S3_") {
+		t.Error(got)
+	}
 	if got := imageTag("localhost:5000/a/b:1.2"); got != "1.2" {
 		t.Error(got)
 	}

@@ -74,7 +74,7 @@ type Options struct {
 
 // Services gives the addresses of an environment's services, for an instance as it starts.
 type Services interface {
-	Addresses(ctx context.Context, app, env string, plan manifest.Plan, inContainer bool) (map[string]string, string, error)
+	Addresses(ctx context.Context, app, env string, plan manifest.Plan, inContainer bool) (secret, plain map[string]string, network string, err error)
 	Any(ctx context.Context) bool
 }
 

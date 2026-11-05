@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/client"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
@@ -989,6 +992,105 @@ func TestContainerServiceReachedByName(t *testing.T) {
 	// Over the network, with the image's own tools, by that name.
 	if out, err := exec.Command(e.Bin, "run", "--rm", "--network", container.ServiceNetwork(rec.EnvID), rec.Image, "pg_isready", "-h", container.ServiceName(rec.ID), "-U", "app").CombinedOutput(); err != nil {
 		t.Errorf("by name: %v: %s", err, out)
+	}
+}
+
+// An object store that an app declares, on a real engine, with what the app is given.
+func TestContainerServiceS3(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	d, log := deploySource(t, c, "shop", appManifest("\n[services.files]\ntype = \"s3\"\n"))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	host := "shop." + cfg.Domain
+	given := func(name string) string {
+		t.Helper()
+		_, got := get(t, addrs.HTTP, host, "/env?name="+name)
+		return got
+	}
+	endpoint, bucket, access, secret, region := given("S3_ENDPOINT"), given("S3_BUCKET"), given("S3_ACCESS_KEY_ID"), given("S3_SECRET_ACCESS_KEY"), given("S3_REGION")
+	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") || bucket != "app" || access == "" || len(secret) < 24 || region == "" {
+		t.Fatalf("%q %q %q %q", endpoint, bucket, access, region)
+	}
+	if given("AWS_SECRET_ACCESS_KEY") != secret || given("AWS_ENDPOINT_URL") != endpoint {
+		t.Errorf("the names that clients look for: %q", given("AWS_ENDPOINT_URL"))
+	}
+	object := func(method, key string, body []byte) (int, []byte) {
+		t.Helper()
+		req, err := http.NewRequest(method, endpoint+"/"+bucket+"/"+key, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		backup.Sign(req, body, access, secret, region, time.Now())
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		data, _ := io.ReadAll(res.Body)
+		return res.StatusCode, data
+	}
+	if code, data := object(http.MethodPut, "hello.txt", []byte("hello")); code != http.StatusOK {
+		t.Fatalf("putting: %d %s", code, data)
+	}
+	if code, data := object(http.MethodGet, "hello.txt", nil); code != http.StatusOK || string(data) != "hello" {
+		t.Errorf("getting: %d %s", code, data)
+	}
+	// It takes the key: anyone else on the machine can reach the port, and not what is behind it.
+	res, err := http.Get(endpoint + "/" + bucket + "/hello.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("with no key: %d", res.StatusCode)
+	}
+
+	rec, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "files")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What it holds is plain files, which is what makes a dump a tar.
+	out, err := exec.Command(e.Bin, "exec", container.ServiceName(rec.ID), "cat", "/data/s3/app/hello.txt").CombinedOutput()
+	if err != nil || string(out) != "hello" {
+		t.Errorf("on disk: %q %v", out, err)
+	}
+
+	// It outlasts the server and a new container.
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(e.Bin, "rm", "-f", container.ServiceName(rec.ID)).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	addrs, _ = start(t, cfg)
+	c = apiClient(t, cfg, addrs)
+	waitUntil(t, "it to be started again, with what it held", func() bool {
+		req, _ := http.NewRequest(http.MethodGet, endpoint+"/"+bucket+"/hello.txt", nil)
+		backup.Sign(req, nil, access, secret, region, time.Now())
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return false
+		}
+		defer res.Body.Close()
+		data, _ := io.ReadAll(res.Body)
+		return res.StatusCode == http.StatusOK && string(data) == "hello"
+	})
+
+	// Both of its volumes go with it.
+	if err := c.RemoveService(ctx, "shop", "production", "files"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{rec.Volume, container.ServiceMetadataVolume(rec.ID)} {
+		if out, err := exec.Command(e.Bin, "volume", "inspect", name).CombinedOutput(); err == nil {
+			t.Errorf("%s is still there: %s", name, out)
+		}
 	}
 }
 

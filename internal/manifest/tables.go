@@ -173,9 +173,28 @@ func (s Service) AddressVariable() string {
 		return s.Env
 	}
 	if s.Type == ServiceS3 {
-		return "S3_ENDPOINT"
+		return s3Default
 	}
 	return "DATABASE_URL"
+}
+
+// s3Default is what a service of S3 gives an app under the usual names.
+const s3Default = "S3_ENDPOINT"
+
+// Variables are what a service gives an app. A service of S3 has several, under the name in env, and under the names that S3 clients look for if it is the only one.
+func (s ServicePlan) Variables() []string {
+	if s.Type != ServiceS3 {
+		return []string{s.Env}
+	}
+	prefix := s.Env
+	if prefix == s3Default {
+		prefix = "S3"
+	}
+	names := []string{prefix + "_ENDPOINT", prefix + "_BUCKET", prefix + "_REGION", prefix + "_ACCESS_KEY_ID", prefix + "_SECRET_ACCESS_KEY"}
+	if s.Env == s3Default {
+		names = append(names, "AWS_ENDPOINT_URL", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+	}
+	return names
 }
 
 // Plan is what a build keeps of a service.

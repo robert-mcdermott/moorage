@@ -51,7 +51,7 @@ func (m *Manager) serviceNetwork(ctx context.Context, app, env string, plan mani
 	if m.opts.Services == nil || len(plan.Services) == 0 {
 		return ""
 	}
-	_, network, err := m.opts.Services.Addresses(ctx, app, env, plan, true)
+	_, _, network, err := m.opts.Services.Addresses(ctx, app, env, plan, true)
 	if err != nil {
 		m.log.Warn("find an environment's network", "app", app, "env", env, "err", err)
 	}

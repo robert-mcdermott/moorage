@@ -495,7 +495,7 @@ func (m *Manager) addServices(ctx context.Context, app, env string, plan manifes
 	if err != nil {
 		return "", err
 	}
-	addresses, network, err := m.opts.Services.Addresses(ctx, app, env, plan, inContainer)
+	secret, plain, network, err := m.opts.Services.Addresses(ctx, app, env, plan, inContainer)
 	if err != nil {
 		return "", err
 	}
@@ -505,18 +505,25 @@ func (m *Manager) addServices(ctx context.Context, app, env string, plan manifes
 		scopes[v.Name] = v.Scope
 	}
 	for _, s := range plan.Services {
-		scope, set := scopes[s.Env]
-		if set && scope == envID {
+		// Its own address set on this environment says that it goes elsewhere, for all of what goes with it.
+		if scope, set := scopes[s.Env]; set && scope == envID {
 			continue
 		}
-		if address, ok := addresses[s.Env]; ok {
-			delete(vars, s.Env)
-			secrets[s.Env] = address
-			continue
-		}
-		if set && scope != "" {
-			delete(vars, s.Env)
-			delete(secrets, s.Env)
+		for _, name := range s.Variables() {
+			scope, set := scopes[name]
+			if set && scope == envID {
+				continue
+			}
+			if value, ok := secret[name]; ok {
+				delete(vars, name)
+				secrets[name] = value
+			} else if value, ok := plain[name]; ok {
+				delete(secrets, name)
+				vars[name] = value
+			} else if set && scope != "" {
+				delete(vars, name)
+				delete(secrets, name)
+			}
 		}
 	}
 	return network, nil

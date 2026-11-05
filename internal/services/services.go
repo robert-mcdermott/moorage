@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -22,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
@@ -41,6 +43,18 @@ const (
 	readyLimit = 2 * time.Minute
 	// sealedName is what a service's password is sealed under, which no variable can be called.
 	sealedPrefix = "service:"
+
+	// The S3 server: Versity Gateway on its POSIX backend, with what goes with each file in a directory of its own, so that a plain tar of the two is a dump. Its
+	// default keeps that in extended attributes, which tar in its image would lose. See spec/13-services.md.
+	versityImage = "docker.io/versity/versitygw:v1.10.0"
+	versityPort  = 7070
+	versityStop  = 30 * time.Second
+	s3DataDir    = "/data/s3"
+	s3MetaDir    = "/data/meta"
+	// s3Bucket and s3Access are what an app is given, along with a secret key of its own. It has this one bucket and one credential.
+	s3Bucket = "app"
+	s3Access = "moorage"
+	s3Region = "us-east-1"
 )
 
 // Keyring seals and opens a service's password.
@@ -108,9 +122,6 @@ func (m *Manager) Wanted(ctx context.Context, app, env, kind string, plan manife
 	}
 	wanted := map[string]manifest.ServicePlan{}
 	for name, s := range plan.Services {
-		if s.Type != manifest.ServicePostgres {
-			continue // S3 is the next slice of this wave
-		}
 		if kind == store.KindPreview && s.Previews == "none" {
 			continue
 		}
@@ -192,9 +203,12 @@ func (m *Manager) create(ctx context.Context, app, env, by, name string, s manif
 		return errors.New("this server has no container engine")
 	}
 	image := s.Image
-	if image == "" {
+	switch {
+	case s.Type == manifest.ServiceS3:
+		image = versityImage
+	case image == "":
 		image = fmt.Sprintf(postgresImage, s.Version)
-	} else {
+	default:
 		image = qualified(image)
 	}
 	fmt.Fprintf(log, "▸ service    %s: pulling %s\n", name, image)
@@ -205,12 +219,15 @@ func (m *Manager) create(ctx context.Context, app, env, by, name string, s manif
 	if err != nil {
 		return err
 	}
-	major := postgresMajor(info)
-	if major == "" {
-		return fmt.Errorf("%s does not say which version of PostgreSQL it holds, as an image based on the official one does", image)
-	}
-	if s.Version != "" && s.Version != major {
-		return fmt.Errorf("%s holds PostgreSQL %s, and this asks for %s", image, major, s.Version)
+	version := strings.TrimPrefix(image[strings.LastIndex(image, ":")+1:], "v")
+	if s.Type == manifest.ServicePostgres {
+		version = postgresMajor(info)
+		if version == "" {
+			return fmt.Errorf("%s does not say which version of PostgreSQL it holds, as an image based on the official one does", image)
+		}
+		if s.Version != "" && s.Version != version {
+			return fmt.Errorf("%s holds PostgreSQL %s, and this asks for %s", image, version, s.Version)
+		}
 	}
 	appID, envID, err := m.o.DB.Scope(ctx, app, env)
 	if err != nil {
@@ -230,7 +247,7 @@ func (m *Manager) create(ctx context.Context, app, env, by, name string, s manif
 		return err
 	}
 	rec := store.Service{
-		ID: id, App: app, Env: env, Name: name, Type: s.Type, Version: major, Image: image, Digest: repoDigest(info),
+		ID: id, App: app, Env: env, Name: name, Type: s.Type, Version: version, Image: image, Digest: repoDigest(info),
 		Engine: engine.Bin, Volume: container.ServiceVolume(id), Port: port, Sealed: sealed, EnvVar: s.Env, Memory: s.Memory,
 		State: store.ServiceRunning, CreatedBy: by, CreatedAt: time.Now().UTC(),
 	}
@@ -252,15 +269,25 @@ func (m *Manager) create(ctx context.Context, app, env, by, name string, s manif
 	if err := m.waitReady(ctx, driver, rec); err != nil {
 		return err
 	}
-	fmt.Fprintf(log, "▸ service    %s: PostgreSQL %s is ready, and the app gets %s\n", name, major, rec.EnvVar)
+	if s.Type == manifest.ServiceS3 {
+		if err := m.makeBucket(ctx, rec, password); err != nil {
+			return err
+		}
+		fmt.Fprintf(log, "▸ service    %s: S3 is ready, and the app gets %s\n", name, strings.Join(s.Variables(), ", "))
+	} else {
+		fmt.Fprintf(log, "▸ service    %s: PostgreSQL %s is ready, and the app gets %s\n", name, version, rec.EnvVar)
+	}
 	m.emit(ctx, events.ServiceCreated, rec, nil)
-	m.o.Log.Info("made a service", "app", app, "env", env, "service", name, "type", s.Type, "version", major)
+	m.o.Log.Info("made a service", "app", app, "env", env, "service", name, "type", s.Type, "version", version)
 	return nil
 }
 
 // ensureExisting starts what is there, and refuses what would need its data moving.
 func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manifest.ServicePlan, log io.Writer) error {
-	if s.Version != "" && s.Version != rec.Version {
+	if s.Type != rec.Type {
+		return &MajorChangeError{fmt.Sprintf("it is a service of %s, and the manifest asks for %s: remove it with moor services remove, or give the new one another name", rec.Type, s.Type)}
+	}
+	if s.Type == manifest.ServicePostgres && s.Version != "" && s.Version != rec.Version {
 		return &MajorChangeError{fmt.Sprintf("it holds data of PostgreSQL %s, and the manifest asks for %s. That takes moving its data: dump it, remove it with moor services remove, and deploy again, or go back to %s", rec.Version, s.Version, rec.Version)}
 	}
 	driver, err := m.driverFor(ctx, rec)
@@ -319,13 +346,52 @@ func (m *Manager) start(ctx context.Context, driver *container.Driver, rec store
 	if rec.Digest != "" {
 		image = rec.Digest
 	}
-	return driver.RunService(ctx, container.ServiceSpec{
+	spec := container.ServiceSpec{
 		ID: rec.ID, Name: container.ServiceName(rec.ID), App: rec.App, Env: rec.Env, Service: rec.Name, Image: image,
-		Network: container.ServiceNetwork(rec.EnvID), Volume: rec.Volume, Mount: postgresMount(rec.Version),
-		HostPort: rec.Port, ContainerPort: postgresPort, Memory: rec.Memory, StopSignal: "SIGINT", StopTimeout: postgresStop,
-		Vars:    map[string]string{"POSTGRES_USER": postgresUser, "POSTGRES_DB": postgresUser},
-		Secrets: map[string]string{"POSTGRES_PASSWORD": password},
-	})
+		Network: container.ServiceNetwork(rec.EnvID), HostPort: rec.Port, Memory: rec.Memory, StopTimeout: stopLimit(rec),
+	}
+	if rec.Type == manifest.ServiceS3 {
+		spec.ContainerPort = versityPort
+		spec.Volumes = map[string]string{rec.Volume: s3DataDir, container.ServiceMetadataVolume(rec.ID): s3MetaDir}
+		spec.Vars = map[string]string{"VGW_BACKEND": "posix", "VGW_BACKEND_ARGS": s3DataDir, "VGW_META_SIDECAR": s3MetaDir, "VGW_HEALTH": "/health", "ROOT_ACCESS_KEY": s3Access}
+		spec.Secrets = map[string]string{"ROOT_SECRET_KEY": password}
+	} else {
+		spec.ContainerPort, spec.StopSignal = postgresPort, "SIGINT"
+		spec.Volumes = map[string]string{rec.Volume: postgresMount(rec.Version)}
+		spec.Vars = map[string]string{"POSTGRES_USER": postgresUser, "POSTGRES_DB": postgresUser}
+		spec.Secrets = map[string]string{"POSTGRES_PASSWORD": password}
+	}
+	return driver.RunService(ctx, spec)
+}
+
+// stopLimit is how long a service has to stop without losing anything.
+func stopLimit(rec store.Service) time.Duration {
+	if rec.Type == manifest.ServiceS3 {
+		return versityStop
+	}
+	return postgresStop
+}
+
+// makeBucket makes the bucket that an app is given. It speaks to the service on the address that a native app would, signing as an app would.
+func (m *Manager) makeBucket(ctx context.Context, rec store.Service, secret string) error {
+	asking, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(asking, http.MethodPut, fmt.Sprintf("http://127.0.0.1:%d/%s", rec.Port, s3Bucket), nil)
+	if err != nil {
+		return err
+	}
+	backup.Sign(req, nil, s3Access, secret, s3Region, time.Now())
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("make its bucket: %w", err)
+	}
+	defer res.Body.Close()
+	said, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
+	// One that is there already is what was wanted.
+	if res.StatusCode/100 != 2 && res.StatusCode != http.StatusConflict {
+		return fmt.Errorf("make its bucket: %s: %s", res.Status, strings.TrimSpace(string(said)))
+	}
+	return nil
 }
 
 // postgresMount is where a version keeps its data. It moved at 18: an older one on the newer's path would not find it.
@@ -342,7 +408,11 @@ func (m *Manager) waitReady(ctx context.Context, driver *container.Driver, rec s
 	limit, cancel := context.WithTimeout(ctx, m.o.ReadyLimit)
 	defer cancel()
 	for {
-		if _, err := driver.ExecService(limit, name, nil, "pg_isready", "-q", "-h", "127.0.0.1", "-U", postgresUser); err == nil {
+		check := []string{"pg_isready", "-q", "-h", "127.0.0.1", "-U", postgresUser}
+		if rec.Type == manifest.ServiceS3 {
+			check = []string{"wget", "-q", "-O", "/dev/null", fmt.Sprintf("http://127.0.0.1:%d/health", versityPort)}
+		}
+		if _, err := driver.ExecService(limit, name, nil, check...); err == nil {
 			return nil
 		}
 		select {
@@ -355,35 +425,51 @@ func (m *Manager) waitReady(ctx context.Context, driver *container.Driver, rec s
 }
 
 // Addresses gives the variables that connect an app to an environment's services: a loopback address for a native app, and a name on a network for one in a container. They are
-// given when an instance starts, as a secret is, and are not captured in a release. It also says the network, if there is one.
-func (m *Manager) Addresses(ctx context.Context, app, env string, plan manifest.Plan, inContainer bool) (map[string]string, string, error) {
+// given when an instance starts, as a secret is, and are not captured in a release. What is secret is kept apart from what is not, as what is secret is removed from what an app
+// prints, and a bucket's name is too short a word for that. It also says the network, if there is one.
+func (m *Manager) Addresses(ctx context.Context, app, env string, plan manifest.Plan, inContainer bool) (secret, plain map[string]string, network string, err error) {
 	if m == nil || len(plan.Services) == 0 {
-		return nil, "", nil
+		return nil, nil, "", nil
 	}
 	list, err := m.o.DB.Services(ctx, app, env)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
-	addresses := map[string]string{}
-	network := ""
+	secret, plain = map[string]string{}, map[string]string{}
 	for _, rec := range list {
 		s, named := plan.Services[rec.Name]
 		// A release that does not name a service does not get it, so that going back behaves.
-		if !named {
+		if !named || s.Type != rec.Type {
 			continue
 		}
 		password, err := m.password(ctx, rec)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
 		host, port := "127.0.0.1", rec.Port
 		if inContainer {
-			host, port = container.ServiceName(rec.ID), postgresPort
+			host = container.ServiceName(rec.ID)
 			network = container.ServiceNetwork(rec.EnvID)
+			port = postgresPort
+			if rec.Type == manifest.ServiceS3 {
+				port = versityPort
+			}
 		}
-		addresses[s.Env] = postgresURL(host, port, password)
+		if rec.Type != manifest.ServiceS3 {
+			secret[s.Env] = postgresURL(host, port, password)
+			continue
+		}
+		endpoint := fmt.Sprintf("http://%s:%d", host, port)
+		names := s.Variables()
+		// In the order that Variables has them.
+		plain[names[0]], plain[names[1]], plain[names[2]] = endpoint, s3Bucket, s3Region
+		plain[names[3]], secret[names[4]] = s3Access, password
+		if len(names) > 5 {
+			plain[names[5]], plain[names[6]] = endpoint, s3Region
+			plain[names[7]], secret[names[8]] = s3Access, password
+		}
 	}
-	return addresses, network, nil
+	return secret, plain, network, nil
 }
 
 func postgresURL(host string, port int, password string) string {
@@ -466,7 +552,7 @@ func (m *Manager) keepUp(ctx context.Context, rec store.Service) {
 // Sleep stops an environment's services, and keeps what they hold.
 func (m *Manager) Sleep(ctx context.Context, app, env string) error {
 	return m.each(ctx, app, env, func(driver *container.Driver, rec store.Service) error {
-		if err := driver.StopService(container.ServiceName(rec.ID), postgresStop); err != nil {
+		if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 			return err
 		}
 		return m.o.DB.SetServiceState(ctx, rec.ID, store.ServiceStopped)
@@ -541,10 +627,10 @@ func (m *Manager) Remove(ctx context.Context, app, env, name, by string) error {
 	if err != nil {
 		return err
 	}
-	if err := driver.StopService(container.ServiceName(rec.ID), postgresStop); err != nil {
+	if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 		return err
 	}
-	if err := driver.RemoveVolume(rec.Volume); err != nil {
+	if err := removeVolumes(driver, rec); err != nil {
 		return err
 	}
 	if err := m.o.DB.DeleteService(ctx, rec.ID); err != nil {
@@ -596,7 +682,7 @@ func (m *Manager) RemoveApp(ctx context.Context, app string, keepData bool) erro
 		if err != nil {
 			return err
 		}
-		if err := driver.StopService(container.ServiceName(rec.ID), postgresStop); err != nil {
+		if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 			return err
 		}
 		m.o.Log.Warn("a deleted app's service keeps what it held", "app", app, "env", rec.Env, "service", rec.Name, "volume", rec.Volume)
@@ -656,12 +742,23 @@ func (m *Manager) Logs(ctx context.Context, app, env, name string, tail int) (st
 	return driver.ServiceLogs(ctx, container.ServiceName(rec.ID), tail)
 }
 
+// removeVolumes removes what a service holds.
+func removeVolumes(driver *container.Driver, rec store.Service) error {
+	if err := driver.RemoveVolume(rec.Volume); err != nil {
+		return err
+	}
+	if rec.Type == manifest.ServiceS3 {
+		return driver.RemoveVolume(container.ServiceMetadataVolume(rec.ID))
+	}
+	return nil
+}
+
 func (m *Manager) forget(rec store.Service, driver *container.Driver) {
 	ctx := context.Background()
 	if err := driver.StopService(container.ServiceName(rec.ID), 10*time.Second); err != nil {
 		m.o.Log.Warn("remove a service that did not start", "service", rec.Name, "err", err)
 	}
-	if err := driver.RemoveVolume(rec.Volume); err != nil {
+	if err := removeVolumes(driver, rec); err != nil {
 		m.o.Log.Warn("remove a service's volume", "service", rec.Name, "err", err)
 	}
 	if err := m.o.DB.DeleteService(ctx, rec.ID); err != nil {

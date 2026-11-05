@@ -1,6 +1,6 @@
 # Services
 
-An app can ask for a database in its manifest, and Moorage runs it and connects the app to it. Each environment gets its own, so that a branch's preview has a database of its own to break.
+An app can ask for a database or an object store in its manifest, and Moorage runs it and connects the app to it. Each environment gets its own, so that a branch's preview has a database of its own to break.
 
 ```toml
 [services.db]
@@ -15,10 +15,10 @@ That is all it takes. On the next deployment, Moorage starts PostgreSQL 18 for t
 
 | Key | Means | Default |
 |---|---|---|
-| `type` | `postgres` | Required |
-| `version` | `15` to `19` | `18`. It is recorded when the service is made, and does not move by itself |
-| `image` | Another image based on the official one, such as `pgvector/pgvector:pg18`, which is the way to get extensions. It needs a tag other than `latest` | The official image |
-| `env` | Another name for the variable, needed for a second of one type | `DATABASE_URL` |
+| `type` | `postgres` or `s3` | Required |
+| `version` | For `postgres`, `15` to `19` | `18`. It is recorded when the service is made, and does not move by itself |
+| `image` | For `postgres`, another image based on the official one, such as `pgvector/pgvector:pg18`, which is the way to get extensions. It needs a tag other than `latest` | The official image |
+| `env` | Another name for the variable, or for `s3` the start of each, needed for a second of one type | `DATABASE_URL`, or `S3_ENDPOINT` and its fellows |
 | `memory` | A limit, such as `512MiB` | None |
 | `previews` | `own`, or `none` for previews to have none | `own` |
 
@@ -33,6 +33,29 @@ type = "postgres"
 version = "16"
 env = "ANALYTICS_DATABASE_URL"
 ```
+
+## An object store
+
+```toml
+[services.files]
+type = "s3"
+```
+
+It gets one bucket, and one key that can do anything in it:
+
+| Variable | Is |
+|---|---|
+| `S3_ENDPOINT` and `AWS_ENDPOINT_URL` | Its address, such as `http://127.0.0.1:27014` |
+| `S3_BUCKET` | `app` |
+| `S3_REGION` and `AWS_REGION` | `us-east-1`, which means nothing here and which clients want |
+| `S3_ACCESS_KEY_ID` and `AWS_ACCESS_KEY_ID` | Its key |
+| `S3_SECRET_ACCESS_KEY` and `AWS_SECRET_ACCESS_KEY` | Its secret key, kept out of what the app prints |
+
+With `env = "UPLOADS"`, they are `UPLOADS_ENDPOINT` and so on, and the `AWS_` names are left for another. Clients need path-style addresses, as there is no name for a bucket to go in front of: `force_path_style` or `addressing_style = "path"`, depending on the client.
+
+It is [Versity Gateway](https://github.com/versity/versitygw), which keeps a bucket as a directory and an object as a file. Everyday S3 works: uploading in parts, presigned URLs, CORS and bucket policies. **What does not:** versioning, lifecycle rules, object ACLs, and keys `a` and `a/b` at once, as a file cannot also be a directory. An app that needs those needs real S3, which it can have by setting these variables on the environment itself, as below.
+
+A presigned URL is signed for its host, so that a browser elsewhere cannot use one for `127.0.0.1`. For now, this is for what an app reads and writes for itself, and it has no public address.
 
 ## Which address an app gets
 

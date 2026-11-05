@@ -62,9 +62,6 @@ func Lint(m *Manifest) []string {
 		}
 	}
 	for name, s := range m.Services {
-		if s.Type == ServiceS3 {
-			notYet("services."+name, "s3 services arrive later in this wave")
-		}
 		if s.Seed != "" {
 			notYet("services."+name+".seed", "a preview starts empty for now; [release] on_create can fill it")
 		}
