@@ -1,22 +1,41 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (2026-11-05)
+
+Moorage 0.9.0 lets coding agents deploy to it and read how it went. `moor mcp` is a small server for Claude Code, Codex and others, which refuses a token that can do everything, and `moor mcp setup` makes a narrow one and connects a client. A token can be limited to previews, and `moor agent init` tells an agent how to use all of this.
+
+**What that limit does not do.** A token limited to previews reaches only the previews it makes, and is refused everything else, including what is added to Moorage later. Those previews take nothing of production's variables or those set for every environment. The code it deploys still runs on your server, and on Linux an app's environments share a user, so that a preview's code can read production's data. To keep what an agent makes from production altogether, give it an app of its own. [Coding agents](docs/agents.md#what-this-does-not-do) says so at more length, and is worth reading first.
+
+This release also fixes a bug that matters if you run containers: apps with `runtime = "image"` or `"dockerfile"` lost `[environments]`, `[[cron]]`, `[vars]` and `strip_prefix`, silently. And it makes Podman and Docker provably optional, ahead of the services planned for 0.10.0, which only those who use them will need an engine for.
+
+To upgrade from 0.8.0, run `moor server upgrade`. Running apps are taken over without a restart. This release changes the database, so that `moor server upgrade --rollback` puts the previous one back. Some things to know:
+
+- **A container app's `[environments]`, `[[cron]]`, `[vars]` and `strip_prefix` now count.** If yours has a `[[cron]]` that never ran, or a required variable that was never asked for, they will now.
+- **Deploying an image to a server whose engine cannot run it is refused at once,** with a 409, rather than failing as a deployment.
+- **`source=build` in an environment's logs now shows that environment's builds and runs,** and not those of all of an app's environments.
+- **`keep_releases` is now production's to say.** What a branch's manifest says no longer decides how many releases of the others are kept, which a preview could have used to remove production's way back.
+- **With the engine not answering, restarting a container app or putting it to sleep now says why it cannot,** and changes nothing, rather than appearing to.
 
 ### Added
 
-- **`moor mcp`,** a small Model Context Protocol server for coding agents, on standard input and output. It reads apps, deployments, releases and logs, and checks a local manifest. With `--allow-deploy`, it can deploy, roll back and restart. Nothing in it runs commands, reads files or secrets, or deletes anything. It refuses a token that can do everything, and does not fall back on what `moor login` stored. See [Coding agents](docs/agents.md).
-- **`moor mcp setup`** makes a narrow, expiring token, keeps it in a context of its own, and tells a client of the server: Claude Code, Codex, VS Code, Gemini CLI, Cursor and others.
-- **`moor agent init`** adds a section of `AGENTS.md` and an Agent Skill to a repository, which teach an agent to use Moorage, and what to be careful of.
-- **A token can be limited to previews,** with `moor tokens create --envs previews` or in the console. It can deploy only to previews that it makes, which take nothing of production's, and cannot ask for anything of production's. It limits what a token can ask for, and not what the code it deploys can do: [Coding agents](docs/agents.md#what-this-does-not-do) says where that stops.
+- **`moor mcp`,** a small Model Context Protocol server for coding agents, on standard input and output. It reads apps, deployments, releases and logs, and checks a local manifest. With `--allow-deploy`, it can deploy, roll back and restart. Nothing in it runs commands, reads secrets or deletes anything, and it reads local files only below where it started or `--root`, which cannot be your home directory or above it. What an app wrote is marked as untrusted, with what draws nothing removed. It refuses a token that can do everything, and does not fall back on what `moor login` stored. See [Coding agents](docs/agents.md).
+- **`moor mcp setup`** makes a narrow, expiring token, keeps it in a context of its own, and tells a client of the server: Claude Code, Codex, VS Code, Gemini CLI, Cursor and others. Running it again makes the new token before it revokes the old one, and it will not replace a context that `moor login` made.
+- **`moor agent init`** adds a section of `AGENTS.md` and an Agent Skill to a repository, which teach an agent to use Moorage, and what to be careful of. It keeps your line endings, leaves alone a file whose markers it does not understand, and writes nothing through a link.
+- **A token can be limited to previews,** with `moor tokens create --envs previews` or in the console. It deploys only to a name starting with `agent-`, which makes a preview that takes nothing of production's, and is refused everything else, deny by default. It limits what a token can ask for, and not what the code it deploys can do: [Coding agents](docs/agents.md#what-this-does-not-do) says where that stops.
 
 ### Changed
 
 - **A container engine is provably optional.** An app that does not run in a container never causes the server to ask for one, and a test holds it to that. The server finds out as it starts without waiting, and again only when something wants to know, so that starting Docker Desktop later or installing Podman needs no restart. `GET /api/v1/server` says how it stands, an image is refused at once if it cannot run, and anything else that needs one fails before it builds, with what to do. See [The engine](docs/containers.md#the-engine).
-- **`auto` prefers an engine that answers** to the first one found, and what runs under one stays with it.
+- **`auto` prefers an engine that answers** to the first one found. Once a container has run under one, it stays with that one while anything is running under it, and until then an engine that only answered holds nothing.
 
 ### Fixed
 
 - **A container engine that was down at start lost track of its containers.** Their records were marked as stopped, and new ones were started every ten seconds. Now nothing changes until it answers, when the same containers carry on, and `server.engine_down` says what is happening.
+- **What an engine did could hold up a server.** Commands that stop or remove a container now have a time limit, so that a daemon that hangs cannot hold an environment for ever, and a server with apps in containers waits a few seconds for it as it starts, and takes over the rest once it answers. Looking at how the server stands answers at once.
+- **A container that could not be stopped was recorded as stopped.** It now stays on the record until the engine answers, and is no longer served.
+- **gRPC apps in containers lost `h2c` when a server restarted.**
+- **Build logs were shown under every environment of an app,** so that reading a preview's could show production's.
+- **A branch's manifest could decide how many releases the others kept.** It is now production's manifest that says.
 - **Container apps lost part of their manifest.** With `runtime = "image"` or `"dockerfile"`, `[environments]`, `[[cron]]`, `[vars]` and `strip_prefix` were silently ignored: no named environment, no cron job, and no required or generated variable. They now count, and an environment's `resources` reach the engine.
 
 ## 0.8.0 (2026-11-04)

@@ -165,6 +165,7 @@ directory, supervises it, and serves it on its own hostname.
        (with the race detector), `go vet` for Linux and Windows, the six
        builds, and the real binary.
    - Found by slice 3:
+   - Found by the final review: blocking routes one at a time left a dozen ways to production's things, such as promoting to a free name, a run's log by its ID, cloning, and build logs of every environment. Limited tokens are now deny by default, and reach only stand-alone previews named `agent-`. Variables set for every environment also reached those previews, and a preview's manifest could lower how many of production's releases are kept.
      - A shim's physical footprint is 6.2 MB on macOS (12.6 MB resident,
        counting shared executable pages), above the 5 MB target. Linux
        figures come from CI; one shim per environment is the fallback if the
@@ -1190,7 +1191,7 @@ A product site and full documentation, so that people can find Moorage and try i
      gRPC client: an answer, a status other than OK, and a stream.
 5. **Release 0.8.0.**
 
-## 0.9.0: agents, and an optional engine (planned)
+## 0.9.0: agents, and an optional engine (released 2026-11-05)
 
 ### Wave 9
 
@@ -1205,9 +1206,11 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
    - Found by slice 3: previews inherit production's variables, so that a token limited to previews could read production's secrets by deploying code that printed them. It now changes only previews of its own, which inherit nothing. An
      app's environments still share a user on Linux, so that this limits what a token can ask for, and not what its code can do. The guide says so, and that a real wall takes an app of its own.
 4. **Telling agents how.** `moor agent init`, an Agent Skill, a guide covering each client, and the website.
+   - Found by the final review: `moor mcp` could upload from a home directory, and read what a link in the tree pointed at; server text reached agents without being cleaned, and what draws nothing got through what was. `moor mcp setup` could replace a signed-in context, or leave an agent with no token. All fixed.
    - Done (slice 4): `moor agent init` writes `.agents/skills`, which Codex, Gemini CLI, VS Code and Cursor read, and `.claude/skills`, which Claude Code does. A test checks every command the instructions teach, as it does the documentation's.
 5. **The engine.** Absent, not answering or ready, asked again when something wants the answer, and shown everywhere. An app that needs none is never affected, and a daemon that is down no longer marks anything stopped.
    - Done (slice 5): one `container.Source`, and a test that an app with no containers causes nothing to be asked of it. A wrapper around the real engine tests a daemon that is down at start, in CI.
+   - Found by the final review: a probe held the lock that answered what had last been found, so that one hung daemon held up reads; a one-off command could be stopped as unknown; an instance could be recorded as stopped when it had not been; and an `--version` that failed once replaced the driver and lost what it tracked. All fixed, with a stand-in engine used to try what real ones will not do on demand.
 6. **Release 0.9.0.**
 
 ## 0.10.0: services (planned)
