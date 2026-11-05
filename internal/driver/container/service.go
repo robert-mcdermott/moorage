@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package container
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ServiceSpec describes the container of a service: something that an app declares, which outlasts its releases. It carries a label of its own and not an instance's, so
+// that what removes unknown instances at start leaves it alone (spec/13-services.md).
+type ServiceSpec struct {
+	// ID is the service's, and Name its container's, which does not depend on the app's name, so that renaming an app changes nothing.
+	ID, Name, App, Env, Service string
+	Image                       string
+	// Network is the one that a container app of its environment reaches it on, by Name.
+	Network string
+	// Volume is mounted at Mount.
+	Volume, Mount string
+	// HostPort is published on the loopback address, for an app that does not run in a container.
+	HostPort, ContainerPort int
+	Vars                    map[string]string
+	// Secrets go through the environment of the engine's command, and so not on a command line.
+	Secrets map[string]string
+	Memory  int64
+	// StopSignal and StopTimeout are how it stops without losing anything.
+	StopSignal  string
+	StopTimeout time.Duration
+	// Command replaces what the image runs, if set.
+	Command []string
+}
+
+// serviceLimit is how long the engine has for what should not take long, and pulling an image is not one of those.
+const serviceLimit = 30 * time.Second
+
+// ServiceName is the container of a service.
+func ServiceName(id string) string { return "moorage-svc-" + idPart(id) }
+
+// ServiceVolume is where a service keeps what it holds. A named volume, as a database belongs inside the engine's VM on macOS and Windows.
+func ServiceVolume(id string) string { return "moorage-svc-" + idPart(id) + "-data" }
+
+// ServiceNetwork is the network of an environment's services and of its apps in containers.
+func ServiceNetwork(envID string) string { return "moorage-env-" + idPart(envID) }
+
+// idPart makes an ID fit to name something with, which the engines want in lower case.
+func idPart(id string) string {
+	_, part, ok := strings.Cut(id, "_")
+	if !ok {
+		part = id
+	}
+	return strings.ToLower(part)
+}
+
+// RunService starts a service's container, replacing any that is there. The data is in the volume, so that nothing is lost by starting afresh, and what it
+// was started with is always what is on record.
+func (d *Driver) RunService(ctx context.Context, s ServiceSpec) error {
+	if err := d.ensureVolume(ctx, s.Volume, s); err != nil {
+		return err
+	}
+	if s.Network != "" {
+		if err := d.EnsureNetwork(ctx, s.Network); err != nil {
+			return err
+		}
+	}
+	if _, err := d.tell(removeLimit, "rm", "-f", s.Name); err != nil && !IsNotFound(err) {
+		return err
+	}
+	args := []string{"run", "-d", "--name", s.Name, "--restart=no", "--security-opt", "no-new-privileges"}
+	args = append(args, d.serviceLabels(s)...)
+	args = append(args, "-v", s.Volume+":"+s.Mount+volumeOptions())
+	if s.Network != "" {
+		args = append(args, "--network", s.Network)
+	}
+	if s.HostPort != 0 {
+		args = append(args, "-p", fmt.Sprintf("127.0.0.1:%d:%d", s.HostPort, s.ContainerPort))
+	}
+	if s.Memory > 0 {
+		args = append(args, "--memory", strconv.FormatInt(s.Memory, 10))
+	}
+	if s.StopSignal != "" {
+		args = append(args, "--stop-signal", s.StopSignal)
+	}
+	if s.StopTimeout > 0 {
+		args = append(args, "--stop-timeout", stopSeconds(s.StopTimeout))
+	}
+	for _, k := range sortedKeys(s.Vars) {
+		args = append(args, "-e", k+"="+s.Vars[k])
+	}
+	var env []string
+	for _, k := range sortedKeys(s.Secrets) {
+		args = append(args, "-e", k)
+		env = append(env, k+"="+s.Secrets[k])
+	}
+	args = append(args, s.Image)
+	args = append(args, s.Command...)
+	authEnv, cleanup, err := d.engine.withAuth(ctx)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	running, stopWaiting := context.WithTimeout(ctx, runLimit)
+	defer stopWaiting()
+	if _, err := d.engine.output(running, append(env, authEnv...), args...); err != nil {
+		d.tell(removeLimit, "rm", "-f", s.Name)
+		return err
+	}
+	return nil
+}
+
+func (d *Driver) serviceLabels(s ServiceSpec) []string {
+	var args []string
+	for _, l := range [][2]string{{labelManaged, "true"}, {labelServer, d.server}, {labelService, s.ID}, {labelApp, s.App}, {labelEnv, s.Env}} {
+		args = append(args, "--label", l[0]+"="+l[1])
+	}
+	return args
+}
+
+func (d *Driver) ensureVolume(ctx context.Context, name string, s ServiceSpec) error {
+	asking, cancel := context.WithTimeout(ctx, serviceLimit)
+	defer cancel()
+	if _, err := d.engine.output(asking, nil, "volume", "inspect", name); err == nil {
+		return nil
+	}
+	args := []string{"volume", "create"}
+	for _, l := range [][2]string{{labelManaged, "true"}, {labelServer, d.server}, {labelService, s.ID}} {
+		args = append(args, "--label", l[0]+"="+l[1])
+	}
+	_, err := d.engine.output(asking, nil, append(args, name)...)
+	return err
+}
+
+// EnsureNetwork makes a network, if there is none of that name.
+func (d *Driver) EnsureNetwork(ctx context.Context, name string) error {
+	asking, cancel := context.WithTimeout(ctx, serviceLimit)
+	defer cancel()
+	if _, err := d.engine.output(asking, nil, "network", "inspect", name); err == nil {
+		return nil
+	}
+	_, err := d.engine.output(asking, nil, "network", "create", "--label", labelManaged+"=true", "--label", labelServer+"="+d.server, name)
+	return err
+}
+
+// ServiceRunning says whether a service's container is running.
+func (d *Driver) ServiceRunning(ctx context.Context, name string) (bool, error) {
+	asking, cancel := context.WithTimeout(ctx, serviceLimit)
+	defer cancel()
+	st, err := d.inspect(asking, name)
+	if IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return st.Running, nil
+}
+
+// ExecService runs a command in a service's container, and says what it wrote and whether it worked.
+func (d *Driver) ExecService(ctx context.Context, name string, env map[string]string, args ...string) (string, error) {
+	command := []string{"exec"}
+	var secrets []string
+	for _, k := range sortedKeys(env) {
+		command = append(command, "-e", k)
+		secrets = append(secrets, k+"="+env[k])
+	}
+	command = append(append(command, name), args...)
+	out, err := d.engine.output(ctx, secrets, command...)
+	return string(out), err
+}
+
+// StopService stops a service's container and removes it. What it holds stays in its volume.
+func (d *Driver) StopService(name string, timeout time.Duration) error {
+	_, err := d.tell(timeout+stopMargin, "stop", "-t", stopSeconds(timeout), name)
+	if err != nil && !IsNotFound(err) {
+		return err
+	}
+	if _, err := d.tell(removeLimit, "rm", "-f", name); err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// RemoveVolume removes what a service holds.
+func (d *Driver) RemoveVolume(name string) error {
+	_, err := d.tell(removeLimit, "volume", "rm", "-f", name)
+	if err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// RemoveNetwork removes a network, if nothing is using it.
+func (d *Driver) RemoveNetwork(name string) error {
+	_, err := d.tell(removeLimit, "network", "rm", name)
+	if err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// ServiceLogs writes the newest of what a service has said.
+func (d *Driver) ServiceLogs(ctx context.Context, name string, tail int) (string, error) {
+	asking, cancel := context.WithTimeout(ctx, serviceLimit)
+	defer cancel()
+	// A container writes to both, and the engine keeps them apart on the way out, which is more than anyone asking needs.
+	return d.engine.combined(asking, "logs", "--tail", strconv.Itoa(tail), name)
+}

@@ -271,6 +271,9 @@ func (d *Deployer) DeleteEnvironment(ctx context.Context, app, env, by string) e
 			return err
 		}
 	}
+	if err := d.opts.Services.Blocks(ctx, app, env); err != nil {
+		return err
+	}
 	d.cancelRuns(app, env)
 	runIDs, err := d.db.RunIDs(ctx, app, env)
 	if err != nil {
@@ -290,6 +293,9 @@ func (d *Deployer) DeleteEnvironment(ctx context.Context, app, env, by string) e
 	}
 	ids, err := d.db.EnvironmentDeployments(ctx, app, env)
 	if err != nil {
+		return err
+	}
+	if err := d.opts.Services.RemoveEnv(ctx, app, env); err != nil {
 		return err
 	}
 	if err := d.db.DeleteEnvironment(ctx, app, env); err != nil {

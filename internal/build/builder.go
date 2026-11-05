@@ -40,6 +40,8 @@ type Builder struct {
 
 // Job is one build.
 type Job struct {
+	// Check, if set, says why what the app turned out to need could not run here, before anything is built for it.
+	Check    func(manifest.Plan) error
 	App, Env string
 	BuildID  string
 	// Dir is the build's directory, builds/<app>/<id>: the source is
@@ -91,6 +93,11 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 			return Result{}, &Error{Msg: u.Msg, Err: err}
 		}
 		return Result{}, &Error{Msg: err.Error(), Err: err}
+	}
+	if job.Check != nil {
+		if err := job.Check(plan); err != nil {
+			return Result{}, &Error{Msg: err.Error(), Err: err}
+		}
 	}
 	Marker(job.Log, "▸ detected   %s", describe(plan))
 	for _, n := range plan.Notes {

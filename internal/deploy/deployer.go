@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
+	"github.com/robert-mcdermott/moorage/internal/services"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -62,6 +63,8 @@ type Options struct {
 	Reload func(context.Context) error
 	// Secrets seals and opens secret variables.
 	Secrets Keyring
+	// Services runs what an app declares under [services].
+	Services *services.Manager
 	// Events hears of deployments and releases.
 	Events *events.Bus
 	// Repos holds what was pushed, to build it again.
@@ -525,6 +528,13 @@ func (d *Deployer) run(dep store.Deployment) {
 	if dep.SourceType == SourceImage {
 		job.Image = dep.SourceRef
 	}
+	job.Check = func(plan manifest.Plan) error {
+		kind, err := d.db.EnvKind(ctx, dep.App, dep.Env)
+		if err != nil {
+			return err
+		}
+		return d.opts.Services.CheckEngine(ctx, dep.App, dep.Env, kind, plan)
+	}
 	res, err := d.opts.Builder.Build(ctx, job)
 	<-d.slots
 	os.RemoveAll(filepath.Join(d.opts.DataDir, "tmp", "build-"+dep.BuildID))
@@ -651,6 +661,16 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	// A static site takes over from what ran before, which has to be able to stop.
 	if plan.Kind == manifest.KindStatic && d.opts.Runtime != nil {
 		if err := d.opts.Runtime.EngineBlocks(ctx, dep.App, dep.Env); err != nil {
+			return store.Release{}, err
+		}
+	}
+	// What a release command migrates has to be there, so that this comes first. A service that does not become healthy fails the deployment, with the previous release still serving.
+	if plan.Kind == manifest.KindProcess && len(plan.Services) > 0 {
+		kind, err := d.db.EnvKind(ctx, dep.App, dep.Env)
+		if err != nil {
+			return store.Release{}, err
+		}
+		if err := d.opts.Services.Ensure(ctx, dep.App, dep.Env, kind, dep.CreatedBy, plan, log); err != nil {
 			return store.Release{}, err
 		}
 	}

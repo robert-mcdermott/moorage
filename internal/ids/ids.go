@@ -22,6 +22,7 @@ const (
 	Release      = "rel"
 	Deployment   = "dep"
 	Instance     = "ins"
+	Service      = "svc"
 	User         = "usr"
 	Token        = "tok"
 	Var          = "var"

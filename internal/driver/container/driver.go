@@ -36,10 +36,13 @@ const (
 	labelRelease  = "io.moorage.release"
 	labelProcess  = "io.moorage.process"
 	labelInstance = "io.moorage.instance"
+	labelService  = "io.moorage.service"
 )
 
 // Spec describes a container to run.
 type Spec struct {
+	// Network is what it reaches its environment's services on, if it has any.
+	Network               string
 	ID, App, Env, Process string
 	Index                 int
 	Release               string // "v8"
@@ -201,6 +204,9 @@ func imageArgs(s Spec) []string {
 // and the environment that carries the secrets.
 func (d *Driver) runArgs(s Spec) (args, env []string, err error) {
 	args = []string{"--init", "--security-opt", "no-new-privileges"}
+	if s.Network != "" {
+		args = append(args, "--network", s.Network)
+	}
 	for _, k := range sortedKeys(s.Vars) {
 		args = append(args, "-e", k+"="+s.Vars[k])
 	}

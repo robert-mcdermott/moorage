@@ -48,6 +48,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/secrets"
+	"github.com/robert-mcdermott/moorage/internal/services"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
 	"github.com/robert-mcdermott/moorage/internal/telemetry"
@@ -392,7 +393,15 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return hex.EncodeToString(mac.Sum(nil))
 	}
 	router.SetProxyToken(proxyToken)
-	runtime := reconcile.New(db, cfg, reconcile.Options{
+	// It takes its ports from the runtime's allocator, which counts its ports in turn.
+	var runtime *reconcile.Manager
+	backing := services.New(services.Options{
+		DB: db, Keyring: keyring, Engines: containers, Events: bus, Log: log, Tick: opts.Tick,
+		AllocPort:   func(ctx context.Context) (int, error) { return runtime.AllocPort(ctx) },
+		ReleasePort: func(port int) { runtime.ReleasePort(port) },
+	})
+	runtime = reconcile.New(db, cfg, reconcile.Options{
+		Services:        backing,
 		ProxyToken:      proxyToken,
 		DataDir:         cfg.DataDir,
 		Isolation:       isolation,
@@ -420,12 +429,14 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return err
 	}
 	go runtime.Run(ctx)
+	go backing.Run(ctx)
 	go pruneAudit(ctx, db, log)
 	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
-		DataDir: cfg.DataDir,
-		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engines: containers},
-		Runtime: runtime,
+		DataDir:  cfg.DataDir,
+		Builder:  &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engines: containers},
+		Runtime:  runtime,
+		Services: backing,
 		Reload: func(ctx context.Context) error {
 			err := router.Reload(ctx)
 			keepHostsBlock(ctx, cfg, db, log)

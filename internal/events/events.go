@@ -53,6 +53,9 @@ const (
 	CertificateOK        = "server.certificate_ok"
 	EngineDown           = "server.engine_down"
 	EngineOK             = "server.engine_ok"
+	ServiceCreated       = "service.created"
+	ServiceRestarted     = "service.restarted"
+	ServiceRemoved       = "service.removed"
 	DomainAdded          = "domain.added"
 	DomainVerified       = "domain.verified"
 	DomainRemoved        = "domain.removed"
@@ -341,6 +344,12 @@ func Summary(e store.Event) string {
 	case ThresholdOK:
 		name, unit := thresholdWords(text(e, "metric"))
 		return fmt.Sprintf("%s is back under %v%s, at %v%s", name, e.Data["above"], unit, e.Data["value"], unit)
+	case ServiceCreated:
+		return "The " + text(e, "type") + " service " + text(e, "service") + " was made"
+	case ServiceRestarted:
+		return "The service " + text(e, "service") + " had stopped, and was started again"
+	case ServiceRemoved:
+		return "The service " + text(e, "service") + " was removed, with what it held"
 	case EngineDown:
 		return "Apps here run in containers, and " + text(e, "problem")
 	case EngineOK:

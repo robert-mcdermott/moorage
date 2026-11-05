@@ -94,6 +94,10 @@ func (d *Deployer) Sleep(ctx context.Context, app, env, by string) error {
 		}
 		return err
 	}
+	// Its services stop with it, and keep what they hold.
+	if err := d.opts.Services.Sleep(ctx, app, env); err != nil {
+		d.log.Warn("stop the services of an environment going to sleep", "app", app, "env", env, "err", err)
+	}
 	d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentSlept, App: app, Env: env, Actor: by})
 	d.log.Info("an environment went to sleep", "app", app, "env", env, "by", by)
 	return nil
@@ -115,7 +119,11 @@ func (d *Deployer) Wake(ctx context.Context, app, env, by string) error {
 	if err := d.db.SetLastActive(ctx, app, env, time.Now()); err != nil {
 		return err
 	}
-	err := d.opts.Runtime.Settle(ctx, app, env)
+	// What it connects to comes first.
+	err := d.opts.Services.Wake(ctx, app, env)
+	if err == nil {
+		err = d.opts.Runtime.Settle(ctx, app, env)
+	}
 	d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentWoke, App: app, Env: env, Actor: by})
 	d.log.Info("an environment woke", "app", app, "env", env, "by", by, "err", err)
 	return err

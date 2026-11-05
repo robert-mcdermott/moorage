@@ -66,8 +66,16 @@ type Options struct {
 	Containers *container.Source
 	// Events hears of instances that exit, sicken and recover.
 	Events *events.Bus
+	// Services connects an app to what it declares under [services].
+	Services Services
 	// Isolation says how apps are kept from one another.
 	Isolation *isolate.Policy
+}
+
+// Services gives the addresses of an environment's services, for an instance as it starts.
+type Services interface {
+	Addresses(ctx context.Context, app, env string, plan manifest.Plan, inContainer bool) (map[string]string, string, error)
+	Any(ctx context.Context) bool
 }
 
 // runner is what the manager asks of a driver about an instance it runs.
@@ -690,6 +698,10 @@ func (m *Manager) ensure(ctx context.Context) {
 			m.log.Error("cannot start an instance", "app", r.App, "env", r.Env, "err", err)
 		}
 		es.rollout.Unlock()
+	}
+	if !wanted && m.opts.Services != nil && m.opts.Services.Any(ctx) {
+		wanted = true
+		m.noteEngine(ctx, m.opts.Containers.Status(ctx))
 	}
 	if !wanted {
 		m.noteEngineNotNeeded(ctx)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -786,5 +787,225 @@ func TestContainerRestartAsTheEngineComesBack(t *testing.T) {
 	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+before[0].ID).Output()
 	if err != nil || strings.TrimSpace(string(out)) != "" {
 		t.Errorf("the one it replaced is still running: %q %v", out, err)
+	}
+}
+
+// A database that an app declares, from end to end, on a real engine: made before the release, connected, and there after what happens to an app.
+func TestContainerServicePostgres(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+
+	files := appManifest("\n[services.db]\ntype = \"postgres\"\n\n[release]\ncommand = 'test -n \"$DATABASE_URL\"'\n")
+	d, log := deploySource(t, c, "shop", files)
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	if !strings.Contains(log, "PostgreSQL 18 is ready") {
+		t.Errorf("the log says nothing of it:\n%s", log)
+	}
+	db := testAuth(t, cfg).DB
+	rec, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := "shop." + cfg.Domain
+	_, address := get(t, addrs.HTTP, host, "/env?name=DATABASE_URL")
+	if !strings.HasPrefix(address, "postgres://app:") || !strings.Contains(address, fmt.Sprintf("@127.0.0.1:%d/app", rec.Port)) {
+		t.Fatalf("the address: %q", address)
+	}
+	psql := func(env, query string) string {
+		t.Helper()
+		rec, err := db.Service(ctx, "shop", env, "db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(rec.ID), "psql", "-U", "app", "-d", "app", "-At", "-c", query).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v: %s", query, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	psql("production", "create table kept (value text); insert into kept values ('production')")
+
+	// The address is given when an instance starts, and is kept out of what a release records.
+	rels, err := c.Releases(ctx, "shop", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := strings.TrimPrefix(strings.SplitN(address, "@", 2)[0], "postgres://app:")
+	if data, _ := json.Marshal(rels); strings.Contains(string(data), password) {
+		t.Errorf("a release holds its password: %s", data)
+	}
+
+	// Deploying again keeps it.
+	again, log := deploySource(t, c, "shop", appManifest("# again\n\n[services.db]\ntype = \"postgres\"\n"))
+	if again.Status != "live" {
+		t.Fatalf("%+v\n%s", again, log)
+	}
+	if got := psql("production", "select value from kept"); got != "production" {
+		t.Errorf("after deploying again: %q", got)
+	}
+
+	// A preview has its own, which starts empty, and never production's by what it inherits.
+	if _, err := db.CreateEnvironment(ctx, "shop", "topic", "preview", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ChangeVars(ctx, "shop", "production", apitypes.VarsChange{Set: []apitypes.VarSet{{Name: "DATABASE_URL", Value: "postgres://production.example.com/real"}}}); err != nil {
+		t.Fatal(err)
+	}
+	preview, _, err := c.DeploySource(ctx, "shop", "topic", writeSite(t, appManifest("\n[services.db]\ntype = \"postgres\"\n")), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the preview", func() bool {
+		d, err := c.Deployment(ctx, preview.ID)
+		return err == nil && d.Finished()
+	})
+	previewHost := "shop--topic." + cfg.Domain
+	_, inPreview := get(t, addrs.HTTP, previewHost, "/env?name=DATABASE_URL")
+	if !strings.HasPrefix(inPreview, "postgres://app:") || strings.Contains(inPreview, "production.example.com") {
+		t.Errorf("in the preview: %q", inPreview)
+	}
+	if got := psql("topic", "select count(*) from pg_tables where tablename = 'kept'"); got != "0" {
+		t.Errorf("a preview that should be empty: %q", got)
+	}
+	// Production's own variable wins there, which is how it uses a real database.
+	if _, got := get(t, addrs.HTTP, host, "/env?name=DATABASE_URL"); !strings.Contains(got, "production.example.com") {
+		t.Errorf("production's own: %q", got)
+	}
+
+	// Sleep stops it and keeps what it holds, and waking starts it first.
+	previewRec, err := db.Service(ctx, "shop", "topic", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	psql("topic", "create table mine (value text); insert into mine values ('preview')")
+	if _, err := c.SleepEnvironment(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	running := func(id string) string {
+		out, _ := exec.Command(e.Bin, "ps", "-q", "--filter", "name="+container.ServiceName(id)).Output()
+		return strings.TrimSpace(string(out))
+	}
+	if running(previewRec.ID) != "" {
+		t.Error("its service is running while it sleeps")
+	}
+	if _, err := c.WakeEnvironment(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if got := psql("topic", "select value from mine"); got != "preview" {
+		t.Errorf("after waking: %q", got)
+	}
+
+	// One that stops by itself is started again, on the same data.
+	if out, err := exec.Command(e.Bin, "stop", "-t", "10", container.ServiceName(rec.ID)).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	waitUntil(t, "the service to be started again", func() bool { return running(rec.ID) != "" })
+	waitUntil(t, "what it holds", func() bool {
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(rec.ID), "psql", "-U", "app", "-d", "app", "-At", "-c", "select value from kept").CombinedOutput()
+		return err == nil && strings.TrimSpace(string(out)) == "production"
+	})
+
+	// It outlasts the server, and a new server goes on with it.
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if running(rec.ID) == "" {
+		t.Error("it stopped with the server")
+	}
+	addrs, _ = start(t, cfg)
+	c = apiClient(t, cfg, addrs)
+	if got := psql("production", "select value from kept"); got != "production" {
+		t.Errorf("after a new server: %q", got)
+	}
+
+	// A preview's deletion takes its service and what it holds. A line going from a manifest does not.
+	if err := c.DeleteEnvironment(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", previewRec.Volume).CombinedOutput(); err == nil {
+		t.Errorf("its volume is still there: %s", out)
+	}
+	if running(previewRec.ID) != "" {
+		t.Error("its service is still running")
+	}
+	gone, log := deploySource(t, c, "shop", appManifest("# no services\n"))
+	if gone.Status != "live" {
+		t.Fatalf("%+v\n%s", gone, log)
+	}
+	if got := psql("production", "select value from kept"); got != "production" {
+		t.Errorf("after a release that does not name it: %q", got)
+	}
+	// Deleting the app takes it.
+	if err := c.DeleteApp(ctx, "shop", false); err != nil {
+		t.Fatal(err)
+	}
+	if running(rec.ID) != "" {
+		t.Error("the service of a deleted app is still running")
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err == nil {
+		t.Errorf("the volume of a deleted app: %s", out)
+	}
+}
+
+// An app in a container reaches its service by name, on its environment's network.
+func TestContainerServiceReachedByName(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	files := boxedApp("first", "")
+	files["moorage.toml"] += "\n[services.db]\ntype = \"postgres\"\n"
+	d, log := deploySource(t, c, "boxed", files)
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	rec, err := testAuth(t, cfg).DB.Service(ctx, "boxed", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := instances(t, c, "boxed")
+	if len(list) != 1 {
+		t.Fatalf("%+v", list)
+	}
+	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+list[0].ID).Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		t.Fatalf("the app's container: %q %v", out, err)
+	}
+	id := strings.TrimSpace(string(out))
+	said, err := exec.Command(e.Bin, "exec", id, "sh", "-c", "echo \"$DATABASE_URL\"").CombinedOutput()
+	if err != nil || !strings.Contains(string(said), "@"+container.ServiceName(rec.ID)+":5432/app") {
+		t.Errorf("its address: %q %v", said, err)
+	}
+	// Over the network, with the image's own tools, by that name.
+	if out, err := exec.Command(e.Bin, "run", "--rm", "--network", container.ServiceNetwork(rec.EnvID), rec.Image, "pg_isready", "-h", container.ServiceName(rec.ID), "-U", "app").CombinedOutput(); err != nil {
+		t.Errorf("by name: %v: %s", err, out)
+	}
+}
+
+// removeServices leaves no container, volume or network of a test's server behind.
+func removeServices(t *testing.T, e *container.Engine, cfg config.Config) {
+	t.Helper()
+	label := "label=io.moorage.server=" + ContainerLabel(cfg)
+	out, _ := exec.Command(e.Bin, "ps", "-aq", "--filter", label).Output()
+	for _, id := range strings.Fields(string(out)) {
+		exec.Command(e.Bin, "rm", "-f", id).Run()
+	}
+	out, _ = exec.Command(e.Bin, "volume", "ls", "-q", "--filter", label).Output()
+	for _, name := range strings.Fields(string(out)) {
+		exec.Command(e.Bin, "volume", "rm", "-f", name).Run()
+	}
+	out, _ = exec.Command(e.Bin, "network", "ls", "-q", "--filter", label).Output()
+	for _, name := range strings.Fields(string(out)) {
+		exec.Command(e.Bin, "network", "rm", name).Run()
 	}
 }
