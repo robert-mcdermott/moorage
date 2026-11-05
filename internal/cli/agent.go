@@ -26,8 +26,8 @@ const (
 	agentsEnd   = "<!-- moorage:end -->"
 )
 
-// agentSkillDirs are where clients look for a repository's skills. Codex, Gemini CLI, VS Code and Cursor read the first, and Claude Code the second.
-var agentSkillDirs = []string{filepath.Join(".agents", "skills", "moorage"), filepath.Join(".claude", "skills", "moorage")}
+// agentSkillDirs are where clients look for a repository's skills. Codex, Gemini CLI, VS Code and Cursor read the first, Claude Code the second, and Kiro the third.
+var agentSkillDirs = []string{filepath.Join(".agents", "skills", "moorage"), filepath.Join(".claude", "skills", "moorage"), filepath.Join(".kiro", "skills", "moorage")}
 
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -45,7 +45,7 @@ func newAgentInitCmd() *cobra.Command {
 		Use:   "init [DIR]",
 		Short: "Add instructions for coding agents to a repository",
 		Long: `Add instructions for coding agents to the repository in DIR (default: the current directory): a section of AGENTS.md, and
-an Agent Skill in .agents/skills and .claude/skills. They teach an agent to deploy and look at this app with moor or moor mcp, and what to
+an Agent Skill in .agents/skills, .claude/skills and .kiro/skills. They teach an agent to deploy and look at this app with moor or moor mcp, and what to
 be careful of. They hold no token, so they can be committed. Running this again brings them up to date, and leaves the rest of AGENTS.md as it was.`,
 		Example: `  moor agent init --app shop`,
 		Args:    cobra.MaximumNArgs(1),
@@ -162,7 +162,7 @@ func agentsWithSection(path, app string) (string, error) {
 // block, where a document that says how this works may show them. Anything else that looks like a section is left for a person, as this would otherwise replace what is between.
 func agentsMarkers(text string) (start, end int, found bool, err error) {
 	var fence string
-	starts, ends := 0, 0
+	starts, ends, fenced := 0, 0, 0
 	for offset := 0; offset < len(text); {
 		next := strings.IndexByte(text[offset:], '\n')
 		lineEnd := len(text)
@@ -171,22 +171,27 @@ func agentsMarkers(text string) (start, end int, found bool, err error) {
 		}
 		line := strings.TrimRight(text[offset:lineEnd], "\r\n")
 		trimmed := strings.TrimLeft(line, " ")
+		// With four spaces or a tab in front, a line is code in Markdown, whatever it says.
+		block := len(line)-len(trimmed) >= 4 || strings.HasPrefix(line, "\t")
+		bare := strings.TrimRight(trimmed, " \t")
 		switch {
 		case fence != "":
-			if len(line)-len(trimmed) <= 3 && strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed, fence[:1]+" \t") == "" {
-				fence = ""
+			if !block && strings.HasPrefix(trimmed, fence) && strings.Trim(bare, fence[:1]) == "" {
+				fence, fenced = "", 0
+			} else if bare == agentsStart || bare == agentsEnd {
+				fenced++
 			}
-		case len(line)-len(trimmed) <= 3 && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")):
-			run := len(trimmed) - len(strings.TrimLeft(trimmed, trimmed[:1]))
-			fence = trimmed[:run]
-		case strings.TrimSpace(line) == agentsStart:
+		case block:
+		case opensFence(trimmed):
+			fence = trimmed[:len(trimmed)-len(strings.TrimLeft(trimmed, trimmed[:1]))]
+		case bare == agentsStart:
 			if starts++; starts == 1 {
 				start = offset
 			}
 			if ends > 0 {
 				return 0, 0, false, errors.New("its Moorage section ends before it starts")
 			}
-		case strings.TrimSpace(line) == agentsEnd:
+		case bare == agentsEnd:
 			if ends++; ends == 1 {
 				end = lineEnd
 			}
@@ -196,6 +201,10 @@ func agentsMarkers(text string) (start, end int, found bool, err error) {
 		}
 		offset = lineEnd
 	}
+	// A block that is never closed runs to the end, and a section in it would be added to again each time.
+	if fenced > 0 {
+		return 0, 0, false, errors.New("its Moorage section is in a code block that is never closed")
+	}
 	switch {
 	case starts == 0 && ends == 0:
 		return 0, 0, false, nil
@@ -203,4 +212,15 @@ func agentsMarkers(text string) (start, end int, found bool, err error) {
 		return 0, 0, false, fmt.Errorf("it has %d lines that start a Moorage section and %d that end one", starts, ends)
 	}
 	return start, end, true, nil
+}
+
+// opensFence says that a line starts a fenced code block. What follows a fence of backticks cannot hold any, or the line is only code within a line.
+func opensFence(line string) bool {
+	switch {
+	case strings.HasPrefix(line, "~~~"):
+		return true
+	case strings.HasPrefix(line, "```"):
+		return !strings.Contains(strings.TrimLeft(line, "`"), "`")
+	}
+	return false
 }

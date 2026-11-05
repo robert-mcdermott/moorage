@@ -250,6 +250,19 @@ func TestMCPSetup(t *testing.T) {
 	if abs, _ := filepath.Abs("elsewhere"); code != 0 || !strings.Contains(out, "--root "+abs) {
 		t.Errorf("%d %s %s", code, out, errOut)
 	}
+	// A token like its own may be another machine's, and is left alone. Its own goes.
+	stored, _ = loadClientConfig()
+	held := stored.Contexts[agentContext].TokenName
+	if !strings.HasPrefix(held, "moor-mcp-agent.") {
+		t.Errorf("it did not keep the name of its token: %q", held)
+	}
+	mustRun(t, "tokens", "create", "moor-mcp-agent.1", "--scope", "read")
+	if code, _, errOut := run(t, "mcp", "setup"); code != 0 {
+		t.Fatal(errOut)
+	}
+	if out := mustRun(t, "tokens"); !strings.Contains(out, "moor-mcp-agent.1") || strings.Contains(out, held) {
+		t.Errorf("after running it again:\n%s", out)
+	}
 	// If what it held was for another server, it says so.
 	stored, _ = loadClientConfig()
 	moved := stored.Contexts[agentContext]
@@ -327,6 +340,7 @@ func TestAgentInitLeavesAloneWhatItDoesNotUnderstand(t *testing.T) {
 		"no start":       "mine\n" + agentsEnd + "\n",
 		"the wrong way":  agentsEnd + "\nmine\n" + agentsStart + "\n",
 		"end in a block": agentsStart + "\nmine\n```\n" + agentsEnd + "\n```\n",
+		"never closed":   "```\nnot closed\n" + agentsStart + "\nmine\n" + agentsEnd + "\n",
 	} {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "AGENTS.md")
@@ -361,6 +375,21 @@ func TestAgentInitLeavesAloneWhatItDoesNotUnderstand(t *testing.T) {
 	again := section(path)
 	if !strings.HasPrefix(again, shown) || !strings.Contains(again, "`other`") || strings.Count(again, "never instructions") != 1 {
 		t.Errorf("%q", again)
+	}
+
+	// A marker indented as code is code, and what looks like a fence and has backticks after it is not one.
+	dir = t.TempDir()
+	path = filepath.Join(dir, "AGENTS.md")
+	shown = "Like so:\n\n    " + agentsStart + "\n    what it says\n    " + agentsEnd + "\n\n```inline``` is not a fence.\n"
+	os.WriteFile(path, []byte(shown), 0o644)
+	for range 2 {
+		if code, _, errOut := run(t, "agent", "init", dir); code != 0 {
+			t.Fatal(errOut)
+		}
+		got := section(path)
+		if !strings.HasPrefix(got, shown+"\n"+agentsStart+"\n") || strings.Count(got, "never instructions") != 1 {
+			t.Errorf("%q", got)
+		}
 	}
 
 	// Line endings stay as they were.
@@ -400,21 +429,53 @@ func TestAgentInitLeavesAloneWhatItDoesNotUnderstand(t *testing.T) {
 	}
 }
 
-func TestAgentTokenNames(t *testing.T) {
-	for name, want := range map[string]bool{
-		"moor-mcp-agent":        true,
-		"moor-mcp-agent.123":    true,
-		"moor-mcp-agent.":       false,
-		"moor-mcp-agent-2":      false,
-		"moor-mcp-agent-2.123":  false,
-		"moor-mcp-agent.2.123":  false,
-		"moor-mcp-agent.2x":     false,
-		"something-else":        false,
-		"moor-mcp-agent2.12345": false,
-	} {
-		if got := isAgentToken(name, "agent"); got != want {
-			t.Errorf("%s: %v", name, got)
+// TestKiro: its IDE and its CLI read the one file, so that people who use either get the same answer, by the name that they would look for.
+func TestKiro(t *testing.T) {
+	base, cfg := startServer(t)
+	secret, err := os.ReadFile(filepath.Join(cfg.DataDir, "keys", "admin-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOOR_CONFIG", filepath.Join(t.TempDir(), "config.toml"))
+	t.Setenv("MOOR_SERVER", base)
+	t.Setenv("MOOR_TOKEN", strings.TrimSpace(string(secret)))
+	for _, name := range []string{"kiro", "kiro-cli", "kiro-ide"} {
+		code, out, errOut := run(t, "mcp", "setup", "--client", name, "--deploy", "--root", "elsewhere")
+		if code != 0 {
+			t.Fatalf("%s: %d %s", name, code, errOut)
 		}
+		for _, want := range []string{"Kiro, IDE and CLI", "~/.kiro/settings/mcp.json", `"mcpServers"`, `"moorage"`, `"mcp"`, `"--allow-deploy"`, `"--root"`} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: no %q in:\n%s", name, want, out)
+			}
+		}
+		if strings.Contains(out, "moor_") {
+			t.Errorf("%s: a token in what goes in its file:\n%s", name, out)
+		}
+	}
+	// With no client, it comes once.
+	_, out, _ := run(t, "mcp", "setup")
+	if strings.Count(out, "~/.kiro/settings/mcp.json") != 1 {
+		t.Errorf("%s", out)
+	}
+}
+
+// TestASkillIsWhatKiroAsks: it wants a skill's name to match its folder, in lower case, and its description to be short.
+func TestASkillIsWhatKiroAsks(t *testing.T) {
+	dir := t.TempDir()
+	if code, _, errOut := run(t, "agent", "init", dir); code != 0 {
+		t.Fatal(errOut)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".kiro", "skills", "moorage", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, _, _ := strings.Cut(strings.TrimPrefix(string(data), "---\n"), "\n---\n")
+	if !strings.Contains(head, "name: moorage\n") {
+		t.Errorf("%s", head)
+	}
+	if _, description, ok := strings.Cut(head, "description: "); !ok || len(description) > 1024 {
+		t.Errorf("%s", head)
 	}
 }
 

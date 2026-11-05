@@ -166,6 +166,7 @@ directory, supervises it, and serves it on its own hostname.
        builds, and the real binary.
    - Found by slice 3:
    - Found by the final review: blocking routes one at a time left a dozen ways to production's things, such as promoting to a free name, a run's log by its ID, cloning, and build logs of every environment. Limited tokens are now deny by default, and reach only stand-alone previews named `agent-`. Variables set for every environment also reached those previews, and a preview's manifest could lower how many of production's releases are kept.
+   - Found by reviewing those fixes: an upload is long enough for its preview to be deleted under it, and what it then made was a named environment, as what it may make was decided before the upload and not after. It is now decided when it finishes.
      - A shim's physical footprint is 6.2 MB on macOS (12.6 MB resident,
        counting shared executable pages), above the 5 MB target. Linux
        figures come from CI; one shim per environment is the fallback if the
@@ -1207,10 +1208,12 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
      app's environments still share a user on Linux, so that this limits what a token can ask for, and not what its code can do. The guide says so, and that a real wall takes an app of its own.
 4. **Telling agents how.** `moor agent init`, an Agent Skill, a guide covering each client, and the website.
    - Found by the final review: `moor mcp` could upload from a home directory, and read what a link in the tree pointed at; server text reached agents without being cleaned, and what draws nothing got through what was. `moor mcp setup` could replace a signed-in context, or leave an agent with no token. All fixed.
-   - Done (slice 4): `moor agent init` writes `.agents/skills`, which Codex, Gemini CLI, VS Code and Cursor read, and `.claude/skills`, which Claude Code does. A test checks every command the instructions teach, as it does the documentation's.
+   - Done (slice 4): `moor agent init` writes `.agents/skills`, which Codex, Gemini CLI, VS Code and Cursor read, `.claude/skills`, which Claude Code does, and `.kiro/skills`, which Kiro's IDE and CLI do. A test checks every command the instructions teach, as it does the documentation's.
 5. **The engine.** Absent, not answering or ready, asked again when something wants the answer, and shown everywhere. An app that needs none is never affected, and a daemon that is down no longer marks anything stopped.
    - Done (slice 5): one `container.Source`, and a test that an app with no containers causes nothing to be asked of it. A wrapper around the real engine tests a daemon that is down at start, in CI.
    - Found by the final review: a probe held the lock that answered what had last been found, so that one hung daemon held up reads; a one-off command could be stopped as unknown; an instance could be recorded as stopped when it had not been; and an `--version` that failed once replaced the driver and lost what it tracked. All fixed, with a stand-in engine used to try what real ones will not do on demand.
+   - Found by CI on those fixes: keeping to an engine only once a container had started let a server change engines in the middle of a deployment, as an image is in the store of the engine that made it. Building or fetching now claims it.
+   - Found by reviewing those fixes: an engine with no socket says "no such file or directory", which was taken for a container that had gone; restarting as the engine came back started a second instance beside one still waiting to be found; and deleting with the engine down left a container running with no record. All fixed.
 6. **Release 0.9.0.**
 
 ## 0.10.0: services (planned)

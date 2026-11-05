@@ -96,6 +96,11 @@ func (e *InvalidNameError) Error() string { return e.Err.Error() }
 // quiesce takes an app's environments out of service, once no deployment is under way, and
 // returns with their release locks held.
 func (d *Deployer) quiesce(ctx context.Context, app string) (release func(), err error) {
+	if d.opts.Runtime != nil {
+		if err := d.opts.Runtime.EngineBlocks(ctx, app, ""); err != nil {
+			return nil, err
+		}
+	}
 	envs, err := d.db.Environments(ctx, app)
 	if err != nil {
 		return nil, err

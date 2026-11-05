@@ -31,6 +31,8 @@ type clientContext struct {
 	User   string `toml:"user,omitempty"`
 	// Agent says that moor mcp setup made this, for a coding agent. It is not what anything else should come to use by accident.
 	Agent bool `toml:"agent,omitempty"`
+	// TokenName is the name of the token that moor mcp setup made for it, which is what it replaces when it is run again here.
+	TokenName string `toml:"token_name,omitempty"`
 }
 
 // clientConfigPath is $MOOR_CONFIG, or moor's place for it on this platform.

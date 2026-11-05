@@ -724,6 +724,15 @@ func TestContainerEngineDownAtStart(t *testing.T) {
 		t.Errorf("its record, after those: %+v %v", lives, err)
 	}
 
+	// What would lose the record of a container waits too, and so does a static site that would take over from it.
+	if err := c.DeleteApp(ctx, "boxed", false); status(err) != http.StatusConflict {
+		t.Errorf("deleting it: %v", err)
+	}
+	site, _ := deploySource(t, c, "boxed", map[string]string{"index.html": "a site", "moorage.toml": "[app]\nruntime = \"static\"\n"})
+	if site.Status != "failed" || !strings.Contains(site.Error, "not answering") {
+		t.Errorf("a static site over it: %+v", site)
+	}
+
 	// With the daemon back, it finds the same container, and needs no restart.
 	if err := os.Remove(down); err != nil {
 		t.Fatal(err)
@@ -738,5 +747,44 @@ func TestContainerEngineDownAtStart(t *testing.T) {
 	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+before[0].ID).Output()
 	if err != nil || strings.TrimSpace(string(out)) == "" {
 		t.Errorf("the container: %q %v", out, err)
+	}
+}
+
+// Someone who restarts an app as the engine comes back, before the server has looked, gets one instance and not two.
+func TestContainerRestartAsTheEngineComesBack(t *testing.T) {
+	e := containerEngine(t)
+	bin, down, _ := wrappedEngine(t, e)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	t.Cleanup(func() { removeContainers(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	d, log := deploySource(t, c, "boxed", boxedApp("first", ""))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	before := instances(t, c, "boxed")
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(down, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	addrs = startWith(t, cfg, func(o *Options) { o.Tick = time.Hour; o.EngineKept = time.Millisecond })
+	c = apiClient(t, cfg, addrs)
+	if err := os.Remove(down); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Restart(ctx, "boxed", "production"); err != nil {
+		t.Fatal(err)
+	}
+	after := instances(t, c, "boxed")
+	if len(after) != len(before) || after[0].ID == before[0].ID {
+		t.Errorf("before %+v, after %+v", before, after)
+	}
+	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+before[0].ID).Output()
+	if err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Errorf("the one it replaced is still running: %q %v", out, err)
 	}
 }

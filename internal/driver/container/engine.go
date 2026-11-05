@@ -104,6 +104,13 @@ func IsNotFound(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(ee.Stderr)
+	// An engine that cannot reach its daemon says "no such file or directory" of its socket, and that says nothing of the container. A daemon that is down should not be
+	// taken for a container that has gone.
+	for _, unreachable := range []string{"cannot connect", "unable to connect", "failed to connect", "error during connect", "dial unix", "dial tcp", "connection refused", "no such file or directory", "no such host"} {
+		if strings.Contains(msg, unreachable) {
+			return false
+		}
+	}
 	return strings.Contains(msg, "no such") || strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "not known")
 }
 

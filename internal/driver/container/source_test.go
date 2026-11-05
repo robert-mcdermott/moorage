@@ -348,3 +348,24 @@ func TestTheEngineCannotHoldThingsUp(t *testing.T) {
 		t.Errorf("that took %s", took)
 	}
 }
+
+// TestADaemonThatIsDownIsNotAContainerThatHasGone: taking the one for the other marks what is running as lost, and starts another beside it.
+func TestADaemonThatIsDownIsNotAContainerThatHasGone(t *testing.T) {
+	for said, gone := range map[string]bool{
+		"Error response from daemon: No such container: moorage-connect-production-web-1-x":                 true,
+		"Error: No such object: moorage-a-b":                                                                true,
+		`Error: no container with name or ID "x" found: no such container`:                                  true,
+		"Error: x: image not known":                                                                         true,
+		"Error: No such image: example/app":                                                                 true,
+		"Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?": false,
+		`Cannot connect to Podman. Error: unable to connect to Podman socket: Get "http://d/v5/libpod/_ping": dial unix /run/user/1000/podman/podman.sock: connect: no such file or directory`:              false,
+		"failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory": false,
+		"error during connect: Get http://x: open //./pipe/docker_engine: The system cannot find the file specified.":                                                                                       false,
+		"dial tcp: lookup engine.example.com: no such host": false,
+		"something else went wrong":                         false,
+	} {
+		if got := IsNotFound(&EngineError{Stderr: said}); got != gone {
+			t.Errorf("%q: %v", said, got)
+		}
+	}
+}

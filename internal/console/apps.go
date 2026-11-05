@@ -1071,7 +1071,7 @@ func (c *Console) lifecycleFailed(w http.ResponseWriter, r *http.Request, p auth
 		rollout *reconcile.RolloutError
 	)
 	switch {
-	case errors.As(err, &busy), errors.As(err, &taken):
+	case errors.As(err, &busy), errors.As(err, &taken), errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
 		c.showAppSettings(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
 	case errors.As(err, &invalid):
 		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: sentence(err.Error())})

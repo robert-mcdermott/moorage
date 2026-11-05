@@ -106,8 +106,9 @@ const (
 	// runLimit can include pulling an image that has been removed since it was built.
 	runLimit = 10 * time.Minute
 	// stopMargin is on top of what a container has to stop.
-	stopMargin  = 30 * time.Second
-	removeLimit = time.Minute
+	stopMargin   = 30 * time.Second
+	removeLimit  = time.Minute
+	inspectLimit = 30 * time.Second
 )
 
 // tell asks the engine for what has a limit of its own.
@@ -379,7 +380,10 @@ func (d *Driver) track(s Spec, name string) (*tracked, error) {
 	}
 	t.setRedaction()
 	t.loadLog()
-	if st, err := d.inspect(ctx, name); err == nil {
+	// This holds up whoever started it, which holds its environment, and is not worth it: what it finds out, supervising finds out too.
+	asking, stopAsking := context.WithTimeout(ctx, inspectLimit)
+	defer stopAsking()
+	if st, err := d.inspect(asking, name); err == nil {
 		t.state.AppPID = st.Pid
 		if !st.StartedAt.IsZero() {
 			t.state.StartedAt = st.StartedAt.UTC()

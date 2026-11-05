@@ -169,7 +169,7 @@ engine runs as the server's user, with its usual settings: `CONTAINER_HOST` and
 | Ready | It answered | Apps can run in containers |
 
 So you can start Docker Desktop an hour later, or install Podman, with no restart. A daemon that goes down does not make Moorage think that what it was running has stopped: once it
-answers, the same containers carry on. While it is down, deploying, restarting or putting such an app to sleep says why it cannot, and changes nothing. If it stops answering while apps need it, `server.engine_down` says so, to [the rules that ask](notifications.md). A container that could not be stopped is stopped once the engine answers, or for an app that has been deleted, the next time the server starts.
+answers, the same containers carry on. While it is down, deploying, restarting, scaling, rolling back, putting such an app to sleep or deleting it says why it cannot, and changes nothing. If it stops answering while apps need it, `server.engine_down` says so, to [the rules that ask](notifications.md). A container that could not be stopped is stopped once the engine answers.
 
 Once an image has been built or fetched under an engine, the server stays with that one while anything here needs it, even if another is answering, as the image is in that engine's store. Until then, it takes whichever answers.
 

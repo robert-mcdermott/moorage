@@ -292,6 +292,13 @@ func TestWhereFilesAreReadFrom(t *testing.T) {
 		}
 	}
 
+	// On a system that does not mind the case of a name, the rules still apply.
+	if _, err := os.Stat(filepath.Join(root, "IGNORED")); err == nil {
+		if got, err := tools.below("IGNORED"); err == nil {
+			t.Errorf("in other letters: %s", got)
+		}
+	}
+
 	// What is out of the root says the same whether or not it exists, and asks the system nothing.
 	_, one := tools.below(secret)
 	_, other := tools.below(filepath.Join(base, "nothing-here"))
@@ -332,6 +339,26 @@ func TestWhereFilesAreReadFrom(t *testing.T) {
 	if _, err := tools.below("sub"); err != nil {
 		t.Errorf("links that do no harm: %v", err)
 	}
+
+	// What reads a file reads what it leads to, ignored or not, and it should be no more than could be asked for by name.
+	for _, try := range []struct{ name, to, ignore string }{
+		{"moorage.toml", file, "sub/moorage.toml\n"},
+		{"inside.toml", filepath.Join(root, ".hidden", "file"), ""},
+		{"other.toml", filepath.Join(root, "ignored", "file"), ""},
+	} {
+		os.WriteFile(filepath.Join(root, ".hidden", "file"), nil, 0o644)
+		os.WriteFile(filepath.Join(root, "ignored", "file"), nil, 0o644)
+		os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\nsub/private.txt\n"+try.ignore), 0o644)
+		link := filepath.Join(root, "sub", try.name)
+		if err := os.Symlink(try.to, link); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := tools.below("sub"); err == nil {
+			t.Errorf("%s, a link to %s: %q", try.name, try.to, got)
+		}
+		os.Remove(link)
+	}
+	os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\nsub/private.txt\n"), 0o644)
 
 	// Uploading a directory keeps to the rules of the one above, which name things by their place from there.
 	dir, err := tools.below("sub")

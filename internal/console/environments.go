@@ -11,6 +11,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -228,6 +229,8 @@ func (c *Console) environmentFailed(w http.ResponseWriter, r *http.Request, p au
 	)
 	switch {
 	case errors.As(err, &production), errors.As(err, &busy), errors.As(err, &locked), errors.As(err, &preview):
+		c.showEnvironments(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
+	case errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
 		c.showEnvironments(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
 	case errors.As(err, &invalid):
 		c.showEnvironments(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: sentence(err.Error())})

@@ -59,7 +59,9 @@ func (t *tools) below(dir string) (string, error) {
 	if err != nil || !fi.IsDir() {
 		return "", refusedInput("%s is not a directory", dir)
 	}
-	if err := t.leftOut(root, resolved); err != nil {
+	// As the directory has it: a system that does not mind the case of a name would have the rules, which do, not match.
+	resolved, err = t.leftOut(root, resolved)
+	if err != nil {
 		return "", err
 	}
 	// A link in the tree would have what reads it, such as moorage.toml, read something else.
@@ -94,39 +96,61 @@ func within(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// leftOut refuses a directory with a part that is hidden, such as .ssh, or that the root's own rules leave out of an upload.
-func (t *tools) leftOut(root, dir string) error {
-	rel, err := filepath.Rel(root, dir)
+// leftOut refuses a path with a part that is hidden, such as .ssh, or that the root's own rules leave out of an upload, or that is not a plain file or directory: a
+// junction on Windows looks like neither a link nor a directory, and resolving a path does not go through it. It gives the path as the directories have it.
+func (t *tools) leftOut(root, target string) (string, error) {
+	rel, err := filepath.Rel(root, target)
 	if err != nil || rel == "." {
-		return err
+		return target, err
 	}
 	var skip func(string, fs.DirEntry) bool
 	if t.Skip != nil {
 		if skip, err = t.Skip(root); err != nil {
-			return err
+			return "", err
 		}
 	}
 	path := root
 	sofar := ""
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		part = nameIn(path, part)
 		path, sofar = filepath.Join(path, part), pathpkg.Join(sofar, part)
 		if strings.HasPrefix(part, ".") {
-			return refusedInput("%s is hidden, and this server does not read such directories", sofar)
+			return "", refusedInput("%s is hidden, and this server does not read such things", sofar)
 		}
-		if skip != nil {
-			fi, err := os.Lstat(path)
-			if err != nil {
-				return refusedInput("%s is not a directory here", sofar)
-			}
-			if skip(sofar, fs.FileInfoToDirEntry(fi)) {
-				return refusedInput("%s is left out of uploads by this directory's ignore rules", sofar)
-			}
+		fi, err := os.Lstat(path)
+		if err != nil {
+			return "", refusedInput("%s is not here", sofar)
+		}
+		if fi.Mode()&fs.ModeIrregular != 0 {
+			return "", refusedInput("%s is not a plain directory", sofar)
+		}
+		if skip != nil && skip(sofar, fs.FileInfoToDirEntry(fi)) {
+			return "", refusedInput("%s is left out of uploads by this directory's ignore rules", sofar)
 		}
 	}
-	return nil
+	return path, nil
 }
 
-// linksStayIn refuses a tree with a link that leads out of root. What an upload leaves out does not count: a virtual environment is full of them, and nothing reads it.
+// nameIn is a name as a directory has it, which on some systems need not be as it was asked for.
+func nameIn(dir, name string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return name
+	}
+	found := name
+	for _, e := range entries {
+		if e.Name() == name {
+			return name
+		}
+		if strings.EqualFold(e.Name(), name) {
+			found = e.Name()
+		}
+	}
+	return found
+}
+
+// linksStayIn refuses a tree with a link that leads out of root, or to something hidden within it. What an upload leaves out does not count, unless it is a link to a file:
+// a virtual environment is full of links and nothing reads it, and moorage.toml can be ignored and be read all the same.
 func (t *tools) linksStayIn(root, dir string) error {
 	var skip func(string, fs.DirEntry) bool
 	if t.Skip != nil {
@@ -153,18 +177,37 @@ func (t *tools) linksStayIn(root, dir string) error {
 		if err != nil {
 			return err
 		}
-		if d.Name() == ".git" || skip != nil && skip(filepath.ToSlash(rel), d) {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+		ignored := d.Name() == ".git" || skip != nil && skip(filepath.ToSlash(rel), d)
+		if ignored && d.IsDir() {
+			return fs.SkipDir
+		}
+		if d.Type()&fs.ModeIrregular != 0 && !ignored {
+			return refusedInput("%s is not a plain file or directory", filepath.ToSlash(rel))
 		}
 		if d.Type()&fs.ModeSymlink == 0 {
 			return nil
 		}
 		// One that leads nowhere reads nothing.
-		if target, err := filepath.EvalSymlinks(path); err == nil && !within(root, target) {
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil
+		}
+		fi, err := os.Stat(target)
+		if err != nil {
+			return nil
+		}
+		// What an upload leaves out does not matter if it is a directory, which nothing reads as a file. A virtual environment may be one.
+		if ignored && fi.IsDir() {
+			return nil
+		}
+		if !within(root, target) {
 			return refusedInput("%s is a link that leads out of the directory this server reads from", filepath.ToSlash(rel))
+		}
+		// What reads a file would read what it leads to, which should be no more than could be asked for by name.
+		if !fi.IsDir() {
+			if _, err := t.leftOut(root, target); err != nil {
+				return refusedInput("%s is a link to something that this server does not read", filepath.ToSlash(rel))
+			}
 		}
 		return nil
 	})

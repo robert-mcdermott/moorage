@@ -3,9 +3,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/archive"
 	"github.com/robert-mcdermott/moorage/internal/client"
 )
 
@@ -331,5 +334,121 @@ func TestALimitedTokenMakesOnlySoManyPreviews(t *testing.T) {
 	}
 	if _, err := admin.Environments(ctx, "none"); status(err) != http.StatusNotFound {
 		t.Errorf("that app: %v", err)
+	}
+}
+
+// TestAnUploadThatTakesItsTimeMakesOnlyAPreview: an upload can take as long as its sender likes, and what it may make is decided when it finishes. Deleting the preview
+// while it was under way used to leave a named environment, with the variables of every environment and no end to it.
+func TestAnUploadThatTakesItsTimeMakesOnlyAPreview(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	admin := apiClient(t, cfg, addrs)
+	api := caller{t, cfg, addrs}
+	ctx := context.Background()
+	deployedSource(t, admin, "shop", appManifest(""))
+	if _, err := admin.ChangeVars(ctx, "shop", "production", apitypes.VarsChange{AllEnvs: true, Set: []apitypes.VarSet{{Name: "SHARED_PLAIN", Value: "app-wide-plain-value"}}}); err != nil {
+		t.Fatal(err)
+	}
+	secret, agent := limitedToken(t, admin, addrs, "shop")
+	site := map[string]string{"index.html": "<p>hello</p>\n", "moorage.toml": "[app]\nruntime = \"static\"\n"}
+	if d := deployFrom(t, agent, "shop", "agent-slow", site); d.Status != apitypes.StatusLive {
+		t.Fatalf("%+v", d)
+	}
+
+	// An upload, of which the last of it is held back.
+	var packed bytes.Buffer
+	body := multipart.NewWriter(&packed)
+	part, err := body.CreateFormField(apitypes.SourcePart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := archive.Write(part, writeSite(t, site), nil); err != nil {
+		t.Fatal(err)
+	}
+	body.Close()
+	reader, writer := io.Pipe()
+	req, err := http.NewRequest(http.MethodPost, "http://"+addrs.HTTP.String()+"/api/v1/apps/shop/envs/agent-slow/deployments", reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = cfg.ConsoleHost
+	req.Header.Set("Authorization", "Bearer "+secret)
+	req.Header.Set("Content-Type", body.FormDataContentType())
+	answered := make(chan *http.Response, 1)
+	go func() {
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Error(err)
+			answered <- nil
+			return
+		}
+		answered <- res
+	}()
+	data := packed.Bytes()
+	if _, err := writer.Write(data[:len(data)/2]); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Under its feet, the preview goes.
+	if code, got := api.do(secret, http.MethodDelete, "/api/v1/apps/shop/envs/agent-slow", ""); code/100 != 2 {
+		t.Fatalf("deleting it: %d %s", code, got)
+	}
+	if _, err := writer.Write(data[len(data)/2:]); err != nil {
+		t.Fatal(err)
+	}
+	writer.Close()
+	res := <-answered
+	if res == nil {
+		return
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("the upload: %d", res.StatusCode)
+	}
+	e, err := admin.Environment(ctx, "shop", "agent-slow")
+	if err != nil || e.Kind != "preview" || !e.StandsAlone || e.ExpiresAt.IsZero() {
+		t.Errorf("what it made: %+v %v", e, err)
+	}
+
+	// Nor can it deploy to what has become something else while it was at it.
+	if _, err := admin.CreateEnvironment(ctx, "shop", apitypes.NewEnvironment{Name: "agent-named"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := agent.DeploySource(ctx, "shop", "agent-named", writeSite(t, site), nil); status(err) != http.StatusForbidden {
+		t.Errorf("deploying to a named one: %v", err)
+	}
+}
+
+// TestAHostIsNotALimitedTokensToRead: what a server's own numbers say is for those who look after it, and a token limited to previews is not, whoever made it.
+func TestAHostIsNotALimitedTokensToRead(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	admin := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	made, err := admin.CreateToken(ctx, apitypes.NewToken{Name: "agent", Scopes: []string{"deploy"}, Envs: "previews"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := admin.CreateToken(ctx, apitypes.NewToken{Name: "full", Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(secret string) string {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, "http://"+addrs.HTTP.String()+"/metrics", nil)
+		req.Host = cfg.ConsoleHost
+		req.Header.Set("Authorization", "Bearer "+secret)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		return string(body)
+	}
+	waitUntil(t, "the server's numbers", func() bool { return strings.Contains(read(full.Secret), "moorage_host_") })
+	if got := read(made.Secret); strings.Contains(got, "moorage_host_") {
+		t.Errorf("%.300s", got)
 	}
 }

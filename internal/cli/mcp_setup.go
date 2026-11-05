@@ -68,15 +68,20 @@ var agentClients = map[string]agentClientSetup{
 	"cline": {name: "Cline", command: func(moor []string) []string {
 		return append([]string{"cline", "mcp", "add", "moorage", "--yes", "--"}, moor...)
 	}},
-	"cursor":         {name: "Cursor", file: "~/.cursor/mcp.json", format: "mcpServers"},
-	"antigravity":    {name: "Antigravity CLI", file: "~/.gemini/config/mcp_config.json", format: "mcpServers"},
-	"devin":          {name: "Devin Desktop, formerly Windsurf", file: "~/.config/devin/mcp_config.json", format: "mcpServers"},
-	"junie":          {name: "Junie", file: "~/.junie/mcp/mcp.json", format: "mcpServers"},
+	"cursor":      {name: "Cursor", file: "~/.cursor/mcp.json", format: "mcpServers"},
+	"antigravity": {name: "Antigravity CLI", file: "~/.gemini/config/mcp_config.json", format: "mcpServers"},
+	"devin":       {name: "Devin Desktop, formerly Windsurf", file: "~/.config/devin/mcp_config.json", format: "mcpServers"},
+	"junie":       {name: "Junie", file: "~/.junie/mcp/mcp.json", format: "mcpServers"},
+	// The IDE and the CLI read the one file. The CLI's own command takes the server as a single string, and does not say how it splits one with flags in it.
+	"kiro":           {name: "Kiro, IDE and CLI", file: "~/.kiro/settings/mcp.json", format: "mcpServers"},
 	"jetbrains":      {name: "JetBrains AI Assistant", file: "Settings, Tools, AI Assistant, Model Context Protocol (MCP), Add", format: "mcpServers"},
 	"claude-desktop": {name: "Claude Desktop", file: "claude_desktop_config.json", format: "mcpServers"},
 	"zed":            {name: "Zed", file: "its settings, under context_servers", format: "zed"},
 	"goose":          {name: "Goose", file: "~/.config/goose/config.yaml, under extensions", format: "goose"},
 }
+
+// agentClientAliases are other names that people will look for a client by.
+var agentClientAliases = map[string]string{"kiro-cli": "kiro", "kiro-ide": "kiro"}
 
 func agentClientNames() []string {
 	names := make([]string, 0, len(agentClients))
@@ -115,6 +120,9 @@ what an agent makes from production altogether, give it an app of its own with -
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var setup agentClientSetup
 			if clientName != "" {
+				if name, ok := agentClientAliases[clientName]; ok {
+					clientName = name
+				}
 				var ok bool
 				if setup, ok = agentClients[clientName]; !ok {
 					return usageError{fmt.Errorf("no client named %s: they are %s", clientName, strings.Join(agentClientNames(), ", "))}
@@ -163,10 +171,6 @@ what an agent makes from production altogether, give it an app of its own with -
 				return err
 			}
 			// The new one first, so that failing here leaves an agent with what it had.
-			existing, err := c.Tokens(cmd.Context())
-			if err != nil {
-				return err
-			}
 			name, secret, err := makeAgentToken(cmd.Context(), c, ctxName, app, envs, deploy, lifetime)
 			if err != nil {
 				return err
@@ -175,18 +179,17 @@ what an agent makes from production altogether, give it an app of its own with -
 				cfg.Contexts = map[string]clientContext{}
 			}
 			serverURL = strings.TrimSuffix(serverURL, "/")
-			cfg.Contexts[ctxName] = clientContext{Server: serverURL, Token: secret, CACert: caCert, User: "a coding agent", Agent: true}
+			cfg.Contexts[ctxName] = clientContext{Server: serverURL, Token: secret, CACert: caCert, User: "a coding agent", Agent: true, TokenName: name}
 			if err := cfg.save(); err != nil {
 				if _, undo := c.RevokeToken(cmd.Context(), name); undo != nil {
 					return fmt.Errorf("%w, and the token %s that was made for it could not be revoked: %v", err, name, undo)
 				}
 				return err
 			}
-			for _, t := range existing {
-				if isAgentToken(t.Name, ctxName) {
-					if _, err := c.RevokeToken(cmd.Context(), t.Name); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "The token %s it replaces could not be revoked, and works until it expires: %v\n", t.Name, err)
-					}
+			// Only the one this context held. Another with a name like it may be another machine's.
+			if had && before.Server == serverURL && before.TokenName != "" {
+				if _, err := c.RevokeToken(cmd.Context(), before.TokenName); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "The token %s it replaces could not be revoked, and works until it expires: %v\n", before.TokenName, err)
 				}
 			}
 			if had && before.Server != serverURL {
@@ -230,22 +233,6 @@ func makeAgentToken(ctx context.Context, c *client.Client, ctxName, app, envs st
 		return "", "", err
 	}
 	return name, made.Secret, nil
-}
-
-// isAgentToken says that a token's name is one that makeAgentToken gave for this context, and not for another whose name starts the same.
-func isAgentToken(name, ctxName string) bool {
-	rest, ok := strings.CutPrefix(name, agentTokenPrefix+ctxName)
-	if !ok {
-		return false
-	}
-	if rest == "" {
-		return true
-	}
-	stamp, ok := strings.CutPrefix(rest, ".")
-	if !ok || stamp == "" {
-		return false
-	}
-	return strings.Trim(stamp, "0123456789") == ""
 }
 
 func describeAgent(app, envs string, deploy bool) string {

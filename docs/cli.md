@@ -72,7 +72,7 @@ Tell coding agents how to use Moorage
 
 ### `moor agent init`
 
-Add instructions for coding agents to the repository in DIR (default: the current directory): a section of AGENTS.md, and an Agent Skill in .agents/skills and .claude/skills. They teach an agent to deploy and look at this app with moor or moor mcp, and what to be careful of. They hold no token, so they can be committed. Running this again brings them up to date, and leaves the rest of AGENTS.md as it was.
+Add instructions for coding agents to the repository in DIR (default: the current directory): a section of AGENTS.md, and an Agent Skill in .agents/skills, .claude/skills and .kiro/skills. They teach an agent to deploy and look at this app with moor or moor mcp, and what to be careful of. They hold no token, so they can be committed. Running this again brings them up to date, and leaves the rest of AGENTS.md as it was.
 
 ```text
 moor agent init [DIR]
@@ -1080,7 +1080,7 @@ By default the token can only read. With --deploy it can also deploy, roll back 
 
 Running this again replaces the token. With --client, it runs that client's own command where it has one, or says what to put where. Without, it lists them all.
 
-The clients are: antigravity, claude-code, claude-desktop, cline, codex, cursor, devin, gemini, goose, jetbrains, junie, vscode, zed.
+The clients are: antigravity, claude-code, claude-desktop, cline, codex, cursor, devin, gemini, goose, jetbrains, junie, kiro, vscode, zed.
 
 Code an agent deploys runs on your server. On Linux, an app's environments share a user, so a preview's code can read production's data. To keep what an agent makes from production altogether, give it an app of its own with --app.
 

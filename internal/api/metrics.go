@@ -94,6 +94,6 @@ func Prometheus(db *store.DB, authn *auth.Service, m *metrics.Store) http.Handle
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		m.WriteProm(w, envs, p.Admin && p.App == "")
+		m.WriteProm(w, envs, p.Admin && p.App == "" && p.Envs == "")
 	})
 }

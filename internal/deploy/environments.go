@@ -266,6 +266,11 @@ func (d *Deployer) DeleteEnvironment(ctx context.Context, app, env, by string) e
 	if err != nil {
 		return err
 	}
+	if d.opts.Runtime != nil {
+		if err := d.opts.Runtime.EngineBlocks(ctx, app, env); err != nil {
+			return err
+		}
+	}
 	d.cancelRuns(app, env)
 	runIDs, err := d.db.RunIDs(ctx, app, env)
 	if err != nil {

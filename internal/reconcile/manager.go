@@ -442,36 +442,38 @@ func (m *Manager) adoptPending(ctx context.Context) {
 		return
 	}
 	for _, li := range pending {
-		plan, err := readPlan(li.Build)
-		if err != nil {
-			m.log.Error("cannot read the plan of a container", "instance", li.ID, "err", err)
-			m.dropPending(li.ID)
-			continue
-		}
 		es := m.env(li.App, li.Env)
 		if !es.rollout.TryLock() {
-			continue // a rollout is under way: the next look gets it
+			continue // a rollout is under way: the next look gets it, if the rollout has not
 		}
-		m.dropPending(li.ID)
-		err = m.adoptOne(ctx, li, plan)
-		if err == nil {
-			for _, in := range es.list() {
-				if in.id == li.ID {
-					m.watch(es, in)
-				}
-			}
-			// Whichever release is current now, which need not be the one this was running.
-			if rel, _, err := m.db.CurrentRelease(ctx, li.App, li.Env); err == nil {
-				es.serve(rel.ID)
-			}
-		}
+		m.adoptWaiting(ctx, es, li)
 		es.rollout.Unlock()
-		if err != nil {
-			m.log.Error("cannot adopt a container", "instance", li.ID, "err", err)
-		}
 	}
 	if len(m.pendingContainers()) == 0 {
 		m.stopUnknownContainers(ctx)
+	}
+}
+
+// adoptWaiting takes over one instance that was waiting for the engine. It takes the environment's rollout lock being held, and what cannot yet be found out goes on waiting.
+func (m *Manager) adoptWaiting(ctx context.Context, es *envState, li store.LiveInstance) {
+	m.dropPending(li.ID)
+	plan, err := readPlan(li.Build)
+	if err != nil {
+		m.log.Error("cannot read the plan of a container", "instance", li.ID, "err", err)
+		return
+	}
+	if err := m.adoptOne(ctx, li, plan); err != nil {
+		m.log.Error("cannot adopt a container", "instance", li.ID, "err", err)
+		return
+	}
+	for _, in := range es.list() {
+		if in.id == li.ID {
+			m.watch(es, in)
+		}
+	}
+	// Whichever release is current now, which need not be the one this was running.
+	if rel, _, err := m.db.CurrentRelease(ctx, li.App, li.Env); err == nil {
+		es.serve(rel.ID)
 	}
 }
 
@@ -512,6 +514,36 @@ func (m *Manager) containerDriver(ctx context.Context) (*container.Driver, error
 // before. Going on without it would stop nothing and record that it had.
 func (m *Manager) engineFor(ctx context.Context, es *envState, plan manifest.Plan) error {
 	if !m.needsEngine(es, plan) {
+		return nil
+	}
+	if err := m.opts.Containers.Status(ctx).Err(); err != nil {
+		return err
+	}
+	// What was waiting for it is found now, or whatever comes next starts another beside it. The rollout lock is held.
+	for _, li := range m.pendingContainers() {
+		if li.App == es.app && li.Env == es.env {
+			m.adoptWaiting(ctx, es, li)
+		}
+	}
+	if m.isPending(es.app, es.env) {
+		return fmt.Errorf("%w: it has not said yet what %s of %s is running", container.ErrNotAnswering, es.env, es.app)
+	}
+	return nil
+}
+
+// EngineBlocks says why what is running in an environment could not be stopped, or with no environment, in any of an app's. Whatever is about to
+// remove the record of a container asks this first, as it would otherwise run on with nothing to say that it should stop.
+func (m *Manager) EngineBlocks(ctx context.Context, app, env string) error {
+	needs := slices.ContainsFunc(m.pendingContainers(), func(li store.LiveInstance) bool { return li.App == app && (env == "" || li.Env == env) })
+	for _, es := range m.allEnvs() {
+		if needs {
+			break
+		}
+		if es.app == app && (env == "" || es.env == env) {
+			needs = slices.ContainsFunc(es.list(), func(in *instance) bool { return in.container })
+		}
+	}
+	if !needs {
 		return nil
 	}
 	return m.opts.Containers.Status(ctx).Err()
@@ -628,7 +660,11 @@ func (m *Manager) ensure(ctx context.Context) {
 	wanted := false
 	for _, r := range routes {
 		plan, err := readPlan(r.Build)
-		if err != nil || plan.Kind != manifest.KindProcess {
+		if err != nil {
+			continue
+		}
+		if plan.Kind != manifest.KindProcess {
+			wanted = m.retireLeaving(ctx, r) || wanted
 			continue
 		}
 		es := m.env(r.App, r.Env)
@@ -658,6 +694,27 @@ func (m *Manager) ensure(ctx context.Context) {
 	if !wanted {
 		m.noteEngineNotNeeded(ctx)
 	}
+}
+
+// retireLeaving stops what an environment that now serves a static site could not stop before, and says whether there was any.
+func (m *Manager) retireLeaving(ctx context.Context, r store.Route) bool {
+	es := m.env(r.App, r.Env)
+	var leaving []*instance
+	for _, in := range es.list() {
+		if in.leaving.Load() {
+			leaving = append(leaving, in)
+		}
+	}
+	if len(leaving) == 0 {
+		return false
+	}
+	st := m.opts.Containers.Status(ctx)
+	m.noteEngine(ctx, st)
+	if st.Ready() && es.rollout.TryLock() {
+		m.retire(es, leaving, 0)
+		es.rollout.Unlock()
+	}
+	return true
 }
 
 // ensureRoute brings one environment to what it should be running now. It takes the

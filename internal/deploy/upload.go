@@ -106,7 +106,7 @@ func storeBuild(ctx context.Context, db *store.DB, dataDir, app string, planned 
 	ok = true
 
 	// The app is created only once the upload is known to be good.
-	appID, created, err := db.EnsureApp(ctx, app)
+	appID, created, err := ensureApp(ctx, db, app)
 	if err != nil {
 		os.RemoveAll(final)
 		return store.Build{}, false, err

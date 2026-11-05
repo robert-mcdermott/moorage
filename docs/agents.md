@@ -23,10 +23,13 @@ That makes a token that can only read, keeps it in a context of its own, and tel
 | Antigravity CLI | `antigravity` | `~/.gemini/config/mcp_config.json` | [MCP](https://antigravity.google/docs/mcp/) |
 | Devin Desktop, formerly Windsurf | `devin` | `~/.config/devin/mcp_config.json` | [MCP](https://docs.devin.ai/desktop/cascade/mcp) |
 | Junie | `junie` | `~/.junie/mcp/mcp.json` | [MCP](https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html) |
+| Kiro, IDE and CLI | `kiro` | `~/.kiro/settings/mcp.json` | [MCP](https://kiro.dev/docs/mcp/configuration/) |
 | JetBrains AI Assistant | `jetbrains` | Settings, Tools, AI Assistant, Model Context Protocol (MCP) | [MCP](https://www.jetbrains.com/help/ai-assistant/mcp.html) |
 | Zed | `zed` | Its settings, under `context_servers` | [MCP](https://zed.dev/docs/ai/mcp) |
 | Goose | `goose` | `~/.config/goose/config.yaml` | [Extensions](https://goose-docs.ai/docs/getting-started/using-extensions) |
 | Claude Desktop | `claude-desktop` | `claude_desktop_config.json` | [MCP](https://modelcontextprotocol.io/docs/develop/connect-local-servers) |
+
+Kiro's IDE and `kiro-cli` read the one file, so that setting up either sets up both, and `kiro-cli` and `kiro-ide` are other names for `--client kiro`. It says what to put in that file, and not to run `kiro-cli mcp add`, which takes a server as one string and does not document how to give it the server's own flags. `KIRO_HOME` moves that file if you have set it. Kiro's `autoApprove` skips its prompts for the tools it lists, so that it is best to leave `deploy`, `rollback` and `restart` off.
 
 These were each read from the client's own documentation in November 2026, and these tools change quickly, so that their pages have the last word. Clients that take only a remote server, such as ChatGPT, cannot use it yet, as `moor mcp` runs on your own computer.
 
@@ -84,7 +87,7 @@ An agent does better knowing what Moorage is, and what to be careful of:
 moor agent init --app shop
 ```
 
-That writes a section of `AGENTS.md`, and an [Agent Skill](https://agentskills.io/home) in `.agents/skills` and `.claude/skills`, which between them most clients read. They teach `moor` and the tools, and hold no token, so that you can commit them. Running it again brings them up to date, and leaves the rest of `AGENTS.md` as it was.
+That writes a section of `AGENTS.md`, and an [Agent Skill](https://agentskills.io/home) in `.agents/skills`, `.claude/skills` and `.kiro/skills`, which between them most clients read. They teach `moor` and the tools, and hold no token, so that you can commit them. Running it again brings them up to date, and leaves the rest of `AGENTS.md` as it was.
 
 Claude Code reads `AGENTS.md` only where there is no `CLAUDE.md`. It finds the skill either way, or you can add `@AGENTS.md` to `CLAUDE.md`.
 

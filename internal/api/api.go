@@ -20,6 +20,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/forge"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
@@ -129,9 +130,13 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Send the deploy as multipart/form-data with a plan part and an archive part.")
 		return
 	}
-	// As late as can be, so that what is refused leaves nothing behind.
-	madePreview := func() bool {
-		return who(r).Envs != auth.EnvsPreviews || !s.environmentFailed(w, s.deployer.EnsurePreviewAlone(r.Context(), app, env))
+	// What such a token makes is decided when its upload has finished, as much can change while it takes as long as it likes. This says now if it could not.
+	ctx := r.Context()
+	if who(r).Envs == auth.EnvsPreviews {
+		ctx = deploy.ForStandAlone(ctx)
+		if s.environmentFailed(w, s.deployer.CheckPreviewAlone(ctx, app, env)) {
+			return
+		}
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, deploy.MaxUpload)
 	mr, err := r.MultipartReader()
@@ -165,15 +170,9 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 					problem(w, http.StatusConflict, "no_container_engine", sentenceOf(errors.New(st.Problem())))
 					return
 				}
-				if !madePreview() {
-					return
-				}
-				dep, created, err = s.deployer.SubmitImage(r.Context(), app, env, who(r).Name, image, part)
+				dep, created, err = s.deployer.SubmitImage(ctx, app, env, who(r).Name, image, part)
 			} else {
-				if !madePreview() {
-					return
-				}
-				dep, created, err = s.deployer.Submit(r.Context(), app, env, who(r).Name, part)
+				dep, created, err = s.deployer.Submit(ctx, app, env, who(r).Name, part)
 			}
 			var invalid *deploy.InvalidUploadError
 			var locked *deploy.LockedError
@@ -184,8 +183,7 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 			case errors.As(err, &locked):
 				problem(w, http.StatusConflict, "locked", sentenceOf(err))
 				return
-			case err != nil:
-				s.internal(w, err)
+			case s.environmentFailed(w, err):
 				return
 			}
 			s.log.Info("deployment queued", "app", app, "env", env, "deployment", dep.ID)
@@ -220,20 +218,16 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 				problem(w, http.StatusBadRequest, "missing_plan", "Send the plan part before the archive.")
 				return
 			}
-			if !madePreview() {
-				return
-			}
-			build, created, err := deploy.Upload(r.Context(), s.db, s.dataDir, app, *plan, part)
+			build, created, err := deploy.Upload(ctx, s.db, s.dataDir, app, *plan, part)
 			var invalid *deploy.InvalidUploadError
 			switch {
 			case errors.As(err, &invalid):
 				problem(w, http.StatusUnprocessableEntity, "invalid_upload", err.Error())
 				return
-			case err != nil:
-				s.internal(w, err)
+			case s.environmentFailed(w, err):
 				return
 			}
-			rel, dep, err := s.deployer.Publish(r.Context(), deploy.PublishRequest{
+			rel, dep, err := s.deployer.Publish(ctx, deploy.PublishRequest{
 				App: app, Env: env, By: who(r).Name, Source: plan.Kind + "-upload", Reason: "deploy", Build: build, Plan: *plan,
 			})
 			if s.publishFailed(w, err) {
@@ -271,6 +265,11 @@ func (s *Server) publishFailed(w http.ResponseWriter, err error) bool {
 			Title: "Deployment failed", Status: http.StatusUnprocessableEntity, Code: "rollout_failed",
 			Detail: rollout.Message + "; the previous release keeps serving", Output: rollout.Output,
 		})
+		return true
+	}
+	// An engine that does not answer stops a rollback or a change of variables as it does anything else.
+	if errors.Is(err, container.ErrNotAnswering) || errors.Is(err, container.ErrNoEngine) {
+		problem(w, http.StatusConflict, "no_container_engine", sentenceOf(err))
 		return true
 	}
 	s.internal(w, err)

@@ -189,6 +189,9 @@ func (m *Manager) Scale(ctx context.Context, app, env string, change map[string]
 	if plan.Kind != manifest.KindProcess {
 		return nil, &ScaleError{app + " is a static site; it has no processes to scale"}
 	}
+	if err := m.engineFor(ctx, es, plan); err != nil {
+		return nil, err
+	}
 	kind, err := m.db.EnvKind(ctx, app, env)
 	if err != nil {
 		return nil, err

@@ -402,6 +402,10 @@ func (s *Server) stillAllowed(ctx context.Context, r *http.Request, rt route, ap
 	if refused(rt, p, app) != "" {
 		return false
 	}
+	// A preview can go, and another with its name be something else.
+	if msg, err := s.refusedByEnvs(r, rt, p, app); err == nil && msg != "" {
+		return false
+	}
 	if app == "" {
 		return true
 	}
