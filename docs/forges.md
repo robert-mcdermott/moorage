@@ -64,7 +64,7 @@ repository, and sets the checks and comments. It is kept sealed, and is not show
 | Forge | What it needs |
 |---|---|
 | GitHub | A fine-grained token for the repository: Contents to read, Commit statuses and Pull requests to read and write |
-| GitLab | A project access token with the `api` scope, as a Developer |
+| GitLab | A project access token with the `api` scope, as a Maintainer: a Developer cannot set a check on a protected branch, such as the default one |
 | Gitea | A token with `read:repository`, `write:repository` and `write:issue` |
 
 A token only goes to the forge it was given for. Changing the repository's address, or `--api-url`, without giving a token

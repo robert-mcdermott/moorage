@@ -196,7 +196,9 @@ func (s *Service) interrupted() {
 			continue
 		}
 		if c, err := s.DB.ForgeOfAppID(s.Life, pull.AppID); err == nil {
-			s.report(s.Life, s.remoteOf(c), pull.HeadSHA, StateFailure, s.AppURL(c.App), "The server stopped while this was being built")
+			r := s.remoteOf(c)
+			r.Pull = pull.Number
+			s.report(s.Life, r, pull.HeadSHA, StateFailure, s.AppURL(c.App), "The server stopped while this was being built")
 		}
 	}
 }
@@ -616,6 +618,7 @@ func (s *Service) pullChanged(ctx context.Context, c store.ForgeConnection, even
 	pull.AppID, pull.Number, pull.Title, pull.Author, pull.FromFork, pull.HeadSHA, pull.Error, pull.UpdatedAt =
 		c.AppID, event.Number, event.Title, event.Author, event.FromFork, event.Head, "", time.Now().UTC()
 	remote := s.remoteOf(c)
+	remote.Pull = pull.Number
 	if event.Member && !event.FromFork {
 		return s.buildPull(ctx, c, remote, pull, "")
 	}
@@ -648,6 +651,7 @@ func (s *Service) comment(ctx context.Context, r Remote, pull *store.ForgePull, 
 
 // buildPull builds a pull request's preview. If only one commit was approved, then what is there now has to be that one.
 func (s *Service) buildPull(ctx context.Context, c store.ForgeConnection, remote Remote, pull store.ForgePull, approved string) error {
+	remote.Pull = pull.Number
 	pull.State = store.PullBuilding
 	if err := s.DB.SetForgePull(ctx, pull); err != nil {
 		return err

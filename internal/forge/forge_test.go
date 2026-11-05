@@ -355,3 +355,31 @@ func TestCheckToken(t *testing.T) {
 		t.Errorf("a request with nothing in it says it has %q", header.Get("Content-Type"))
 	}
 }
+
+// GitLab looks for a branch that holds a commit, and none of its project's holds one from a fork.
+func TestCheckOnACommitFromAFork(t *testing.T) {
+	var bodies []map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		if body["ref"] == "" {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	fork := Remote{Kind: GitLab, APIURL: srv.URL, Repo: "acme/shop", Token: "tok", Pull: 7}
+	if err := fork.SetStatus(ctx, commitA, StatePending, "https://x/", "waiting"); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || bodies[1]["ref"] != "refs/merge-requests/7/head" || bodies[1]["state"] != StatePending {
+		t.Errorf("%+v", bodies)
+	}
+	bodies = nil
+	// With no pull request, there is nowhere else to say that it is.
+	branch := Remote{Kind: GitLab, APIURL: srv.URL, Repo: "acme/shop", Token: "tok"}
+	if err := branch.SetStatus(ctx, commitA, StateSuccess, "https://x/", "live"); err == nil || len(bodies) != 1 {
+		t.Errorf("%v %+v", err, bodies)
+	}
+}

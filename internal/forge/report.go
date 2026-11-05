@@ -24,6 +24,8 @@ const (
 type Remote struct {
 	Kind, APIURL, Repo, Token string
 	Client                    *http.Client
+	// Pull is the pull request that what is being said is about, if it is about one.
+	Pull int
 }
 
 // Where finds a forge's kind, the address of its API and the repository's path there, from the repository's address.
@@ -127,9 +129,15 @@ func (r Remote) SetStatus(ctx context.Context, sha, state, target, description s
 		if state == StateFailure {
 			state = "failed"
 		}
-		_, err := r.send(ctx, http.MethodPost, "/projects/"+url.PathEscape(r.Repo)+"/statuses/"+sha, map[string]string{
-			"state": state, "name": "moorage", "target_url": target, "description": description,
-		})
+		path := "/projects/" + url.PathEscape(r.Repo) + "/statuses/" + sha
+		status := map[string]string{"state": state, "name": "moorage", "target_url": target, "description": description}
+		_, err := r.send(ctx, http.MethodPost, path, status)
+		// GitLab looks for a branch of this project that holds the commit, and one from a fork is on none: say where it is.
+		var answer *answerError
+		if errors.As(err, &answer) && answer.Code == http.StatusNotFound && r.Pull != 0 {
+			status["ref"] = "refs/merge-requests/" + strconv.Itoa(r.Pull) + "/head"
+			_, err = r.send(ctx, http.MethodPost, path, status)
+		}
 		return err
 	}
 	_, err := r.send(ctx, http.MethodPost, "/repos/"+r.Repo+"/statuses/"+sha, map[string]string{
