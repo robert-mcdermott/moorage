@@ -18,11 +18,17 @@ moor=$work/moor
 
 "$moor" server init --preset local --config "$work/server.toml" --data-dir "$work/data" > /dev/null
 sed -i.orig "s/127\.0\.0\.1:8080/127.0.0.1:$port/" "$work/server.toml"
+
+# What runs container-go, if this machine has an engine for it. The server is told, so that it is the one looked at
+# below: with two, it takes whichever answers first, and a cold Podman can be slower than Docker.
+engine=$(command -v podman || command -v docker || true)
+if [ -n "$engine" ]; then
+  grep -q '^engine = "auto"$' "$work/server.toml"
+  sed -i.orig "s|^engine = \"auto\"\$|engine = \"$engine\"|" "$work/server.toml"
+fi
+
 export MOORAGE_CONFIG=$work/server.toml
 "$moor" server run > "$work/server.log" 2>&1 &
-
-# What runs container-go, if this machine has an engine for it.
-engine=$(command -v podman || command -v docker || true)
 
 # Apps outlive the server by design: moor server stop --all stops the server,
 # wherever it runs, and its apps, in containers or not.
