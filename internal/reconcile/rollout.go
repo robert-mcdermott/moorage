@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
@@ -281,10 +280,11 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 	}
 	driver := driverNative
 	if plan.Container != nil {
-		if m.opts.Containers == nil {
-			return nil, container.ErrNoEngine
+		d, err := m.containerDriver(ctx)
+		if err != nil {
+			return nil, err
 		}
-		in.run, in.container, driver = m.opts.Containers, true, driverContainer
+		in.run, in.container, driver = d, true, driverContainer
 	}
 	in.logFile = m.logFile(es.app, es.env, name, index, in.id)
 	in.tmpDir = m.tmpDir(in.id)
@@ -318,7 +318,7 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 		if err != nil {
 			return in, err
 		}
-		st, err = m.opts.Containers.Start(ctx, spec)
+		st, err = m.opts.Containers.Driver().Start(ctx, spec)
 		if err != nil {
 			return in, fmt.Errorf("start the %s process: %w", name, err)
 		}

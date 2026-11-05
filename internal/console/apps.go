@@ -16,6 +16,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
@@ -53,8 +54,9 @@ type appView struct {
 	Asleep bool
 	// Previous is the release a rollback goes back to, if there is one to serve.
 	Previous int
-	// Engine says whether this server can run containers.
-	Engine bool
+	// Engine says whether this server can run containers, and EngineProblem why not.
+	Engine        bool
+	EngineProblem string
 }
 
 // releaseView is what an environment serves.
@@ -411,7 +413,7 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 const recentDeployments = 5
 
 func (c *Console) appView(ctx context.Context, app, env string, access auth.Access) (appView, error) {
-	view := appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: c.hasEngine()}
+	view := appView{Name: app, URL: c.cfg.EnvURL(app, env)}
 	deps, err := c.db.Deployments(ctx, app, env, recentDeployments+1)
 	if err != nil {
 		return view, err
@@ -693,7 +695,13 @@ func (c *Console) scale(w http.ResponseWriter, r *http.Request, p auth.Principal
 	http.Redirect(w, r, appAddress(app, envOf(r), "", url.Values{"done": {"scaled"}}), http.StatusSeeOther)
 }
 
-func (c *Console) hasEngine() bool { return c.deployer != nil && c.deployer.HasEngine() }
+// engineStatus says whether this server can run containers, for what needs to say so.
+func (c *Console) engineStatus(ctx context.Context) container.Status {
+	if c.deployer == nil {
+		return container.Status{State: container.Absent}
+	}
+	return c.deployer.EngineStatus(ctx)
+}
 
 // deployPage says how to deploy an app, which need not exist yet: the first deployment
 // creates it.
@@ -743,7 +751,8 @@ func (c *Console) showDeploy(w http.ResponseWriter, r *http.Request, p auth.Prin
 		d.Crumbs = append(d.Crumbs, crumb{app, "/apps/" + url.PathEscape(app)})
 	}
 	env := envOf(r)
-	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: c.hasEngine()}
+	engine := c.engineStatus(r.Context())
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: engine.Ready(), EngineProblem: sentence(engine.Problem())}
 	d.Heading = "Deploy " + app
 	d.Error = problem
 	d.Image = image

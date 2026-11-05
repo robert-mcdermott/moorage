@@ -96,6 +96,7 @@ A rule says what it wants. Without `--events` it has the first five of these:
 | `server.disk_low` | The data volume is 90% full, which only a rule of the whole server hears |
 | `server.certificate_failed` | A certificate [from a CA](tls.md#from-a-public-ca-with-acme) could not be had or renewed, which only a rule of the whole server hears |
 | `backup.failed` | A [backup](backups.md) fails, which only a rule of the whole server hears |
+| `server.engine_down` | The [container engine](containers.md#the-engine) stops answering while apps here need it, which only a rule of the whole server hears |
 | `instance.unhealthy` | An instance fails its health check |
 | `deployment.live` | A deployment goes live |
 

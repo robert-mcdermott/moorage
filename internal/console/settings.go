@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -393,7 +394,7 @@ func (c *Console) systemPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	view := settingsView{Checks: doctor.Run(r.Context(), doctor.Options{Config: c.cfg})}
+	view := settingsView{Checks: doctor.Run(r.Context(), doctor.Options{Config: c.cfg, WantsEngine: c.wantsEngine})}
 	for _, check := range view.Checks {
 		switch check.Status {
 		case doctor.Fail:
@@ -462,4 +463,9 @@ func orDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// wantsEngine says whether anything here runs in a container, for the checks to say how much that matters.
+func (c *Console) wantsEngine(ctx context.Context) bool {
+	return c.deployer != nil && c.deployer.WantsEngine(ctx)
 }

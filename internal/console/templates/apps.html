@@ -460,7 +460,7 @@
       <div class="actions"><button class="quiet" type="submit">Deploy the image</button></div>
     </form>
     {{else}}
-    <p class="muted">This server has no container engine. <a href="/welcome">Getting started</a> says more, and <code>moor server doctor</code> says what it found.</p>
+    <p class="muted">{{.App.EngineProblem}} Nothing else on this server needs one. <a href="/welcome">Getting started</a> says more, and <code>moor server doctor</code> what it found.</p>
     {{end}}
   </section>
 </div>

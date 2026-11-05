@@ -631,6 +631,29 @@
         ],
         "type": "object"
       },
+      "ContainerEngine": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
       "CreatedChannel": {
         "properties": {
           "created_at": {
@@ -2599,6 +2622,9 @@
       },
       "ServerInfo": {
         "properties": {
+          "containers": {
+            "$ref": "#/components/schemas/ContainerEngine"
+          },
           "git": {
             "$ref": "#/components/schemas/GitInfo"
           },
@@ -2608,7 +2634,8 @@
         },
         "required": [
           "version",
-          "git"
+          "git",
+          "containers"
         ],
         "type": "object"
       },

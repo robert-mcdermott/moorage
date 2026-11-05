@@ -161,6 +161,11 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 			var dep store.Deployment
 			var created bool
 			if image != "" {
+				// This one is known to need an engine before anything else is done.
+				if st := s.deployer.EngineStatus(r.Context()); !st.Ready() {
+					problem(w, http.StatusConflict, "no_container_engine", sentenceOf(errors.New(st.Problem())))
+					return
+				}
 				dep, created, err = s.deployer.SubmitImage(r.Context(), app, env, who(r).Name, image, part)
 			} else {
 				dep, created, err = s.deployer.Submit(r.Context(), app, env, who(r).Name, part)

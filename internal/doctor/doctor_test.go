@@ -357,7 +357,7 @@ func TestContainers(t *testing.T) {
 	os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in --version) echo podman version 5 ;; *) echo cannot connect >&2; exit 125 ;; esac\n"), 0o755)
 	cfg.Containers.Engine = bin
 	c := checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin"})
-	if c.Status != Fail || !strings.Contains(c.Detail, "cannot connect") || c.Fix != "podman machine start" {
+	if c.Status != Fail || !strings.Contains(c.Detail, "cannot connect") || !strings.Contains(c.Fix, "podman machine start") {
 		t.Errorf("%+v", c)
 	}
 	// Found by chance rather than named, it is a warning: only container apps need it.
@@ -366,6 +366,16 @@ func TestContainers(t *testing.T) {
 	c = checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin"})
 	if c.Status != Warn || !strings.Contains(c.Detail, "cannot connect") {
 		t.Errorf("%+v", c)
+	}
+	// And only if something here needs one.
+	wants := false
+	wanted := func(context.Context) bool { return wants }
+	if c := checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin", WantsEngine: wanted}); c.Status != Info {
+		t.Errorf("nothing needs it: %+v", c)
+	}
+	wants = true
+	if c := checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin", WantsEngine: wanted}); c.Status != Warn {
+		t.Errorf("something needs it: %+v", c)
 	}
 	cfg.Containers.Engine = bin
 	os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in --version) echo podman version 5 ;; esac\n"), 0o755)

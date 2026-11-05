@@ -19,6 +19,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"net/http"
 )
 
 const boxImage = "docker.io/library/busybox:1.37"
@@ -624,5 +625,102 @@ func TestRegistryCredentials(t *testing.T) {
 	err = Run(ctx, cfg, log, testOptions(func(Addrs) {}))
 	if err == nil || !strings.Contains(err.Error(), "master key") {
 		t.Errorf("without the master key: %v", err)
+	}
+}
+
+// wrappedEngine is the real engine behind a script that can pretend that its daemon is down, and writes down what it was asked.
+func wrappedEngine(t *testing.T, e *container.Engine) (bin, down, calls string) {
+	t.Helper()
+	dir := t.TempDir()
+	bin, down, calls = filepath.Join(dir, e.Kind), filepath.Join(dir, "down"), filepath.Join(dir, "calls")
+	script := `#!/bin/sh
+echo "$1" >> "` + calls + `"
+if [ "$1" != "--version" ] && [ -e "` + down + `" ]; then
+  echo "Cannot connect to the daemon" >&2
+  exit 125
+fi
+exec "` + e.Bin + `" "$@"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, down, calls
+}
+
+// A daemon that is down says nothing of what it was running, so its instances are not recorded as stopped, and nothing is started to take their place.
+func TestAnEngineThatIsDownAtStart(t *testing.T) {
+	e := containerEngine(t)
+	bin, down, calls := wrappedEngine(t, e)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	t.Cleanup(func() { removeContainers(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	host := "boxed." + cfg.Domain
+	d, log := deploySource(t, c, "boxed", boxedApp("first", ""))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	before := instances(t, c, "boxed")
+	if len(before) != 1 {
+		t.Fatalf("%+v", before)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(down, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	addrs, stop = start(t, cfg)
+	t.Cleanup(func() { stop() })
+	c = apiClient(t, cfg, addrs)
+	authn := testAuth(t, cfg)
+	lives, err := authn.DB.LiveInstances(ctx)
+	if err != nil || len(lives) != 1 || lives[0].ID != before[0].ID {
+		t.Errorf("its record: %+v %v", lives, err)
+	}
+	info, err := c.ServerInfo(ctx)
+	if err != nil || info.Containers.State != "not answering" || !strings.Contains(info.Containers.Problem, "start it") {
+		t.Errorf("what the server says: %+v %v", info.Containers, err)
+	}
+	waitUntil(t, "an event saying so", func() bool {
+		list, err := c.Events(ctx, "", "", 100)
+		if err != nil {
+			return false
+		}
+		for _, e := range list {
+			if e.Type == "server.engine_down" {
+				return true
+			}
+		}
+		return false
+	})
+	// Nothing is started to fail every few seconds.
+	time.Sleep(2 * time.Second)
+	if data, _ := os.ReadFile(calls); strings.Contains(string(data), "run") {
+		t.Errorf("it tried to start another:\n%s", data)
+	}
+	// A deployment of something in a container says what to do.
+	failed, _ := deploySource(t, c, "boxed", boxedApp("second", ""))
+	if failed.Status != "failed" || !strings.Contains(failed.Error, "not answering") {
+		t.Errorf("deploying: %+v", failed)
+	}
+
+	// With the daemon back, it finds the same container, and needs no restart.
+	if err := os.Remove(down); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the app to be served", func() bool {
+		res, body := get(t, addrs.HTTP, host, "/index.html")
+		return res.StatusCode == http.StatusOK && body == "first"
+	})
+	if after := instances(t, c, "boxed"); len(after) != 1 || after[0].ID != before[0].ID {
+		t.Errorf("before %+v, after %+v", before, after)
+	}
+	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+before[0].ID).Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		t.Errorf("the container: %q %v", out, err)
 	}
 }

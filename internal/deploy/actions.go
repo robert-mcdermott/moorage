@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/robert-mcdermott/moorage/internal/archive"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -54,8 +55,31 @@ func fillKeeping(upload io.Reader) func(dir string) (int, error) {
 	}
 }
 
-// HasEngine says whether this server can run containers.
-func (d *Deployer) HasEngine() bool { return d.opts.Builder != nil && d.opts.Builder.Engine != nil }
+// EngineStatus says whether this server can run containers, and why not.
+func (d *Deployer) EngineStatus(ctx context.Context) container.Status {
+	if d == nil || d.opts.Builder == nil {
+		return container.Status{State: container.Absent}
+	}
+	return d.opts.Builder.Engines.Status(ctx)
+}
+
+// WantsEngine says whether anything here runs in a container.
+func (d *Deployer) WantsEngine(ctx context.Context) bool {
+	if d == nil {
+		return false
+	}
+	routes, err := d.db.Routes(ctx)
+	if err != nil {
+		return false
+	}
+	for _, r := range routes {
+		var plan manifest.Plan
+		if json.Unmarshal(r.Build.Plan, &plan) == nil && plan.Container != nil {
+			return true
+		}
+	}
+	return false
+}
 
 // DeployImage queues the deployment of an image that comes without a manifest.
 func (d *Deployer) DeployImage(ctx context.Context, app, env, by, image string) (store.Deployment, error) {

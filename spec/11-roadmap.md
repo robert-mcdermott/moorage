@@ -1207,6 +1207,7 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
 4. **Telling agents how.** `moor agent init`, an Agent Skill, a guide covering each client, and the website.
    - Done (slice 4): `moor agent init` writes `.agents/skills`, which Codex, Gemini CLI, VS Code and Cursor read, and `.claude/skills`, which Claude Code does. A test checks every command the instructions teach, as it does the documentation's.
 5. **The engine.** Absent, not answering or ready, asked again when something wants the answer, and shown everywhere. An app that needs none is never affected, and a daemon that is down no longer marks anything stopped.
+   - Done (slice 5): one `container.Source`, and a test that an app with no containers causes nothing to be asked of it. A wrapper around the real engine tests a daemon that is down at start, in CI.
 6. **Release 0.9.0.**
 
 ## 0.10.0: services (planned)

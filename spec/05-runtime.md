@@ -342,7 +342,7 @@ A container engine is optional ([D19](12-decisions.md#d19--the-container-engine-
 | `not answering` | A program, and no daemon or machine behind it | Docker Desktop not started, `podman machine` stopped |
 | `ready` | It answered, with its kind and version | |
 
-The probe asks the daemon rather than just the program, and is killed after three seconds, which counts as `not answering`. It runs once at start, off the main path so that a hung
+The probe lists what the daemon is running, which takes the daemon and not just the program, and is killed after three seconds, which counts as `not answering`. It runs once at start, off the main path so that a hung
 daemon cannot delay anything, and again when something wants the answer, keeping it for 30 seconds. So starting Docker Desktop an hour later, or installing Podman, needs no restart. Nothing polls when
 nothing wants it. `auto` prefers one that is `ready` to the first found, and what already runs under one engine stays with it.
 
@@ -350,7 +350,7 @@ nothing wants it. `auto` prefers one that is `ready` to the first found, and wha
 |---|---|
 | Server start | One informational line, and no warning |
 | An app without services or containers | Nothing is probed and nothing differs |
-| Deploying what needs an engine | Refused before any build, saying why and what to do. What is running goes on running |
+| Deploying what needs an engine | An image is refused at once. Anything else fails as soon as it is known to need one, before it builds, saying why and what to do. What is running goes on running |
 | The console | Says it is unavailable and how to make it available |
 | The API | A capability on the server's information: its state for anyone signed in, and the reason for administrators |
 | `moor server doctor` | Informational if nothing wants an engine. A warning if something does |

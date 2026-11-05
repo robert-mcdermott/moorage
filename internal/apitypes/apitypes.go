@@ -154,6 +154,18 @@ type NewSSHKey struct {
 type ServerInfo struct {
 	Version string  `json:"version"`
 	Git     GitInfo `json:"git"`
+	// Containers says whether this server can run containers. It takes an engine that only what runs in one needs.
+	Containers ContainerEngine `json:"containers"`
+}
+
+// ContainerEngine is how a server's container engine stands: absent, not answering, or ready.
+type ContainerEngine struct {
+	State   string `json:"state"`
+	Kind    string `json:"kind,omitempty"`
+	Version string `json:"version,omitempty"`
+	// Problem says what is wrong and what to do about it, and Reason what the engine itself said, which is for administrators.
+	Problem string `json:"problem,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // GitInfo gives the prefixes of the apps' git remotes: an app's remote is

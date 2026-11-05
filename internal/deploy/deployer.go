@@ -742,7 +742,7 @@ func (d *Deployer) collect(app string, keep int) {
 	for _, b := range builds {
 		if b.ArtifactKind == "image" {
 			// Another app may use the same image: it is pulled again if so.
-			if engine := d.opts.Builder.Engine; engine != nil {
+			if engine := d.opts.Builder.Engines.Engine(); engine != nil {
 				if err := engine.RemoveImage(ctx, b.ArtifactRef); err != nil {
 					d.log.Warn("remove an old image", "app", app, "build", b.ID, "image", b.ArtifactRef, "err", err)
 				}

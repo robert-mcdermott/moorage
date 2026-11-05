@@ -9,8 +9,14 @@
 - **`moor agent init`** adds a section of `AGENTS.md` and an Agent Skill to a repository, which teach an agent to use Moorage, and what to be careful of.
 - **A token can be limited to previews,** with `moor tokens create --envs previews` or in the console. It can deploy only to previews that it makes, which take nothing of production's, and cannot ask for anything of production's. It limits what a token can ask for, and not what the code it deploys can do: [Coding agents](docs/agents.md#what-this-does-not-do) says where that stops.
 
+### Changed
+
+- **A container engine is provably optional.** An app that does not run in a container never causes the server to ask for one, and a test holds it to that. The server finds out as it starts without waiting, and again only when something wants to know, so that starting Docker Desktop later or installing Podman needs no restart. `GET /api/v1/server` says how it stands, an image is refused at once if it cannot run, and anything else that needs one fails before it builds, with what to do. See [The engine](docs/containers.md#the-engine).
+- **`auto` prefers an engine that answers** to the first one found, and what runs under one stays with it.
+
 ### Fixed
 
+- **A container engine that was down at start lost track of its containers.** Their records were marked as stopped, and new ones were started every ten seconds. Now nothing changes until it answers, when the same containers carry on, and `server.engine_down` says what is happening.
 - **Container apps lost part of their manifest.** With `runtime = "image"` or `"dockerfile"`, `[environments]`, `[[cron]]`, `[vars]` and `strip_prefix` were silently ignored: no named environment, no cron job, and no required or generated variable. They now count, and an environment's `resources` reach the engine.
 
 ## 0.8.0 (2026-11-04)

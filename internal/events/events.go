@@ -51,6 +51,8 @@ const (
 	DiskOK               = "server.disk_ok"
 	CertificateFailed    = "server.certificate_failed"
 	CertificateOK        = "server.certificate_ok"
+	EngineDown           = "server.engine_down"
+	EngineOK             = "server.engine_ok"
 	DomainAdded          = "domain.added"
 	DomainVerified       = "domain.verified"
 	DomainRemoved        = "domain.removed"
@@ -188,8 +190,10 @@ func Level(kind string) string {
 		return "warn"
 	case ThresholdOK:
 		return "ok"
-	case BackupFailed, CertificateFailed:
+	case BackupFailed, CertificateFailed, EngineDown:
 		return "fail"
+	case EngineOK:
+		return "ok"
 	case BackupDone:
 		return "ok"
 	case InstanceExited, InstanceUnhealthy, InstanceReplaced:
@@ -337,6 +341,10 @@ func Summary(e store.Event) string {
 	case ThresholdOK:
 		name, unit := thresholdWords(text(e, "metric"))
 		return fmt.Sprintf("%s is back under %v%s, at %v%s", name, e.Data["above"], unit, e.Data["value"], unit)
+	case EngineDown:
+		return "Apps here run in containers, and " + text(e, "problem")
+	case EngineOK:
+		return "The container engine is answering again"
 	case CertificateFailed:
 		return "The server could not get a certificate for " + text(e, "name") + ": " + text(e, "error")
 	case CertificateOK:

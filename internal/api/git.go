@@ -19,13 +19,18 @@ func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request) {
 		Version: buildinfo.Version,
 		Git:     apitypes.GitInfo{HTTP: s.cfg.PublicURL(s.cfg.ConsoleHost) + "/git", SSH: sshPrefix(s.cfg.Listen.SSH, s.cfg.ConsoleHost)},
 	}
+	st := s.deployer.EngineStatus(r.Context())
+	info.Containers = apitypes.ContainerEngine{State: string(st.State), Kind: st.Kind, Version: st.Version, Problem: st.Problem()}
+	if who(r).Admin {
+		info.Containers.Reason = st.Reason
+	}
 	writeJSON(w, http.StatusOK, info)
 }
 
 // serverDoctor makes the checks of moor server doctor, from the server itself.
 func (s *Server) serverDoctor(w http.ResponseWriter, r *http.Request) {
 	docs := []apitypes.Check{}
-	for _, c := range doctor.Run(r.Context(), doctor.Options{Config: s.cfg}) {
+	for _, c := range doctor.Run(r.Context(), doctor.Options{Config: s.cfg, WantsEngine: s.deployer.WantsEngine}) {
 		docs = append(docs, apitypes.Check{Name: c.Name, Status: c.Status, Detail: c.Detail, Fix: c.Fix})
 	}
 	writeJSON(w, http.StatusOK, docs)
