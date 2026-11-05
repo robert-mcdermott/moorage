@@ -431,8 +431,10 @@ func TestNginx(t *testing.T) {
 }
 
 func TestACMEConfig(t *testing.T) {
+	dataDir := t.TempDir()
+	program := filepath.Join(dataDir, "set-dns")
 	good := func() Config {
-		return Config{DataDir: "/data", Domain: "apps.example.com", Routing: "host", Listen: Listen{HTTP: ":80", HTTPS: ":443"},
+		return Config{DataDir: dataDir, Domain: "apps.example.com", Routing: "host", Listen: Listen{HTTP: ":80", HTTPS: ":443"},
 			TLS: TLS{Mode: "acme", ACME: ACME{AgreeTerms: true}}, Log: Log{Level: "info", Format: "text"}}
 	}
 	for _, c := range []struct {
@@ -453,9 +455,9 @@ func TestACMEConfig(t *testing.T) {
 			c.TLS.ACME.DNS = ACMEDNS{Provider: "rfc2136", Server: "ns", KeyName: "k", KeyFile: "/k"}
 		}, "host and a port"},
 		{"a relative command", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: "set-dns"} }, "absolute"},
-		{"a wait that is not one", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: "/set-dns", Wait: "soon"} }, "duration"},
+		{"a wait that is not one", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: program, Wait: "soon"} }, "duration"},
 		{"a resolver with no port", func(c *Config) {
-			c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: "/set-dns", Resolvers: []string{"1.1.1.1"}}
+			c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: program, Resolvers: []string{"1.1.1.1"}}
 		}, "host and a port"},
 		{"settings with no provider", func(c *Config) { c.TLS.ACME.DNS.TokenFile = "/t" }, "needs a provider"},
 		{"another mode", func(c *Config) {
@@ -463,7 +465,7 @@ func TestACMEConfig(t *testing.T) {
 			c.TLS.ACME.AgreeTerms = false
 			c.TLS.ACME.Email = "a@example.com"
 		}, "applies only to"},
-		{"a command", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: "/set-dns", Wait: "5s"} }, ""},
+		{"a command", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: program, Wait: "5s"} }, ""},
 	} {
 		cfg := good()
 		c.change(&cfg)
@@ -479,13 +481,14 @@ func TestACMEConfig(t *testing.T) {
 }
 
 func TestPublicPreset(t *testing.T) {
-	if _, err := Preset("public", PresetOptions{DataDir: "/data", AgreeTerms: true}); err == nil || !strings.Contains(err.Error(), "--domain") {
+	dataDir := t.TempDir()
+	if _, err := Preset("public", PresetOptions{DataDir: dataDir, AgreeTerms: true}); err == nil || !strings.Contains(err.Error(), "--domain") {
 		t.Errorf("with no domain: %v", err)
 	}
-	if _, err := Preset("public", PresetOptions{DataDir: "/data", Domain: "apps.example.com"}); err == nil || !strings.Contains(err.Error(), "agree_terms") {
+	if _, err := Preset("public", PresetOptions{DataDir: dataDir, Domain: "apps.example.com"}); err == nil || !strings.Contains(err.Error(), "agree_terms") {
 		t.Errorf("with no terms: %v", err)
 	}
-	c, err := Preset("public", PresetOptions{DataDir: "/data", Domain: "apps.example.com", Email: "ops@example.com", AgreeTerms: true})
+	c, err := Preset("public", PresetOptions{DataDir: dataDir, Domain: "apps.example.com", Email: "ops@example.com", AgreeTerms: true})
 	if err != nil {
 		t.Fatal(err)
 	}

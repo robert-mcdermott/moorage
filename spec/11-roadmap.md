@@ -1164,6 +1164,12 @@ A product site and full documentation, so that people can find Moorage and try i
      to allow.
 2. **ACME.** Internal ACME servers and public CAs; HTTP-01, TLS-ALPN-01 and
    DNS-01 wildcard certificates; the `public` preset.
+   - Done (slice 2): `tls.mode = "acme"`, by certmagic: a certificate for each hostname the first time it is wanted, by HTTP-01 or TLS-ALPN-01,
+     or one for the whole domain by DNS-01, through Cloudflare, RFC 2136 or a command; `moor server init --preset public`, with everything
+     but production behind a sign-in; a certificate only for what the routing table has; the doctor, the console, and
+     `server.certificate_failed` and its recovery in notifications. `.github/scripts/real-services-check.py` tries HTTP-01, TLS-ALPN-01, DNS-01 by a command
+     and by RFC 2136 against a real DNS server, a restart, and a renewal, against Pebble.
+   - Not tried: Let's Encrypt itself, which takes a server the internet can reach, and Cloudflare, which takes an account.
 3. **Exposure hardening.** An external penetration test of every public
    surface, and its fixes.
 4. **Protocols.** Cleartext HTTP/2 backends (gRPC); sticky sessions.

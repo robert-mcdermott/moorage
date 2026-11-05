@@ -1136,7 +1136,7 @@ moor notifications rules
 
 #### `moor notifications rules add`
 
-Send events to a channel: of an app, or a project, or the whole server if neither is given. Without --events it asks for failures: deployment.failed, instance.crashloop, cron.failed, server.disk\_low and backup.failed. It can also ask for instance.unhealthy and deployment.live, or for \* to have them all. A channel that is told something went wrong is also told when it has come right.
+Send events to a channel: of an app, or a project, or the whole server if neither is given. Without --events it asks for failures: deployment.failed, instance.crashloop, cron.failed, server.disk\_low, backup.failed and server.certificate\_failed. It can also ask for instance.unhealthy and deployment.live, or for \* to have them all. A channel that is told something went wrong is also told when it has come right.
 
 ```text
 moor notifications rules add

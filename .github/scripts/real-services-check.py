@@ -235,7 +235,8 @@ class Gitea:
         return number, sha
 
     def status_of(self, sha):
-        rows = request(self.base, "GET", f"/api/v1/repos/{self.owner}/{APP}/commits/{sha}/statuses", None, self.auth())
+        # The newest first, which is not what it gives if it is not asked, when two came in the same second.
+        rows = request(self.base, "GET", f"/api/v1/repos/{self.owner}/{APP}/commits/{sha}/statuses?sort=highestindex", None, self.auth())
         return next((r["status"] for r in rows if r.get("context") == "moorage"), None)
 
     def head(self, branch):
@@ -651,7 +652,7 @@ def try_acme():
                      stdout=open(work / "chall.log", "ab"), stderr=subprocess.STDOUT)
     time.sleep(1)
     start_pebble()
-    site = work / "site"
+    site = work / "acme-site"
     site.mkdir()
     (site / "index.html").write_text(page("served over a real certificate"))
 

@@ -11,8 +11,8 @@ what changes as a server grows. [Installing Moorage](install.md) comes first.
    sudo moor server doctor
    ```
 
-2. **Decide about TLS,** if you have not. An intermediate from your company's CA means nobody has to
-   [trust anything by hand](tls.md#with-your-companys-ca).
+2. **Decide about TLS,** if you have not. [A public CA](tls.md#from-a-public-ca-with-acme), or an intermediate from
+   your company's, means nobody has to [trust anything by hand](tls.md#with-your-companys-ca).
 
 3. **Keep apps apart.** On a shared Linux server, run as root and use `level = "user"` or `"sandbox"` in
    [`[isolation]`](configuration.md#isolation). `moor server doctor` and the **System** page say what you have.
@@ -124,7 +124,7 @@ not come up. See [Upgrading](install.md#upgrading).
 ## A checklist for a shared server
 
 - Isolation at `user` or `sandbox`.
-- An intermediate CA or a certificate of your own, and not a root that everyone trusts by hand.
+- Certificates from a public CA, an intermediate CA or files of your own, and not a root that everyone trusts by hand.
 - The console on its own hostname, which is the default.
 - Behind a proxy, the HTTP listener on loopback or a private address, and only the proxy's addresses in `[proxy] trusted`.
 - Few administrators, and two-factor sign-in or single sign-on for them.

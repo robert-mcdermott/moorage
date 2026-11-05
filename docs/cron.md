@@ -60,6 +60,12 @@ moor run -- python manage.py migrate
 moor run --env staging --timeout 10m -- ./seed.sh
 ```
 
+What follows `--` runs as you gave it, word for word. One word is a command line, for the shell that Moorage has built in:
+
+```bash
+moor run -- 'python manage.py migrate && python manage.py seed'
+```
+
 What it says comes back as it says it, on standard output and standard error, and `moor` ends with its
 exit status, so that a script can tell. Interrupting `moor` stops the command. `--detach` leaves it running.
 

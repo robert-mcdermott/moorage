@@ -164,6 +164,17 @@ server](tls.md)). To use your own certificates — a corporate wildcard, for ins
 intermediate CA from your corporate CA can issue certificates instead
 (`tls.ca_cert`, `tls.ca_key`).
 
+**A server on the internet** — apps at `https://<app>.<domain>`, with certificates
+from a public CA, and everything but production behind a sign-in:
+
+```bash
+sudo moor server init --preset public --domain apps.example.com --email ops@example.com --agree-terms
+```
+
+Point a wildcard DNS record at the server, and open ports 80 and 443. See
+[From a public CA, with ACME](tls.md#from-a-public-ca-with-acme), and read [Security](security.md) first: Moorage has
+not yet had an outside security review.
+
 **Behind a TLS proxy such as nginx** — Moorage serves plain HTTP on
 127.0.0.1:8080 and your proxy terminates TLS:
 

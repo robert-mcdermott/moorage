@@ -41,7 +41,9 @@ maintainer. A hostname under the server's own domain is not needed: it names its
 
 ## Certificates
 
-The CA that Moorage makes for itself vouches only for the server's own domain, so that HTTPS at another
+With `tls.mode = "acme"`, [a domain gets a certificate of its own](tls.md#from-a-public-ca-with-acme) the first time it is asked for, once its DNS points here.
+
+The CA that Moorage makes for itself vouches only for the server's own domain, so that otherwise, HTTPS at another
 hostname needs one of these:
 
 - `[tls] mode = "files"` with [a certificate](tls.md) for that hostname, or
