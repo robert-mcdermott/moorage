@@ -29,6 +29,7 @@ jobs:
       upgrade: ${{ steps.look.outputs.upgrade }}
       isolation: ${{ steps.look.outputs.isolation }}
       backup: ${{ steps.look.outputs.backup }}
+      real: ${{ steps.look.outputs.real }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -282,6 +283,23 @@ jobs:
           docker logs s3 | tail -n 5
       - name: Try it
         run: python3 .github/scripts/backup-check.py "$PWD/moor-check" http://127.0.0.1:9000
+
+  real-services:
+    # Tries a real server against the real services it talks to: Gitea with real webhooks and a real fork, an OpenTelemetry
+    # collector, and a syslog server, each reading what it sends with its own parser.
+    name: Real services
+    needs: changes
+    if: needs.changes.outputs.real == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build moor
+        run: go build -o moor-check ./cmd/moor
+      - name: Try it
+        run: python3 .github/scripts/real-services-check.py "$PWD/moor-check" gitea telemetry
 
   isolation:
     # Runs a real server as root, here where that costs nothing, and tries how its apps are kept

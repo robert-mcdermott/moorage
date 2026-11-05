@@ -1,0 +1,27 @@
+name: Real GitLab
+
+# GitLab takes minutes to start and most of a machine, so it is not part of every run: by hand, and when what tries it changes.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/real-gitlab.yml
+      - .github/scripts/real-services-check.py
+
+permissions:
+  contents: read
+
+jobs:
+  gitlab:
+    name: GitLab
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build moor
+        run: go build -o moor-check ./cmd/moor
+      - name: Try it
+        run: python3 .github/scripts/real-services-check.py "$PWD/moor-check" gitlab
