@@ -29,9 +29,15 @@ func certificateOnDisk(t *testing.T, dir, name string, notAfter time.Time) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	site := filepath.Join(dir, "certificates", "ca-directory", name)
-	os.MkdirAll(site, 0o700)
-	os.WriteFile(filepath.Join(site, name+".crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
+	// On disk, as the library that keeps them has it, and as Windows can: a file's name cannot have a star in it.
+	file := strings.ReplaceAll(name, "*", "wildcard_")
+	site := filepath.Join(dir, "certificates", "ca-directory", file)
+	if err := os.MkdirAll(site, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(site, file+".crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // A certificate for each hostname is renewed when next wanted, and stays on disk once it is not, so that an old one says nothing.
