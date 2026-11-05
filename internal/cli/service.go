@@ -310,6 +310,12 @@ whether or not a server is running.`,
 					if err := m.Stop(); err != nil {
 						return err
 					}
+					// So that starting it straight afterwards works: launchd is only told to stop it, and ignores a start until it has.
+					for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+						if st, err := m.Status(); err != nil || !st.Running {
+							break
+						}
+					}
 					stopped = true
 				}
 			}

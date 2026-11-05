@@ -21,6 +21,7 @@
 
 - Renaming an app on Windows waits longer for a virus scanner to finish with its builds: six seconds was sometimes too few.
 - **`moor run` and `moor exec` keep your words as you gave them.** `moor run -- sh -c "echo a; echo b"` ran as `sh -c echo a; echo b`, and an argument with a space in it, like `moor run -- python -c "print('hi')"`, came apart. Several words are now quoted, and one word is still a command line for the server's shell: `moor run -- 'echo a && echo b'`.
+- Going back from an upgrade on macOS could leave the server stopped, when it took longer to stop than launchd took to be told to start it, which it then ignores. `moor server stop` now waits for it too, so that `moor server start` straight afterwards works.
 - `moor server status` no longer reports a service on this machine that runs another server as if it were this one's.
 - The console's tables no longer break a name, an address or an email in the middle of a word when a window is narrow: the list of apps at a laptop's width, say.
 

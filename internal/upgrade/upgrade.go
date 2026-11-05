@@ -371,6 +371,10 @@ func goBack(ctx context.Context, o Options, st state, force, start bool) (Result
 			if err := o.Service.Stop(); err != nil && !failing {
 				return res, err
 			}
+			// launchd is only told to stop it, and until it has, being told to start it means nothing: it would then never start.
+			for deadline := time.Now().Add(30 * time.Second); o.Service.Running() && time.Now().Before(deadline); {
+				time.Sleep(100 * time.Millisecond)
+			}
 			start = true
 		}
 	} else if o.ServerUp != nil && o.ServerUp() {

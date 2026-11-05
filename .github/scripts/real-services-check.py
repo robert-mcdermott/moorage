@@ -10,12 +10,14 @@ A pull request from a fork is a real fork, by a second user, and its code is rea
 """
 import base64
 import http.client
+import importlib
 import json
 import os
 import pathlib
 import re
 import shutil
 import signal
+import site
 import socket
 import ssl
 import subprocess
@@ -235,8 +237,8 @@ class Gitea:
         return number, sha
 
     def status_of(self, sha):
-        # The newest first, which is not what it gives if it is not asked, when two came in the same second.
-        rows = request(self.base, "GET", f"/api/v1/repos/{self.owner}/{APP}/commits/{sha}/statuses?sort=highestindex", None, self.auth())
+        # The combined status has the latest for each context, which a list of them all does not say, when two came in one second.
+        rows = request(self.base, "GET", f"/api/v1/repos/{self.owner}/{APP}/commits/{sha}/status", None, self.auth())["statuses"] or []
         return next((r["status"] for r in rows if r.get("context") == "moorage"), None)
 
     def head(self, branch):
@@ -414,6 +416,9 @@ def try_grpc():
     """A real gRPC server, reached by a real gRPC client, through the server."""
     print("--- gRPC", flush=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", "grpcio==1.76.0", "grpcio-health-checking==1.76.0"], check=True)
+    # What pip has just installed for this user, in a directory that was not there when this started.
+    importlib.invalidate_caches()
+    site.addsitedir(site.getusersitepackages())
     import grpc
     from grpc_health.v1 import health_pb2, health_pb2_grpc
 
