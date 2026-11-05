@@ -76,6 +76,7 @@ const DOCS = [
     { slug: 'interactive', title: 'Getting into an app', file: 'docs/interactive.md', lede: 'A terminal, a console in the browser, and the data directory.' },
     { slug: 'logs', title: 'Logs', file: 'docs/logs.md', lede: 'What apps say, what they were asked, and what happened, followed and searched.' },
     { slug: 'metrics', title: 'Metrics', file: 'docs/metrics.md', lede: 'Requests, response times, CPU and memory, in the console and for Prometheus.' },
+    { slug: 'services', title: 'Services', file: 'docs/services.md', lede: 'A database for each environment, which an app asks for in its manifest.' },
     { slug: 'agents', title: 'Coding agents', file: 'docs/agents.md', lede: 'Connect Claude Code, Codex and others with moor mcp, and what limits them.' },
     { slug: 'notifications', title: 'Notifications', file: 'docs/notifications.md', lede: 'Told when something goes wrong: in the console, by webhook, in chat and by email.' },
     { slug: 'access', title: 'Who can reach an app', file: 'docs/access.md', lede: 'Passwords, signing in, share links and lists of addresses.' },

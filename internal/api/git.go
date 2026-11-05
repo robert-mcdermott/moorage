@@ -30,7 +30,7 @@ func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request) {
 // serverDoctor makes the checks of moor server doctor, from the server itself.
 func (s *Server) serverDoctor(w http.ResponseWriter, r *http.Request) {
 	docs := []apitypes.Check{}
-	for _, c := range doctor.Run(r.Context(), doctor.Options{Config: s.cfg, WantsEngine: s.deployer.WantsEngine, Engine: s.deployer.EngineStatus}) {
+	for _, c := range doctor.Run(r.Context(), doctor.Options{Config: s.cfg, WantsEngine: s.deployer.WantsEngine, Engine: s.deployer.EngineStatus, Services: s.deployer.ServiceProblems}) {
 		docs = append(docs, apitypes.Check{Name: c.Name, Status: c.Status, Detail: c.Detail, Fix: c.Fix})
 	}
 	writeJSON(w, http.StatusOK, docs)

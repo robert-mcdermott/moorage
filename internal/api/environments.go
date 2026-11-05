@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
@@ -215,4 +216,50 @@ func (s *Server) createPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, s.deploymentDoc(dep))
+}
+
+func (s *Server) services(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.deployer.ServiceList(r.Context(), app, env)
+	if s.environmentFailed(w, err) {
+		return
+	}
+	docs := make([]apitypes.Service, 0, len(rows))
+	for _, row := range rows {
+		docs = append(docs, apitypes.Service{
+			Name: row.Name, Type: row.Type, Version: row.Version, Image: row.Image, Variable: row.EnvVar, Port: row.Port, State: row.State,
+			Running: row.Running, Unknown: row.Unknown, Unused: row.Unused, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, docs)
+}
+
+func (s *Server) serviceLogs(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	tail := 100
+	if n, err := strconv.Atoi(r.URL.Query().Get("tail")); err == nil && n > 0 {
+		tail = min(n, 5000)
+	}
+	text, err := s.deployer.ServiceLogs(r.Context(), app, env, r.PathValue("name"), tail)
+	if s.environmentFailed(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, apitypes.ServiceLog{Log: text})
+}
+
+func (s *Server) removeService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.environmentFailed(w, s.deployer.RemoveService(lasting(r), app, env, r.PathValue("name"), who(r).Name)) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -346,7 +346,7 @@ and `moor manifest validate` warns that they have no effect yet:
 |---|---|
 | `app.root` | a later release |
 | `[storage]` outside a container | a later release; `$MOORAGE_DATA_DIR` is always there |
-| `[[routes]]`, `[services]` | later releases |
+| `[[routes]]` | later releases |
 | `previews.data` | a later release |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

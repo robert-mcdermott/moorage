@@ -438,6 +438,11 @@ func (m *Manager) keepUp(ctx context.Context, rec store.Service) {
 		return
 	}
 	defer unlock()
+	// What was read before the lock was held may have changed: it may be going to sleep, or be gone, and starting it again would be the last thing wanted.
+	rec, err := m.o.DB.Service(ctx, rec.App, rec.Env, rec.Name)
+	if err != nil || rec.State != store.ServiceRunning {
+		return
+	}
 	driver, err := m.driverFor(ctx, rec)
 	if err != nil {
 		return
@@ -733,4 +738,38 @@ func newPassword() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// Problems says how many services there are, and what is wrong with them, for the doctor.
+func (m *Manager) Problems(ctx context.Context) (int, []string) {
+	if m == nil {
+		return 0, nil
+	}
+	list, err := m.o.DB.AllServices(ctx)
+	if err != nil {
+		return 0, []string{err.Error()}
+	}
+	if len(list) == 0 {
+		return 0, nil
+	}
+	if st := m.o.Engines.Status(ctx); !st.Ready() {
+		return len(list), []string{st.Problem()}
+	}
+	var problems []string
+	for _, rec := range list {
+		if rec.State != store.ServiceRunning {
+			continue
+		}
+		driver, err := m.driverFor(ctx, rec)
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		if running, err := driver.ServiceRunning(ctx, container.ServiceName(rec.ID)); err != nil {
+			problems = append(problems, fmt.Sprintf("%s of %s of %s: %v", rec.Name, rec.Env, rec.App, err))
+		} else if !running {
+			problems = append(problems, fmt.Sprintf("%s of %s of %s should be running, and is not", rec.Name, rec.Env, rec.App))
+		}
+	}
+	return len(list), problems
 }

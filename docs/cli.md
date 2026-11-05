@@ -2110,6 +2110,64 @@ Change a user's role
 moor server users role EMAIL admin|member
 ```
 
+## `moor services`
+
+A service is a database that an app declares under \[services\] in moorage.toml, and Moorage runs and connects for it. Each environment has its own, with a password of its own, and the app is given its address as it starts. It needs a container engine, and nothing else here does.
+
+A service that a manifest no longer names stays, with what it holds, until you remove it. Deleting an environment removes its services.
+
+```text
+moor services
+```
+
+```text
+moor services --app shop
+moor services logs db --env staging
+moor services remove db --env my-branch --yes
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--json` |  | print as JSON |
+
+### `moor services logs`
+
+Read the newest of what a service has said
+
+```text
+moor services logs NAME
+```
+
+```text
+moor services logs db --tail 500
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--tail int` | `100` | how many lines, up to 5,000 |
+
+### `moor services remove`
+
+Remove a service, with what it holds, which cannot be undone. If the manifest still names it, the next deployment makes a new one, which starts empty.
+
+```text
+moor services remove NAME
+```
+
+```text
+moor services remove db --env my-branch --yes
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--yes` |  | say that you mean it |
+
 ## `moor share`
 
 Make a link that lets someone reach an environment, whatever its gate, without an account or a password. It is shown only now. It lasts seven days unless you say otherwise, up to a year, and can be revoked.

@@ -13,6 +13,7 @@
   {{if .Access.Deploy}}<a href="/apps/{{.App.Name}}/console{{envq .Env}}"{{if eq .Tab "console"}} aria-current="page"{{end}}>Console</a>
   <a href="/apps/{{.App.Name}}/files{{envq .Env}}"{{if eq .Tab "files"}} aria-current="page"{{end}}>Files</a>{{end}}
   <a href="/apps/{{.App.Name}}/environments"{{if eq .Tab "environments"}} aria-current="page"{{end}}>Environments</a>
+  {{if or .HasServices (eq .Tab "services")}}<a href="/apps/{{.App.Name}}/services{{envq .Env}}"{{if eq .Tab "services"}} aria-current="page"{{end}}>Services</a>{{end}}
   <a href="/apps/{{.App.Name}}/access{{envq .Env}}"{{if eq .Tab "access"}} aria-current="page"{{end}}>Domains and access</a>
   {{if .Access.Manage}}<a href="/apps/{{.App.Name}}/settings"{{if eq .Tab "settings"}} aria-current="page"{{end}}>Settings</a>{{end}}
 </nav>
@@ -709,6 +710,47 @@
   </section>
 </div>
 {{end}}
+{{end}}
+{{end}}
+
+{{define "app-services"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+{{$csrf := .CSRF}}{{$app := .App.Name}}{{$env := .Env}}{{$access := .Access}}
+<p class="muted">What this app declares under <code>[services]</code>, which Moorage runs and connects for it. Each environment has its own, and the app is given its address as it starts.</p>
+{{if not .Env}}<p class="muted small">In production, this is one container with no replica, kept by backups. It is a convenience, and not database hosting. A variable of the same name set on production itself goes to a real database instead.</p>{{end}}
+{{if .ServiceRows}}
+<section class="panel table-wrap">
+<table>
+  <thead><tr><th>Service</th><th>Type</th><th>Status</th><th>Gives the app</th><th>Port</th>{{if $access.Manage}}<th></th>{{end}}</tr></thead>
+  <tbody>
+  {{range .ServiceRows}}
+    <tr>
+      <td><strong>{{.Name}}</strong></td>
+      <td>{{.Kind}}</td>
+      <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Unused}} <span class="muted small">The manifest no longer names it.</span>{{end}}</td>
+      <td><code>{{.Variable}}</code></td>
+      <td>{{.Port}}</td>
+      {{if $access.Manage}}<td>
+        <details>
+          <summary>Remove</summary>
+          <form method="post" action="/apps/{{$app}}/services/{{.Name}}/remove{{envq $env}}" class="stack">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <label>This removes what it holds, for good. Type <code>{{.Name}}</code> to say so.
+              <input name="confirm" autocomplete="off" required></label>
+            <button type="submit" class="danger">Remove {{.Name}}</button>
+          </form>
+        </details>
+      </td>{{end}}
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</section>
+{{else}}
+<section class="panel panel-pad"><p>{{if .Env}}{{.Env}}{{else}}Production{{end}} has no services. An app declares them in its manifest, and they are made when it deploys:</p>
+<pre><code>[services.db]
+type = "postgres"</code></pre></section>
 {{end}}
 {{end}}
 

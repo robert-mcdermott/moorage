@@ -178,3 +178,118 @@ func TestWhichEngineAServerKeepsTo(t *testing.T) {
 		t.Errorf("with a current release in a container: %q", got)
 	}
 }
+
+// TestServicesWithAnEngineThatIsDown goes through what a service looks like to someone, and how it fails, without needing an engine to run one.
+func TestServicesWithAnEngineThatIsDown(t *testing.T) {
+	bin, down, calls := recordingEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	deployedSource(t, c, "shop", appManifest(""))
+	b := signIn(t, cfg, addrs)
+
+	// With none, there is no tab for them, and the page says how to make one.
+	_, page := b.get("/apps/shop")
+	if strings.Contains(page, "/apps/shop/services") {
+		t.Error("a tab for services that it does not have")
+	}
+	_, page = b.get("/apps/shop/services")
+	contains(t, "the page with none", page, "[services.db]", "has no services")
+	if list, err := c.Services(ctx, "shop", "production"); err != nil || len(list) != 0 {
+		t.Errorf("%+v %v", list, err)
+	}
+
+	// A manifest that asks for one, with an engine that does not answer, says so before anything is built.
+	if err := os.WriteFile(down, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, log := deploySource(t, c, "shop", appManifest("\n[services.db]\ntype = \"postgres\"\n"))
+	if d.Status != "failed" || !strings.Contains(d.Error, "asks for db under [services]") || !strings.Contains(d.Error, "not answering") {
+		t.Errorf("%+v\n%s", d, log)
+	}
+	if strings.Contains(log, "▸ build") {
+		t.Errorf("it built something first:\n%s", log)
+	}
+	// A variable of that name on production itself needs nothing of the engine.
+	if _, err := c.ChangeVars(ctx, "shop", "production", apitypes.VarsChange{Set: []apitypes.VarSet{{Name: "DATABASE_URL", Value: "postgres://real.example.com/db"}}}); err != nil {
+		t.Fatal(err)
+	}
+	d, log = deploySource(t, c, "shop", appManifest("\n[services.db]\ntype = \"postgres\"\n"))
+	if d.Status != "live" {
+		t.Errorf("with its own database: %+v\n%s", d, log)
+	}
+	if _, got := get(t, addrs.HTTP, "shop."+cfg.Domain, "/env?name=DATABASE_URL"); !strings.Contains(got, "real.example.com") {
+		t.Errorf("its own: %q", got)
+	}
+
+	// One on record, with the engine down.
+	db := testAuth(t, cfg).DB
+	if err := db.CreateService(ctx, store.Service{
+		ID: "svc_test", App: "shop", Env: "production", Name: "stats", Type: "postgres", Version: "18", Image: "postgres:18", Engine: bin,
+		Volume: "a-volume", Port: 45999, Sealed: []byte("x"), EnvVar: "STATS_URL", State: store.ServiceRunning, CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := c.Services(ctx, "shop", "production")
+	if err != nil || len(list) != 1 || !list[0].Unknown || !list[0].Unused || list[0].Variable != "STATS_URL" {
+		t.Errorf("%+v %v", list, err)
+	}
+	_, page = b.get("/apps/shop/services")
+	contains(t, "the page", page, "stats", "postgres 18", "STATS_URL", "The engine is not answering", "The manifest no longer names it", "no replica")
+	_, page = b.get("/apps/shop")
+	contains(t, "its tab", page, "/apps/shop/services")
+	if _, err := c.ServiceLog(ctx, "shop", "production", "stats", 10); status(err) != http.StatusConflict {
+		t.Errorf("its log: %v", err)
+	}
+	if err := c.RemoveService(ctx, "shop", "production", "stats"); status(err) != http.StatusConflict {
+		t.Errorf("removing it: %v", err)
+	}
+	if err := c.DeleteApp(ctx, "shop", false); status(err) != http.StatusConflict {
+		t.Errorf("deleting its app: %v", err)
+	}
+	if err := c.RemoveService(ctx, "shop", "production", "nothing"); status(err) != http.StatusNotFound {
+		t.Errorf("one that is not there: %v", err)
+	}
+	if _, err := db.Service(ctx, "shop", "production", "stats"); err != nil {
+		t.Errorf("its record: %v", err)
+	}
+
+	// The doctor says so, and a limited token has no business with any of it.
+	api := caller{t, cfg, addrs}
+	admin, err := os.ReadFile(filepath.Join(cfg.DataDir, "keys", "admin-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checks []apitypes.Check
+	if err := json.Unmarshal([]byte(api.read(strings.TrimSpace(string(admin)), "/server/doctor")), &checks); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, check := range checks {
+		if check.Name == "services" {
+			found = true
+			if check.Status != "warn" || !strings.Contains(check.Detail, "not answering") {
+				t.Errorf("%+v", check)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the doctor: %+v", checks)
+	}
+	made, err := c.CreateToken(ctx, apitypes.NewToken{Name: "agent", Scopes: []string{"deploy"}, App: "shop", Envs: "previews"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := api.do(made.Secret, "GET", "/api/v1/apps/shop/envs/production/services", ""); code != http.StatusForbidden {
+		t.Errorf("a limited token: %d %s", code, body)
+	}
+
+	// Once it answers, the server looks after it again.
+	os.Remove(down)
+	waitUntil(t, "it to be looked at", func() bool {
+		data, _ := os.ReadFile(calls)
+		return strings.Contains(string(data), "moorage-svc-test")
+	})
+}

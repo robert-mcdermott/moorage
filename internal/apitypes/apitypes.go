@@ -1205,3 +1205,28 @@ type Threshold struct {
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// Service is something that an app declares under [services], and Moorage runs for it. Its address and password are not here: an app is given them as it starts.
+type Service struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Version string `json:"version,omitempty"`
+	Image   string `json:"image"`
+	// Variable is what gives an app its address.
+	Variable string `json:"variable"`
+	// Port is its port on the loopback address, for an app that does not run in a container.
+	Port int `json:"port"`
+	// State is what it should be doing, running or stopped, and Running what the engine says it is. Unknown says that the engine could not be asked.
+	State   string `json:"state"`
+	Running bool   `json:"running"`
+	Unknown bool   `json:"unknown,omitempty"`
+	// Unused says that the current release's manifest does not name it. It stays, with what it holds, until someone removes it.
+	Unused    bool      `json:"unused,omitempty"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ServiceLog is the newest of what a service has said.
+type ServiceLog struct {
+	Log string `json:"log"`
+}

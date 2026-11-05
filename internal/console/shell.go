@@ -184,6 +184,9 @@ func (c *Console) appData(r *http.Request, p auth.Principal, app, page, title st
 	if err != nil {
 		return d, err
 	}
+	if list, err := c.db.AppServices(r.Context(), app); err == nil {
+		d.HasServices = len(list) > 0
+	}
 	for _, e := range envs {
 		d.EnvNames = append(d.EnvNames, e.Name)
 		if e.Name == envOf(r) {

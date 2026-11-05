@@ -263,6 +263,22 @@ func TestMakingAService(t *testing.T) {
 		t.Error("it was not started again")
 	}
 
+	// What was read before it went to sleep, or went, does not bring it back.
+	stale, err := f.db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Sleep(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	f.m.keepUp(ctx, stale)
+	if _, err := os.Stat(filepath.Join(f.dir, "running")); err == nil {
+		t.Error("it started what had just gone to sleep")
+	}
+	if err := f.m.Wake(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+
 	// Removing it goes with what it holds.
 	if err := f.m.Remove(ctx, "shop", "production", "db", "me"); err != nil {
 		t.Fatal(err)
@@ -272,6 +288,10 @@ func TestMakingAService(t *testing.T) {
 	}
 	if list, _ := f.db.Services(ctx, "shop", "production"); len(list) != 0 {
 		t.Errorf("%+v", list)
+	}
+	f.m.keepUp(ctx, stale)
+	if _, err := os.Stat(filepath.Join(f.dir, "running")); err == nil {
+		t.Error("it started what had just been removed")
 	}
 }
 

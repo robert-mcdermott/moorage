@@ -2642,6 +2642,69 @@
         ],
         "type": "object"
       },
+      "Service": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "unknown": {
+            "type": "boolean"
+          },
+          "unused": {
+            "type": "boolean"
+          },
+          "variable": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "image",
+          "variable",
+          "port",
+          "state",
+          "running",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ServiceLog": {
+        "properties": {
+          "log": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "log"
+        ],
+        "type": "object"
+      },
       "Session": {
         "properties": {
           "created_at": {
@@ -5490,6 +5553,197 @@
           "apps"
         ],
         "x-moorage-permission": "deploy"
+      }
+    },
+    "/apps/{app}/envs/{env}/services": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvServices",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Service"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an environment's services",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "read"
+      }
+    },
+    "/apps/{app}/envs/{env}/services/{name}": {
+      "delete": {
+        "operationId": "deleteAppsAppEnvsEnvServicesName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Remove a service, with what it holds",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/services/{name}/logs": {
+      "get": {
+        "operationId": "getAppsAppEnvsEnvServicesNameLogs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many lines: 100, unless it says, and at most 5,000.",
+            "in": "query",
+            "name": "tail",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceLog"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Read the newest of what a service has said",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "logs"
       }
     },
     "/apps/{app}/envs/{env}/share-links": {
