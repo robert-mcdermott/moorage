@@ -1,0 +1,1036 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Command line · Moorage</title>
+  <meta name="description" content="Every moor command and its flags." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/cli.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="Command line · Moorage" />
+  <meta property="og:description" content="Every moor command and its flags." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/cli.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html">Backups</a></li>
+            <li><a href="telemetry.html">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html">moorage.toml</a></li>
+            <li><a href="cli.html" aria-current="page">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>Command line</h1>
+      <p class="doc-lede">Every moor command and its flags.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#moor-access"><code>moor access</code></a></li>
+        <li class="toc-2"><a href="#moor-alerts"><code>moor alerts</code></a></li>
+        <li class="toc-2"><a href="#moor-apps"><code>moor apps</code></a></li>
+        <li class="toc-2"><a href="#moor-audit"><code>moor audit</code></a></li>
+        <li class="toc-2"><a href="#moor-context"><code>moor context</code></a></li>
+        <li class="toc-2"><a href="#moor-cron"><code>moor cron</code></a></li>
+        <li class="toc-2"><a href="#moor-deploy"><code>moor deploy</code></a></li>
+        <li class="toc-2"><a href="#moor-deployments"><code>moor deployments</code></a></li>
+        <li class="toc-2"><a href="#moor-domains"><code>moor domains</code></a></li>
+        <li class="toc-2"><a href="#moor-env"><code>moor env</code></a></li>
+        <li class="toc-2"><a href="#moor-environments"><code>moor environments</code></a></li>
+        <li class="toc-2"><a href="#moor-events"><code>moor events</code></a></li>
+        <li class="toc-2"><a href="#moor-exec"><code>moor exec</code></a></li>
+        <li class="toc-2"><a href="#moor-files"><code>moor files</code></a></li>
+        <li class="toc-2"><a href="#moor-forge"><code>moor forge</code></a></li>
+        <li class="toc-2"><a href="#moor-git"><code>moor git</code></a></li>
+        <li class="toc-2"><a href="#moor-keys"><code>moor keys</code></a></li>
+        <li class="toc-2"><a href="#moor-lock"><code>moor lock</code></a></li>
+        <li class="toc-2"><a href="#moor-login"><code>moor login</code></a></li>
+        <li class="toc-2"><a href="#moor-logout"><code>moor logout</code></a></li>
+        <li class="toc-2"><a href="#moor-logs"><code>moor logs</code></a></li>
+        <li class="toc-2"><a href="#moor-manifest"><code>moor manifest</code></a></li>
+        <li class="toc-2"><a href="#moor-metrics"><code>moor metrics</code></a></li>
+        <li class="toc-2"><a href="#moor-notifications"><code>moor notifications</code></a></li>
+        <li class="toc-2"><a href="#moor-password"><code>moor password</code></a></li>
+        <li class="toc-2"><a href="#moor-previews"><code>moor previews</code></a></li>
+        <li class="toc-2"><a href="#moor-projects"><code>moor projects</code></a></li>
+        <li class="toc-2"><a href="#moor-promote"><code>moor promote</code></a></li>
+        <li class="toc-2"><a href="#moor-ps"><code>moor ps</code></a></li>
+        <li class="toc-2"><a href="#moor-redeploy"><code>moor redeploy</code></a></li>
+        <li class="toc-2"><a href="#moor-registry"><code>moor registry</code></a></li>
+        <li class="toc-2"><a href="#moor-releases"><code>moor releases</code></a></li>
+        <li class="toc-2"><a href="#moor-restart"><code>moor restart</code></a></li>
+        <li class="toc-2"><a href="#moor-rollback"><code>moor rollback</code></a></li>
+        <li class="toc-2"><a href="#moor-run"><code>moor run</code></a></li>
+        <li class="toc-2"><a href="#moor-scale"><code>moor scale</code></a></li>
+        <li class="toc-2"><a href="#moor-server"><code>moor server</code></a></li>
+        <li class="toc-2"><a href="#moor-share"><code>moor share</code></a></li>
+        <li class="toc-2"><a href="#moor-sleep"><code>moor sleep</code></a></li>
+        <li class="toc-2"><a href="#moor-tokens"><code>moor tokens</code></a></li>
+        <li class="toc-2"><a href="#moor-trust"><code>moor trust</code></a></li>
+        <li class="toc-2"><a href="#moor-unlock"><code>moor unlock</code></a></li>
+        <li class="toc-2"><a href="#moor-version"><code>moor version</code></a></li>
+        <li class="toc-2"><a href="#moor-wake"><code>moor wake</code></a></li>
+        <li class="toc-2"><a href="#moor-whoami"><code>moor whoami</code></a></li>
+      </ul></details>
+<p>Every command of <code>moor</code>, as its <code>--help</code> says it. This page is made from the commands themselves, and a test keeps it the same as they are. <a href="./">The documentation</a> lists the common ones.</p>
+<p>An app is chosen with <code>--app</code>, <code>$MOOR_APP</code>, <code>[app].name</code> in the <code>moorage.toml</code> of the current directory, or the repository's <code>moorage</code> git remote.</p>
+<p>Commands that talk to a server also take these, which are left out below:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>What it says</th></tr></thead><tbody><tr><td><code>--server URL</code></td><td>The server. By default <code>$MOOR_SERVER</code>, or the server configured on this machine</td></tr><tr><td><code>--token TOKEN</code></td><td>An API token. By default <code>$MOOR_TOKEN</code>, or the admin token of the server on this machine</td></tr><tr><td><code>--ca-cert FILE</code></td><td>A PEM file of an extra CA to trust, such as the server's internal CA. By default <code>$MOOR_CA_CERT</code></td></tr></tbody></table></div>
+<h2 id="moor-access"><code>moor access</code><a class="anchor" href="#moor-access" aria-label="Link to this section">#</a></h2>
+<p>Each environment has a gate, which applies to everything it serves:</p>
+<div class="code"><pre tabindex="0"><code class="language-text">  public    anyone
+  password  a shared password; scripts send it with HTTP Basic
+  login     people signed in to Moorage, with a role in its project, or with
+            --any-user anyone with an account; the app hears who they are, and
+            scripts send an API token with the gate scope
+  share     only people with a share link</code></pre></div>
+<p>A share link works with every gate. A list of addresses can be combined with any of them. Unless one is set here, the gate is what the manifest asks, or else the server's default for that kind of environment.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor access</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor access
+moor access set password --env staging
+moor access set login --allow-cidr 10.0.0.0/8
+moor access set default --env staging
+moor share --expires 3d</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-access-set"><code>moor access set</code><a class="anchor" href="#moor-access-set" aria-label="Link to this section">#</a></h3>
+<p>Change an environment's gate, at once. default leaves it to the manifest and the server. The password gate asks for its password, without echoing it, or reads it from standard input. Changing the gate or its password ends everyone's way in.</p>
+<p>--allow-cidr replaces the list of addresses it can be reached from, and --anywhere takes the list away. Otherwise the list stays as it is.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor access set public|password|login|share|default</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--allow-cidr strings</code></td><td></td><td>addresses it can be reached from, such as 10.0.0.0/8</td></tr><tr><td><code>--any-user</code></td><td></td><td>with login, let in anyone with an account</td></tr><tr><td><code>--anywhere</code></td><td></td><td>take away the list of addresses</td></tr><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--password</code></td><td></td><td>set the password too, for when the manifest asks for the gate</td></tr></tbody></table></div>
+<h2 id="moor-alerts"><code>moor alerts</code><a class="anchor" href="#moor-alerts" aria-label="Link to this section">#</a></h2>
+<p>List an environment's thresholds. Past one for as long as it says, a notification goes to whoever a rule sends &quot;A threshold is crossed&quot; to, and another when it comes right.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor alerts</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor alerts add error-rate 5 --for 5m
+moor alerts add latency-p95 800 --for 10m --env staging
+moor alerts add memory 90
+moor alerts rm thr_01J…</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print JSON</td></tr></tbody></table></div>
+<h3 id="moor-alerts-add"><code>moor alerts add</code><a class="anchor" href="#moor-alerts-add" aria-label="Link to this section">#</a></h3>
+<p>Add a threshold. METRIC is one of:</p>
+<div class="code"><pre tabindex="0"><code class="language-text">  error-rate    the percentage of answers that are 5xx, over the last minute
+  latency-p95   how long the slowest 5 in 100 requests took at least, in milliseconds
+  memory        the instance using the most, as a percentage of its [resources] limit
+  cpu           the instance using the most, as a percentage of one core</code></pre></div>
+<p>A minute with no requests in it, or fewer than 5 for an error rate, says nothing either way.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor alerts add METRIC ABOVE</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor alerts add error-rate 5 --for 5m</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--for string</code></td><td><code>5m</code></td><td>how long it has to go on for</td></tr></tbody></table></div>
+<h3 id="moor-alerts-rm"><code>moor alerts rm</code><a class="anchor" href="#moor-alerts-rm" aria-label="Link to this section">#</a></h3>
+<p>Remove a threshold</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor alerts rm ID</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-apps"><code>moor apps</code><a class="anchor" href="#moor-apps" aria-label="Link to this section">#</a></h2>
+<p>List the apps</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-apps-create"><code>moor apps create</code><a class="anchor" href="#moor-apps-create" aria-label="Link to this section">#</a></h3>
+<p>Create an app, before its first deployment. Deploying also creates one, in the default project: this is how an app starts in another.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps create NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps create shop --project payments</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--project string</code></td><td></td><td>the project it goes in (default: the default project)</td></tr></tbody></table></div>
+<h3 id="moor-apps-delete"><code>moor apps delete</code><a class="anchor" href="#moor-apps-delete" aria-label="Link to this section">#</a></h3>
+<p>Delete an app: its instances, variables, releases, builds, logs and repository, and its data directory unless --keep-data keeps it. This cannot be undone. It asks you to type the app's name first, unless --yes.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps delete NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps delete shop
+moor apps delete shop --keep-data --yes</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--keep-data</code></td><td></td><td>keep its data directory</td></tr><tr><td><code>--yes</code></td><td></td><td>do not ask</td></tr></tbody></table></div>
+<h3 id="moor-apps-info"><code>moor apps info</code><a class="anchor" href="#moor-apps-info" aria-label="Link to this section">#</a></h3>
+<p>Show an app's address and project, and how much room it takes</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps info NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-apps-move"><code>moor apps move</code><a class="anchor" href="#moor-apps-move" aria-label="Link to this section">#</a></h3>
+<p>Put an app in another project. It takes being a maintainer of both.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps move NAME --project PROJECT</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps move shop --project payments</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--project string</code></td><td></td><td>the project it goes in</td></tr></tbody></table></div>
+<h3 id="moor-apps-rename"><code>moor apps rename</code><a class="anchor" href="#moor-apps-rename" aria-label="Link to this section">#</a></h3>
+<p>Give an app another name, which is another address and another git remote. Its instances stop and start again under the new name, so there is a moment of downtime.</p>
+<p>Change [app].name in its moorage.toml, and its git remote, to match: a deploy by the old name makes a new app.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps rename NAME NEW</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor apps rename shop store</code></pre></div>
+<h2 id="moor-audit"><code>moor audit</code><a class="anchor" href="#moor-audit" aria-label="Link to this section">#</a></h2>
+<p>Show who did what, newest first: every change through the API or the console, every sign-in, every push and every secret revealed, whether it worked or not, kept for a year. It takes an administrator.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor audit</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor audit -n 20
+moor audit --actor ana@example.com --action signin</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--action string</code></td><td></td><td>only actions with this text</td></tr><tr><td><code>--actor string</code></td><td></td><td>only what this person did</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr><tr><td><code>-n, --number int</code></td><td><code>50</code></td><td>how many, up to 200</td></tr><tr><td><code>--target string</code></td><td></td><td>only what was done to this</td></tr></tbody></table></div>
+<h2 id="moor-context"><code>moor context</code><a class="anchor" href="#moor-context" aria-label="Link to this section">#</a></h2>
+<p>A context is a server and the token for it, saved by moor login. Commands use the current one, unless --server or $MOOR_SERVER says otherwise.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor context</code></pre></div>
+<h3 id="moor-context-rm"><code>moor context rm</code><a class="anchor" href="#moor-context-rm" aria-label="Link to this section">#</a></h3>
+<p>Forget a context, without revoking its token</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor context rm NAME</code></pre></div>
+<h3 id="moor-context-use"><code>moor context use</code><a class="anchor" href="#moor-context-use" aria-label="Link to this section">#</a></h3>
+<p>Make a context the current one</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor context use NAME</code></pre></div>
+<h2 id="moor-cron"><code>moor cron</code><a class="anchor" href="#moor-cron" aria-label="Link to this section">#</a></h2>
+<p>Cron jobs are declared in moorage.toml as [[cron]], and run as one-off instances of the current release. The last 100 runs of each are kept, with what they said.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor cron</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor cron
+moor cron run nightly-cleanup
+moor cron runs nightly-cleanup
+moor cron log run_01J…</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-cron-log"><code>moor cron log</code><a class="anchor" href="#moor-cron-log" aria-label="Link to this section">#</a></h3>
+<p>Show what a run said, and go on showing it until it ends</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor cron log RUN</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h3 id="moor-cron-run"><code>moor cron run</code><a class="anchor" href="#moor-cron-run" aria-label="Link to this section">#</a></h3>
+<p>Run a cron job now, whatever its schedule says</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor cron run JOB</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--detach</code></td><td></td><td>start it and return</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h3 id="moor-cron-runs"><code>moor cron runs</code><a class="anchor" href="#moor-cron-runs" aria-label="Link to this section">#</a></h3>
+<p>List an environment's runs, newest first; a job's, if it is named</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor cron runs [JOB]</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h2 id="moor-deploy"><code>moor deploy</code><a class="anchor" href="#moor-deploy" aria-label="Link to this section">#</a></h2>
+<p>Deploy to an app's production environment. The app is created if it does not exist yet.</p>
+<p>Without a flag, DIR (default: the current directory) is source: it is uploaded, leaving out what .gitignore and .moorignore exclude, and the server builds it as moorage.toml says (or as it detects: Go, Python, Node.js, a static site), runs the release command, and rolls the new release out. The build's output is shown as it happens; Ctrl-C stops following, not the deployment.</p>
+<p>With --static, the files under DIR are uploaded and served as they are, following the [static] rules of moorage.toml in the current directory. DIR defaults to [static].dir in moorage.toml, or the current directory.</p>
+<p>With --artifact, DIR (default: the current directory) holds an app that is ready to run, such as a compiled binary; the [processes] of moorage.toml in the current directory say how to run it.</p>
+<p>With --image, the server fetches an image and runs it in a container, pinned to the digest it has now. The moorage.toml in DIR (default: the current directory) is sent with it, if there is one, and no other file. A private registry needs its credentials on the server: see moor registry login.</p>
+<p>A new release takes over once its instances are healthy; until then the previous release keeps serving.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor deploy [DIR]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor deploy                       # build and deploy the current directory
+moor deploy ./api --app api
+moor deploy --static ./public --app docs
+moor deploy --artifact ./dist --app api
+moor deploy --image ghcr.io/acme/api:1.4 --app api</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app to deploy to (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--artifact</code></td><td></td><td>upload an app that is ready to run and run its [processes]</td></tr><tr><td><code>--detach</code></td><td></td><td>return once the deployment is queued, without following it</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment to deploy to</td></tr><tr><td><code>--image string</code></td><td></td><td>run this image in a container, pinned to its digest, instead of building DIR</td></tr><tr><td><code>--static</code></td><td></td><td>upload a directory of files and serve them as they are</td></tr></tbody></table></div>
+<h2 id="moor-deployments"><code>moor deployments</code><a class="anchor" href="#moor-deployments" aria-label="Link to this section">#</a></h2>
+<p>List an app's latest deployments: what was deployed, how it went, and the release it made. Show one with 'moor deployments show ID', and follow one that is running with 'moor deployments follow ID'.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor deployments</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr><tr><td><code>--limit int</code></td><td><code>20</code></td><td>how many to list</td></tr></tbody></table></div>
+<h3 id="moor-deployments-follow"><code>moor deployments follow</code><a class="anchor" href="#moor-deployments-follow" aria-label="Link to this section">#</a></h3>
+<p>Print a deployment's log from its start and, while it runs, as it is written. Fails if the deployment failed.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor deployments follow ID</code></pre></div>
+<h3 id="moor-deployments-show"><code>moor deployments show</code><a class="anchor" href="#moor-deployments-show" aria-label="Link to this section">#</a></h3>
+<p>Show a deployment</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor deployments show ID</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h2 id="moor-domains"><code>moor domains</code><a class="anchor" href="#moor-domains" aria-label="Link to this section">#</a></h2>
+<p>Attach a hostname of your own to an environment, or a path on one, so that several apps can share a hostname. Its DNS must point here before it serves: a CNAME to the environment's own hostname, or an address of this server.</p>
+<p>A path is kept in what the app hears, which X-Forwarded-Prefix also says, unless --strip-prefix takes it away. Redirects and cookies from the app are made to fit it. Links in what the app sends are its own affair.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor domains</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor domains add portal.example.com
+moor domains add tools.example.com/reports --app reports
+moor domains verify portal.example.com
+moor domains remove portal.example.com</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-domains-add"><code>moor domains add</code><a class="anchor" href="#moor-domains-add" aria-label="Link to this section">#</a></h3>
+<p>Attach a domain, which serves once its DNS points here</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor domains add HOSTNAME[/PATH]</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--strip-prefix</code></td><td></td><td>take the path away from what the app hears</td></tr></tbody></table></div>
+<h3 id="moor-domains-remove"><code>moor domains remove</code><a class="anchor" href="#moor-domains-remove" aria-label="Link to this section">#</a></h3>
+<p>Detach a domain, at once</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor domains remove HOSTNAME[/PATH]</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h3 id="moor-domains-verify"><code>moor domains verify</code><a class="anchor" href="#moor-domains-verify" aria-label="Link to this section">#</a></h3>
+<p>Look now at where a domain points</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor domains verify HOSTNAME[/PATH]</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-env"><code>moor env</code><a class="anchor" href="#moor-env" aria-label="Link to this section">#</a></h2>
+<p>Variables set on the server configure an app without changing its code. They override the [env] of moorage.toml, and a variable set for one environment overrides one set for every environment (--all-envs).</p>
+<p>Secret values (--secret) are encrypted on the server and never shown again; they are kept out of the logs. Every change makes a new release of the current build, rolled out without downtime (--no-restart keeps the change for the next deploy).</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env
+moor env set LOG_LEVEL=debug FEATURE_X=on
+moor env set --secret STRIPE_KEY        # asks for the value
+moor env set --secret DB_PASSWORD &lt; password.txt
+moor env unset FEATURE_X
+moor env import .env --secret
+moor env export &gt; production.env</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-env-export"><code>moor env export</code><a class="anchor" href="#moor-env-export" aria-label="Link to this section">#</a></h3>
+<p>Print the variables set on the server for an environment, as a .env file. Secrets are listed as comments, without their values.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env export</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h3 id="moor-env-import"><code>moor env import</code><a class="anchor" href="#moor-env-import" aria-label="Link to this section">#</a></h3>
+<p>Set the variables of a .env file (NAME=value lines; # comments; values may be quoted, and &quot;export &quot; in front of a line is allowed) in one change. Use - to read standard input.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env import FILE</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--all-envs</code></td><td></td><td>change the variables of every environment of the app</td></tr><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--build</code></td><td></td><td>make the variables available to builds too</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--no-restart</code></td><td></td><td>keep the change for the next deploy instead of releasing it now</td></tr><tr><td><code>--production-only</code></td><td></td><td>keep previews from inheriting the variables</td></tr><tr><td><code>--secret</code></td><td></td><td>store the values encrypted and never show them again</td></tr></tbody></table></div>
+<h3 id="moor-env-list"><code>moor env list</code><a class="anchor" href="#moor-env-list" aria-label="Link to this section">#</a></h3>
+<p>List an app's variables</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env list</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-env-reveal"><code>moor env reveal</code><a class="anchor" href="#moor-env-reveal" aria-label="Link to this section">#</a></h3>
+<p>Print a secret's value. It takes being a maintainer of the app's project, and is recorded in the audit log.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env reveal NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h3 id="moor-env-set"><code>moor env set</code><a class="anchor" href="#moor-env-set" aria-label="Link to this section">#</a></h3>
+<p>Set variables and release the change: a new release of the current build, rolled out without downtime.</p>
+<p>A secret given as NAME alone, without a value, is read from standard input, or asked for without echoing it, so that it stays out of the shell's history.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env set NAME=value… | set --secret NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--all-envs</code></td><td></td><td>change the variables of every environment of the app</td></tr><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--build</code></td><td></td><td>make the variables available to builds too</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--no-restart</code></td><td></td><td>keep the change for the next deploy instead of releasing it now</td></tr><tr><td><code>--production-only</code></td><td></td><td>keep previews from inheriting the variables</td></tr><tr><td><code>--secret</code></td><td></td><td>store the values encrypted and never show them again</td></tr></tbody></table></div>
+<h3 id="moor-env-unset"><code>moor env unset</code><a class="anchor" href="#moor-env-unset" aria-label="Link to this section">#</a></h3>
+<p>Unset variables and release the change</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor env unset NAME…</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--all-envs</code></td><td></td><td>change the variables of every environment of the app</td></tr><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--no-restart</code></td><td></td><td>keep the change for the next deploy instead of releasing it now</td></tr></tbody></table></div>
+<h2 id="moor-environments"><code>moor environments</code><a class="anchor" href="#moor-environments" aria-label="Link to this section">#</a></h2>
+<p>An environment is a place an app runs, with its own address, variables, data and releases. Every app has production. A named environment, such as staging, stays until it is removed; a preview comes and goes with its branch.</p>
+<p>An environment other than production is at &lt;app&gt;--&lt;environment&gt; beside the app's own address, and asks search engines not to index it.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor environments</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor environments --app shop
+moor environments create staging --branch develop
+moor deploy --env staging
+moor promote --from staging
+moor environments delete staging</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-environments-create"><code>moor environments create</code><a class="anchor" href="#moor-environments-create" aria-label="Link to this section">#</a></h3>
+<p>Make a named environment. It starts with the variables an app has for every environment and an empty data directory, and has nothing to serve until something is deployed to it. With --branch, a push to that branch deploys to it.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor environments create NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--branch string</code></td><td></td><td>the branch whose pushes deploy to it</td></tr></tbody></table></div>
+<h3 id="moor-environments-delete"><code>moor environments delete</code><a class="anchor" href="#moor-environments-delete" aria-label="Link to this section">#</a></h3>
+<p>Remove an environment, with its data, logs and releases. Production cannot be removed: delete the app for that.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor environments delete NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h2 id="moor-events"><code>moor events</code><a class="anchor" href="#moor-events" aria-label="Link to this section">#</a></h2>
+<p>Show what happened on the server, oldest first: deployments, releases, instances that exited or sickened, and changes of variables (their names, never their values). Events are kept for 90 days. -f goes on showing them as they happen.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor events</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor events
+moor events --app shop -n 20
+moor events -f</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>only what happened to this app</td></tr><tr><td><code>--env string</code></td><td></td><td>only what happened to this environment</td></tr><tr><td><code>-f, --follow</code></td><td></td><td>go on showing them as they happen</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr><tr><td><code>-n, --limit int</code></td><td><code>50</code></td><td>how many to show</td></tr></tbody></table></div>
+<h2 id="moor-exec"><code>moor exec</code><a class="anchor" href="#moor-exec" aria-label="Link to this section">#</a></h2>
+<p>Run a command in a container that is running, as seen in moor ps, in among what it has open and has written, which a new one-off instance would not be. moor ends with the command's own exit status. What is said in it is not kept.</p>
+<p>An app that is not in a container has nothing of its own to go into, as a process sees the same files from anywhere: moor run has them, with its variables and its user.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor exec INSTANCE [flags] -- COMMAND [ARG...]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor exec ins_01J… -it -- /bin/sh
+moor exec ins_01J… -- ps aux</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>-i, --interactive</code></td><td></td><td>send what is typed, or standard input, to it</td></tr><tr><td><code>--timeout string</code></td><td></td><td>how long it may take, such as 10m (default 1h)</td></tr><tr><td><code>-t, --tty</code></td><td></td><td>give it a terminal</td></tr></tbody></table></div>
+<h2 id="moor-files"><code>moor files</code><a class="anchor" href="#moor-files" aria-label="Link to this section">#</a></h2>
+<p>An environment's data directory is where its app keeps what it means to keep, and each environment has its own. This lists a directory within it, from the top if you do not say which. A link that leads out of it is not followed, and neither is anything else an app might leave there to mislead the server.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor files [PATH]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor files
+moor files uploads --env staging
+moor files get backups/nightly.sql
+moor files put seed.sql
+moor files rm old.log</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print JSON</td></tr></tbody></table></div>
+<h3 id="moor-files-get"><code>moor files get</code><a class="anchor" href="#moor-files-get" aria-label="Link to this section">#</a></h3>
+<p>Copy a file out of a data directory, to the name it has here, or to DESTINATION. - is standard output.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor files get PATH [DESTINATION]</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h3 id="moor-files-mkdir"><code>moor files mkdir</code><a class="anchor" href="#moor-files-mkdir" aria-label="Link to this section">#</a></h3>
+<p>Make a directory in a data directory</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor files mkdir PATH</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h3 id="moor-files-put"><code>moor files put</code><a class="anchor" href="#moor-files-put" aria-label="Link to this section">#</a></h3>
+<p>Copy a file into a data directory, at the top with the name it has unless PATH says where. It appears all at once, belongs to the app, and stops at something already there unless --replace says otherwise. Up to 1 GB. The directory has to be there: moor files mkdir.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor files put FILE [PATH]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor files put seed.sql
+moor files put build/index.bin indexes/current.bin --replace</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--replace</code></td><td></td><td>take the place of what is already there</td></tr></tbody></table></div>
+<h3 id="moor-files-rm"><code>moor files rm</code><a class="anchor" href="#moor-files-rm" aria-label="Link to this section">#</a></h3>
+<p>Remove a file, a link or an empty directory from a data directory, or with -r a directory and all that is in it. There is no way back but a backup.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor files rm PATH</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>-r, --recursive</code></td><td></td><td>a directory and all that is in it</td></tr></tbody></table></div>
+<h2 id="moor-forge"><code>moor forge</code><a class="anchor" href="#moor-forge" aria-label="Link to this section">#</a></h2>
+<p>Connect an app to a repository on a forge. A push to its default branch deploys to production, a push to a branch that an environment names deploys to that environment, and each pull request gets a preview of its own, which reports back to the pull request if the server has a token to do it with.</p>
+<p>A pull request from a fork, or from someone the forge does not say may push there, is not built until someone approves that commit: building it would run their code here.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge connect https://github.com/acme/shop.git --token-stdin
+moor forge pulls
+moor forge approve 42 1f3a9c07
+moor forge sync</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--json</code></td><td></td><td>print JSON</td></tr></tbody></table></div>
+<h3 id="moor-forge-approve"><code>moor forge approve</code><a class="anchor" href="#moor-forge-approve" aria-label="Link to this section">#</a></h3>
+<p>Have a pull request built, at the commit that you looked at, as moor forge pulls shows it. Building it runs its code on this server, and its preview has the app's preview variables, so look at it first. This is for that one commit: if it has moved on, nothing is built, and another commit needs approving too. It also builds again one that failed.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge approve NUMBER COMMIT</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge approve 42 1f3a9c07</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h3 id="moor-forge-connect"><code>moor forge connect</code><a class="anchor" href="#moor-forge-connect" aria-label="Link to this section">#</a></h3>
+<p>Connect an app to a repository, by its https address. It answers with an address and a secret for the forge's webhook settings: the secret is shown this once.</p>
+<p>A token reads a private repository, and sets the checks and comments on pull requests. Give it on standard input, or be asked for it, so that it stays out of your history. A server that a forge cannot reach can look for itself, every minute, with --poll: it then sees branches, and no pull requests.</p>
+<p>Connecting deploys nothing. The next push does, or: moor forge sync</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge connect URL</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge connect https://github.com/acme/shop.git --token-stdin &lt; token
+moor forge connect https://git.example.com/acme/shop.git --kind gitea
+moor forge connect https://github.com/acme/shop.git --poll</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--api-url string</code></td><td></td><td>where the forge's API is, if not where it usually is</td></tr><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--branch string</code></td><td></td><td>its production branch (default: what the repository says)</td></tr><tr><td><code>--kind string</code></td><td></td><td>github, gitlab, gitea or generic (github.com and gitlab.com need not say)</td></tr><tr><td><code>--no-previews</code></td><td></td><td>leave pull requests alone</td></tr><tr><td><code>--poll</code></td><td></td><td>look every minute, for a server that the forge cannot reach</td></tr><tr><td><code>--token-stdin</code></td><td></td><td>read a token from standard input, or ask for it</td></tr></tbody></table></div>
+<h3 id="moor-forge-disconnect"><code>moor forge disconnect</code><a class="anchor" href="#moor-forge-disconnect" aria-label="Link to this section">#</a></h3>
+<p>Let go of a repository, its secret and its token. What it deployed stays, previews too.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge disconnect</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h3 id="moor-forge-pulls"><code>moor forge pulls</code><a class="anchor" href="#moor-forge-pulls" aria-label="Link to this section">#</a></h3>
+<p>List pull requests and their previews</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge pulls</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--json</code></td><td></td><td>print JSON</td></tr></tbody></table></div>
+<h3 id="moor-forge-sync"><code>moor forge sync</code><a class="anchor" href="#moor-forge-sync" aria-label="Link to this section">#</a></h3>
+<p>Have the server look at the repository now, and deploy what has changed. This is how what is there already gets its first deployment, and how one that failed gets another try.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor forge sync</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h2 id="moor-git"><code>moor git</code><a class="anchor" href="#moor-git" aria-label="Link to this section">#</a></h2>
+<p>Push to an app's repository on the server to deploy it: the production branch (main, unless the first push named another) deploys to production.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">  moor git remote            add the &quot;moorage&quot; remote to this repository
+  git push moorage main      deploy; the build is shown as it happens</code></pre></div>
+<h3 id="moor-git-remote"><code>moor git remote</code><a class="anchor" href="#moor-git-remote" aria-label="Link to this section">#</a></h3>
+<p>Add a git remote for the app to the repository in the current directory, so that git push deploys it. The remote uses SSH, with a key registered with moor keys add; with --http, it uses HTTPS and the API token, which moor git credential gives git.</p>
+<p>The app is --app, $MOOR_APP, [app].name in moorage.toml, or the directory's name. It need not exist yet: the first push creates it.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor git remote</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor git remote
+moor git remote --http
+git push moorage main</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP, [app].name in moorage.toml, or the directory's name)</td></tr><tr><td><code>--http</code></td><td></td><td>push over HTTPS with the API token instead of SSH</td></tr><tr><td><code>--name string</code></td><td><code>moorage</code></td><td>the remote's name</td></tr></tbody></table></div>
+<h2 id="moor-keys"><code>moor keys</code><a class="anchor" href="#moor-keys" aria-label="Link to this section">#</a></h2>
+<p>List the SSH public keys that may push to the apps' repositories over SSH. Register yours with 'moor keys add', remove one with 'moor keys remove'.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor keys</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-keys-add"><code>moor keys add</code><a class="anchor" href="#moor-keys-add" aria-label="Link to this section">#</a></h3>
+<p>Register an SSH public key, so that git pushes over SSH signed with it are accepted. FILE is a .pub file, or - for standard input; without it, the first of ~/.ssh/id_ed25519.pub, id_ecdsa.pub and id_rsa.pub. The key is named after its comment unless --name says otherwise.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor keys add [FILE]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor keys add
+moor keys add ~/.ssh/work.pub --name work-laptop</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--name string</code></td><td></td><td>the key's name (default: its comment)</td></tr></tbody></table></div>
+<h3 id="moor-keys-remove"><code>moor keys remove</code><a class="anchor" href="#moor-keys-remove" aria-label="Link to this section">#</a></h3>
+<p>Remove an SSH key</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor keys remove NAME|FINGERPRINT</code></pre></div>
+<h2 id="moor-lock"><code>moor lock</code><a class="anchor" href="#moor-lock" aria-label="Link to this section">#</a></h2>
+<p>Stop deployments to an environment until it is unlocked, as after a rollback, while what went wrong is looked into. Rollbacks and changes of variables go on working.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor lock</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-login"><code>moor login</code><a class="anchor" href="#moor-login" aria-label="Link to this section">#</a></h2>
+<p>Sign in to a server, and save it as a context for later commands. moor login opens the server's approval page in your browser, and receives a token when you approve it; no password is typed into the terminal.</p>
+<p>On a machine without a browser, open the address it prints on any other machine, or pass an API token on standard input with --with-token.</p>
+<p>URL is the server's console, such as https://moorage.apps.example.com. It defaults to $MOOR_SERVER, the current context's server, or the server on this machine.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor login [URL]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor login https://moorage.apps.example.com
+moor login https://moorage.apps.example.com --no-browser
+moor login https://moorage.apps.example.com --with-token &lt; token.txt</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--name string</code></td><td></td><td>the context's name (default: the server's hostname)</td></tr><tr><td><code>--no-browser</code></td><td></td><td>print the approval page's address without opening a browser</td></tr><tr><td><code>--with-token</code></td><td></td><td>read an API token from standard input instead of opening a browser</td></tr></tbody></table></div>
+<h2 id="moor-logout"><code>moor logout</code><a class="anchor" href="#moor-logout" aria-label="Link to this section">#</a></h2>
+<p>Sign out of the current server, revoking the token</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor logout</code></pre></div>
+<h2 id="moor-logs"><code>moor logs</code><a class="anchor" href="#moor-logs" aria-label="Link to this section">#</a></h2>
+<p>Show the output of an app's instances, merged by time. Lines marked with * are notes from Moorage (starts, exits, restarts); lines marked with ! came from standard error.</p>
+<p>--source chooses what to show, from stdout, stderr, moorage, build, access and events; the first three unless asked.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor logs</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor logs --app api
+moor logs -f --app api --process worker
+moor logs --app api --source stderr,build --since 1h --grep timeout
+moor logs --app api --problems --since 24h</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>-f, --follow</code></td><td></td><td>keep showing new lines</td></tr><tr><td><code>--grep string</code></td><td></td><td>show the lines with this text, whatever its case</td></tr><tr><td><code>--instance string</code></td><td></td><td>show one instance only: its number or its ID</td></tr><tr><td><code>--json</code></td><td></td><td>print each line as JSON</td></tr><tr><td><code>--problems</code></td><td></td><td>show the lines that report a problem: errors, warnings, standard error, failed requests</td></tr><tr><td><code>--process string</code></td><td></td><td>show one process only, such as web</td></tr><tr><td><code>--since string</code></td><td></td><td>show lines since then: how long ago (15m, 2h, 7d) or a moment</td></tr><tr><td><code>--source string</code></td><td></td><td>sources to show, separated by commas: stdout, stderr, moorage, build, access, events</td></tr><tr><td><code>-n, --tail int</code></td><td><code>100</code></td><td>lines to show from the end</td></tr><tr><td><code>--until string</code></td><td></td><td>show lines until then</td></tr></tbody></table></div>
+<h2 id="moor-manifest"><code>moor manifest</code><a class="anchor" href="#moor-manifest" aria-label="Link to this section">#</a></h2>
+<p>moorage.toml tells Moorage how to build and run an app. These commands check it, show what Moorage will do with an app, and print the manifest's JSON Schema for editors.</p>
+<h3 id="moor-manifest-explain"><code>moor manifest explain</code><a class="anchor" href="#moor-manifest-explain" aria-label="Link to this section">#</a></h3>
+<p>Show the plan Moorage makes for the app in DIR (default: the current directory) from its moorage.toml and its files: the runtime, the toolchains, the build commands, the processes and their environment. The server makes the same plan when it builds the app; toolchain versions are resolved then.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor manifest explain [DIR]</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print the plan as JSON</td></tr><tr><td><code>--os string</code></td><td>this system</td><td>operating system of the server (linux, darwin or windows)</td></tr></tbody></table></div>
+<h3 id="moor-manifest-schema"><code>moor manifest schema</code><a class="anchor" href="#moor-manifest-schema" aria-label="Link to this section">#</a></h3>
+<p>Print the JSON Schema of moorage.toml, for editors that validate and complete TOML files (for example with a &quot;#:schema ./moorage.schema.json&quot; comment at the top of the manifest).</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor manifest schema</code></pre></div>
+<h3 id="moor-manifest-validate"><code>moor manifest validate</code><a class="anchor" href="#moor-manifest-validate" aria-label="Link to this section">#</a></h3>
+<p>Check the moorage.toml in DIR (default: the current directory): its syntax, keys and values. Warnings point at values that look like credentials and at settings this version accepts but does not act on yet.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor manifest validate [DIR]</code></pre></div>
+<h2 id="moor-metrics"><code>moor metrics</code><a class="anchor" href="#moor-metrics" aria-label="Link to this section">#</a></h2>
+<p>Show an environment's requests, response times, CPU and memory, as a line of text for each, with its latest value. --range is live, 1h, 24h, 7d or 30d. The console's Metrics tab has the same as charts.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor metrics</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor metrics
+moor metrics --range 24h --series latency
+moor metrics --env staging --json</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr><tr><td><code>--range string</code></td><td><code>1h</code></td><td>live, 1h, 24h, 7d or 30d</td></tr><tr><td><code>--series string</code></td><td></td><td>only requests, latency, cpu or memory</td></tr></tbody></table></div>
+<h2 id="moor-notifications"><code>moor notifications</code><a class="anchor" href="#moor-notifications" aria-label="Link to this section">#</a></h2>
+<p>Show what you have been told: of failed deployments, apps that keep crashing and cron jobs that fail in the projects you maintain, and of your own deployments that fail. Channels and rules send the same to webhooks, chat and email.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications
+moor notifications --read
+moor notifications channels add alerts --kind slack
+moor notifications rules add --channel alerts --project web</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr><tr><td><code>--read</code></td><td></td><td>mark all you have been told as read</td></tr></tbody></table></div>
+<h3 id="moor-notifications-channels"><code>moor notifications channels</code><a class="anchor" href="#moor-notifications-channels" aria-label="Link to this section">#</a></h3>
+<p>List where notifications can go. Adding, testing and removing channels takes an admin, who also sees where each one goes.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications channels</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h4 id="moor-notifications-channels-add"><code>moor notifications channels add</code><a class="anchor" href="#moor-notifications-channels-add" aria-label="Link to this section">#</a></h4>
+<p>Add somewhere notifications can go. A webhook, slack, teams or discord channel asks for its address, which is a secret, unless --url gives it, and also reads it from standard input. Email asks for the mail server's password if --username gives one to sign in with. A webhook's signing secret is shown once, here. All of it is sealed with the server's master key.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications channels add NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications channels add alerts --kind slack
+moor notifications channels add ops --kind webhook --url https://example.com/hook
+moor notifications channels add mail --kind email --host smtp.example.com --from moorage@example.com --to ops@example.com</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--from string</code></td><td></td><td>the address mail comes from</td></tr><tr><td><code>--host string</code></td><td></td><td>the mail server</td></tr><tr><td><code>--kind string</code></td><td><code>webhook</code></td><td>webhook, slack, teams, discord or email</td></tr><tr><td><code>--port int</code></td><td></td><td>the mail server's port (587 if not given; 465 means TLS from the start)</td></tr><tr><td><code>--to strings</code></td><td></td><td>the addresses mail goes to</td></tr><tr><td><code>--url string</code></td><td></td><td>the webhook's address</td></tr><tr><td><code>--username string</code></td><td></td><td>whom to sign in to the mail server as</td></tr></tbody></table></div>
+<h4 id="moor-notifications-channels-remove"><code>moor notifications channels remove</code><a class="anchor" href="#moor-notifications-channels-remove" aria-label="Link to this section">#</a></h4>
+<p>Remove a channel, and the rules that use it</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications channels remove NAME</code></pre></div>
+<h4 id="moor-notifications-channels-test"><code>moor notifications channels test</code><a class="anchor" href="#moor-notifications-channels-test" aria-label="Link to this section">#</a></h4>
+<p>Send a channel a test, and say how it went</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications channels test NAME</code></pre></div>
+<h3 id="moor-notifications-rules"><code>moor notifications rules</code><a class="anchor" href="#moor-notifications-rules" aria-label="Link to this section">#</a></h3>
+<p>List which events go to which channel, of what you can see. A rule of the whole server takes an admin, and one of a project or an app takes a maintainer of it.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications rules</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h4 id="moor-notifications-rules-add"><code>moor notifications rules add</code><a class="anchor" href="#moor-notifications-rules-add" aria-label="Link to this section">#</a></h4>
+<p>Send events to a channel: of an app, or a project, or the whole server if neither is given. Without --events it asks for failures: deployment.failed, instance.crashloop, cron.failed, server.disk_low and backup.failed. It can also ask for instance.unhealthy and deployment.live, or for * to have them all. A channel that is told something went wrong is also told when it has come right.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications rules add</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications rules add --channel alerts
+moor notifications rules add --channel alerts --project web
+moor notifications rules add --channel ops --app shop --events deployment.failed,deployment.live</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>only for this app</td></tr><tr><td><code>--channel string</code></td><td></td><td>the channel it goes to</td></tr><tr><td><code>--events strings</code></td><td></td><td>what it asks for</td></tr><tr><td><code>--project string</code></td><td></td><td>only for this project</td></tr></tbody></table></div>
+<h4 id="moor-notifications-rules-remove"><code>moor notifications rules remove</code><a class="anchor" href="#moor-notifications-rules-remove" aria-label="Link to this section">#</a></h4>
+<p>Remove a rule</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor notifications rules remove ID</code></pre></div>
+<h2 id="moor-password"><code>moor password</code><a class="anchor" href="#moor-password" aria-label="Link to this section">#</a></h2>
+<p>Change your password. It asks for the current one and a new one, without showing them, or reads both from standard input, one on each line. Your other sessions end; API tokens and SSH keys go on working.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor password</code></pre></div>
+<h2 id="moor-previews"><code>moor previews</code><a class="anchor" href="#moor-previews" aria-label="Link to this section">#</a></h2>
+<p>Pushing a branch makes a preview of it: its own build, at its own address, with the variables of production (except those marked --production-only) and an empty data directory. Deleting the branch destroys it, and so does going unused for the time [previews].ttl says, seven days unless told otherwise, unless it is pinned. An app may have ten at a time.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor previews</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor previews
+moor previews create feature/new-pricing --app shop
+moor previews pin feature-new-pricing --app shop
+moor previews destroy feature-new-pricing --app shop</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>only the previews of this app</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-previews-create"><code>moor previews create</code><a class="anchor" href="#moor-previews-create" aria-label="Link to this section">#</a></h3>
+<p>Make a preview of a branch that was pushed</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor previews create BRANCH</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--detach</code></td><td></td><td>queue the deployment and return</td></tr></tbody></table></div>
+<h3 id="moor-previews-destroy"><code>moor previews destroy</code><a class="anchor" href="#moor-previews-destroy" aria-label="Link to this section">#</a></h3>
+<p>Destroy a preview, with its data, logs and releases. Its branch stays, and a new push to it makes another.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor previews destroy NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h3 id="moor-previews-pin"><code>moor previews pin</code><a class="anchor" href="#moor-previews-pin" aria-label="Link to this section">#</a></h3>
+<p>Keep a preview from expiring</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor previews pin NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h3 id="moor-previews-unpin"><code>moor previews unpin</code><a class="anchor" href="#moor-previews-unpin" aria-label="Link to this section">#</a></h3>
+<p>Let a preview expire again</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor previews unpin NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr></tbody></table></div>
+<h2 id="moor-projects"><code>moor projects</code><a class="anchor" href="#moor-projects" aria-label="Link to this section">#</a></h2>
+<p>Apps belong to projects, whose members have roles: viewers see an app and its logs, deployers also deploy, restart, roll back and scale it, and maintainers also change its variables, its members and its fate. Administrators of the server can do everything everywhere.</p>
+<p>Every app starts in the default project, which everyone is a maintainer of until that is changed.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor projects</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-projects-add-member"><code>moor projects add-member</code><a class="anchor" href="#moor-projects-add-member" aria-label="Link to this section">#</a></h3>
+<p>Give someone a role in a project</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor projects add-member NAME EMAIL</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--role string</code></td><td><code>deployer</code></td><td>viewer, deployer or maintainer</td></tr></tbody></table></div>
+<h3 id="moor-projects-create"><code>moor projects create</code><a class="anchor" href="#moor-projects-create" aria-label="Link to this section">#</a></h3>
+<p>Create a project</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor projects create NAME</code></pre></div>
+<h3 id="moor-projects-delete"><code>moor projects delete</code><a class="anchor" href="#moor-projects-delete" aria-label="Link to this section">#</a></h3>
+<p>Delete a project that has no apps</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor projects delete NAME</code></pre></div>
+<h3 id="moor-projects-remove-member"><code>moor projects remove-member</code><a class="anchor" href="#moor-projects-remove-member" aria-label="Link to this section">#</a></h3>
+<p>Take someone out of a project</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor projects remove-member NAME EMAIL</code></pre></div>
+<h3 id="moor-projects-set"><code>moor projects set</code><a class="anchor" href="#moor-projects-set" aria-label="Link to this section">#</a></h3>
+<p>Change who may do what in a project without being a member</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor projects set NAME</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--everyone string</code></td><td></td><td>the role of those who are not members: viewer, deployer, maintainer or none</td></tr><tr><td><code>--viewers-see-logs</code></td><td><code>true</code></td><td>whether viewers may read logs</td></tr></tbody></table></div>
+<h3 id="moor-projects-show"><code>moor projects show</code><a class="anchor" href="#moor-projects-show" aria-label="Link to this section">#</a></h3>
+<p>Show a project, its apps and its members</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor projects show NAME</code></pre></div>
+<h2 id="moor-promote"><code>moor promote</code><a class="anchor" href="#moor-promote" aria-label="Link to this section">#</a></h2>
+<p>Release the build one environment runs to another, without building it again, with the variables of the environment it goes to. What was tried is what runs.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor promote --from ENVIRONMENT</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor promote --from staging
+moor promote --from feature-new-pricing --to staging --app shop</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--from string</code></td><td></td><td>the environment whose build to release</td></tr><tr><td><code>--to string</code></td><td><code>production</code></td><td>the environment to release it to</td></tr></tbody></table></div>
+<h2 id="moor-ps"><code>moor ps</code><a class="anchor" href="#moor-ps" aria-label="Link to this section">#</a></h2>
+<p>List an app's running instances</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor ps</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h2 id="moor-redeploy"><code>moor redeploy</code><a class="anchor" href="#moor-redeploy" aria-label="Link to this section">#</a></h2>
+<p>Build what the current release was built from again, and roll it out: the same commit, the same upload or the same image name. Use it when a toolchain has moved, an image's tag points elsewhere, or a build variable has changed.</p>
+<p>A release that was uploaded ready to run has nothing to build.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor redeploy</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor redeploy --app docs</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--detach</code></td><td></td><td>queue the deployment and return</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-registry"><code>moor registry</code><a class="anchor" href="#moor-registry" aria-label="Link to this section">#</a></h2>
+<p>List the container registries the server has credentials for. It uses them to pull images and to build from private base images. Managing them takes an admin.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor registry</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-registry-login"><code>moor registry login</code><a class="anchor" href="#moor-registry-login" aria-label="Link to this section">#</a></h3>
+<p>Store a container registry's credentials on the server, encrypted with its master key. The password is asked for, or read from standard input. Nothing checks it now: the next pull does.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor registry login HOST</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor registry login ghcr.io --username acme-deploy
+moor registry login registry.example.com:5000 --username ci &lt; password.txt</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--username string</code></td><td></td><td>the user to sign in as</td></tr></tbody></table></div>
+<h3 id="moor-registry-logout"><code>moor registry logout</code><a class="anchor" href="#moor-registry-logout" aria-label="Link to this section">#</a></h3>
+<p>Remove a container registry's credentials from the server</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor registry logout HOST</code></pre></div>
+<h2 id="moor-releases"><code>moor releases</code><a class="anchor" href="#moor-releases" aria-label="Link to this section">#</a></h2>
+<p>List an app's releases</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor releases</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-releases-diff"><code>moor releases diff</code><a class="anchor" href="#moor-releases-diff" aria-label="Link to this section">#</a></h3>
+<p>Show what changed from one release to another: whether the build did, the lines of the resolved manifest, and which variables. Of variables it shows the names only.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor releases diff vN vM</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor releases diff v3 v4 --app docs</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-releases-show"><code>moor releases show</code><a class="anchor" href="#moor-releases-show" aria-label="Link to this section">#</a></h3>
+<p>Show a release and its resolved manifest</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor releases show vN</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor releases show v3 --app docs</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h2 id="moor-restart"><code>moor restart</code><a class="anchor" href="#moor-restart" aria-label="Link to this section">#</a></h2>
+<p>Start new instances of the current release, move traffic to them once they are healthy, and stop the old ones after their requests finish. With a process, only its instances are replaced.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor restart [PROCESS]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor restart
+moor restart worker</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-rollback"><code>moor rollback</code><a class="anchor" href="#moor-rollback" aria-label="Link to this section">#</a></h2>
+<p>Publish an earlier release again, as a new release. Without a version, the release before the current one. No rebuild is needed: it takes seconds.</p>
+<p>The new release runs with the current variables; --with-config restores the variables the earlier release ran with.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor rollback [vN]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor rollback --app docs
+moor rollback v3 --app docs</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--with-config</code></td><td></td><td>restore the variables the earlier release ran with</td></tr></tbody></table></div>
+<h2 id="moor-run"><code>moor run</code><a class="anchor" href="#moor-run" aria-label="Link to this section">#</a></h2>
+<p>Run a command as a one-off instance of an environment's current release, with its variables and data directory, and show what it says. moor ends with the command's own exit status, and interrupting moor stops it. It takes an hour at the most, unless --timeout says otherwise, up to a day.</p>
+<p>With -it, it has a terminal of its own that you are at, for a shell or anything else that asks you things. All the keys go to it, Ctrl-C too, and leaving stops it. What is said in one is not kept, since a password can be typed into it, and what it says is not kept from you either: its secrets are there to be seen. With -i and no -t, it has standard input, without a terminal.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor run [flags] -- COMMAND [ARG...]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor run -- python manage.py migrate
+moor run --env staging --timeout 10m -- ./seed.sh
+moor run --detach -- ./rebuild-index
+moor run -it -- /bin/sh
+moor run -i -- ./import.sh &lt; data.csv</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--detach</code></td><td></td><td>start it and return</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>-i, --interactive</code></td><td></td><td>send what is typed, or standard input, to it</td></tr><tr><td><code>--timeout string</code></td><td></td><td>how long it may take, such as 10m (default 1h)</td></tr><tr><td><code>-t, --tty</code></td><td></td><td>give it a terminal</td></tr></tbody></table></div>
+<h2 id="moor-scale"><code>moor scale</code><a class="anchor" href="#moor-scale" aria-label="Link to this section">#</a></h2>
+<p>Set how many instances of each named process run. New ones start beside those running; those beyond the number finish their requests and stop. If a new instance cannot start, the app goes back to how it was.</p>
+<p>The setting stays, over the manifest's instances, for the releases to come. Without arguments, it shows how many run.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor scale [PROCESS=N ...]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor scale --app shop
+moor scale web=3 worker=1 --app shop</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-server"><code>moor server</code><a class="anchor" href="#moor-server" aria-label="Link to this section">#</a></h2>
+<p>Set up and run a Moorage server</p>
+<h3 id="moor-server-backup"><code>moor server backup</code><a class="anchor" href="#moor-server-backup" aria-label="Link to this section">#</a></h3>
+<p>Make a backup of this server, which can go on running: its database, repositories, builds, apps' data and certificates. It goes where --to says, or where the server has been told: a path, or s3://bucket/prefix, with the service's details in AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION and AWS_ENDPOINT_URL.</p>
+<p>It leaves out the master key, without which its secrets cannot be read, so that a backup that goes astray gives them away to nobody. Keep that key safe, and apart. --include-keys puts it and the server's other keys in the backup, which then has to be kept as safe as they are: only to a path.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server backup</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server backup
+moor server backup --to /mnt/backups
+moor server backup --to s3://acme-backups/moorage</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>the server's configuration file</td></tr><tr><td><code>--include-keys</code></td><td></td><td>include the master key and the server's other keys</td></tr><tr><td><code>--to string</code></td><td></td><td>where it goes: a path, or s3://bucket/prefix</td></tr></tbody></table></div>
+<h4 id="moor-server-backup-list"><code>moor server backup list</code><a class="anchor" href="#moor-server-backup-list" aria-label="Link to this section">#</a></h4>
+<p>List the backups that are there</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server backup list</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>the server's configuration file</td></tr><tr><td><code>--to string</code></td><td></td><td>where to look: a path, or s3://bucket/prefix</td></tr></tbody></table></div>
+<h4 id="moor-server-backup-verify"><code>moor server backup verify</code><a class="anchor" href="#moor-server-backup-verify" aria-label="Link to this section">#</a></h4>
+<p>Read a backup through, and say whether it could be restored: the path of its file, or s3://bucket/prefix/name. Nothing changes.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server backup verify SOURCE</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server backup verify /mnt/backups/moorage-20261104T120000Z.tar.gz</code></pre></div>
+<h3 id="moor-server-config"><code>moor server config</code><a class="anchor" href="#moor-server-config" aria-label="Link to this section">#</a></h3>
+<p>The server's settings, as a file to keep, to review, or to bring to another server: people, projects, registries, notifications, backups and sign-in. It has no secrets in it: where one belongs, it names a variable of the environment. server.toml is apart from this, and apps come from their manifests.</p>
+<h4 id="moor-server-config-export"><code>moor server config export</code><a class="anchor" href="#moor-server-config-export" aria-label="Link to this section">#</a></h4>
+<p>Write out the server's settings</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server config export</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server config export &gt; moorage-config.toml
+moor server config export --output moorage-config.toml</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>-o, --output string</code></td><td></td><td>write to this file, and not to the standard output</td></tr></tbody></table></div>
+<h4 id="moor-server-config-import"><code>moor server config import</code><a class="anchor" href="#moor-server-config-import" aria-label="Link to this section">#</a></h4>
+<p>Import makes the server match a file from moor server config export, in what the file mentions. It adds and changes, and removes nothing. A secret written as ${NAME} is read from this command's environment, and if that is not set, the server keeps the secret it has.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server config import FILE</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server config import moorage-config.toml --dry-run
+MOORAGE_SSO_CLIENT_SECRET=... moor server config import moorage-config.toml</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--dry-run</code></td><td></td><td>only say what this would do</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-server-doctor"><code>moor server doctor</code><a class="anchor" href="#moor-server-doctor" aria-label="Link to this section">#</a></h3>
+<p>Check a server on this machine, whether it is running or not, and say how to fix what is wrong: its listeners, DNS, certificates, the container engine, disk space, the data directory, the clock, kernel features, and apps that can be reached without the router.</p>
+<p>--public-url also checks the whole path from outside to the server, through any TLS proxy in front of it: the headers that arrive, an app's hostname, WebSockets, streaming and large uploads. --timeouts adds a request that stays silent for over a minute. The exit status is 1 if anything failed.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server doctor</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server doctor
+moor server doctor --public-url https://moorage.apps.example.com --timeouts</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr><tr><td><code>--public-url string</code></td><td></td><td>the server's address from outside, such as https://moorage.apps.example.com</td></tr><tr><td><code>--timeouts</code></td><td></td><td>with --public-url, also check that a request may stay silent for over a minute</td></tr></tbody></table></div>
+<h3 id="moor-server-init"><code>moor server init</code><a class="anchor" href="#moor-server-init" aria-label="Link to this section">#</a></h3>
+<p>Write server.toml, the bootstrap configuration of a Moorage server.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">Presets:
+  lan     a server on your network: apps at https://&lt;app&gt;.&lt;domain&gt; with
+          certificates from Moorage's own CA (ports 80, 443 and 2222), or plain
+          HTTP on 127.0.0.1:8080 behind your TLS proxy with --behind-proxy
+  local   this computer only: apps at http://&lt;app&gt;.localhost:8080</code></pre></div>
+<p>The file is written to --config, $MOORAGE_CONFIG, or a default location: system-wide when run as root (Administrator on Windows), per-user otherwise.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server init</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server init --preset local
+sudo moor server init --domain apps.example.com
+sudo moor server init --domain apps.example.com --behind-proxy</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--behind-proxy</code></td><td></td><td>serve plain HTTP on 127.0.0.1:8080 behind a TLS-terminating proxy such as nginx (lan)</td></tr><tr><td><code>--config string</code></td><td></td><td>where to write server.toml (default: $MOORAGE_CONFIG or a per-platform location)</td></tr><tr><td><code>--console-host string</code></td><td></td><td>the console's hostname (default: moorage.&lt;domain&gt;)</td></tr><tr><td><code>--data-dir string</code></td><td></td><td>data directory (default: $MOORAGE_DATA_DIR or a per-platform location)</td></tr><tr><td><code>--domain string</code></td><td></td><td>base domain; apps are served at &lt;app&gt;.&lt;domain&gt; (required for lan)</td></tr><tr><td><code>--force</code></td><td></td><td>replace an existing server.toml</td></tr><tr><td><code>--preset string</code></td><td><code>lan</code></td><td>starting point: lan or local</td></tr><tr><td><code>--routing string</code></td><td><code>host</code></td><td>how apps are told apart: host, as &lt;app&gt;.&lt;domain&gt;, or path, as &lt;domain&gt;/&lt;app&gt;, for where there can be no wildcard DNS record</td></tr></tbody></table></div>
+<h3 id="moor-server-install"><code>moor server install</code><a class="anchor" href="#moor-server-install" aria-label="Link to this section">#</a></h3>
+<p>Install moor server run as a service — a systemd unit on Linux, a launchd job on macOS, a Windows service — that starts at boot (as root or an administrator) or at login (otherwise, on Linux and macOS), and start it.</p>
+<p>The service is set up so that stopping or restarting it leaves the apps running: the server adopts them when it starts again. It runs this moor binary from where it is now, with the current PATH.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server install</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">sudo moor server install
+moor server install --config ~/moorage/server.toml</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr><tr><td><code>--no-start</code></td><td></td><td>install the service without starting it</td></tr></tbody></table></div>
+<h3 id="moor-server-proxy-config"><code>moor server proxy-config</code><a class="anchor" href="#moor-server-proxy-config" aria-label="Link to this section">#</a></h3>
+<p>Print an nginx configuration for this server: its hostnames, the certificate, WebSockets, streaming, long requests and large uploads. Any other proxy must do the same; see the documentation. Check the result with moor server doctor --public-url.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server proxy-config nginx</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server proxy-config nginx --cert /etc/nginx/tls/wildcard.crt --key /etc/nginx/tls/wildcard.key
+moor server proxy-config nginx &gt; /etc/nginx/conf.d/moorage.conf</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--cert string</code></td><td></td><td>the proxy's certificate, for the console's and the apps' hostnames</td></tr><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr><tr><td><code>--http-port int</code></td><td><code>80</code></td><td>the port nginx redirects to HTTPS from</td></tr><tr><td><code>--https-port int</code></td><td><code>443</code></td><td>the port nginx serves HTTPS on</td></tr><tr><td><code>--key string</code></td><td></td><td>its private key</td></tr></tbody></table></div>
+<h3 id="moor-server-resolver"><code>moor server resolver</code><a class="anchor" href="#moor-server-resolver" aria-label="Link to this section">#</a></h3>
+<p>Show whether this machine resolves &lt;app&gt;.localhost, the addresses of a server on your own computer. Chromium- and Firefox-based browsers manage that on their own, as does systemd-resolved on Linux, and some versions of macOS. Where macOS does not, for Safari and command-line tools, moor server resolver install adds a rule for it, pointing at a small DNS responder of the server's, which answers only on loopback and only for that domain. On Windows, it adds a block to the hosts file, which has the names of the apps that are deployed now.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server resolver</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr></tbody></table></div>
+<h4 id="moor-server-resolver-install"><code>moor server resolver install</code><a class="anchor" href="#moor-server-resolver-install" aria-label="Link to this section">#</a></h4>
+<p>Make this machine resolve &lt;app&gt;.localhost for every program. On macOS, that adds a rule to /etc/resolver, for which it uses sudo, and turns on the server's DNS responder (listen.dns in server.toml), which the server needs restarting to take up. On Windows, it adds a block to the hosts file, for which it takes an elevated terminal, with the names of what is deployed now: a server that may write to that file keeps it up to date, and otherwise, run this again after adding an app.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server resolver install</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr></tbody></table></div>
+<h4 id="moor-server-resolver-remove"><code>moor server resolver remove</code><a class="anchor" href="#moor-server-resolver-remove" aria-label="Link to this section">#</a></h4>
+<p>Undo moor server resolver install</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server resolver remove</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr></tbody></table></div>
+<h3 id="moor-server-restart"><code>moor server restart</code><a class="anchor" href="#moor-server-restart" aria-label="Link to this section">#</a></h3>
+<p>Restart the server's service (the apps keep running)</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server restart</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr></tbody></table></div>
+<h3 id="moor-server-restore"><code>moor server restore</code><a class="anchor" href="#moor-server-restore" aria-label="Link to this section">#</a></h3>
+<p>Restore a backup: the path of its file, or s3://bucket/prefix/name. The server has to be stopped. It reads all of the backup first, so that a damaged one changes nothing, and then stops any apps still running, and moves what the data directory held aside rather than deleting it.</p>
+<p>A backup without keys needs the master key it was made with to be in place first.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server restore SOURCE</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server restore /mnt/backups/moorage-20261104T120000Z.tar.gz
+moor server restore s3://acme-backups/moorage/moorage-20261104T120000Z.tar.gz --force</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>the server's configuration file</td></tr><tr><td><code>--force</code></td><td></td><td>move aside what the data directory holds, and restore over it</td></tr></tbody></table></div>
+<h3 id="moor-server-run"><code>moor server run</code><a class="anchor" href="#moor-server-run" aria-label="Link to this section">#</a></h3>
+<p>Run the Moorage server in the foreground until interrupted.</p>
+<p>The configuration is read from --config, $MOORAGE_CONFIG, or the default location used by 'moor server init'.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server run</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml to read (default: $MOORAGE_CONFIG or a per-platform location)</td></tr><tr><td><code>--dev</code></td><td></td><td>read the console's templates and assets from the source tree, for working on them</td></tr><tr><td><code>--log-format string</code></td><td></td><td>text or json (overrides server.toml)</td></tr><tr><td><code>--log-level string</code></td><td></td><td>debug, info, warn or error (overrides server.toml)</td></tr></tbody></table></div>
+<h3 id="moor-server-sso"><code>moor server sso</code><a class="anchor" href="#moor-server-sso" aria-label="Link to this section">#</a></h3>
+<p>Say how people sign in through an OpenID Connect provider, which is set up in the console, in Settings → Sign-in.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server sso</code></pre></div>
+<h4 id="moor-server-sso-off"><code>moor server sso off</code><a class="anchor" href="#moor-server-sso-off" aria-label="Link to this section">#</a></h4>
+<p>Turn off signing in through a provider, which gives passwords back: the way in if your provider has gone away. On the server's own machine this needs no sign-in, and those who signed in only through the provider need a new link for a password, from an administrator.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server sso off</code></pre></div>
+<h3 id="moor-server-start"><code>moor server start</code><a class="anchor" href="#moor-server-start" aria-label="Link to this section">#</a></h3>
+<p>Start the server's service</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server start</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr></tbody></table></div>
+<h3 id="moor-server-status"><code>moor server status</code><a class="anchor" href="#moor-server-status" aria-label="Link to this section">#</a></h3>
+<p>Show whether the server's service runs and answers</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server status</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr></tbody></table></div>
+<h3 id="moor-server-stop"><code>moor server stop</code><a class="anchor" href="#moor-server-stop" aria-label="Link to this section">#</a></h3>
+<p>Stop the server: its service, or one started with moor server run. The apps keep running, and the server adopts them when it starts again; --all stops them too, whether or not a server is running.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server stop</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--all</code></td><td></td><td>stop the apps too</td></tr><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr></tbody></table></div>
+<h3 id="moor-server-telemetry"><code>moor server telemetry</code><a class="anchor" href="#moor-server-telemetry" aria-label="Link to this section">#</a></h3>
+<p>Send what apps say to syslog, an OpenTelemetry collector or any HTTP endpoint, and what they do to an OpenTelemetry collector. What is kept here stays, and a sink that is down costs nothing but its own place in the queue, of 20,000 lines: past that, the oldest go, and it says how many did.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server telemetry</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server telemetry add central --kind syslog --address tls://logs.example.com:6514
+moor server telemetry add collector --kind otlp --address https://otel.example.com:4318 --logs --metrics --header &quot;Authorization: Bearer abc&quot;
+moor server telemetry test central
+moor server telemetry rm central</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print JSON</td></tr></tbody></table></div>
+<h4 id="moor-server-telemetry-add"><code>moor server telemetry add</code><a class="anchor" href="#moor-server-telemetry-add" aria-label="Link to this section">#</a></h4>
+<p>Add somewhere to send what apps say and do, or change the one of that name. Logs go unless it is given --metrics alone.</p>
+<p>An address is udp://host:514, tcp://host:601 or tls://host:6514 for syslog. For OTLP it is what comes before /v1/logs, as in https://otel.example.com:4318. For HTTP, it is where JSON batches are sent.</p>
+<p>--header is sent with each request, sealed here and not shown again, and is left as it is if you leave it out, unless the address changes. To be sent in the clear across the internet is not for a header, so it takes an https address, or something on the local network.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server telemetry add NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server telemetry add central --kind syslog --address tls://logs.example.com:6514 --app shop
+moor server telemetry add collector --kind otlp --address https://otel.example.com:4318 --metrics --logs</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--address string</code></td><td></td><td>where it is</td></tr><tr><td><code>--app string</code></td><td></td><td>only this app (default: all of them)</td></tr><tr><td><code>--header stringArray</code></td><td></td><td>a header to send, as Name: value (more than one can be given)</td></tr><tr><td><code>--kind string</code></td><td></td><td>syslog, otlp or http</td></tr><tr><td><code>--logs</code></td><td></td><td>send what apps say (the default, unless --metrics is on its own)</td></tr><tr><td><code>--metrics</code></td><td></td><td>send what they do, to an OTLP collector</td></tr></tbody></table></div>
+<h4 id="moor-server-telemetry-rm"><code>moor server telemetry rm</code><a class="anchor" href="#moor-server-telemetry-rm" aria-label="Link to this section">#</a></h4>
+<p>Stop sending to a sink</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server telemetry rm NAME</code></pre></div>
+<h4 id="moor-server-telemetry-test"><code>moor server telemetry test</code><a class="anchor" href="#moor-server-telemetry-test" aria-label="Link to this section">#</a></h4>
+<p>Send something to a sink now, and say how that went</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server telemetry test NAME</code></pre></div>
+<h3 id="moor-server-uninstall"><code>moor server uninstall</code><a class="anchor" href="#moor-server-uninstall" aria-label="Link to this section">#</a></h3>
+<p>Stop the server, remove its service, and stop the apps (unless --keep-apps). The configuration and the data directory are left in place: installing the service again brings the server, and its apps, back.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server uninstall</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr><tr><td><code>--keep-apps</code></td><td></td><td>leave the apps running</td></tr></tbody></table></div>
+<h3 id="moor-server-upgrade"><code>moor server upgrade</code><a class="anchor" href="#moor-server-upgrade" aria-label="Link to this section">#</a></h3>
+<p>Upgrade downloads a release, checks it against its published checksum, keeps a copy of the database and the binary, puts the new binary in place and restarts the server. Apps keep running. If the server does not come up on the new version, everything goes back by itself.</p>
+<p>With --rollback it goes back later on. The database only goes back if the new version changed it, since what has happened since is then lost from it.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server upgrade</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server upgrade --check
+sudo moor server upgrade
+sudo moor server upgrade --version 0.6.1
+sudo moor server upgrade --from /mnt/releases/0.6.1
+sudo moor server upgrade --rollback</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--check</code></td><td></td><td>only say whether there is a newer version</td></tr><tr><td><code>--config string</code></td><td></td><td>server.toml (default: $MOORAGE_CONFIG or the per-platform location)</td></tr><tr><td><code>--force</code></td><td></td><td>with --rollback, go back even if that loses what has happened since</td></tr><tr><td><code>--from string</code></td><td></td><td>a directory or address holding the release's files, for a mirror or a machine with no way out</td></tr><tr><td><code>--rollback</code></td><td></td><td>go back to the version before the last upgrade</td></tr><tr><td><code>--version string</code></td><td></td><td>the version to upgrade to (default: the newest)</td></tr><tr><td><code>--wait duration</code></td><td><code>2m0s</code></td><td>how long the new version has to come up before going back</td></tr></tbody></table></div>
+<h3 id="moor-server-users"><code>moor server users</code><a class="anchor" href="#moor-server-users" aria-label="Link to this section">#</a></h3>
+<p>List the server's users. An admin manages users; until projects arrive, every user may do everything with apps.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server users</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h4 id="moor-server-users-create"><code>moor server users create</code><a class="anchor" href="#moor-server-users-create" aria-label="Link to this section">#</a></h4>
+<p>Create a user, and print a link for them to choose a password</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server users create EMAIL</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server users create ada@example.com --name &quot;Ada Lovelace&quot;
+moor server users create ops@example.com --admin</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--admin</code></td><td></td><td>make them an admin</td></tr><tr><td><code>--name string</code></td><td></td><td>their name (default: the first part of the address)</td></tr></tbody></table></div>
+<h4 id="moor-server-users-disable"><code>moor server users disable</code><a class="anchor" href="#moor-server-users-disable" aria-label="Link to this section">#</a></h4>
+<p>Disable a user: their sessions end, and their tokens and keys stop working</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server users disable EMAIL</code></pre></div>
+<h4 id="moor-server-users-enable"><code>moor server users enable</code><a class="anchor" href="#moor-server-users-enable" aria-label="Link to this section">#</a></h4>
+<p>Enable a disabled user again</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server users enable EMAIL</code></pre></div>
+<h4 id="moor-server-users-invite"><code>moor server users invite</code><a class="anchor" href="#moor-server-users-invite" aria-label="Link to this section">#</a></h4>
+<p>Print a new one-time link for a user to choose a password: for one who has forgotten theirs, or whose first link has expired. It replaces any earlier link, and using it ends their sessions.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server users invite EMAIL</code></pre></div>
+<h4 id="moor-server-users-role"><code>moor server users role</code><a class="anchor" href="#moor-server-users-role" aria-label="Link to this section">#</a></h4>
+<p>Change a user's role</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor server users role EMAIL admin|member</code></pre></div>
+<h2 id="moor-share"><code>moor share</code><a class="anchor" href="#moor-share" aria-label="Link to this section">#</a></h2>
+<p>Make a link that lets someone reach an environment, whatever its gate, without an account or a password. It is shown only now. It lasts seven days unless you say otherwise, up to a year, and can be revoked.</p>
+<p>A link with --max-uses asks for a click, so that what fetches addresses to preview them does not use it up.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor share</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor share --expires 3d --env staging
+moor share --max-uses 1
+moor share list
+moor share revoke shr_01J…</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--expires string</code></td><td></td><td>how long it lasts, such as 3d or 12h (default 7d)</td></tr><tr><td><code>--max-uses int</code></td><td></td><td>how many times it can be used (default: no limit)</td></tr></tbody></table></div>
+<h3 id="moor-share-list"><code>moor share list</code><a class="anchor" href="#moor-share-list" aria-label="Link to this section">#</a></h3>
+<p>List an environment's share links</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor share list</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-share-revoke"><code>moor share revoke</code><a class="anchor" href="#moor-share-revoke" aria-label="Link to this section">#</a></h3>
+<p>End a share link, and within a minute everyone it let in</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor share revoke ID</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-sleep"><code>moor sleep</code><a class="anchor" href="#moor-sleep" aria-label="Link to this section">#</a></h2>
+<p>Stop an environment's instances, except processes with sleep = false, until a request wakes it. A preview does this by itself after 30 minutes with no requests, and any environment can with sleep_after in [environments.NAME].</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor sleep</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-tokens"><code>moor tokens</code><a class="anchor" href="#moor-tokens" aria-label="Link to this section">#</a></h2>
+<p>List your API tokens: for scripts and CI, and for git over HTTPS. Create one with 'moor tokens create NAME', revoke one with 'moor tokens revoke NAME'.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor tokens</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-tokens-create"><code>moor tokens create</code><a class="anchor" href="#moor-tokens-create" aria-label="Link to this section">#</a></h3>
+<p>Create an API token. Its scope is what it may do, up to what you may do:</p>
+<div class="code"><pre tabindex="0"><code class="language-text">  read    see apps, deployments, releases and logs; fetch their repositories
+  deploy  also deploy, restart, roll back, push, and see variables
+  admin   also change variables, and manage your tokens and keys
+  gate    only get through the sign-in gates of apps, as you</code></pre></div>
+<p>--app restricts it to one app, and --expires makes it stop working after a time, such as 90d.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor tokens create NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor tokens create ci --scope deploy --app shop --expires 90d</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>restrict it to one app</td></tr><tr><td><code>--expires string</code></td><td></td><td>stop working after this long, such as 90d</td></tr><tr><td><code>--scope strings</code></td><td><code>[deploy]</code></td><td>what it may do: read, deploy, admin, or gate to get through sign-in gates</td></tr></tbody></table></div>
+<h3 id="moor-tokens-revoke"><code>moor tokens revoke</code><a class="anchor" href="#moor-tokens-revoke" aria-label="Link to this section">#</a></h3>
+<p>Revoke an API token</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor tokens revoke NAME</code></pre></div>
+<h2 id="moor-trust"><code>moor trust</code><a class="anchor" href="#moor-trust" aria-label="Link to this section">#</a></h2>
+<p>Trust the certificate authority of a server on this machine, so that browsers and command-line tools accept the certificates it issues. The CA goes into the operating system's list and, on Linux, into the browsers' own lists.</p>
+<p>A CA is powerful: whoever holds its key can pretend to be any site it may sign for. Moorage's own CA may sign only for the server's domain, and moor trust says what the one it finds may sign for. It comes from the server's own files on the server's machine, and otherwise from the server, over a connection nothing can vouch for yet: compare its fingerprint with what moor server status shows on the server. --fingerprint does that without asking.</p>
+<p>On macOS and Windows, moor trust changes your own list, and asks you to confirm; as root or an Administrator, the machine's. On Linux it uses sudo.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor trust</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor trust
+moor trust --server https://moorage.apps.example.com
+moor trust --server https://moorage.apps.example.com --fingerprint AB:CD:…
+moor trust --file corporate-root.pem
+moor trust --print &gt; moorage-ca.crt
+moor trust --remove</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--file string</code></td><td></td><td>trust this PEM file, instead of asking a server</td></tr><tr><td><code>--fingerprint string</code></td><td></td><td>the SHA-256 fingerprint the CA must have; asks nothing if it does</td></tr><tr><td><code>--print</code></td><td></td><td>print the CA certificate, and change nothing</td></tr><tr><td><code>--remove</code></td><td></td><td>stop trusting the CA</td></tr></tbody></table></div>
+<h2 id="moor-unlock"><code>moor unlock</code><a class="anchor" href="#moor-unlock" aria-label="Link to this section">#</a></h2>
+<p>Let an environment take deployments again.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor unlock</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-version"><code>moor version</code><a class="anchor" href="#moor-version" aria-label="Link to this section">#</a></h2>
+<p>Print the version of moor</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor version</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h2 id="moor-wake"><code>moor wake</code><a class="anchor" href="#moor-wake" aria-label="Link to this section">#</a></h2>
+<p>Start an environment that is asleep, and return when it is ready.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor wake</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr></tbody></table></div>
+<h2 id="moor-whoami"><code>moor whoami</code><a class="anchor" href="#moor-whoami" aria-label="Link to this section">#</a></h2>
+<p>Show who you are signed in as, and on which server</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor whoami</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/cli.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="manifest.html"><span>Previous</span>moorage.toml</a><a class="doc-pager-next" rel="next" href="api.html"><span>Next</span>The API</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#moor-access"><code>moor access</code></a></li>
+        <li class="toc-2"><a href="#moor-alerts"><code>moor alerts</code></a></li>
+        <li class="toc-2"><a href="#moor-apps"><code>moor apps</code></a></li>
+        <li class="toc-2"><a href="#moor-audit"><code>moor audit</code></a></li>
+        <li class="toc-2"><a href="#moor-context"><code>moor context</code></a></li>
+        <li class="toc-2"><a href="#moor-cron"><code>moor cron</code></a></li>
+        <li class="toc-2"><a href="#moor-deploy"><code>moor deploy</code></a></li>
+        <li class="toc-2"><a href="#moor-deployments"><code>moor deployments</code></a></li>
+        <li class="toc-2"><a href="#moor-domains"><code>moor domains</code></a></li>
+        <li class="toc-2"><a href="#moor-env"><code>moor env</code></a></li>
+        <li class="toc-2"><a href="#moor-environments"><code>moor environments</code></a></li>
+        <li class="toc-2"><a href="#moor-events"><code>moor events</code></a></li>
+        <li class="toc-2"><a href="#moor-exec"><code>moor exec</code></a></li>
+        <li class="toc-2"><a href="#moor-files"><code>moor files</code></a></li>
+        <li class="toc-2"><a href="#moor-forge"><code>moor forge</code></a></li>
+        <li class="toc-2"><a href="#moor-git"><code>moor git</code></a></li>
+        <li class="toc-2"><a href="#moor-keys"><code>moor keys</code></a></li>
+        <li class="toc-2"><a href="#moor-lock"><code>moor lock</code></a></li>
+        <li class="toc-2"><a href="#moor-login"><code>moor login</code></a></li>
+        <li class="toc-2"><a href="#moor-logout"><code>moor logout</code></a></li>
+        <li class="toc-2"><a href="#moor-logs"><code>moor logs</code></a></li>
+        <li class="toc-2"><a href="#moor-manifest"><code>moor manifest</code></a></li>
+        <li class="toc-2"><a href="#moor-metrics"><code>moor metrics</code></a></li>
+        <li class="toc-2"><a href="#moor-notifications"><code>moor notifications</code></a></li>
+        <li class="toc-2"><a href="#moor-password"><code>moor password</code></a></li>
+        <li class="toc-2"><a href="#moor-previews"><code>moor previews</code></a></li>
+        <li class="toc-2"><a href="#moor-projects"><code>moor projects</code></a></li>
+        <li class="toc-2"><a href="#moor-promote"><code>moor promote</code></a></li>
+        <li class="toc-2"><a href="#moor-ps"><code>moor ps</code></a></li>
+        <li class="toc-2"><a href="#moor-redeploy"><code>moor redeploy</code></a></li>
+        <li class="toc-2"><a href="#moor-registry"><code>moor registry</code></a></li>
+        <li class="toc-2"><a href="#moor-releases"><code>moor releases</code></a></li>
+        <li class="toc-2"><a href="#moor-restart"><code>moor restart</code></a></li>
+        <li class="toc-2"><a href="#moor-rollback"><code>moor rollback</code></a></li>
+        <li class="toc-2"><a href="#moor-run"><code>moor run</code></a></li>
+        <li class="toc-2"><a href="#moor-scale"><code>moor scale</code></a></li>
+        <li class="toc-2"><a href="#moor-server"><code>moor server</code></a></li>
+        <li class="toc-2"><a href="#moor-share"><code>moor share</code></a></li>
+        <li class="toc-2"><a href="#moor-sleep"><code>moor sleep</code></a></li>
+        <li class="toc-2"><a href="#moor-tokens"><code>moor tokens</code></a></li>
+        <li class="toc-2"><a href="#moor-trust"><code>moor trust</code></a></li>
+        <li class="toc-2"><a href="#moor-unlock"><code>moor unlock</code></a></li>
+        <li class="toc-2"><a href="#moor-version"><code>moor version</code></a></li>
+        <li class="toc-2"><a href="#moor-wake"><code>moor wake</code></a></li>
+        <li class="toc-2"><a href="#moor-whoami"><code>moor whoami</code></a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

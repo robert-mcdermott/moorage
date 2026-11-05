@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Running a server · Moorage</title>
+  <meta name="description" content="What to look at, what to set up in the first week, and what to do as it grows." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/administration.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="Running a server · Moorage" />
+  <meta property="og:description" content="What to look at, what to set up in the first week, and what to do as it grows." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/administration.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html" aria-current="page">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html">Backups</a></li>
+            <li><a href="telemetry.html">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html">moorage.toml</a></li>
+            <li><a href="cli.html">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>Running a server</h1>
+      <p class="doc-lede">What to look at, what to set up in the first week, and what to do as it grows.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#the-first-week">The first week</a></li>
+        <li class="toc-2"><a href="#what-to-look-at">What to look at</a></li>
+        <li class="toc-2"><a href="#where-the-disk-goes">Where the disk goes</a></li>
+        <li class="toc-2"><a href="#as-it-grows">As it grows</a></li>
+        <li class="toc-2"><a href="#stopping-and-restarting">Stopping and restarting</a></li>
+        <li class="toc-2"><a href="#upgrading">Upgrading</a></li>
+        <li class="toc-2"><a href="#a-checklist-for-a-shared-server">A checklist for a shared server</a></li>
+      </ul></details>
+<p>Moorage asks little of whoever runs it. This page says what to set up in the first week, what to look at after that, and what changes as a server grows. <a href="install.html">Installing Moorage</a> comes first.</p>
+<h2 id="the-first-week">The first week<a class="anchor" href="#the-first-week" aria-label="Link to this section">#</a></h2>
+<ol><li><p><strong>Check it.</strong> <code>moor server doctor</code> looks at the server and what it depends on, and says how to fix what it finds.</p>
+<div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server doctor</code></pre></div></li><li><p><strong>Decide about TLS,</strong> if you have not. An intermediate from your company's CA means nobody has to <a href="tls.html#with-your-companys-ca">trust anything by hand</a>.</p></li><li><p><strong>Keep apps apart.</strong> On a shared Linux server, run as root and use <code>level = &quot;user&quot;</code> or <code>&quot;sandbox&quot;</code> in <a href="configuration.html#isolation"><code>[isolation]</code></a>. <code>moor server doctor</code> and the <strong>System</strong> page say what you have. <a href="isolation.html">How apps are kept apart</a> says what each gives you.</p></li><li><p><strong>Add people.</strong> Give most people a role in a project, and only a few the administrator's. <a href="accounts.html">Accounts and access</a> says how, and <a href="sign-in.html">How people sign in</a> connects your identity provider.</p></li><li><p><strong>Back up.</strong> Set a schedule in <strong>Settings → Backups</strong>, and <strong>keep <code>keys/master.key</code> somewhere apart</strong>: without it, the secrets in a backup cannot be read, and with it, anyone can. Then try a restore. See <a href="backups.html">Backups</a>.</p></li><li><p><strong>Be told.</strong> Add a channel and a rule in <strong>Settings → Notifications</strong>, so that a failed deployment, a crash loop, a failed cron job, a full disk or a failed backup reaches someone. See <a href="notifications.html">Notifications</a>.</p></li><li><p><strong>Close the ports you do not use.</strong> Moorage needs its HTTP and HTTPS ports, and the SSH port if you push over SSH. Apps are told to listen on loopback, and <code>moor server doctor</code> warns of one that can be reached another way.</p></li></ol>
+<h2 id="what-to-look-at">What to look at<a class="anchor" href="#what-to-look-at" aria-label="Link to this section">#</a></h2>
+<p>The console's <strong>Settings → System</strong> has what the server runs, and what the checks find:</p>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/system-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The System page: all is well, what the server runs, and each check with how to fix it" /><img class="shot-dark" src="../assets/img/system-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The System page: all is well, what the server runs, and each check with how to fix it" /></div><figcaption>Settings → System: the same checks as moor server doctor.</figcaption></figure>
+<p>From the command line:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server status</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server doctor</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> events -f</code></pre></div>
+<p><strong>Who did what</strong> is in the audit log, for a year: each change, sign-in, secret revealed and git push, with who and how it went, and where from for all but pushes. <strong>Settings → Audit log</strong> searches and downloads it, and <code>moor audit</code> shows it.</p>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/audit-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The audit log: when, who, what, to what, how it went, and from where" /><img class="shot-dark" src="../assets/img/audit-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The audit log: when, who, what, to what, how it went, and from where" /></div><figcaption>Settings → Audit log.</figcaption></figure>
+<p><strong>How it is doing</strong> is in <a href="metrics.html">metrics</a>, for Prometheus as well as the console, and can go on to <a href="telemetry.html">an OpenTelemetry collector</a>.</p>
+<p><strong>The server's health</strong> answers at <code>/.moorage/health</code> on every hostname, for whatever watches your machines.</p>
+<h2 id="where-the-disk-goes">Where the disk goes<a class="anchor" href="#where-the-disk-goes" aria-label="Link to this section">#</a></h2>
+<p>Everything is under the data directory, in plain files you can look at:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Folder</th><th>What it holds</th><th>What limits it</th></tr></thead><tbody><tr><td><code>moorage.db</code></td><td>The database</td><td>Grows slowly. Events go after 90 days, the audit log after a year</td></tr><tr><td><code>repos</code></td><td>Apps' git repositories</td><td>The size of their history</td></tr><tr><td><code>builds</code></td><td>Builds, and uploads for redeploying</td><td><code>keep_releases</code> in each manifest: five by default</td></tr><tr><td><code>data</code></td><td>Apps' own data</td><td>The apps. Moorage keeps nothing of its own here</td></tr><tr><td><code>logs</code></td><td>Apps', deployments' and the server's logs</td><td>Rotation at 10 MiB, five files back, and 14 days for stopped instances. Deployments' logs stay until their app or environment goes</td></tr><tr><td><code>toolchains</code>, <code>cache</code></td><td>Toolchains and build caches</td><td>One copy of each version, shared by every app</td></tr><tr><td><code>backups</code></td><td>Database copies before each migration, and backups if you send them there</td><td>The last three migrations; your schedule's <code>keep</code></td></tr><tr><td><code>keys</code>, <code>certs</code></td><td>The master key, SSH host keys and the CA</td><td>Small. <strong>Back up <code>keys</code> apart</strong></td></tr></tbody></table></div>
+<p><code>moor server doctor</code> looks at free space, and a server tells those concerned when the data volume passes <code>disk_percent</code> in <a href="configuration.html#notifications"><code>[notifications]</code></a>, 90% by default.</p>
+<p>Deleting an app removes its builds, logs and repository, and its data unless you keep it. Previews remove themselves when their branch goes, or after seven days unused.</p>
+<h2 id="as-it-grows">As it grows<a class="anchor" href="#as-it-grows" aria-label="Link to this section">#</a></h2>
+<ul><li><strong>Let environments sleep.</strong> An environment <a href="previews.html#sleeping">asleep</a> uses no memory until a request wakes it, which is why a server can hold far more environments than it could run at once. <a href="sizing.html#how-big-a-machine">How big a machine</a> has what we measured.</li><li><strong>Limit what apps can use.</strong> <code>[resources]</code> in a <a href="manifest.html#resources">manifest</a> limits an instance's memory and CPU. They are enforced on Linux when the server runs as root with cgroup v2, and on Windows. Elsewhere, an instance over its memory limit is restarted.</li><li><strong>There is one machine.</strong> Moorage does not spread apps over several, and no version so far does. When a server is full, move some apps to another with <a href="backups.html#restoring">a backup and a restore</a>, or with their source.</li></ul>
+<h2 id="stopping-and-restarting">Stopping and restarting<a class="anchor" href="#stopping-and-restarting" aria-label="Link to this section">#</a></h2>
+<p>Apps do not depend on the server being up. Stopping, restarting or upgrading it leaves them running and serving what is in flight, and it takes them over again when it starts.</p>
+<div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server restart</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server stop</code></pre></div>
+<p>To stop the apps too, whether or not the server is running:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server stop --all</code></pre></div>
+<p><a href="troubleshooting.html#stopping-everything">When something is wrong</a> has more on that.</p>
+<h2 id="upgrading">Upgrading<a class="anchor" href="#upgrading" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server upgrade</code></pre></div>
+<p>It checks what it downloads, keeps a copy of the database and of the binary, and goes back by itself if the new version does not come up. See <a href="upgrading.html#upgrading">Upgrading</a>.</p>
+<h2 id="a-checklist-for-a-shared-server">A checklist for a shared server<a class="anchor" href="#a-checklist-for-a-shared-server" aria-label="Link to this section">#</a></h2>
+<ul><li>Isolation at <code>user</code> or <code>sandbox</code>.</li><li>An intermediate CA or a certificate of your own, and not a root that everyone trusts by hand.</li><li>The console on its own hostname, which is the default.</li><li>Behind a proxy, the HTTP listener on loopback or a private address, and only the proxy's addresses in <code>[proxy] trusted</code>.</li><li>Few administrators, and two-factor sign-in or single sign-on for them.</li><li>Previews behind <code>login</code>, which is the default.</li><li><code>keys/master.key</code> backed up, and apart from your backups.</li><li>A restore tried.</li><li>A firewall in front of everything but the ports above.</li><li>API tokens limited to one app and a scope, with an expiry, for each script.</li></ul>
+<p><a href="security.html">Security</a> says what these protect against, and what they do not.</p>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/administration.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="configuration.html"><span>Previous</span>Server configuration</a><a class="doc-pager-next" rel="next" href="tls.html"><span>Next</span>TLS and trusting the server</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#the-first-week">The first week</a></li>
+        <li class="toc-2"><a href="#what-to-look-at">What to look at</a></li>
+        <li class="toc-2"><a href="#where-the-disk-goes">Where the disk goes</a></li>
+        <li class="toc-2"><a href="#as-it-grows">As it grows</a></li>
+        <li class="toc-2"><a href="#stopping-and-restarting">Stopping and restarting</a></li>
+        <li class="toc-2"><a href="#upgrading">Upgrading</a></li>
+        <li class="toc-2"><a href="#a-checklist-for-a-shared-server">A checklist for a shared server</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

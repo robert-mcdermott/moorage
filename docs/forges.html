@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>From GitHub, GitLab or Gitea · Moorage</title>
+  <meta name="description" content="Connect a repository: a push deploys, and each pull request gets a preview." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/forges.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="From GitHub, GitLab or Gitea · Moorage" />
+  <meta property="og:description" content="Connect a repository: a push deploys, and each pull request gets a preview." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/forges.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html" aria-current="page">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html">Backups</a></li>
+            <li><a href="telemetry.html">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html">moorage.toml</a></li>
+            <li><a href="cli.html">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>From GitHub, GitLab or Gitea</h1>
+      <p class="doc-lede">Connect a repository: a push deploys, and each pull request gets a preview.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#connecting-a-repository">Connecting a repository</a></li>
+        <li class="toc-3"><a href="#the-webhook">The webhook</a></li>
+        <li class="toc-3"><a href="#the-token">The token</a></li>
+        <li class="toc-3"><a href="#a-forge-of-your-own">A forge of your own</a></li>
+        <li class="toc-2"><a href="#pull-requests">Pull requests</a></li>
+        <li class="toc-2"><a href="#code-from-strangers">Code from strangers</a></li>
+        <li class="toc-2"><a href="#looking-for-changes">Looking for changes</a></li>
+        <li class="toc-2"><a href="#when-the-server-has-been-away">When the server has been away</a></li>
+        <li class="toc-2"><a href="#letting-go">Letting go</a></li>
+      </ul></details>
+<blockquote><p><strong>Tested against stand-ins so far.</strong> This has run against test servers written to follow each forge's published API, and not yet against GitHub, GitLab or Gitea themselves. Trying it against them is <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">the next thing on the roadmap</a>. If you try it first, please <a href="https://github.com/robert-mcdermott/moorage/issues">say how it goes</a>.</p></blockquote>
+<p>Connect an app to a repository on GitHub, GitLab or Gitea, and what happens there deploys here:</p>
+<ul><li>A push to the default branch deploys to production.</li><li>A push to a branch that an <a href="previews.html">environment</a> names deploys to that environment.</li><li>Each pull request gets a preview of its own, which goes away when the pull request closes. If the server has a token, a check on the commit and one comment on the pull request say how that went, and where the preview is.</li><li>A pull request from a fork, or from someone the forge does not say may push there, waits for <a href="#code-from-strangers">someone to approve it</a>.</li></ul>
+<p>Pushing to Moorage with <a href="git.html"><code>git push</code></a> goes on working, for whoever may. The next change on the forge to that branch takes its place, so it is simplest to choose one or the other for each app.</p>
+<h2 id="connecting-a-repository">Connecting a repository<a class="anchor" href="#connecting-a-repository" aria-label="Link to this section">#</a></h2>
+<p>Make the app, and connect it, from its folder or with <code>--app</code>:</p>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/app-settings-light.webp" width="1600" height="1440" loading="lazy" decoding="async" alt="An app's Settings: its project and name, and a form to connect a repository by its address, its kind and a token" /><img class="shot-dark" src="../assets/img/app-settings-dark.webp" width="1600" height="1440" loading="lazy" decoding="async" alt="An app's Settings: its project and name, and a form to connect a repository by its address, its kind and a token" /></div><figcaption>An app's <strong>Settings</strong> connects a repository, as well as <code>moor forge connect</code> does.</figcaption></figure>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> apps create shop</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> forge connect https://github.com/acme/shop.git --token-stdin --app shop</code></pre></div>
+<p>Or in the console, in the Repository section of the app's Settings. The repository is given by its <code>https</code> address, and the address of anything other than <code>github.com</code> or <code>gitlab.com</code> needs <code>--kind gitea</code>, <code>--kind gitlab</code>, <code>--kind github</code> or <code>--kind generic</code> to say what it is. The default branch, which deploys to production, is what the repository says, and follows it if that changes, unless <code>--branch</code> says which and keeps it there.</p>
+<p>Connecting answers with an address and a secret, for the forge's webhook. The secret is shown this once. Connecting again to change something leaves both as they are; to have another secret, disconnect, connect, and give the forge the new ones.</p>
+<p>Connecting deploys nothing. The next push does, or:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> forge sync --app shop</code></pre></div>
+<p><code>moor forge</code> says how the connection stands, including what went wrong with the last thing that it heard of.</p>
+<h3 id="the-webhook">The webhook<a class="anchor" href="#the-webhook" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Forge</th><th>Where</th><th>What to set</th></tr></thead><tbody><tr><td>GitHub</td><td>Repository, Settings, Webhooks</td><td>The address as the payload URL, <code>application/json</code>, the secret, and the events Pushes and Pull requests</td></tr><tr><td>GitLab</td><td>Project, Settings, Webhooks</td><td>The address as the URL, the secret as the secret token, and the triggers Push events and Merge request events</td></tr><tr><td>Gitea</td><td>Repository, Settings, Webhooks</td><td>The address as the target URL, <code>application/json</code>, the secret, and the events Push and Pull Request</td></tr></tbody></table></div>
+<p>The forge has to be able to reach the server's console hostname. If it cannot, see <a href="#looking-for-changes">looking for changes</a>.</p>
+<h3 id="the-token">The token<a class="anchor" href="#the-token" aria-label="Link to this section">#</a></h3>
+<p>Without a token, Moorage can read a public repository and deploy from it, and it says nothing back. A token reads a private repository, and sets the checks and comments. It is kept sealed, and is not shown again.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Forge</th><th>What it needs</th></tr></thead><tbody><tr><td>GitHub</td><td>A fine-grained token for the repository: Contents to read, Commit statuses and Pull requests to read and write</td></tr><tr><td>GitLab</td><td>A project access token with the <code>api</code> scope, as a Developer</td></tr><tr><td>Gitea</td><td>A token with <code>read:repository</code>, <code>write:repository</code> and <code>write:issue</code></td></tr></tbody></table></div>
+<p>A token only goes to the forge it was given for. Changing the repository's address, or <code>--api-url</code>, without giving a token again leaves the connection with none. Nor is a token sent in the clear across the internet: an address that is not <code>https</code> has to be on the local network for one to be accepted. A repository that has been renamed has to be connected again by its new address, as a forge sends anything else there by a redirect, which this server does not follow.</p>
+<h3 id="a-forge-of-your-own">A forge of your own<a class="anchor" href="#a-forge-of-your-own" aria-label="Link to this section">#</a></h3>
+<p>For a forge at its own hostname, <code>--kind</code> says which kind it is, and its API is expected where that kind's API usually is. <code>--api-url</code> says otherwise, and a token is held to the same for it. <code>--kind generic</code> is any git server that can sign a webhook: it sends JSON with <code>ref</code> and <code>after</code> or <code>commit</code>, and an HMAC-SHA256 of the body, in hexadecimal, in <code>X-Moorage-Signature</code>. It has no pull requests, and nothing to report back to.</p>
+<p>Moorage reaches a forge as it reaches a webhook, so an address on this machine or a link-local one is refused unless <a href="notifications.html#what-notifications-may-reach"><code>[notifications] allow</code></a> names it.</p>
+<h2 id="pull-requests">Pull requests<a class="anchor" href="#pull-requests" aria-label="Link to this section">#</a></h2>
+<p>A pull request's preview is an environment named after its number, such as <code>pr-42</code>, at an address of its own. Its checks are called <code>moorage</code>, which a branch protection rule can require. Each new commit takes the place of the last, and the same comment says so. Closing the pull request or merging it takes the preview away.</p>
+<p>With a connection that hears of pull requests, branches do not get previews for being pushed, as what is in a pull request would be built twice. <code>--no-previews</code> leaves pull requests alone, and then only the default branch and those that an environment names deploy.</p>
+<p>A pull request's manifest has no say in where it goes: naming an environment for itself would not take it there, and <code>[previews] branches</code> is about branches. It can have no preview, with <code>[previews] enabled = false</code>, <code>[skip deploy]</code> or <code>[app].watch</code>, and it can say who may reach its preview with <code>[previews] access</code>, as any commit's manifest can.</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> forge pulls --app shop</code></pre></div>
+<h2 id="code-from-strangers">Code from strangers<a class="anchor" href="#code-from-strangers" aria-label="Link to this section">#</a></h2>
+<p>Building a pull request runs its code on this server, and its preview has <a href="variables.html">the app's variables for previews</a>. So one is not built for being opened if it comes from a fork, or if the forge does not say that its author may work there. On GitHub that means an owner, a member or a collaborator. A private member of an organization looks to the server like anyone else, and has to be approved or make their membership public. On GitLab and Gitea, anything in the repository itself counts, as pushing there took being allowed to.</p>
+<p>It waits, with a check and a comment to say so, and Moorage does not fetch its code. A maintainer of the app's project can look at it, and then approve it, on the app's Settings page, or with:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> forge approve 42 1f3a9c07 --app shop</code></pre></div>
+<p>You say which commit you looked at, as <code>moor forge pulls</code> shows it, and the console's button says the same. That is for that commit. If the pull request has moved on by then, nothing is built, and you are told. Another commit waits again, and what it has moved on to while it was being fetched is not built either. Who approved which commit is in the <a href="accounts.html#who-did-what">audit log</a>.</p>
+<p>Before approving, read what it changes, including its manifest and anything that its build runs. Its preview runs with a user of its own only where <a href="isolation.html">isolation</a> does that, so on a server without isolation, it can reach whatever the server can. For that reason, keep what previews are given to what a stranger could see, or leave previews off where the repository is open to everyone.</p>
+<p>Anyone who can push to the repository can deploy this app, as a connection means trusting the forge's word. A branch's own manifest can name an environment for it. If that is more than you would like, protect the branches there.</p>
+<h2 id="looking-for-changes">Looking for changes<a class="anchor" href="#looking-for-changes" aria-label="Link to this section">#</a></h2>
+<p>A server that a forge cannot reach, behind a firewall, say, can look for itself:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> forge connect https://github.com/acme/shop.git --poll --app shop</code></pre></div>
+<p>It then looks every minute, and needs no webhook. The first look deploys the default branch, and leaves the branches that are already there. After that, a changed branch does what a push of it here would do, which includes <a href="previews.html">a preview</a> if its manifest allows one, and a branch that goes away takes its preview with it. It sees no pull requests, so none of them get previews or wait for approval.</p>
+<p>What fails is not tried again until something changes. <code>moor forge sync</code>, or Look now in the console, tries again, and takes the default branch to where the repository has it, whatever may have been pushed to this server since.</p>
+<h2 id="when-the-server-has-been-away">When the server has been away<a class="anchor" href="#when-the-server-has-been-away" aria-label="Link to this section">#</a></h2>
+<p>A forge does not tell a server of a push twice. So a server starting looks at each repository that it has heard from before, and deploys what changed while it was gone. What failed before it stopped is not tried again, and what someone has pushed to this server itself stays. That goes for branches. A pull request that changed then is seen to at its next event, which a push or closing it and opening it again will bring about. A check left saying that something was under way when the server stopped says that it failed.</p>
+<h2 id="letting-go">Letting go<a class="anchor" href="#letting-go" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> forge disconnect --app shop</code></pre></div>
+<p>This forgets the address, secret and token. What it deployed stays, previews too, and they can be <a href="previews.html">removed</a> by hand. The webhook on the forge can go, as it now gets a 404.</p>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/forges.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="git.html"><span>Previous</span>With git push</a><a class="doc-pager-next" rel="next" href="go.html"><span>Next</span>Go</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#connecting-a-repository">Connecting a repository</a></li>
+        <li class="toc-3"><a href="#the-webhook">The webhook</a></li>
+        <li class="toc-3"><a href="#the-token">The token</a></li>
+        <li class="toc-3"><a href="#a-forge-of-your-own">A forge of your own</a></li>
+        <li class="toc-2"><a href="#pull-requests">Pull requests</a></li>
+        <li class="toc-2"><a href="#code-from-strangers">Code from strangers</a></li>
+        <li class="toc-2"><a href="#looking-for-changes">Looking for changes</a></li>
+        <li class="toc-2"><a href="#when-the-server-has-been-away">When the server has been away</a></li>
+        <li class="toc-2"><a href="#letting-go">Letting go</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

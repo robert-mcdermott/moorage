@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sending telemetry elsewhere · Moorage</title>
+  <meta name="description" content="Logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/telemetry.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="Sending telemetry elsewhere · Moorage" />
+  <meta property="og:description" content="Logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/telemetry.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html">Backups</a></li>
+            <li><a href="telemetry.html" aria-current="page">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html">moorage.toml</a></li>
+            <li><a href="cli.html">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>Sending telemetry elsewhere</h1>
+      <p class="doc-lede">Logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#sinks">Sinks</a></li>
+        <li class="toc-2"><a href="#what-goes-where">What goes where</a></li>
+        <li class="toc-2"><a href="#when-a-sink-is-down">When a sink is down</a></li>
+        <li class="toc-2"><a href="#thresholds">Thresholds</a></li>
+        <li class="toc-3"><a href="#the-servers-disk">The server's disk</a></li>
+      </ul></details>
+<blockquote><p><strong>Tested against stand-ins so far.</strong> This has run against test receivers written to follow each format's published description, and not yet against a real OpenTelemetry collector or syslog server. Trying them is <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">on the roadmap</a>. If you try it first, please <a href="https://github.com/robert-mcdermott/moorage/issues">say how it goes</a>.</p></blockquote>
+<p>Moorage keeps what apps say, in <a href="troubleshooting.html">its logs</a>, and what they do, in <a href="metrics.html">its metrics</a>. It can send them somewhere else as well, if that is where your team looks, and tell you when an environment <a href="#thresholds">crosses a threshold</a>.</p>
+<h2 id="sinks">Sinks<a class="anchor" href="#sinks" aria-label="Link to this section">#</a></h2>
+<p>A sink is somewhere to send things, and it takes an administrator to add one. In the console, it is <strong>Settings</strong>, then <strong>Telemetry</strong>. From the command line:</p>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/telemetry-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="Settings, Telemetry: a sink with where it goes, what it sends and when it last sent, and a form to add one" /><img class="shot-dark" src="../assets/img/telemetry-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="Settings, Telemetry: a sink with where it goes, what it sends and when it last sent, and a form to add one" /></div><figcaption><strong>Settings → Telemetry</strong>.</figcaption></figure>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server telemetry add central --kind syslog --address tls://logs.example.com:6514</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server telemetry add collector --kind otlp --address https://otel.example.com:4318 --logs --metrics --header <span class="t-s">&quot;Authorization: Bearer abc&quot;</span></code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server telemetry add archive --kind http --address https://logs.example.com/in --app shop</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server telemetry test central</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server telemetry</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server telemetry rm central</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Kind</th><th>Address</th><th>Sends</th></tr></thead><tbody><tr><td><code>syslog</code></td><td><code>udp://host:514</code>, <code>tcp://host:601</code> or <code>tls://host:6514</code></td><td>Logs, as RFC 5424</td></tr><tr><td><code>otlp</code></td><td>What comes before <code>/v1/logs</code>, as in <code>https://otel.example.com:4318</code></td><td>Logs and metrics, as OTLP over HTTP, in JSON</td></tr><tr><td><code>http</code></td><td>Where to send it</td><td>Logs, as JSON batches</td></tr></tbody></table></div>
+<p>A sink sends all apps unless <code>--app</code> says which. Saving one with the same name changes it. It starts from about now: what was said before is not sent.</p>
+<p>Headers are kept sealed, and are not shown again. Saving a sink without them keeps those it has, unless its address has changed. They are not sent in the clear across the internet, so they take an <code>https</code> address, or one on the local network. A sink is held to what <a href="notifications.html#what-notifications-may-reach">notifications may reach</a>, and goes by <code>[notifications] allow</code>.</p>
+<h2 id="what-goes-where">What goes where<a class="anchor" href="#what-goes-where" aria-label="Link to this section">#</a></h2>
+<p>What is sent is what is in the logs: what each instance says, and what each <a href="cron.html">one-off command and cron job</a> says, with secrets already taken out. What is said at <a href="interactive.html#a-terminal">a terminal</a> is not kept, so it is not sent. Build logs and Moorage's own stay here.</p>
+<p><strong>Syslog</strong> has a facility of local0, a severity of informational for standard output and error for standard error, the server's name as its host, the app's as its app name, the instance as its process ID, and the environment as its message ID. Over TCP and TLS each message has its length in front of it, as RFC 6587 has it. Over UDP, anything past 1,400 bytes is cut off.</p>
+<p><strong>OTLP</strong> has a resource for each instance, with <code>service.name</code> as the app, <code>deployment.environment.name</code>, <code>service.instance.id</code>, <code>moorage.process</code> and <code>host.name</code>, and each record has <code>log.iostream</code>, of <code>stdout</code>, <code>stderr</code> or <code>moorage</code>. Moorage does not guess at a severity from what a line says.</p>
+<p><strong>HTTP</strong> posts this, with up to 500 lines:</p>
+<div class="code"><pre tabindex="0"><code class="language-json">{
+  &quot;server&quot;: &quot;moorage-1&quot;,
+  &quot;lines&quot;: [
+    {&quot;time&quot;: &quot;2026-11-04T12:30:15.123Z&quot;, &quot;app&quot;: &quot;shop&quot;, &quot;env&quot;: &quot;production&quot;, &quot;process&quot;: &quot;web&quot;, &quot;instance&quot;: &quot;ins_01J8Z3&quot;, &quot;stream&quot;: &quot;O&quot;, &quot;text&quot;: &quot;Listening on 8080&quot;}
+  ]
+}</code></pre></div>
+<p><code>stream</code> is <code>O</code> for standard output, <code>E</code> for standard error, and <code>M</code> for a note from Moorage, such as that an instance restarted.</p>
+<p><strong>Metrics</strong> go once a minute to an OTLP sink, with the same in them as <a href="metrics.html"><code>/metrics</code></a> has for a scrape, under names such as <code>moorage.http.requests</code>, <code>moorage.http.request.duration</code>, <code>moorage.instance.cpu</code> and <code>moorage.host.disk.used</code>. Counts are cumulative, from when the server started. <code>--app</code> has no effect on them.</p>
+<h2 id="when-a-sink-is-down">When a sink is down<a class="anchor" href="#when-a-sink-is-down" aria-label="Link to this section">#</a></h2>
+<p>Nothing here waits for a sink. Each has a queue of 20,000 lines, and past that the oldest go, with a count of how many did. It tries again after a second, then two, and so on, to once a minute, and when it gets through it catches up. A sink that answers that it will not take what it was sent (400, 413 or 422) gets less at a time, and a single line that it will not take is let go of and counted, so that it does not stop what comes after. How that is going is in the console and in <code>moor server telemetry</code>.</p>
+<p>Apps go on through a restart of the server, and it catches up then too, from what is in the log files. What was in a queue as the server stopped is lost, so it is at most a few seconds' worth when all is well. This is for following what is going on. It is not a guarantee that each line gets there, and the record is the logs here.</p>
+<h2 id="thresholds">Thresholds<a class="anchor" href="#thresholds" aria-label="Link to this section">#</a></h2>
+<p>A threshold says when to be told about how an environment is doing. On an app's <strong>Metrics</strong> tab, or:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> alerts add error-rate 5 --for 5m</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> alerts add latency-p95 800 --for 10m --env staging</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> alerts add memory 90</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> alerts</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> alerts rm thr_01J8Z3</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Metric</th><th>What it compares</th><th>In</th></tr></thead><tbody><tr><td><code>error-rate</code></td><td>Answers that are 5xx, over the last minute</td><td>Percent</td></tr><tr><td><code>latency-p95</code></td><td>How long the slowest 5 requests in 100 took at least, over the last minute</td><td>Milliseconds</td></tr><tr><td><code>memory</code></td><td>The instance using the most, against its <a href="manifest.html"><code>[resources]</code></a> limit</td><td>Percent of the limit</td></tr><tr><td><code>cpu</code></td><td>The instance using the most</td><td>Percent of one core</td></tr></tbody></table></div>
+<p>Past one for as long as it says, the default being five minutes, a notification goes to whoever a <a href="notifications.html#rules">rule</a> sends <strong>A threshold is crossed</strong> to, and another goes when it comes right. A minute that has nothing to say counts for neither: an app no one is asking has no error rate, fewer than 5 requests is too few to call one, and memory has nothing to compare if there is no limit.</p>
+<p>It takes a maintainer of the app's project to add or remove one, and they belong to an environment. New rules ask for <strong>A threshold is crossed</strong> unless told otherwise, and rules from before do not, so that they go on doing what they did.</p>
+<h3 id="the-servers-disk">The server's disk<a class="anchor" href="#the-servers-disk" aria-label="Link to this section">#</a></h3>
+<p>The server tells of its data volume at 90% full. To have it say sooner, or later, set this in <code>server.toml</code> and restart the server:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[notifications]</span>
+<span class="t-k">disk_percent</span> = 80</code></pre></div>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/telemetry.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="backups.html"><span>Previous</span>Backups</a><a class="doc-pager-next" rel="next" href="troubleshooting.html"><span>Next</span>When something is wrong</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#sinks">Sinks</a></li>
+        <li class="toc-2"><a href="#what-goes-where">What goes where</a></li>
+        <li class="toc-2"><a href="#when-a-sink-is-down">When a sink is down</a></li>
+        <li class="toc-2"><a href="#thresholds">Thresholds</a></li>
+        <li class="toc-3"><a href="#the-servers-disk">The server's disk</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Releases, rollbacks and scaling · Moorage</title>
+  <meta name="description" content="How a release takes over without downtime, how to go back in a moment, and how many instances run." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/releases.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="Releases, rollbacks and scaling · Moorage" />
+  <meta property="og:description" content="How a release takes over without downtime, how to go back in a moment, and how many instances run." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/releases.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html" aria-current="page">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html">Backups</a></li>
+            <li><a href="telemetry.html">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html">moorage.toml</a></li>
+            <li><a href="cli.html">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>Releases, rollbacks and scaling</h1>
+      <p class="doc-lede">How a release takes over without downtime, how to go back in a moment, and how many instances run.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#how-a-deployment-goes">How a deployment goes</a></li>
+        <li class="toc-2"><a href="#how-a-release-takes-over">How a release takes over</a></li>
+        <li class="toc-2"><a href="#when-a-deployment-fails">When a deployment fails</a></li>
+        <li class="toc-2"><a href="#rolling-back">Rolling back</a></li>
+        <li class="toc-2"><a href="#looking-at-releases">Looking at releases</a></li>
+        <li class="toc-2"><a href="#scaling">Scaling</a></li>
+        <li class="toc-2"><a href="#restarts-and-crashes">Restarts and crashes</a></li>
+        <li class="toc-2"><a href="#keeping-deployments-out">Keeping deployments out</a></li>
+      </ul></details>
+<p>Every change to what an environment runs makes a new <strong>release</strong>: a build and a set of variables. This page says how a release takes over, what happens when one fails, and how to go back.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>What you do</th><th>What it does</th><th>Builds?</th><th style="text-align:center">Runs the release command?</th></tr></thead><tbody><tr><td><code>moor deploy</code>, or a push</td><td>Builds the source, and rolls it out</td><td>Yes</td><td style="text-align:center">Yes</td></tr><tr><td><code>moor env set</code></td><td>The same build with the new variables</td><td>No</td><td style="text-align:center">No</td></tr><tr><td><code>moor rollback</code></td><td>An earlier build, with the variables you have now</td><td>No</td><td style="text-align:center">No</td></tr><tr><td><code>moor promote --from staging</code></td><td>The build another environment runs, with this one's variables</td><td>No</td><td style="text-align:center">Yes</td></tr><tr><td><code>moor redeploy</code></td><td>Builds what the current release was built from again</td><td>Yes</td><td style="text-align:center">Yes</td></tr><tr><td><code>moor restart</code></td><td>Replaces the instances of the current release, and makes no new release</td><td>No</td><td style="text-align:center">No</td></tr></tbody></table></div>
+<h2 id="how-a-deployment-goes">How a deployment goes<a class="anchor" href="#how-a-deployment-goes" aria-label="Link to this section">#</a></h2>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/deployment-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="A deployment's page: five stages with how long each took, then the log of the build" /><img class="shot-dark" src="../assets/img/deployment-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="A deployment's page: five stages with how long each took, then the log of the build" /></div><figcaption>A deployment's page, in the console. Its stages and log change as it goes.</figcaption></figure>
+<ol><li><strong>Prepare.</strong> It takes the source from the upload or the commit, and works out how to build it.</li><li><strong>Toolchains.</strong> It fetches what the build needs, the first time anything asks for that version.</li><li><strong>Build.</strong> It builds in the directory the release will run from, with <code>[build]</code> of the manifest, or as the runtime does.</li><li><strong>Release.</strong> It runs <code>[release].command</code>, if there is one, once, with the release's variables. Database migrations go here. If this fails, the deployment fails, and the release before it goes on serving.</li><li><strong>Rollout.</strong> New instances start, and take over.</li></ol>
+<p>One deployment runs at a time in an environment. A newer one replaces any still waiting, so that the latest push wins, and builds across the server share a limit: half the CPUs by default.</p>
+<h2 id="how-a-release-takes-over">How a release takes over<a class="anchor" href="#how-a-release-takes-over" aria-label="Link to this section">#</a></h2>
+<figure><div class="shot shot-diagram"><img class="shot-light" src="../assets/img/rollout-light.svg" width="860" height="344" loading="lazy" decoding="async" alt="Two rows over time. The old release serves until the new one is healthy. Traffic then moves at once, the old release finishes what it was doing, and stops." /><img class="shot-dark" src="../assets/img/rollout-dark.svg" width="860" height="344" loading="lazy" decoding="async" alt="Two rows over time. The old release serves until the new one is healthy. Traffic then moves at once, the old release finishes what it was doing, and stops." /></div><figcaption>A rolling release: the old instances serve until the new ones are healthy.</figcaption></figure>
+<ol><li>New instances start beside the old ones, each on a port of its own.</li><li>Each is checked until it is healthy, for up to <code>health.startup</code> (60 seconds). With <code>health.path</code> it must answer that path with a 2xx or 3xx. Without it, a TCP connection to <code>$PORT</code> is enough, so give it a path if it matters.</li><li>The traffic moves, all at once.</li><li>The old instances finish their requests, for up to <code>deploy.drain</code> (30 seconds). Long-lived connections are closed at the end of that time.</li><li>They get their stop signal, and are killed if they have not stopped after <code>stop_timeout</code> (30 seconds).</li></ol>
+<p><strong>So an app should stop cleanly on <code>SIGTERM</code>,</strong> and be able to run beside its previous version for a moment, as both are up during a rollout. Where that cannot work, <code>strategy = &quot;recreate&quot;</code> in <a href="manifest.html#deploy"><code>[deploy]</code></a> stops the old instances first, which means some downtime.</p>
+<p>A process that takes no traffic, such as a <code>worker</code>, overlaps in the same way: the new one starts, and then the old one stops.</p>
+<p>A <strong>static site</strong> has nothing to start. Its files are switched at once.</p>
+<h2 id="when-a-deployment-fails">When a deployment fails<a class="anchor" href="#when-a-deployment-fails" aria-label="Link to this section">#</a></h2>
+<p>If the build fails, the release command fails, or a new instance does not become healthy in time, the new instances are stopped and the traffic never moves, so that with the default rolling strategy nobody using the app sees anything. The page says what went wrong, and shows the log:</p>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/deployment-failed-light.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage marked as failed, and the compiler's error in the log" /><img class="shot-dark" src="../assets/img/deployment-failed-dark.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage marked as failed, and the compiler's error in the log" /></div><figcaption>A failed deployment says which stage failed, and why.</figcaption></figure>
+<p>The app's page and the list of apps then show that its last deployment failed, beside the release that is still serving. A <code>git push</code> fails too, and says why, so that you need not go and look. <a href="notifications.html">Notifications</a> can tell the people concerned.</p>
+<p>A deployment interrupted by the server restarting is marked as failed: deploy or push again.</p>
+<h2 id="rolling-back">Rolling back<a class="anchor" href="#rolling-back" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> rollback</code></pre></div>
+<p>That serves the release before this one again, as a new release, in about a second, as nothing has to be built. Name a release to go further back:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> rollback v3</code></pre></div>
+<p>It runs with <strong>the variables you have now</strong>, so that a secret you have since replaced stays replaced. To have those the earlier release ran with:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> rollback v3 --with-config</code></pre></div>
+<p>The release command does not run again, and <strong>a rollback does not undo what a release did to its data.</strong> If a migration changed the database, the older code gets the newer database, so write migrations that the previous release can run beside. That is what it must do during a rollout anyway.</p>
+<p>In the console, <strong>Roll back</strong> on an app's page goes to the release before, and a deployment's page goes back to that one.</p>
+<h2 id="looking-at-releases">Looking at releases<a class="anchor" href="#looking-at-releases" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> releases</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> releases show v3</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> releases diff v3 v4</code></pre></div>
+<p><code>diff</code> says whether the build changed, which lines of the resolved manifest did, and which variables were added, changed or removed: their names, and never their values.</p>
+<p>Builds are kept for as long as one of an environment's last <code>keep_releases</code> releases (five, by default) uses them, and what an environment is running now is never removed. A release whose build has gone cannot be rolled back to, and the console says so.</p>
+<h2 id="scaling">Scaling<a class="anchor" href="#scaling" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> scale web=3 worker=1</code></pre></div>
+<p>New instances start beside those running, and take traffic once they are healthy. Those beyond the number finish their requests and stop. If a new instance cannot start, the app goes back to how it was, and says why. The number stays, over the manifest's <code>instances</code>, through restarts and the releases to come, and the console says what the manifest would have had. <code>0</code> turns a process off, and 20 is the most.</p>
+<p>Requests are spread over the healthy instances. An instance holds nothing in common with another unless you arrange it, so that an app with more than one needs to keep what it shares somewhere they can all reach.</p>
+<p>This is one machine: scaling lets an app use more of its CPUs, and does not add to them.</p>
+<h2 id="restarts-and-crashes">Restarts and crashes<a class="anchor" href="#restarts-and-crashes" aria-label="Link to this section">#</a></h2>
+<p>An instance that exits is restarted, by the small supervisor that runs it, even while the server itself is away. The wait between restarts starts at a second and doubles, up to a minute. An instance that keeps failing, five times in ten minutes, counts as crashed, and is then restarted every five minutes. <a href="notifications.html">Those concerned are told</a> sooner, at three exits in five minutes.</p>
+<p>An instance that fails its health check <code>threshold</code> times in a row (three) gets no traffic, and is restarted if it goes on failing for as many again.</p>
+<p><code>restart</code> in <a href="manifest.html#processes"><code>[processes]</code></a> changes this: <code>always</code>, <code>on-failure</code>, or <code>never</code>.</p>
+<h2 id="keeping-deployments-out">Keeping deployments out<a class="anchor" href="#keeping-deployments-out" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> lock</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> unlock</code></pre></div>
+<p>A locked environment takes no deployments, however they arrive, as after a rollback, while what went wrong is looked into. Rollbacks and changes of variables go on working. <a href="previews.html#locks">Previews and environments</a> has more.</p>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/releases.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="console.html"><span>Previous</span>The web console</a><a class="doc-pager-next" rel="next" href="variables.html"><span>Next</span>Variables and secrets</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#how-a-deployment-goes">How a deployment goes</a></li>
+        <li class="toc-2"><a href="#how-a-release-takes-over">How a release takes over</a></li>
+        <li class="toc-2"><a href="#when-a-deployment-fails">When a deployment fails</a></li>
+        <li class="toc-2"><a href="#rolling-back">Rolling back</a></li>
+        <li class="toc-2"><a href="#looking-at-releases">Looking at releases</a></li>
+        <li class="toc-2"><a href="#scaling">Scaling</a></li>
+        <li class="toc-2"><a href="#restarts-and-crashes">Restarts and crashes</a></li>
+        <li class="toc-2"><a href="#keeping-deployments-out">Keeping deployments out</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

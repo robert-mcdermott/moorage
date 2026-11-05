@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Moorage: Push code. Get a URL. Own the platform.</title>
+  <meta name="description" content="Moorage is a self-hosted platform for deploying web apps: one program, with builds from source, a URL for every app and branch, zero-downtime releases, native runtimes or containers, and a web console. For Linux, macOS and Windows." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="Moorage: Push code. Get a URL. Own the platform." />
+  <meta property="og:description" content="Moorage is a self-hosted platform for deploying web apps: one program, with builds from source, a URL for every app and branch, zero-downtime releases, native runtimes or containers, and a web console. For Linux, macOS and Windows." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="assets/site.js" defer></script>
+</head>
+<body data-root="">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="./" aria-label="Moorage home"><img class="logo-light" src="assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="#features">Features</a>
+        <a href="docs/getting-started.html">Get started</a>
+        <a href="docs/">Documentation</a>
+        <a href="docs/install.html">Install</a>
+        <a href="docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container">
+        <div class="hero-text">
+          <a class="eyebrow" href="https://github.com/robert-mcdermott/moorage/releases"><span class="pill">v0.7.0</span> Windows servers, GitHub, GitLab and Gitea, and a terminal in your app</a>
+          <h1>Push code. Get a URL. <span class="accent">Own the platform.</span></h1>
+          <p class="lede">One binary turns your laptop or a server into your own app platform. Every branch gets a live address to try out or show off. Releases roll out with no downtime and roll back in a second, and scaling takes one command.</p>
+          <div class="btn-row">
+            <a class="btn btn-primary" href="docs/getting-started.html">Get started in ten minutes</a>
+            <a class="btn" href="docs/">Read the documentation</a>
+            <a class="btn" href="https://github.com/robert-mcdermott/moorage">View on GitHub</a>
+          </div>
+          <div class="install" data-tabs>
+            <div class="tabs" role="tablist" aria-label="Your system">
+              <button type="button" role="tab" id="tab-unix" aria-controls="install-unix" aria-selected="true" data-os="unix">macOS and Linux</button>
+              <button type="button" role="tab" id="tab-windows" aria-controls="install-windows" aria-selected="false" tabindex="-1" data-os="windows">Windows</button>
+            </div>
+            <div id="install-unix" role="tabpanel" aria-labelledby="tab-unix" class="code"><pre><code>curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | sh</code></pre></div>
+            <div id="install-windows" role="tabpanel" aria-labelledby="tab-windows" class="code" hidden><pre><code>irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex</code></pre></div>
+          </div>
+          <p class="hero-meta">Go, Python, Node.js, static sites, containers · No Docker, database or proxy to set up · Linux, macOS, Windows · Apache 2.0</p>
+        </div>
+        <figure class="hero-shot"><div class="shot shot-window"><div class="shot-bar" aria-hidden="true"><span></span><span></span><span></span></div><img class="shot-light" src="assets/img/overview-light.webp" width="1728" height="1080" fetchpriority="high" decoding="async" alt="An app's page in the Moorage console: healthy, with its address, release and buttons to deploy, restart and roll back, and the last hour's requests, response times, CPU and memory" /><img class="shot-dark" src="assets/img/overview-dark.webp" width="1728" height="1080" fetchpriority="high" decoding="async" alt="An app's page in the Moorage console: healthy, with its address, release and buttons to deploy, restart and roll back, and the last hour's requests, response times, CPU and memory" /></div></figure>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="how-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">How it works</span>
+          <h2 id="how-title">From source to a URL, in three steps</h2>
+          <p>Nothing here is a mock-up. This is the output of a first deploy, toolchains and all.</p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <h3>Start a server</h3>
+            <p>On your laptop to try it, or on a server for your team. It keeps everything in one folder.</p>
+            <div class="code"><pre><code><span class="t-k">moor</span> server init --preset local
+<span class="t-k">moor</span> server run</code></pre></div>
+          </div>
+          <div class="step">
+            <h3>Deploy</h3>
+            <p>From a directory, with no configuration. Go, Python, Node.js and static sites are worked out for you.</p>
+            <div class="code"><pre><code><span class="t-k">cd</span> tasks
+<span class="t-k">moor</span> deploy</code></pre></div>
+          </div>
+          <div class="step">
+            <h3>Push</h3>
+            <p>Each push to main deploys, and each other branch gets a place of its own. The push shows the build.</p>
+            <div class="code"><pre><code><span class="t-k">moor</span> git remote --http
+<span class="t-k">git</span> push moorage main</code></pre></div>
+          </div>
+        </div>
+        <div class="terminal" role="img" aria-label="The output of moor deploy: it detects Python, installs the toolchains, builds, runs migrations, rolls out, and is live in 5.2 seconds">
+          <div class="terminal-bar" aria-hidden="true"><span></span><span></span><span></span><b>moor deploy</b></div>
+<pre aria-hidden="true"><span class="p">$</span> moor deploy
+Created app tasks.
+Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queued.
+<span class="d">moorage  tasks · production</span>
+<span class="p">▸</span> detected   python · uv latest · python 3.13 (.python-version)
+             web runs uvicorn on tasks.main:app
+             <span class="d">verified uv-aarch64-apple-darwin.tar.gz (13.7 MiB, SHA-256 81b811b57e4624df…)</span>
+             <span class="d">installing Python 3.13.18 with uv 0.13.7</span>
+<span class="p">▸</span> toolchains uv 0.13.7, python 3.13.18
+<span class="p">▸</span> install    uv sync --no-dev --locked
+<span class="p">▸</span> built      883 files, 15.1 MiB in 4.3s
+<span class="p">▸</span> release    v1: python -m tasks.migrate
+             <span class="d">applied migration 1</span>
+             <span class="d">applied migration 2</span>
+<span class="p">▸</span> rollout    web ×1
+<span class="ok">✔ live</span>       v1  http://tasks.localhost:8080  (5.2s)</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="features" aria-labelledby="features-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">What it does</span>
+          <h2 id="features-title">Everything between a push and a running app</h2>
+          <p>It is all in one binary, and it is all there from the first deploy.</p>
+        </div>
+
+        <article class="feature">
+          <div class="feature-text">
+            <span class="kicker">Deployments</span>
+            <h3>See it build, as it builds</h3>
+            <p>Moorage works out how to build your app, and fetches the toolchains it needs: the version it asks for, checked against its published checksums. A push shows the build as it runs, and fails if the deploy fails.</p>
+            <ul class="checklist">
+              <li>Go, Python with uv, Node.js with npm, and static sites, with no configuration</li>
+              <li>Your own build command, or a <code>Containerfile</code></li>
+              <li>A release command for migrations, which stops a bad deploy</li>
+              <li>From <code>git push</code>, <code>moor deploy</code>, the console, or the API</li>
+            </ul>
+            <a class="more-link" href="docs/git.html">Deploying with git push</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/deployment-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="A deployment's page: five finished stages with how long each took, and the build's log" /><img class="shot-dark" src="assets/img/deployment-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="A deployment's page: five finished stages with how long each took, and the build's log" /></div></figure>
+        </article>
+
+        <article class="feature reverse">
+          <div class="feature-text">
+            <span class="kicker">Releases</span>
+            <h3>No downtime by default, and back in a second</h3>
+            <p>A new release takes traffic only once it answers its health checks, and the old one finishes its requests first. If the new one never gets healthy, nobody notices but you. The last five releases are kept by default, so going back needs no build.</p>
+            <ul class="checklist">
+              <li>Failed builds and migrations leave what was serving alone</li>
+              <li>Each change of variables is a release too</li>
+              <li>Apps keep running while the server restarts or upgrades</li>
+            </ul>
+            <a class="more-link" href="docs/releases.html">Releases, rollbacks and scaling</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/deployment-failed-light.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage is marked as failed, and the compiler's error is in the log, while the previous release goes on serving" /><img class="shot-dark" src="assets/img/deployment-failed-dark.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage is marked as failed, and the compiler's error is in the log, while the previous release goes on serving" /></div></figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <span class="kicker">Previews</span>
+            <h3>A URL for every branch</h3>
+            <p>Push a branch, and it gets its own address, variables, data and releases, behind a sign-in. Delete the branch, and it goes. Those nobody uses go to sleep, and wake on the next request, so that a small server holds a lot of them.</p>
+            <ul class="checklist">
+              <li>Named environments such as <code>staging</code>, with their own variables</li>
+              <li>Promote what ran there to production, without building it again</li>
+              <li>From GitHub, GitLab or Gitea too, with a preview for each pull request</li>
+            </ul>
+            <a class="more-link" href="docs/previews.html">Previews and environments</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/environments-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="An app's environments: production, staging behind a password, and a preview of a branch, each with its address and release, and buttons to promote, lock and remove" /><img class="shot-dark" src="assets/img/environments-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="An app's environments: production, staging behind a password, and a preview of a branch, each with its address and release, and buttons to promote, lock and remove" /></div></figure>
+        </article>
+
+        <article class="feature reverse">
+          <div class="feature-text">
+            <span class="kicker">Observability</span>
+            <h3>Logs and metrics, with nothing else to run</h3>
+            <p>Follow and search what every instance says, merged by time. Requests, response times, CPU and memory are charted for up to 30 days, with each release marked, so that what changed lines up with what was deployed.</p>
+            <ul class="checklist">
+              <li>JSON logs read as fields, and coloured by level</li>
+              <li>Ready for Prometheus, and for an OpenTelemetry collector or syslog</li>
+              <li>Told by webhook, Slack, Teams, Discord or email when something goes wrong: one message, not hundreds</li>
+            </ul>
+            <a class="more-link" href="docs/metrics.html">Metrics</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/metrics-light.webp" width="1600" height="1440" loading="lazy" decoding="async" alt="An app's metrics: requests a minute, response time, CPU and memory for each instance, with a line where a release went out" /><img class="shot-dark" src="assets/img/metrics-dark.webp" width="1600" height="1440" loading="lazy" decoding="async" alt="An app's metrics: requests a minute, response time, CPU and memory for each instance, with a line where a release went out" /></div></figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <span class="kicker">Getting in</span>
+            <h3>A terminal when you need one</h3>
+            <p><code>moor run -it -- /bin/sh</code> is a terminal in the current release, with its variables and data, on any system. The console runs commands too, and shows what is in an app's data directory.</p>
+            <ul class="checklist">
+              <li>Cron jobs in the manifest, with their history</li>
+              <li>One-off commands, such as migrations, with their output kept</li>
+              <li>Variables, and secrets sealed and handed over in memory only</li>
+            </ul>
+            <a class="more-link" href="docs/interactive.html">Getting into an app</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/console-tab-light.webp" width="1600" height="1134" loading="lazy" decoding="async" alt="The Console tab of an app: a box to run a command in the current release, and the earlier commands with how each went" /><img class="shot-dark" src="assets/img/console-tab-dark.webp" width="1600" height="1134" loading="lazy" decoding="async" alt="The Console tab of an app: a box to run a command in the current release, and the earlier commands with how each went" /></div></figure>
+        </article>
+
+        <article class="feature reverse">
+          <div class="feature-text">
+            <span class="kicker">Access</span>
+            <h3>Show it to whoever needs to see it</h3>
+            <p>A link for a reviewer, a sign-in for a colleague. Each environment has a gate of its own: anyone, a password, people signed in, or only those with a share link. It can be limited to some addresses too, and your app hears who signed in.</p>
+            <ul class="checklist">
+              <li>Share links that expire, and can be revoked</li>
+              <li>Hostnames of your own, and several apps on one hostname</li>
+              <li>TLS from Moorage's own CA, your company's or your files, or behind nginx</li>
+            </ul>
+            <a class="more-link" href="docs/access.html">Who can reach an app</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/access-light.webp" width="1600" height="1440" loading="lazy" decoding="async" alt="The Domains and access tab of an environment: its address, and its gate, which is a password" /><img class="shot-dark" src="assets/img/access-dark.webp" width="1600" height="1440" loading="lazy" decoding="async" alt="The Domains and access tab of an environment: its address, and its gate, which is a password" /></div></figure>
+        </article>
+
+        <article class="feature">
+          <div class="feature-text">
+            <span class="kicker">For a team</span>
+            <h3>Projects, roles and a record of who did what</h3>
+            <p>Give people the role they need in a project: viewer, deployer or maintainer. Sign in with passwords and two-factor codes, or with your identity provider. Every change, sign-in, secret revealed and push is in the audit log.</p>
+            <ul class="checklist">
+              <li>Single sign-on with OpenID Connect, with groups as roles</li>
+              <li>API tokens limited to a scope and an app, for CI</li>
+              <li>A project can hide its apps from everyone else</li>
+            </ul>
+            <a class="more-link" href="docs/accounts.html">Accounts and access</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/project-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="A project's page: who may do what, its apps, its members with their roles, and a form to add someone" /><img class="shot-dark" src="assets/img/project-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="A project's page: who may do what, its apps, its members with their roles, and a form to add someone" /></div></figure>
+        </article>
+
+        <article class="feature reverse">
+          <div class="feature-text">
+            <span class="kicker">For whoever runs it</span>
+            <h3>Boring to run, on purpose</h3>
+            <p>One SQLite database and plain files that you can look at. It installs as a service, checks itself, says how to fix what it finds, backs itself up, and upgrades itself, going back by itself if the new version does not come up.</p>
+            <ul class="checklist">
+              <li>Backups on a schedule, to a directory or a bucket, and a way to verify them</li>
+              <li>On Linux, as root: a user of its own for each app, and a sandbox if you ask</li>
+              <li>Settings as a file, to review or to bring to another server</li>
+            </ul>
+            <a class="more-link" href="docs/administration.html">Running a server</a>
+          </div>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/system-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The System page: all is well, what the server runs, and each check it made" /><img class="shot-dark" src="assets/img/system-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The System page: all is well, what the server runs, and each check it made" /></div></figure>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="also-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">And</span>
+          <h2 id="also-title">The rest of what is in the box</h2>
+        </div>
+        <div class="cards">
+          <div class="card"><h3><a href="docs/static.html">Static sites</a></h3><p>Served by Moorage itself, with clean URLs, headers, redirects and a 404 page. Drop a folder on the console, and that is a site.</p></div>
+          <div class="card"><h3><a href="docs/containers.html">Containers, if you want them</a></h3><p>A <code>Containerfile</code>, or an image from a registry, under Podman or Docker, released and rolled back like any other app. Nothing else needs an engine.</p></div>
+          <div class="card"><h3><a href="docs/forges.html">GitHub, GitLab and Gitea</a></h3><p>Connect a repository: a push deploys, and a pull request gets a preview, with a check and a comment. Code from a stranger waits for approval.</p></div>
+          <div class="card"><h3><a href="docs/cli.html">A command line for everything</a></h3><p>Nearly everything in the console has a command, and lists take <code>--json</code> for your scripts.</p></div>
+          <div class="card"><h3><a href="docs/api.html">A REST API</a></h3><p>Versioned, documented with OpenAPI, and the same one the command line uses, with a permission declared for every route.</p></div>
+          <div class="card"><h3><a href="docs/console.html">A console that works on a phone</a></h3><p>And without scripts: every page is plain HTML that gets better with them, in light and dark, under a strict Content-Security-Policy.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" aria-labelledby="fit-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Is it for you?</span>
+          <h2 id="fit-title">What it is for, and what it is not</h2>
+        </div>
+        <div class="fit">
+          <div>
+            <h3>A good fit</h3>
+            <ul>
+              <li>Internal tools, dashboards and documentation sites</li>
+              <li>A preview of every branch, for whoever reviews it</li>
+              <li>Demo, staging and long-lived development environments</li>
+              <li>A team that wants to deploy without a platform team</li>
+              <li>Many projects on a laptop, without juggling ports</li>
+              <li>A homelab, or a small server of your own</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Not what it is for</h3>
+            <ul>
+              <li>Running across several machines: it is one machine, done well</li>
+              <li>Hosting strangers' code: deploying is running code on the server, so treat it like shell access</li>
+              <li>A CI system: it builds what it deploys, and your CI runs your tests</li>
+              <li>Autoscaling, several regions or a CDN</li>
+            </ul>
+          </div>
+        </div>
+        <div class="status">
+          <h3>Where it stands</h3>
+          <p>Moorage is at 0.7.0, young, and moving quickly. CI tries it on Linux, macOS and Windows, including real installs, upgrades, backups and browsers. It has not had an outside security review, and it is meant for a network you control until it has: certificates from public CAs and a penetration test come next, in 0.8.0.</p>
+          <p>Its connections to GitHub, GitLab, Gitea, OpenTelemetry and syslog have so far been tested against stand-ins, and trying them against the real services is the next thing on <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">the roadmap</a>. If you try them first, <a href="https://github.com/robert-mcdermott/moorage/issues">tell us how it goes</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="questions-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Questions</span>
+          <h2 id="questions-title">What people ask first</h2>
+        </div>
+        <div class="questions">
+          <div>
+            <h3>Where does my app's database go?</h3>
+            <p>Moorage does not run databases for you yet: that is planned for 0.9.0. Today, an app can keep SQLite in its <a href="docs/interactive.html#the-data-directory">data directory</a>, which survives deploys and goes in <a href="docs/backups.html#apps-with-databases">backups</a>, or reach any database you already run through a <a href="docs/variables.html">variable</a> such as <code>DATABASE_URL</code>.</p>
+          </div>
+          <div>
+            <h3>Can I run production on it?</h3>
+            <p>It has what one machine needs: releases with no downtime, rollbacks, health checks, backups, metrics and an audit log. It also runs on one machine, with no failover, and it is young. We would start with internal tools, previews and demos, and move up from there.</p>
+          </div>
+          <div>
+            <h3>Can I put it on the internet?</h3>
+            <p>You can, with <a href="docs/tls.html">certificates of your own</a> or <a href="docs/proxy.html">behind a proxy</a> that has them. We would keep it on a network you control for now, or behind something that decides who reaches it. Automatic public certificates and a penetration test are the work of 0.8.0.</p>
+          </div>
+          <div>
+            <h3>How does it compare with a hosted platform, or an orchestrator?</h3>
+            <p>The workflow is like a hosted platform's, on machines you own and with no bill per app. It is far simpler than an orchestrator, because it does less: one machine, no cluster, and containers only if you want them. If you need to spread apps over several machines, it is not for you.</p>
+          </div>
+          <div>
+            <h3>What does it cost?</h3>
+            <p>Nothing. It is free and open source under the Apache License 2.0, with no paid edition and nothing to sign up for. You pay for the machine, if you do not have one already.</p>
+          </div>
+          <div>
+            <h3>Where do I get help?</h3>
+            <p>In <a href="docs/">the documentation</a>, starting with <a href="docs/troubleshooting.html">when something is wrong</a>, and in the project's <a href="https://github.com/robert-mcdermott/moorage/issues">GitHub issues</a>, which is also the place for what you would like to see.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section final" aria-labelledby="final-title">
+      <div class="container">
+        <h2 id="final-title">Try it on your laptop, in ten minutes</h2>
+        <p>Nothing to sign up for and nothing to pay. It needs no administrator rights, and everything it keeps is in one folder.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="docs/getting-started.html">Get started</a>
+          <a class="btn" href="docs/install.html">Install on a server</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="./" aria-label="Moorage home"><img class="logo-light" src="assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="docs/getting-started.html">Getting started</a></li>
+            <li><a href="docs/git.html">Deploy with git push</a></li>
+            <li><a href="docs/previews.html">Previews</a></li>
+            <li><a href="docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="docs/install.html">Install</a></li>
+            <li><a href="docs/administration.html">Running a server</a></li>
+            <li><a href="docs/backups.html">Backups</a></li>
+            <li><a href="docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="docs/architecture.html">Architecture</a></li>
+            <li><a href="docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

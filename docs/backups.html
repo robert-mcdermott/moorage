@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Backups · Moorage</title>
+  <meta name="description" content="On demand and on a schedule, to a directory or a bucket, and restoring them." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/backups.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="Backups · Moorage" />
+  <meta property="og:description" content="On demand and on a schedule, to a directory or a bucket, and restoring them." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/backups.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html" aria-current="page">Backups</a></li>
+            <li><a href="telemetry.html">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html">moorage.toml</a></li>
+            <li><a href="cli.html">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>Backups</h1>
+      <p class="doc-lede">On demand and on a schedule, to a directory or a bucket, and restoring them.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#the-master-key">The master key</a></li>
+        <li class="toc-2"><a href="#a-schedule">A schedule</a></li>
+        <li class="toc-2"><a href="#to-a-bucket">To a bucket</a></li>
+        <li class="toc-2"><a href="#see-what-is-there">See what is there</a></li>
+        <li class="toc-2"><a href="#restoring">Restoring</a></li>
+        <li class="toc-2"><a href="#apps-with-databases">Apps with databases</a></li>
+        <li class="toc-2"><a href="#the-servers-configuration">The server's configuration</a></li>
+        <li class="toc-2"><a href="#see-also">See also</a></li>
+      </ul></details>
+<p>A backup holds what a server cannot make again: its database, the apps' repositories and builds, their data directories and the server's certificates. It is one file, and the server goes on running while it is made. Logs and caches are left out, and so are toolchains, which the server fetches again as the apps that need them start. Restored on a machine with no way out, those apps need a mirror, under <code>[toolchains]</code> in <code>server.toml</code>.</p>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/backups-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="Settings, Backups: the schedule, what has been backed up, and where they go" /><img class="shot-dark" src="../assets/img/backups-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="Settings, Backups: the schedule, what has been backed up, and where they go" /></div><figcaption><strong>Settings → Backups</strong>.</figcaption></figure>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server backup --to /mnt/backups</code></pre></div>
+<p>Backups run where the server is, as the user that runs it, so that on a system service that takes <code>sudo</code>.</p>
+<h2 id="the-master-key">The master key<a class="anchor" href="#the-master-key" aria-label="Link to this section">#</a></h2>
+<p>A backup leaves out <code>keys/master.key</code>, which encrypts the apps' secrets, so that a backup that goes astray gives them away to nobody. <strong>Without that key a backup's secrets are lost for good, so that keep it safe, and somewhere other than your backups.</strong></p>
+<p>Restoring needs that key to be in place, and refuses before reading any further if it is not the one that the backup was made with. <code>--include-keys</code> puts the key and the server's other keys in the backup, for a directory that you keep as safe as they are. A bucket is refused: there, one wrong setting gives away every secret you have.</p>
+<h2 id="a-schedule">A schedule<a class="anchor" href="#a-schedule" aria-label="Link to this section">#</a></h2>
+<p><strong>Settings → Backups</strong> in the console says where they go, and how often:</p>
+<ul><li><strong>Where:</strong> a directory, or a bucket on S3 or a service like it. The secret key is sealed with the master key.</li><li><strong>Schedule:</strong> a cron expression, such as <code>@daily</code> or <code>0 3 * * *</code>, in the server's time zone. One that was due while the server was down is made when it comes back.</li><li><strong>How many to keep:</strong> when a scheduled one finishes, older ones go.</li></ul>
+<p>With nothing said, they go to <code>backups/archives</code> in the data directory. That is a start and not a plan, since whatever takes that disk takes them too.</p>
+<p>A backup that fails tells administrators in the console, and a channel with a <a href="notifications.html#rules">rule</a> for <code>backup.failed</code>. So does the next one that works.</p>
+<h2 id="to-a-bucket">To a bucket<a class="anchor" href="#to-a-bucket" aria-label="Link to this section">#</a></h2>
+<p>From the command line, the service's details come from the usual variables:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash">AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=eu-west-1 moor server backup --to s3://acme-backups/moorage</code></pre></div>
+<p>For a service other than AWS, <code>AWS_ENDPOINT_URL</code> says where it is, and buckets are then addressed by path. Temporary credentials need <code>AWS_SESSION_TOKEN</code> as well. Its parts go up as they are made, so that a backup needs neither memory nor disk for the whole of it, up to the 160 GB that its parts come to, and a part that fails is tried again. Without a <code>--to</code>, the command uses what <strong>Settings → Backups</strong> says.</p>
+<h2 id="see-what-is-there">See what is there<a class="anchor" href="#see-what-is-there" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server backup list</code></pre></div>
+<p>Read one through to see that it could be restored, without changing anything:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server backup verify /mnt/backups/moorage-20261104T120000Z.tar.gz</code></pre></div>
+<h2 id="restoring">Restoring<a class="anchor" href="#restoring" aria-label="Link to this section">#</a></h2>
+<p>Install the same version of Moorage or a newer one, configure it as before, and put the master key in place. Then, with the server stopped:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server restore /mnt/backups/moorage-20261104T120000Z.tar.gz</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server start</code></pre></div>
+<p>It reads all of the backup to one side first, so that a damaged one changes nothing, and refuses one that did not finish or that does not hash to what was noted when it was made. On a server that already has a database, <code>--force</code> moves what is there aside rather than deleting it. Any apps still running are stopped just before the swap. The server starts them again when it starts, and brings an older backup's database up to date. Everyone can sign in as before, and browsers that trusted the server's own CA still do, as its key comes back, sealed in the backup with the master key.</p>
+<p>Restore to a data directory at the same path as before: builds can hold links to their toolchains by their full paths. Without <code>--include-keys</code>, the server has a new SSH host key, so that those who push over SSH are told that it has changed.</p>
+<p><strong>Restore only your own backups.</strong> What a server restores, it goes on to run, and it refuses what no backup should hold, such as keys in one that says it has none. A <code>.sha256</code> beside a backup shows that it is whole, and not who made it, so that whoever can write to where your backups go can change them: keep that as closed as the server.</p>
+<h2 id="apps-with-databases">Apps with databases<a class="anchor" href="#apps-with-databases" aria-label="Link to this section">#</a></h2>
+<p>The data directories are read while the apps go on running, so that a file being written at that moment may be caught halfway. For most files that does not matter, but a database file copied while it is in use may not open again, and the command says how many files changed as they were read: the server's log does for those it makes itself.</p>
+<p>If an app keeps a database in its data directory, have a <a href="cron.html">cron job</a> dump it there shortly before the backup, and restore from the dump. For SQLite:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[[cron]]</span>
+<span class="t-k">name</span> = <span class="t-s">&quot;dump&quot;</span>
+<span class="t-k">schedule</span> = <span class="t-s">&quot;45 2 * * *&quot;</span>
+<span class="t-k">command</span> = <span class="t-s">'sqlite3 &quot;$MOORAGE_DATA_DIR/app.db&quot; &quot;.backup $MOORAGE_DATA_DIR/app.backup.db&quot;'</span></code></pre></div>
+<h2 id="the-servers-configuration">The server's configuration<a class="anchor" href="#the-servers-configuration" aria-label="Link to this section">#</a></h2>
+<p>A backup holds everything, to bring a server back. Its settings alone are a smaller thing, and a file you can read, keep with the rest of what you look after, or bring to another server: people and their roles, projects and who is in them, container registries, notification channels and rules, where backups go, and sign-in.</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server config export &gt; moorage-config.toml</code></pre></div>
+<p><strong>Settings → System</strong> has the same file to download. It holds no secrets. Where one belongs, it names a variable of the environment:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-k">format</span> = 1
+
+<span class="t-h">[[user]]</span>
+<span class="t-k">email</span> = <span class="t-s">&quot;ada@example.com&quot;</span>
+<span class="t-k">name</span> = <span class="t-s">&quot;Ada Lovelace&quot;</span>
+<span class="t-k">role</span> = <span class="t-s">&quot;admin&quot;</span>
+
+<span class="t-h">[[project]]</span>
+<span class="t-k">name</span> = <span class="t-s">&quot;web&quot;</span>
+
+<span class="t-h">[project.members]</span>
+<span class="t-k">&quot;sam@example.com&quot;</span> = <span class="t-s">&quot;deployer&quot;</span>
+
+<span class="t-h">[[registry]]</span>
+<span class="t-k">host</span> = <span class="t-s">&quot;ghcr.io&quot;</span>
+<span class="t-k">username</span> = <span class="t-s">&quot;robot&quot;</span>
+<span class="t-k">password</span> = <span class="t-s">&quot;${MOORAGE_REGISTRY_GHCR_IO_PASSWORD}&quot;</span></code></pre></div>
+<p>To bring it in, look first at what that would do:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server config import moorage-config.toml --dry-run</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">same    user            ada@example.com
+create  user            sam@example.com     they need a link to choose a password, or single sign-on: moor server users invite sam@example.com
+create  project         web
+skip    registry        ghcr.io             set MOORAGE_REGISTRY_GHCR_IO_PASSWORD and bring this in again</code></pre></div>
+<p>Then do it, with those secrets in the command's environment:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash">MOORAGE_REGISTRY_GHCR_IO_PASSWORD=... moor server config import moorage-config.toml</code></pre></div>
+<p><strong>It adds and changes, and removes nothing.</strong> What the file does not mention stays as it is, down to a single setting, and a server keeps the secret it has when the variable is not set, so that bringing a file back to the server it came from changes nothing. Only variables whose names start with <code>MOORAGE_</code> are read: a file from someone else cannot ask for anything else in your environment. Something that cannot be done is said, and does not stop the rest; the command then fails. A dry run says the same, except that your identity provider is only asked when it is done.</p>
+<p>People's passwords and second factors do not go with them, so someone new needs <code>moor server users invite</code>, or single sign-on. A name only counts when it makes the account, and a disabled user stays disabled until you enable them. <code>server.toml</code> is apart from this: it is a file already, and is for you to copy. So are your apps: those come from their manifests and repositories, and a rule for an app that is not deployed yet is said to have failed, until it is.</p>
+<h2 id="see-also">See also<a class="anchor" href="#see-also" aria-label="Link to this section">#</a></h2>
+<ul><li><a href="install.html">Installing Moorage</a></li><li><a href="notifications.html">Notifications</a></li></ul>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/backups.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="isolation.html"><span>Previous</span>How apps are kept apart</a><a class="doc-pager-next" rel="next" href="telemetry.html"><span>Next</span>Sending telemetry elsewhere</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#the-master-key">The master key</a></li>
+        <li class="toc-2"><a href="#a-schedule">A schedule</a></li>
+        <li class="toc-2"><a href="#to-a-bucket">To a bucket</a></li>
+        <li class="toc-2"><a href="#see-what-is-there">See what is there</a></li>
+        <li class="toc-2"><a href="#restoring">Restoring</a></li>
+        <li class="toc-2"><a href="#apps-with-databases">Apps with databases</a></li>
+        <li class="toc-2"><a href="#the-servers-configuration">The server's configuration</a></li>
+        <li class="toc-2"><a href="#see-also">See also</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

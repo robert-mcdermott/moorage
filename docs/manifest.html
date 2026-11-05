@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>moorage.toml · Moorage</title>
+  <meta name="description" content="Every setting of the app manifest." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/manifest.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="moorage.toml · Moorage" />
+  <meta property="og:description" content="Every setting of the app manifest." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/manifest.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html">Backups</a></li>
+            <li><a href="telemetry.html">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html" aria-current="page">moorage.toml</a></li>
+            <li><a href="cli.html">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>moorage.toml</h1>
+      <p class="doc-lede">Every setting of the app manifest.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#rules">Rules</a></li>
+        <li class="toc-2"><a href="#an-example">An example</a></li>
+        <li class="toc-2"><a href="#app"><code>[app]</code></a></li>
+        <li class="toc-2"><a href="#go"><code>[go]</code></a></li>
+        <li class="toc-2"><a href="#python"><code>[python]</code></a></li>
+        <li class="toc-2"><a href="#node"><code>[node]</code></a></li>
+        <li class="toc-2"><a href="#build"><code>[build]</code></a></li>
+        <li class="toc-2"><a href="#processes"><code>[processes]</code></a></li>
+        <li class="toc-2"><a href="#container"><code>[container]</code></a></li>
+        <li class="toc-2"><a href="#resources"><code>[resources]</code></a></li>
+        <li class="toc-2"><a href="#storage"><code>[storage]</code></a></li>
+        <li class="toc-2"><a href="#release"><code>[release]</code></a></li>
+        <li class="toc-2"><a href="#deploy"><code>[deploy]</code></a></li>
+        <li class="toc-2"><a href="#static"><code>[static]</code></a></li>
+        <li class="toc-2"><a href="#previews"><code>[previews]</code></a></li>
+        <li class="toc-2"><a href="#environmentsname"><code>[environments.NAME]</code></a></li>
+        <li class="toc-2"><a href="#cron"><code>[[cron]]</code></a></li>
+        <li class="toc-2"><a href="#varsname"><code>[vars.NAME]</code></a></li>
+        <li class="toc-2"><a href="#env"><code>[env]</code></a></li>
+        <li class="toc-2"><a href="#what-moorage-sets">What Moorage sets</a></li>
+        <li class="toc-2"><a href="#detection">Detection</a></li>
+        <li class="toc-2"><a href="#accepted-not-acted-on-yet">Accepted, not acted on yet</a></li>
+      </ul></details>
+<p><code>moorage.toml</code>, at the top of an app's directory, says how Moorage builds and runs the app. It is optional: without it, Moorage detects the kind of app (see <a href="#detection">Detection</a>), and <code>moor manifest explain</code> shows what it detected. This page describes the manifest as Moorage 0.7.0 implements it; the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/03-manifest.md">design</a> describes what later releases add.</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> manifest validate      # checks the file, reporting every problem at once</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> manifest explain       # shows how the app will be built and run</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> manifest schema        # prints a JSON Schema for editors</code></pre></div>
+<h2 id="rules">Rules<a class="anchor" href="#rules" aria-label="Link to this section">#</a></h2>
+<ul><li><strong>Every key is optional</strong>, and an unknown key is an error, so that a typo fails at once. Tables whose names start with <code>x-</code> are left for other tools.</li><li><strong>Durations</strong> are strings such as <code>&quot;500ms&quot;</code>, <code>&quot;90s&quot;</code>, <code>&quot;10m&quot;</code> or <code>&quot;2h&quot;</code>.</li><li><strong>Commands</strong> run in Moorage's embedded POSIX shell, the same on every operating system: <code>&amp;&amp;</code>, <code>$VAR</code>, quotes and redirections work everywhere. The programs a command calls must exist on the server.</li><li><strong>Secrets never go in the manifest.</strong> <code>moor manifest validate</code> warns about values that look like credentials; set them on the server with <code>moor env set --secret</code> (see <a href="variables.html">Variables and secrets</a>).</li></ul>
+<h2 id="an-example">An example<a class="anchor" href="#an-example" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[app]</span>
+<span class="t-k">name</span> = <span class="t-s">&quot;tasks&quot;</span>
+
+<span class="t-h">[python]</span>
+<span class="t-k">version</span> = <span class="t-s">&quot;3.13&quot;</span>
+
+<span class="t-h">[processes.web]</span>
+<span class="t-k">command</span> = <span class="t-s">&quot;uvicorn tasks.main:app --host 127.0.0.1 --port $PORT --proxy-headers&quot;</span>
+<span class="t-k">health</span> = { path = <span class="t-s">&quot;/healthz&quot;</span> }
+
+<span class="t-h">[processes.worker]</span>
+<span class="t-k">command</span> = <span class="t-s">&quot;python -m tasks.worker&quot;</span>
+
+<span class="t-h">[release]</span>
+<span class="t-k">command</span> = <span class="t-s">&quot;python -m tasks.migrate&quot;</span>
+
+<span class="t-h">[deploy]</span>
+<span class="t-k">keep_releases</span> = 10
+
+<span class="t-h">[env]</span>
+<span class="t-k">LOG_LEVEL</span> = <span class="t-s">&quot;info&quot;</span></code></pre></div>
+<h2 id="app"><code>[app]</code><a class="anchor" href="#app" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>name</code></td><td>—</td><td>The app's name, used when <code>moor deploy</code> is not given <code>--app</code>: 3 to 40 lowercase letters, digits and hyphens, starting with a letter. It is also the first part of the app's hostname.</td></tr><tr><td><code>runtime</code></td><td><code>&quot;auto&quot;</code></td><td><code>auto</code> (detect), <code>go</code>, <code>python</code>, <code>node</code>, <code>static</code>, <code>command</code> (your own build), <code>binary</code> (run the files as they are), or <a href="containers.html"><code>dockerfile</code> or <code>image</code></a> (run in a container).</td></tr><tr><td><code>toolchains</code></td><td><code>[]</code></td><td>More toolchains on the <code>PATH</code> while building and running, as <code>name@version</code>: <code>go</code>, <code>node</code>, <code>python</code> and <code>uv</code> are installed by Moorage, and <code>name@system</code> uses the server's own (<code>&quot;java@system&quot;</code>). Versions may be partial (<code>&quot;24&quot;</code>, <code>&quot;3.13&quot;</code>); the exact version is recorded in the build.</td></tr></tbody></table></div>
+<p><code>watch</code> lists the paths that matter, as globs, whose <code>*</code> crosses slashes: a <a href="git.html">push</a> that touches none of them, nor this file, is kept and not deployed.</p>
+<p><code>strip_prefix</code>, with <a href="domains.html#with-no-wildcard-dns-path-routing">path routing</a>, takes the path the app is served at away from what it hears.</p>
+<h2 id="go"><code>[go]</code><a class="anchor" href="#go" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>version</code></td><td>the <code>toolchain</code> line of <code>go.mod</code>, or else the newest patch release of its <code>go</code> line</td><td>The Go that builds the app. Builds run with <code>GOTOOLCHAIN=local</code>.</td></tr><tr><td><code>main</code></td><td><code>.</code> when it is <code>package main</code>, or else the single <code>./cmd/*</code></td><td>The main package.</td></tr><tr><td><code>binary</code></td><td>the last element of the module path (or of <code>main</code>)</td><td>The binary's name, in <code>$MOORAGE_BIN</code>.</td></tr><tr><td><code>ldflags</code></td><td><code>&quot;-s -w&quot;</code></td><td>Linker flags.</td></tr><tr><td><code>tags</code></td><td><code>[]</code></td><td>Build tags.</td></tr><tr><td><code>cgo</code></td><td><code>false</code></td><td>Sets <code>CGO_ENABLED</code>; the server then needs a C compiler.</td></tr></tbody></table></div>
+<p>The build is <code>go build -trimpath -ldflags=&quot;…&quot; -o &quot;$MOORAGE_BIN/&lt;binary&gt;&quot; &lt;main&gt;</code>, and the <code>web</code> process runs the binary. See <a href="go.html">Go</a>.</p>
+<h2 id="python"><code>[python]</code><a class="anchor" href="#python" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>version</code></td><td><code>.python-version</code>, or else <code>requires-python</code>, or else the newest release</td><td>Installed with uv; a partial version means its newest patch release.</td></tr><tr><td><code>manager</code></td><td><code>uv</code> with a <code>pyproject.toml</code>, <code>uv-pip</code> with only a <code>requirements.txt</code></td><td><code>uv</code> runs <code>uv sync --locked --no-dev</code> (<code>uv sync --no-dev</code>, with a warning, without a <code>uv.lock</code>); <code>uv-pip</code> makes a virtual environment and runs <code>uv pip install -r requirements.txt</code>.</td></tr><tr><td><code>groups</code></td><td><code>[]</code></td><td>More dependency groups to install.</td></tr><tr><td><code>extras</code></td><td><code>[]</code></td><td>Optional extras to install.</td></tr></tbody></table></div>
+<p>The virtual environment's <code>bin</code> comes first on the <code>PATH</code>, and <code>VIRTUAL_ENV</code> and <code>PYTHONUNBUFFERED=1</code> are set. See <a href="python.html">Python</a>.</p>
+<h2 id="node"><code>[node]</code><a class="anchor" href="#node" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>version</code></td><td><code>.nvmrc</code>, or else <code>.node-version</code>, or else <code>engines.node</code>, or else the current LTS release</td><td>Partial versions and ranges (<code>&quot;24&quot;</code>, <code>&quot;&gt;=22&quot;</code>, <code>&quot;lts/*&quot;</code>) mean the newest matching release.</td></tr><tr><td><code>package_manager</code></td><td><code>npm</code></td><td>Only npm in this release: <code>npm ci</code> with a <code>package-lock.json</code>, <code>npm install</code> (with a warning) without one.</td></tr><tr><td><code>build_script</code></td><td><code>&quot;build&quot;</code>, when <code>package.json</code> has one</td><td>The script run after the install.</td></tr><tr><td><code>prune</code></td><td><code>true</code></td><td>Removes development dependencies after the build.</td></tr></tbody></table></div>
+<p>The <code>web</code> process runs the <code>start</code> script directly, not through npm, so that the stop signal reaches the app; <code>NODE_ENV=production</code> is set. Without a <code>start</code> script, the build's <code>dist/</code>, <code>build/</code> or <code>out/</code> is served as a static site. See <a href="node.html">Node.js</a>.</p>
+<h2 id="build"><code>[build]</code><a class="anchor" href="#build" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>command</code></td><td>the runtime's build</td><td>Replaces the runtime's build. <code>moor manifest explain</code> shows the build it replaces.</td></tr><tr><td><code>pre</code></td><td>—</td><td>Runs before the build (code generation, for instance).</td></tr><tr><td><code>post</code></td><td>—</td><td>Runs after the build (a front end, for instance).</td></tr><tr><td><code>env</code></td><td><code>{}</code></td><td>Variables for the build only.</td></tr><tr><td><code>timeout</code></td><td><code>&quot;20m&quot;</code></td><td>The build fails after this long.</td></tr><tr><td><code>exclude</code></td><td><code>[]</code></td><td>Patterns, in <code>.gitignore</code> syntax, removed from the build's output.</td></tr></tbody></table></div>
+<p>Builds run in the directory the app will run from. The upload leaves out what <code>.gitignore</code> and <code>.moorignore</code> exclude, and <code>node_modules</code>, <code>.venv</code> and <code>.git</code>.</p>
+<h2 id="processes"><code>[processes]</code><a class="anchor" href="#processes" aria-label="Link to this section">#</a></h2>
+<p>Each entry is a long-running process. <code>web</code> receives the app's HTTP traffic. An entry is a command (<code>worker = &quot;python -m tasks.worker&quot;</code>) or a table:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>command</code></td><td>the runtime's, for <code>web</code></td><td>What to run.</td></tr><tr><td><code>instances</code></td><td><code>1</code></td><td>How many instances run (0 to 20; <code>0</code> turns the process off). Requests are spread over the healthy ones. <a href="releases.html#scaling"><code>moor scale</code></a> overrides it, on the server.</td></tr><tr><td><code>expose</code></td><td><code>true</code> for <code>web</code></td><td>The process listens on <code>$PORT</code> (and <code>$HOST</code>).</td></tr><tr><td><code>health</code></td><td>a TCP check of <code>$PORT</code></td><td>See below.</td></tr><tr><td><code>stop_signal</code></td><td><code>&quot;TERM&quot;</code></td><td>The signal that asks the process to stop: <code>TERM</code>, <code>INT</code>, <code>QUIT</code>, <code>HUP</code>, <code>USR1</code> or <code>USR2</code>.</td></tr><tr><td><code>stop_timeout</code></td><td><code>&quot;30s&quot;</code></td><td>How long the process may take to stop before it is killed.</td></tr><tr><td><code>sleep</code></td><td><code>true</code></td><td>Whether it stops while its environment <a href="previews.html#sleeping">sleeps</a>.</td></tr><tr><td><code>restart</code></td><td><code>&quot;always&quot;</code></td><td>When an exited process is restarted: <code>always</code>, <code>on-failure</code> or <code>never</code>. Restarts slow down when a process keeps failing.</td></tr></tbody></table></div>
+<p><code>health</code>:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>path</code></td><td>—</td><td>An HTTP <code>GET</code> path; a 2xx or 3xx answer is healthy. Without it, a TCP connection to <code>$PORT</code> is the check.</td></tr><tr><td><code>expect</code></td><td>—</td><td>Text the answer must contain.</td></tr><tr><td><code>startup</code></td><td><code>&quot;60s&quot;</code></td><td>How long a new instance may take to become healthy during a deploy.</td></tr><tr><td><code>interval</code></td><td><code>&quot;10s&quot;</code></td><td>Time between checks while the instance runs.</td></tr><tr><td><code>timeout</code></td><td><code>&quot;3s&quot;</code></td><td>Each check's time limit.</td></tr><tr><td><code>threshold</code></td><td><code>3</code></td><td>Failed checks in a row before an instance is unhealthy: it gets no traffic and is restarted.</td></tr><tr><td><code>min_uptime</code></td><td><code>&quot;5s&quot;</code></td><td>For a process that does not listen: how long a new instance must keep running to count as healthy.</td></tr></tbody></table></div>
+<p>Without <code>[processes]</code>, a <code>Procfile</code> (<code>name: command</code> lines) is used, and then the runtime's own <code>web</code> process.</p>
+<h2 id="container"><code>[container]</code><a class="anchor" href="#container" aria-label="Link to this section">#</a></h2>
+<p>For <code>runtime = &quot;dockerfile&quot;</code> and <code>&quot;image&quot;</code>. See <a href="containers.html">Running apps in containers</a>.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>file</code></td><td><code>Containerfile</code>, else <code>Dockerfile</code></td><td>What to build the image from (<code>dockerfile</code>).</td></tr><tr><td><code>context</code></td><td><code>&quot;.&quot;</code></td><td>The build's context, in the app's directory (<code>dockerfile</code>).</td></tr><tr><td><code>target</code></td><td>—</td><td>The stage of a multi-stage build to stop at (<code>dockerfile</code>).</td></tr><tr><td><code>args</code></td><td><code>{}</code></td><td>Build arguments (<code>dockerfile</code>); <code>[build].env</code> adds to them.</td></tr><tr><td><code>image</code></td><td>—</td><td>The image to run (<code>image</code>): <code>ghcr.io/acme/api:1.4</code>. <code>moor deploy --image</code> overrides it.</td></tr><tr><td><code>port</code></td><td>the lowest the image exposes, else <code>8080</code></td><td>Where the app listens inside the container. <code>$PORT</code> is set to it.</td></tr><tr><td><code>user</code></td><td>the image's</td><td>Who to run as: <code>1000</code>, <code>1000:1000</code> or a name the image knows.</td></tr></tbody></table></div>
+<p>Of <code>[build]</code>, a container build uses <code>env</code> and <code>timeout</code>. Without <code>[processes]</code>, <code>web</code> runs what the image says to, and a <code>command</code> replaces the image's entrypoint and command.</p>
+<h2 id="resources"><code>[resources]</code><a class="anchor" href="#resources" aria-label="Link to this section">#</a></h2>
+<p>Limits for each instance of an app, and <code>[environments.NAME.resources]</code> for one environment's. A container's engine enforces them. For an app outside a container, it <a href="isolation.html#limits">depends on the server</a>.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Description</th></tr></thead><tbody><tr><td><code>memory</code></td><td>Memory: <code>&quot;512MiB&quot;</code>. An instance that goes over it is killed and restarted, and it says that it ran out of memory.</td></tr><tr><td><code>cpu</code></td><td>CPU, in cores: <code>0.5</code>, <code>2</code>.</td></tr><tr><td><code>pids</code></td><td>The most processes and threads.</td></tr></tbody></table></div>
+<h2 id="storage"><code>[storage]</code><a class="anchor" href="#storage" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>mount</code></td><td><code>&quot;/data&quot;</code></td><td>Where the environment's data directory appears inside a container.</td></tr></tbody></table></div>
+<h2 id="release"><code>[release]</code><a class="anchor" href="#release" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>command</code></td><td>—</td><td>Runs once per deployment, after the build and before the new release takes traffic, with the release's variables: database migrations go here. If it fails, the deployment fails and the previous release keeps serving. It does not run on a rollback or a change of variables.</td></tr><tr><td><code>on_create</code></td><td>—</td><td>Runs once, after an environment's first release (to seed data).</td></tr><tr><td><code>timeout</code></td><td><code>&quot;10m&quot;</code></td><td>Each command's time limit.</td></tr></tbody></table></div>
+<h2 id="deploy"><code>[deploy]</code><a class="anchor" href="#deploy" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>strategy</code></td><td><code>&quot;rolling&quot;</code></td><td><code>rolling</code> starts the new instances, waits until they are healthy, moves the traffic, then stops the old ones. <code>recreate</code> stops the old instances first, for apps that cannot run twice at once.</td></tr><tr><td><code>drain</code></td><td><code>&quot;30s&quot;</code></td><td>How long old instances may finish their requests after the traffic moves.</td></tr><tr><td><code>keep_releases</code></td><td><code>5</code></td><td>Builds kept for rollbacks.</td></tr></tbody></table></div>
+<h2 id="static"><code>[static]</code><a class="anchor" href="#static" aria-label="Link to this section">#</a></h2>
+<p>How a static site is served (<code>runtime = &quot;static&quot;</code>, or a Node.js build without a <code>start</code> script).</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>dir</code></td><td>the first of <code>dist</code>, <code>build</code>, <code>out</code>, <code>public</code>, <code>_site</code>, <code>site</code> and <code>.</code> with an <code>index.html</code></td><td>The directory served.</td></tr><tr><td><code>spa</code></td><td><code>false</code></td><td>Serves <code>index.html</code> for paths that are not files (client-side routing).</td></tr><tr><td><code>clean_urls</code></td><td><code>true</code></td><td><code>/about</code> serves <code>about.html</code>, and <code>/about.html</code> redirects to <code>/about</code>.</td></tr><tr><td><code>not_found</code></td><td><code>&quot;404.html&quot;</code>, when there is one</td><td>The page served, with status 404, for paths that are not files.</td></tr><tr><td><code>trailing_slash</code></td><td><code>&quot;auto&quot;</code></td><td><code>auto</code> (directories end in a slash, pages do not), <code>always</code> or <code>never</code>.</td></tr><tr><td><code>listing</code></td><td><code>false</code></td><td>Lists the files of directories without an <code>index.html</code>.</td></tr></tbody></table></div>
+<p><code>[[static.headers]]</code> adds headers to the paths that match <code>for</code>:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[[static.headers]]</span>
+<span class="t-k">for</span> = <span class="t-s">&quot;/assets/*&quot;</span>
+<span class="t-k">values</span> = { <span class="t-s">&quot;Cache-Control&quot;</span> = <span class="t-s">&quot;public, max-age=31536000, immutable&quot;</span> }</code></pre></div>
+<p><code>[[static.redirects]]</code> redirects (<code>status</code> 301, 302, 307 or 308) or rewrites (<code>status = 200</code>) paths, the first rule that matches winning. <code>*</code> matches the rest of a path (<code>:splat</code> in <code>to</code>) and <code>:name</code> matches one segment. A file that exists is served rather than redirected unless <code>force = true</code>.</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[[static.redirects]]</span>
+<span class="t-k">from</span> = <span class="t-s">&quot;/blog/:year/*&quot;</span>
+<span class="t-k">to</span> = <span class="t-s">&quot;/posts/:year/:splat&quot;</span>
+<span class="t-k">status</span> = 301</code></pre></div>
+<p>Pages get strong ETags and ranges; files whose names carry a content hash (<code>app.3f2a9c1b.js</code>) are cached as immutable, and HTML is revalidated; <code>.br</code> and <code>.gz</code> files next to a file are served to browsers that accept them. See <a href="static.html">Static sites</a>.</p>
+<h2 id="previews"><code>[previews]</code><a class="anchor" href="#previews" aria-label="Link to this section">#</a></h2>
+<p><a href="previews.html">Previews</a> are on unless this says otherwise.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th></th></tr></thead><tbody><tr><td><code>enabled</code></td><td><code>true</code></td><td>A preview for each branch pushed.</td></tr><tr><td><code>branches</code></td><td>every branch</td><td>Globs of the branches that get one; <code>!</code> leaves some out: <code>[&quot;*&quot;, &quot;!dependabot/*&quot;]</code>.</td></tr><tr><td><code>ttl</code></td><td><code>&quot;7d&quot;</code></td><td>Destroyed after this long without a deployment or a request.</td></tr><tr><td><code>sleep_after</code></td><td><code>&quot;30m&quot;</code></td><td><a href="previews.html#sleeping">Sleeps</a> after this long without a request; <code>&quot;off&quot;</code> never.</td></tr><tr><td><code>access</code></td><td>the server's</td><td><a href="access.html">Who can reach them</a>: <code>password</code>, <code>login</code> or <code>share</code>; <code>public</code> only if the server's default is.</td></tr></tbody></table></div>
+<h2 id="environmentsname"><code>[environments.NAME]</code><a class="anchor" href="#environmentsname" aria-label="Link to this section">#</a></h2>
+<p>What is different about <a href="previews.html#named-environments">an environment</a>, which deploying the manifest makes if it is not there. <code>NAME</code> is <code>production</code>, a name such as <code>staging</code>, or <code>preview</code>, which applies to every preview.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th></th></tr></thead><tbody><tr><td><code>branch</code></td><td>The branch whose pushes deploy to it.</td></tr><tr><td><code>env</code></td><td>Variables, over those of <code>[env]</code>.</td></tr><tr><td><code>processes.web.instances</code></td><td>How many instances of that process run.</td></tr><tr><td><code>sleep_after</code></td><td><a href="previews.html#sleeping">Sleeps</a> after this long without a request. By default a preview does after 30 minutes, and others never do; <code>&quot;off&quot;</code> says never.</td></tr><tr><td><code>access</code></td><td><a href="access.html">Who can reach it</a>: <code>password</code>, <code>login</code> or <code>share</code>; <code>public</code> only if the server's default is.</td></tr></tbody></table></div>
+<h2 id="cron"><code>[[cron]]</code><a class="anchor" href="#cron" aria-label="Link to this section">#</a></h2>
+<p><a href="cron.html">Cron jobs</a>: <code>name</code>, <code>schedule</code>, <code>command</code>, <code>timezone</code>, <code>timeout</code>, <code>overlap</code> and <code>environments</code>.</p>
+<h2 id="varsname"><code>[vars.NAME]</code><a class="anchor" href="#varsname" aria-label="Link to this section">#</a></h2>
+<p><a href="variables.html#what-an-app-expects">What the app expects</a>, with no values in the repository.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Default</th><th></th></tr></thead><tbody><tr><td><code>description</code></td><td></td><td>Shown in the console and by <code>moor env</code>.</td></tr><tr><td><code>required</code></td><td><code>false</code></td><td>A deployment fails, early, if nothing sets it.</td></tr><tr><td><code>secret</code></td><td><code>false</code></td><td>A deployment fails if it is set, and not as a secret.</td></tr><tr><td><code>generate</code></td><td></td><td><code>secret</code> or <code>uuid</code>: a value is made once for each environment, and kept as a secret.</td></tr></tbody></table></div>
+<h2 id="env"><code>[env]</code><a class="anchor" href="#env" aria-label="Link to this section">#</a></h2>
+<p>Variables for the app, at build and run time, such as <code>LOG_LEVEL = &quot;info&quot;</code>. Variables set on the server with <code>moor env set</code> override them.</p>
+<h2 id="what-moorage-sets">What Moorage sets<a class="anchor" href="#what-moorage-sets" aria-label="Link to this section">#</a></h2>
+<p>Every process gets these variables; they cannot be overridden.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Variable</th><th>Example</th><th>Description</th></tr></thead><tbody><tr><td><code>PORT</code></td><td><code>24817</code></td><td>Where the process listens (exposed processes). In a container: the container's port.</td></tr><tr><td><code>HOST</code></td><td><code>127.0.0.1</code></td><td>The address to listen on. In a container: <code>0.0.0.0</code>.</td></tr><tr><td><code>MOORAGE_APP</code>, <code>MOORAGE_ENV</code></td><td><code>tasks</code>, <code>production</code></td><td>The app and its environment.</td></tr><tr><td><code>MOORAGE_RELEASE</code></td><td><code>v8</code></td><td>The release.</td></tr><tr><td><code>MOORAGE_BUILD_ID</code></td><td><code>bld_…</code></td><td>The build.</td></tr><tr><td><code>MOORAGE_URL</code></td><td><code>https://tasks.apps.example.com</code></td><td>The app's public address.</td></tr><tr><td><code>MOORAGE_PROCESS</code>, <code>MOORAGE_INSTANCE</code>, <code>MOORAGE_INSTANCE_ID</code></td><td><code>web</code>, <code>1</code>, <code>ins_…</code></td><td>Which instance this is.</td></tr><tr><td><code>MOORAGE_DATA_DIR</code></td><td><code>…/data/tasks/production</code></td><td>A directory of the environment's that survives deploys, for the app's own files. In a container: where it is mounted.</td></tr><tr><td><code>MOORAGE_BIN</code></td><td><code>…/.moorage/bin</code></td><td>Where builds put binaries. Not in a container.</td></tr><tr><td><code>TMPDIR</code></td><td></td><td>A temporary directory of the instance's own, removed when it stops. Not in a container.</td></tr></tbody></table></div>
+<p>The app's directory is read-only once built: write to <code>$MOORAGE_DATA_DIR</code> or <code>$TMPDIR</code>.</p>
+<h2 id="detection">Detection<a class="anchor" href="#detection" aria-label="Link to this section">#</a></h2>
+<p>With <code>runtime = &quot;auto&quot;</code>, or without a manifest, the first match wins:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Order</th><th>Signal</th><th>Runtime</th></tr></thead><tbody><tr><td>1</td><td><code>go.mod</code></td><td><code>go</code></td></tr><tr><td>2</td><td><code>pyproject.toml</code>, <code>uv.lock</code> or <code>requirements.txt</code></td><td><code>python</code></td></tr><tr><td>3</td><td><code>package.json</code></td><td><code>node</code></td></tr><tr><td>4</td><td><code>Containerfile</code> or <code>Dockerfile</code></td><td><code>dockerfile</code></td></tr><tr><td>5</td><td><code>index.html</code> at the top or in a common output directory</td><td><code>static</code></td></tr></tbody></table></div>
+<p>The <code>web</code> process of a Python app is the project's single <code>[project.scripts]</code> entry, or else a FastAPI or Starlette app run with uvicorn, or a Django or Flask app run with gunicorn, found in <code>main.py</code>, <code>app.py</code>, <code>server.py</code>, <code>asgi.py</code>, <code>wsgi.py</code> or <code>api.py</code> (at the top or in a package at the top). When nothing matches, the deploy says what it looked at and which lines to add.</p>
+<h2 id="accepted-not-acted-on-yet">Accepted, not acted on yet<a class="anchor" href="#accepted-not-acted-on-yet" aria-label="Link to this section">#</a></h2>
+<p>These parts of the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/03-manifest.md">design</a> are read and checked, and <code>moor manifest validate</code> warns that they have no effect yet:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Setting</th><th>Arrives</th></tr></thead><tbody><tr><td><code>app.root</code></td><td>a later release</td></tr><tr><td><code>[storage]</code> outside a container</td><td>a later release; <code>$MOORAGE_DATA_DIR</code> is always there</td></tr><tr><td><code>[[routes]]</code>, <code>[services]</code></td><td>later releases</td></tr><tr><td><code>previews.data</code></td><td>a later release</td></tr><tr><td><code>runtime = &quot;bun&quot;</code> or <code>&quot;deno&quot;</code>, <code>[bun]</code>, <code>[deno]</code></td><td>a later release</td></tr><tr><td><code>[static]</code> beside <code>[processes]</code></td><td>with <code>[[routes]]</code>; until then the processes serve the app</td></tr></tbody></table></div>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/manifest.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="troubleshooting.html"><span>Previous</span>When something is wrong</a><a class="doc-pager-next" rel="next" href="cli.html"><span>Next</span>Command line</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#rules">Rules</a></li>
+        <li class="toc-2"><a href="#an-example">An example</a></li>
+        <li class="toc-2"><a href="#app"><code>[app]</code></a></li>
+        <li class="toc-2"><a href="#go"><code>[go]</code></a></li>
+        <li class="toc-2"><a href="#python"><code>[python]</code></a></li>
+        <li class="toc-2"><a href="#node"><code>[node]</code></a></li>
+        <li class="toc-2"><a href="#build"><code>[build]</code></a></li>
+        <li class="toc-2"><a href="#processes"><code>[processes]</code></a></li>
+        <li class="toc-2"><a href="#container"><code>[container]</code></a></li>
+        <li class="toc-2"><a href="#resources"><code>[resources]</code></a></li>
+        <li class="toc-2"><a href="#storage"><code>[storage]</code></a></li>
+        <li class="toc-2"><a href="#release"><code>[release]</code></a></li>
+        <li class="toc-2"><a href="#deploy"><code>[deploy]</code></a></li>
+        <li class="toc-2"><a href="#static"><code>[static]</code></a></li>
+        <li class="toc-2"><a href="#previews"><code>[previews]</code></a></li>
+        <li class="toc-2"><a href="#environmentsname"><code>[environments.NAME]</code></a></li>
+        <li class="toc-2"><a href="#cron"><code>[[cron]]</code></a></li>
+        <li class="toc-2"><a href="#varsname"><code>[vars.NAME]</code></a></li>
+        <li class="toc-2"><a href="#env"><code>[env]</code></a></li>
+        <li class="toc-2"><a href="#what-moorage-sets">What Moorage sets</a></li>
+        <li class="toc-2"><a href="#detection">Detection</a></li>
+        <li class="toc-2"><a href="#accepted-not-acted-on-yet">Accepted, not acted on yet</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>
