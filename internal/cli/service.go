@@ -372,9 +372,13 @@ func newServerStatusCmd() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			if !st.Installed {
+			switch {
+			case !st.Installed:
 				fmt.Fprintf(out, "Service:  not installed (moor server install)\n")
-			} else {
+			case !runsServer(t.manager, t.path):
+				// The service on this machine may be for another server: what it is doing says nothing about this one.
+				fmt.Fprintf(out, "Service:  none for this configuration (the one here runs another: %s)\n", t.manager.File())
+			default:
 				state := st.Detail
 				if st.PID > 0 {
 					state += fmt.Sprintf(", pid %d", st.PID)

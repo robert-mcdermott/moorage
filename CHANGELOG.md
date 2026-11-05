@@ -9,8 +9,13 @@
 - **New guides:** [Getting started](docs/getting-started.md), [Concepts](docs/concepts.md), [Releases, rollbacks and scaling](docs/releases.md), [Logs](docs/logs.md), [Server configuration](docs/configuration.md), [Running a server](docs/administration.md), [Architecture](docs/architecture.md) and [Security](docs/security.md).
 - **[A reference of every command](docs/cli.md),** made from the commands themselves, and an [API reference](https://robert-mcdermott.github.io/moorage/docs/api-reference.html) on the website, made from the OpenAPI document. A test keeps the first the same as the commands.
 
+### Changed
+
+- **`moor forge connect` checks a token with the forge,** and refuses one that it does not accept, or that cannot see the repository, and says so, leaving what was there as it was. Before, a bad token was taken, and found out from the first pull request. A forge that cannot answer at that moment is no reason to refuse.
+
 ### Fixed
 
+- `moor server status` no longer reports a service on this machine that runs another server as if it were this one's.
 - The console's tables no longer break a name, an address or an email in the middle of a word when a window is narrow: the list of apps at a laptop's width, say.
 
 ## 0.7.0 (2026-11-04)

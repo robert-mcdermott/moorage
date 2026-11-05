@@ -244,6 +244,16 @@ func (s *Service) Connect(ctx context.Context, appID, app string, c Connection, 
 	if c.Token != "" && (!notify.SafeForSecrets(repository) || (where.APIURL != "" && !notify.SafeForSecrets(where.APIURL))) {
 		return store.ForgeConnection{}, "", &InvalidError{"A token is not sent in the clear to a forge across the internet: use its https address, for its API too."}
 	}
+	if c.Token != "" {
+		check := where
+		check.Token, check.Client = c.Token, s.Client
+		ask, cancel := context.WithTimeout(ctx, 15*time.Second)
+		err := check.CheckToken(ask)
+		cancel()
+		if err != nil {
+			return store.ForgeConnection{}, "", err
+		}
+	}
 	old, err := s.DB.ForgeOf(ctx, app)
 	there := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
