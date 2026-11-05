@@ -700,7 +700,7 @@ func (c *Console) engineStatus(ctx context.Context) container.Status {
 	if c.deployer == nil {
 		return container.Status{State: container.Absent}
 	}
-	return c.deployer.EngineStatus(ctx)
+	return c.deployer.EngineKnown()
 }
 
 // deployPage says how to deploy an app, which need not exist yet: the first deployment

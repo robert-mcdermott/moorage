@@ -106,7 +106,7 @@ func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt, Project: a.Project}
-			if a.Production != nil {
+			if a.Production != nil && who(r).Envs == "" {
 				rel := release(*a.Production)
 				app.Production = &rel
 			}
@@ -129,10 +129,9 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Send the deploy as multipart/form-data with a plan part and an archive part.")
 		return
 	}
-	if who(r).Envs == auth.EnvsPreviews {
-		if s.environmentFailed(w, s.deployer.EnsurePreviewAlone(r.Context(), app, env)) {
-			return
-		}
+	// As late as can be, so that what is refused leaves nothing behind.
+	madePreview := func() bool {
+		return who(r).Envs != auth.EnvsPreviews || !s.environmentFailed(w, s.deployer.EnsurePreviewAlone(r.Context(), app, env))
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, deploy.MaxUpload)
 	mr, err := r.MultipartReader()
@@ -166,8 +165,14 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 					problem(w, http.StatusConflict, "no_container_engine", sentenceOf(errors.New(st.Problem())))
 					return
 				}
+				if !madePreview() {
+					return
+				}
 				dep, created, err = s.deployer.SubmitImage(r.Context(), app, env, who(r).Name, image, part)
 			} else {
+				if !madePreview() {
+					return
+				}
 				dep, created, err = s.deployer.Submit(r.Context(), app, env, who(r).Name, part)
 			}
 			var invalid *deploy.InvalidUploadError
@@ -213,6 +218,9 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		case apitypes.ArchivePart:
 			if plan == nil {
 				problem(w, http.StatusBadRequest, "missing_plan", "Send the plan part before the archive.")
+				return
+			}
+			if !madePreview() {
 				return
 			}
 			build, created, err := deploy.Upload(r.Context(), s.db, s.dataDir, app, *plan, part)

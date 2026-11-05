@@ -1091,6 +1091,9 @@
           "release": {
             "$ref": "#/components/schemas/Release"
           },
+          "stands_alone": {
+            "type": "boolean"
+          },
           "url": {
             "type": "string"
           }

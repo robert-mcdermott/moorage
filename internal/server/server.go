@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -245,8 +246,8 @@ func allowGit(ctx context.Context, authn *auth.Service, p auth.Principal, app st
 	if !access.See {
 		return gitserver.ErrNoRepository
 	}
-	// A push can go to any branch, and to production. Such a token deploys by uploading.
-	if push && (!access.Deploy || p.Envs != "") {
+	// A repository holds every branch of an app, and a push can go to any of them. A token limited to previews deploys by uploading.
+	if p.Envs != "" || push && !access.Deploy {
 		return gitserver.ErrForbidden
 	}
 	return nil
@@ -774,9 +775,14 @@ func listenError(addr string, err error) error {
 // containerSource is where this server gets its container engine from, when something wants one. Without one, apps that need
 // containers cannot be deployed, and everything else goes on.
 func containerSource(ctx context.Context, cfg config.Config, db *store.DB, keyring *secrets.Keyring, kept time.Duration, log *slog.Logger) *container.Source {
+	// What it last ran under counts only while something is still running under it. Otherwise it is free to take whichever answers.
 	var prefer string
-	if _, err := db.Setting(ctx, settingContainerEngine, &prefer); err != nil {
-		log.Warn("read which container engine this server used", "err", err)
+	if lives, err := db.LiveInstances(ctx); err != nil {
+		log.Warn("read which instances are running", "err", err)
+	} else if slices.ContainsFunc(lives, func(li store.LiveInstance) bool { return li.Driver == reconcile.DriverContainer }) {
+		if _, err := db.Setting(ctx, settingContainerEngine, &prefer); err != nil {
+			log.Warn("read which container engine this server used", "err", err)
+		}
 	}
 	return container.NewSource(container.SourceOptions{
 		Setting: cfg.Containers.Engine, Prefer: prefer, Kept: kept, Log: log,

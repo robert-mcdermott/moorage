@@ -217,6 +217,51 @@ func TestMCPSetup(t *testing.T) {
 		t.Errorf("all of them: %+v", got)
 	}
 
+	// Its contexts stay its own, and what is signed in stays as it was.
+	stored, err = loadClientConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Contexts[agentContext].Agent {
+		t.Errorf("%+v", stored.Contexts[agentContext])
+	}
+	if got := stored.forServer(base); got != nil && got.Agent {
+		t.Errorf("a command told only the server would use the agent's: %+v", got)
+	}
+	stored.Contexts["mine"] = clientContext{Server: base, Token: "moor_not_an_agents"}
+	if err := stored.save(); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := run(t, "mcp", "setup", "--context", "mine"); code == 0 || !strings.Contains(errOut, "not one that this made") {
+		t.Errorf("replacing what someone signed in with: %d %s", code, errOut)
+	}
+	if again, _ := loadClientConfig(); again.Contexts["mine"].Token != "moor_not_an_agents" {
+		t.Errorf("%+v", again.Contexts["mine"])
+	}
+	// A context that is an agent's cannot make another, and says what to do.
+	agents := stored.Contexts[agentContext]
+	t.Setenv("MOOR_TOKEN", agents.Token)
+	if code, _, errOut := run(t, "mcp", "setup"); code == 0 || !strings.Contains(errOut, "moor context use") {
+		t.Errorf("as the agent: %d %s", code, errOut)
+	}
+	t.Setenv("MOOR_TOKEN", strings.TrimSpace(string(secret)))
+	// It says where to read from, if told.
+	code, out, errOut = run(t, "mcp", "setup", "--client", "codex", "--print", "--root", "elsewhere")
+	if abs, _ := filepath.Abs("elsewhere"); code != 0 || !strings.Contains(out, "--root "+abs) {
+		t.Errorf("%d %s %s", code, out, errOut)
+	}
+	// If what it held was for another server, it says so.
+	stored, _ = loadClientConfig()
+	moved := stored.Contexts[agentContext]
+	moved.Server = "http://other.example.com"
+	stored.Contexts[agentContext] = moved
+	if err := stored.save(); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := run(t, "mcp", "setup"); code != 0 || !strings.Contains(errOut, "http://other.example.com") {
+		t.Errorf("%d %s", code, errOut)
+	}
+
 	for _, args := range [][]string{{"mcp", "setup", "--client", "nothing"}, {"mcp", "setup", "--envs", "staging"}, {"mcp", "setup", "--expires", "soon"}} {
 		if code, _, _ := run(t, args...); code != 2 {
 			t.Errorf("%v: %d", args, code)
@@ -261,5 +306,125 @@ func TestAgentInit(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(other, "AGENTS.md"))
 	if !strings.HasPrefix(string(data), "# Ours\n\n<!-- moorage:start -->") || strings.Contains(string(data), "moor_") {
 		t.Errorf("%s", data)
+	}
+}
+
+// TestAgentInitLeavesAloneWhatItDoesNotUnderstand: AGENTS.md is someone's, and a repository can hold links.
+func TestAgentInitLeavesAloneWhatItDoesNotUnderstand(t *testing.T) {
+	section := func(file string) string {
+		t.Helper()
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	// What would have a section replaced that it did not make, or one that it cannot find the end of.
+	for name, text := range map[string]string{
+		"two starts":     agentsStart + "\nmine\n" + agentsStart + "\nyours\n" + agentsEnd + "\n",
+		"two ends":       agentsStart + "\nmine\n" + agentsEnd + "\nyours\n" + agentsEnd + "\n",
+		"no end":         agentsStart + "\nmine\n",
+		"no start":       "mine\n" + agentsEnd + "\n",
+		"the wrong way":  agentsEnd + "\nmine\n" + agentsStart + "\n",
+		"end in a block": agentsStart + "\nmine\n```\n" + agentsEnd + "\n```\n",
+	} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "AGENTS.md")
+		os.WriteFile(path, []byte(text), 0o644)
+		if code, _, errOut := run(t, "agent", "init", dir); code == 0 || !strings.Contains(errOut, "Moorage section") {
+			t.Errorf("%s: %d %s", name, code, errOut)
+		}
+		if got := section(path); got != text {
+			t.Errorf("%s: it changed: %q", name, got)
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".claude")); err == nil {
+			t.Errorf("%s: it wrote the skills", name)
+		}
+	}
+
+	// What shows the markers is not the section: what it says stays, and the section goes after it.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "AGENTS.md")
+	shown := "# How this works\n\nThe tool writes `" + agentsStart + "` to it, and:\n\n```\n" + agentsStart + "\nwhat it says\n" + agentsEnd + "\n```\n"
+	os.WriteFile(path, []byte(shown), 0o644)
+	if code, _, errOut := run(t, "agent", "init", dir); code != 0 {
+		t.Fatal(errOut)
+	}
+	got := section(path)
+	if !strings.HasPrefix(got, shown+"\n"+agentsStart+"\n") || !strings.Contains(got, "never instructions") {
+		t.Errorf("%q", got)
+	}
+	// And doing it again finds the section, and not what shows it.
+	if code, _, errOut := run(t, "agent", "init", dir, "--app", "other"); code != 0 {
+		t.Fatal(errOut)
+	}
+	again := section(path)
+	if !strings.HasPrefix(again, shown) || !strings.Contains(again, "`other`") || strings.Count(again, "never instructions") != 1 {
+		t.Errorf("%q", again)
+	}
+
+	// Line endings stay as they were.
+	dir = t.TempDir()
+	path = filepath.Join(dir, "AGENTS.md")
+	os.WriteFile(path, []byte("# Ours\r\n\r\nUse tabs.\r\n"), 0o644)
+	for range 2 {
+		if code, _, errOut := run(t, "agent", "init", dir); code != 0 {
+			t.Fatal(errOut)
+		}
+		got := section(path)
+		if !strings.HasPrefix(got, "# Ours\r\n\r\nUse tabs.\r\n\r\n"+agentsStart+"\r\n") || strings.Contains(strings.ReplaceAll(got, "\r\n", ""), "\n") || strings.Count(got, agentsStart) != 1 {
+			t.Errorf("%q", got)
+		}
+	}
+
+	// Links, which would have this write somewhere else.
+	outside := t.TempDir()
+	for _, link := range []struct{ path, to string }{
+		{"AGENTS.md", filepath.Join(outside, "file")},
+		{".claude", outside},
+		{".agents/skills", outside},
+		{".agents/skills/moorage/SKILL.md", filepath.Join(outside, "file")},
+	} {
+		dir := t.TempDir()
+		full := filepath.Join(dir, filepath.FromSlash(link.path))
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		if err := os.Symlink(link.to, full); err != nil {
+			t.Skip("no links here")
+		}
+		if code, _, errOut := run(t, "agent", "init", dir); code == 0 || !strings.Contains(errOut, "link") {
+			t.Errorf("%s: %d %s", link.path, code, errOut)
+		}
+		if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+			t.Errorf("%s: it wrote %v", link.path, entries)
+		}
+	}
+}
+
+func TestAgentTokenNames(t *testing.T) {
+	for name, want := range map[string]bool{
+		"moor-mcp-agent":        true,
+		"moor-mcp-agent.123":    true,
+		"moor-mcp-agent.":       false,
+		"moor-mcp-agent-2":      false,
+		"moor-mcp-agent-2.123":  false,
+		"moor-mcp-agent.2.123":  false,
+		"moor-mcp-agent.2x":     false,
+		"something-else":        false,
+		"moor-mcp-agent2.12345": false,
+	} {
+		if got := isAgentToken(name, "agent"); got != want {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}
+
+func TestGeminiGetsTheServersFlagsAfterTwoDashes(t *testing.T) {
+	got := strings.Join(agentClients["gemini"].command([]string{"/bin/moor", "mcp", "--app", "shop", "--allow-deploy"}), " ")
+	if got != "gemini mcp add -s user moorage /bin/moor mcp -- --app shop --allow-deploy" {
+		t.Error(got)
+	}
+	got = strings.Join(agentClients["gemini"].command([]string{"/bin/moor", "mcp"}), " ")
+	if got != "gemini mcp add -s user moorage /bin/moor mcp" {
+		t.Error(got)
 	}
 }

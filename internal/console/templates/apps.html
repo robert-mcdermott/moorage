@@ -87,7 +87,7 @@
 {{$csrf := .CSRF}}
 {{range .EnvRows}}
 <section class="panel panel-pad env-banner">
-  <p>{{if eq .Kind "preview"}}A preview of the branch <code>{{.Branch}}</code>, with production's variables and its own data. {{if .Pinned}}It is pinned, and stays until it is destroyed.{{else}}It goes {{untilText .Expires}} if nothing uses it until then.{{end}}{{else}}An environment with its own variables and data{{with .Branch}}: pushes to <code>{{.}}</code> deploy here{{end}}.{{end}}</p>
+  <p>{{if .StandsAlone}}A preview made by a coding agent's token, with its own data and nothing of production's. {{else if eq .Kind "preview"}}A preview of the branch <code>{{.Branch}}</code>, with production's variables and its own data. {{if .Pinned}}It is pinned, and stays until it is destroyed.{{else}}It goes {{untilText .Expires}} if nothing uses it until then.{{end}}{{else}}An environment with its own variables and data{{with .Branch}}: pushes to <code>{{.}}</code> deploy here{{end}}.{{end}}</p>
   <div class="env-actions">{{template "env-actions" (dict "Row" . "CSRF" $csrf "From" "app")}}</div>
 </section>
 {{end}}

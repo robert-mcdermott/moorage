@@ -344,6 +344,9 @@ func Summary(e store.Event) string {
 	case EngineDown:
 		return "Apps here run in containers, and " + text(e, "problem")
 	case EngineOK:
+		if e.Data["not_needed"] == true {
+			return "Nothing here needs the container engine any more"
+		}
 		return "The container engine is answering again"
 	case CertificateFailed:
 		return "The server could not get a certificate for " + text(e, "name") + ": " + text(e, "error")

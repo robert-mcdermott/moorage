@@ -1052,7 +1052,7 @@ moor manifest validate [DIR]
 
 Serve coding agents over the Model Context Protocol, on standard input and output. A client runs this for itself: moor mcp setup says how, and makes the token it needs.
 
-It reads apps, deployments, releases and logs. With --allow-deploy, it can also deploy, roll back and restart. Nothing here runs commands, reads files or secrets, or deletes anything.
+It reads apps, deployments, releases and logs. With --allow-deploy, it can also deploy, roll back and restart. Nothing here runs commands, reads secrets or deletes anything. check\_manifest and deploy read files below the directory it started in, or --root, and only if that is not your home directory or above it.
 
 Its token is what limits it, so it refuses one that can do everything, and does not fall back on what moor login stored. It takes the context named agent, or another by --context, or $MOOR\_SERVER and $MOOR\_TOKEN. Logs are written by the app and whoever can reach it, and an agent should not be trusted further for having read them.
 
@@ -1070,12 +1070,13 @@ moor mcp --allow-deploy --app shop
 | `--allow-deploy` |  | offer deploying, rolling back and restarting; the token has to allow them too |
 | `--app string` |  | the app to use when a tool is not told |
 | `--context string` | `agent` | the context to use, from moor mcp setup |
+| `--root string` |  | the directory that local files are read from, and only below it; where this started if left out |
 
 ### `moor mcp setup`
 
 Make a narrow, expiring token for a coding agent, keep it in a context of its own, and tell its client how to run moor mcp. The token stays in moor's own file, which only you can read, and goes in no client's configuration or repository.
 
-By default the token can only read. With --deploy it can also deploy, roll back and restart, in previews that take nothing of production's: --envs all lets it reach every environment, production included.
+By default the token can only read. With --deploy it can also deploy, roll back and restart, in previews that take nothing of production's, whose names start with agent-, and it can reach nothing else: --envs all lets it reach every environment, production included.
 
 Running this again replaces the token. With --client, it runs that client's own command where it has one, or says what to put where. Without, it lists them all.
 
@@ -1101,6 +1102,7 @@ moor mcp setup --client codex --app shop-dev --deploy
 | `--envs string` |  | previews or all; with --deploy, previews unless told otherwise |
 | `--expires string` | `90d` | how long the token lasts |
 | `--print` |  | say what to do, and run nothing of the client's |
+| `--root string` |  | the directory that moor mcp reads local files from; where the client starts it if left out |
 
 ## `moor metrics`
 
@@ -2197,7 +2199,7 @@ Create an API token. Its scope is what it may do, up to what you may do:
 
 --app restricts it to one app, and --expires makes it stop working after a time, such as 90d.
 
---envs previews limits a read or deploy token to previews. It can deploy only to previews that it makes itself, by deploying to a name that is not taken, and those take nothing of production's. It cannot push.
+--envs previews limits a read or deploy token to previews that take nothing of production's. It makes one by deploying to a name that starts with agent-, and can reach nothing else: not production, other previews or the repository.
 
 ```text
 moor tokens create NAME

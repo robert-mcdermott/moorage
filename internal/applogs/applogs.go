@@ -307,9 +307,15 @@ func (r Reader) files(app, env string, q Query) []logFile {
 		out = append(out, instanceFiles(reconcile.LogDir(r.DataDir, app, env), q)...)
 	}
 	if q.has(Build) {
-		matches, _ := filepath.Glob(deploy.LogPath(r.DataDir, app, "*"))
-		for _, path := range matches {
-			out = append(out, logFile{path: path, source: Build, process: "build"})
+		// These are kept together for an app, and belong to the environment they were for.
+		mine, err := r.DB.LogIDs(context.Background(), app, env)
+		if err == nil {
+			matches, _ := filepath.Glob(deploy.LogPath(r.DataDir, app, "*"))
+			for _, path := range matches {
+				if mine[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] {
+					out = append(out, logFile{path: path, source: Build, process: "build"})
+				}
+			}
 		}
 	}
 	if q.has(Access) {

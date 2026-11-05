@@ -61,6 +61,8 @@ type Options struct {
 	Timeouts bool
 	// WantsEngine, if set, says whether anything here runs in a container, which decides how much an engine that is missing matters.
 	WantsEngine func(context.Context) bool
+	// Engine, if set, is how the server itself sees its engine, which it may be keeping to because of what runs under it.
+	Engine func(context.Context) container.Status
 	// InstancePorts lists the instances' ports on this machine, for a running server.
 	InstancePorts func(context.Context) ([]int, error)
 
@@ -504,7 +506,12 @@ func checkCertFiles(o Options) []Check {
 
 func checkContainers(ctx context.Context, o Options) Check {
 	name := "containers"
-	st := container.Probe(ctx, o.Config.Containers.Engine)
+	var st container.Status
+	if o.Engine != nil {
+		st = o.Engine(ctx)
+	} else {
+		st = container.Probe(ctx, o.Config.Containers.Engine)
+	}
 	wanted := o.WantsEngine != nil && o.WantsEngine(ctx)
 	named := o.Config.Containers.Engine != "" && o.Config.Containers.Engine != "auto"
 	switch st.State {
@@ -519,7 +526,12 @@ func checkContainers(ctx context.Context, o Options) Check {
 		case wanted || o.WantsEngine == nil:
 			status = Warn
 		}
-		return Check{Name: name, Status: status, Detail: fmt.Sprintf("%s is not answering, so apps in containers cannot run: %s", st.Kind, st.Reason), Fix: st.Advice()}
+		// Not everything that asks knows what runs here.
+		effect := "which matters only to apps in containers"
+		if wanted || named {
+			effect = "so apps in containers cannot run"
+		}
+		return Check{Name: name, Status: status, Detail: fmt.Sprintf("%s is not answering, %s: %s", st.Kind, effect, st.Reason), Fix: st.Advice()}
 	}
 	switch {
 	case named:

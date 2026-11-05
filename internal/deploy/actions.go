@@ -55,6 +55,14 @@ func fillKeeping(upload io.Reader) func(dir string) (int, error) {
 	}
 }
 
+// EngineKnown says how the engine stood when last asked, without waiting for it, for what only shows how things stand.
+func (d *Deployer) EngineKnown() container.Status {
+	if d.opts.Builder == nil {
+		return container.Status{State: container.Absent}
+	}
+	return d.opts.Builder.Engines.Known()
+}
+
 // EngineStatus says whether this server can run containers, and why not.
 func (d *Deployer) EngineStatus(ctx context.Context) container.Status {
 	if d == nil || d.opts.Builder == nil {

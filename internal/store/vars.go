@@ -74,8 +74,13 @@ func (db *DB) Vars(ctx context.Context, app, env string) ([]Var, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A preview that stands alone takes nothing but what was set on it.
+	var alone int
+	if err := db.Reader.QueryRowContext(ctx, `SELECT kind = 'preview' AND inherits = 0 FROM environments WHERE id = ?`, envID).Scan(&alone); err != nil {
+		return nil, err
+	}
 	rows, err := db.Reader.QueryContext(ctx, `SELECT name, value, value_enc, secret, build, production_only, env_id IS NULL, updated_by, updated_at
-		FROM vars WHERE app_id = ? AND (env_id = ? OR env_id IS NULL) ORDER BY name, env_id IS NULL`, appID, envID)
+		FROM vars WHERE app_id = ? AND (env_id = ? OR (env_id IS NULL AND ? = 0)) ORDER BY name, env_id IS NULL`, appID, envID, alone)
 	if err != nil {
 		return nil, err
 	}
@@ -169,8 +174,13 @@ func config(ctx context.Context, q querier, appID, envID string) ([]ConfigVar, e
 	if kind == KindPreview && inherits != 0 {
 		inherited = production.String
 	}
+	// A preview that stands alone takes nothing but what was set on it.
+	alone := 0
+	if kind == KindPreview && inherits == 0 {
+		alone = 1
+	}
 	rows, err := q.QueryContext(ctx, `SELECT name, value, value_enc, secret, build, coalesce(env_id, ''), production_only
-		FROM vars WHERE app_id = ? AND (env_id = ? OR env_id IS NULL OR (env_id = ? AND production_only = 0))`, appID, envID, inherited)
+		FROM vars WHERE app_id = ? AND (env_id = ? OR (env_id IS NULL AND ? = 0) OR (env_id = ? AND production_only = 0))`, appID, envID, alone, inherited)
 	if err != nil {
 		return nil, err
 	}

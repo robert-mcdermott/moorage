@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,6 +25,8 @@ const (
 	NotAnswering State = "not answering"
 	// Ready is one that answered.
 	Ready State = "ready"
+	// Unknown is an engine that has not finished answering for the first time.
+	Unknown State = "unknown"
 )
 
 const (
@@ -30,6 +34,8 @@ const (
 	probeLimit = 3 * time.Second
 	// statusKept is how long an answer stands, so that asking often costs nothing.
 	statusKept = 30 * time.Second
+	// firstAnswerWait is how long what only wants to know waits for the first answer there is, which an engine that answers gives in far less.
+	firstAnswerWait = time.Second
 )
 
 // ErrNotAnswering says that there is an engine, and nothing behind it.
@@ -87,6 +93,10 @@ func (s Status) Problem() string {
 // ask finds out how the engine at a path stands. The version comes from the program, and it takes the daemon or machine behind it to list what is running.
 func ask(ctx context.Context, bin string) Status {
 	st := Status{State: NotAnswering, Bin: bin, Kind: "docker"}
+	// Until it says, its name is all there is to go by.
+	if strings.Contains(strings.ToLower(filepath.Base(bin)), "podman") {
+		st.Kind = "podman"
+	}
 	run := func(args ...string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(ctx, probeLimit)
 		defer cancel()
@@ -100,6 +110,7 @@ func ask(ctx context.Context, bin string) Status {
 		return st
 	}
 	st.Version = strings.TrimSpace(string(out))
+	st.Kind = "docker"
 	if strings.Contains(strings.ToLower(st.Version), "podman") {
 		st.Kind = "podman"
 	}
@@ -164,7 +175,7 @@ type SourceOptions struct {
 	Prepare func(*Engine)
 	// NewDriver makes the driver for an engine.
 	NewDriver func(*Engine) *Driver
-	// Pin records an engine once it has answered, as what it comes to run stays with it.
+	// Pin records an engine once a container has started under it, as that stays with it.
 	Pin func(bin string)
 	// Kept is how long an answer stands, for tests.
 	Kept time.Duration
@@ -174,7 +185,13 @@ type SourceOptions struct {
 // Source is this server's engine, found when something wants it, so that starting one an hour later or installing one needs no restart. Nothing here polls: if
 // nothing wants an engine, nothing asks. A nil Source is a server with none.
 type Source struct {
-	o       SourceOptions
+	o SourceOptions
+	// probing is one probe at a time. It is not held with mu, so that what only wants what was last found never waits for an engine that hangs.
+	probing    chan struct{}
+	refreshing atomic.Bool
+	answered   chan struct{}
+	answer     sync.Once
+
 	mu      sync.Mutex
 	status  Status
 	checked time.Time
@@ -188,25 +205,38 @@ func NewSource(o SourceOptions) *Source {
 	if o.Kept == 0 {
 		o.Kept = statusKept
 	}
-	return &Source{o: o, pinned: o.Prefer != "" && (o.Setting == "" || o.Setting == "auto")}
+	return &Source{o: o, probing: make(chan struct{}, 1), answered: make(chan struct{}), pinned: o.Prefer != "" && (o.Setting == "" || o.Setting == "auto")}
 }
 
-// Status says how the engine stands, as of the last half a minute.
+// Status says how the engine stands, as of the last half a minute, and asks it if that has gone by.
 func (s *Source) Status(ctx context.Context) Status {
 	if s == nil {
 		return Status{State: Absent}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.checked.IsZero() && time.Since(s.checked) < s.o.Kept {
-		return s.status
+	if st, fresh := s.last(); fresh {
+		return st
+	}
+	select {
+	case s.probing <- struct{}{}:
+		defer func() { <-s.probing }()
+	case <-ctx.Done():
+		return s.orUnknown()
+	}
+	// It may have been asked while this waited.
+	if st, fresh := s.last(); fresh {
+		return st
 	}
 	st := probe(ctx, s.o.Setting, s.preferred())
-	// One that was asked and could not say because the server is going away says nothing of the engine.
-	if ctx.Err() != nil && !st.Ready() && !s.checked.IsZero() {
-		return s.status
+	// One that was asked and could not say because whoever asked has gone says nothing of the engine, and nothing should go by it.
+	if ctx.Err() != nil && !st.Ready() {
+		if last := s.orUnknown(); last.State != Unknown {
+			return last
+		}
+		return st
 	}
-	if st.Bin != "" && (s.engine == nil || s.engine.Bin != st.Bin || s.engine.Kind != st.Kind) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st.Bin != "" && (s.engine == nil || s.engine.Bin != st.Bin) {
 		e := &Engine{Bin: st.Bin, Kind: st.Kind}
 		if s.o.Prepare != nil {
 			s.o.Prepare(e)
@@ -217,21 +247,78 @@ func (s *Source) Status(ctx context.Context) Status {
 			s.driver = s.o.NewDriver(e)
 		}
 	}
-	if st.Ready() && !s.pinned {
-		s.pinned = true
-		if s.o.Pin != nil {
-			s.o.Pin(st.Bin)
-		}
-	}
 	if st.State != s.status.State || st.Bin != s.status.Bin {
 		s.report(st)
 	}
 	s.status, s.checked = st, time.Now()
+	s.answer.Do(func() { close(s.answered) })
 	return st
+}
+
+// Known says how the engine stood when last asked, without waiting for it, and has it asked again behind the scenes if that was a while ago. This is
+// for what only wants to show how things stand.
+func (s *Source) Known() Status {
+	if s == nil {
+		return Status{State: Absent}
+	}
+	st, fresh := s.last()
+	if fresh {
+		return st
+	}
+	if s.refreshing.CompareAndSwap(false, true) {
+		go func() {
+			defer s.refreshing.Store(false)
+			ctx, cancel := context.WithTimeout(context.Background(), 4*probeLimit)
+			defer cancel()
+			s.Status(ctx)
+		}()
+	}
+	if st.State == "" {
+		select {
+		case <-s.answered:
+		case <-time.After(firstAnswerWait):
+		}
+	}
+	return s.orUnknown()
+}
+
+// last is what was last found, and whether it still stands.
+func (s *Source) last() (Status, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status, !s.checked.IsZero() && time.Since(s.checked) < s.o.Kept
+}
+
+func (s *Source) orUnknown() Status {
+	st, _ := s.last()
+	if st.State == "" {
+		st.State = Unknown
+	}
+	return st
+}
+
+// Used says that a container has started under the engine as last found, which stays with it from now on. An engine that only answered is not chosen by that,
+// so that one found by chance is not what a server keeps to once it has another.
+func (s *Source) Used() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	pin := !s.pinned && s.engine != nil
+	bin := ""
+	if pin {
+		s.pinned, bin = true, s.engine.Bin
+	}
+	s.mu.Unlock()
+	if pin && s.o.Pin != nil {
+		s.o.Pin(bin)
+	}
 }
 
 // preferred is what to ask first: what it was told to prefer, or once it has run something here, what it ran it with.
 func (s *Source) preferred() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.pinned && s.engine != nil {
 		return s.engine.Bin
 	}
@@ -247,7 +334,8 @@ func (s *Source) report(st Status) {
 	case Ready:
 		log.Info("apps can run in containers", "engine", st.Kind, "path", st.Bin)
 	case NotAnswering:
-		log.Warn("the container engine is not answering", "engine", st.Kind, "path", st.Bin, "said", st.Reason)
+		// Only what needs one should sound worried, and what does says so itself: an engine nothing here needs is nothing to warn of.
+		log.Info("the container engine is not answering: apps can run natively, not in containers", "engine", st.Kind, "path", st.Bin, "said", st.Reason)
 	default:
 		log.Info("no container engine: apps can run natively, not in containers")
 	}

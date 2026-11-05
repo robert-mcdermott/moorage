@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -143,6 +144,9 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run, err := s.db.Run(r.Context(), r.PathValue("app"), r.PathValue("id"))
+	if err == nil && s.outOfBounds(r, run.App, run.Env) {
+		err = fmt.Errorf("no run %q: %w", r.PathValue("id"), store.ErrNotFound)
+	}
 	if s.runFailed(w, err) {
 		return
 	}
@@ -151,6 +155,10 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) stopRun(w http.ResponseWriter, r *http.Request) {
 	app := r.PathValue("app")
+	if run, err := s.db.Run(r.Context(), app, r.PathValue("id")); err == nil && s.outOfBounds(r, run.App, run.Env) {
+		s.runFailed(w, fmt.Errorf("no run %q: %w", r.PathValue("id"), store.ErrNotFound))
+		return
+	}
 	if s.runFailed(w, s.deployer.StopRun(r.Context(), app, r.PathValue("id"))) {
 		return
 	}
@@ -160,7 +168,11 @@ func (s *Server) stopRun(w http.ResponseWriter, r *http.Request) {
 // runLog streams what a run says as NDJSON lines, until it ends if follow=true.
 func (s *Server) runLog(w http.ResponseWriter, r *http.Request) {
 	app, id := r.PathValue("app"), r.PathValue("id")
-	if _, err := s.db.Run(r.Context(), app, id); s.runFailed(w, err) {
+	run, err := s.db.Run(r.Context(), app, id)
+	if err == nil && s.outOfBounds(r, run.App, run.Env) {
+		err = fmt.Errorf("no run %q: %w", id, store.ErrNotFound)
+	}
+	if s.runFailed(w, err) {
 		return
 	}
 	w.Header().Set("Content-Type", apitypes.NDJSONType)

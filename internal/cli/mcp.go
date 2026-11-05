@@ -3,12 +3,15 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -24,10 +27,13 @@ import (
 // agentContext is the context that moor mcp uses, unless told another.
 const agentContext = "agent"
 
+// mcpStartLimit is how long moor mcp waits to find out who its token is.
+const mcpStartLimit = 15 * time.Second
+
 func newMCPCmd() *cobra.Command {
 	var (
-		contextName, app string
-		allowDeploy      bool
+		contextName, app, root string
+		allowDeploy            bool
 	)
 	cmd := &cobra.Command{
 		Use:   "mcp",
@@ -36,7 +42,8 @@ func newMCPCmd() *cobra.Command {
 for itself: moor mcp setup says how, and makes the token it needs.
 
 It reads apps, deployments, releases and logs. With --allow-deploy, it can also deploy, roll back and restart. Nothing
-here runs commands, reads files or secrets, or deletes anything.
+here runs commands, reads secrets or deletes anything. check_manifest and deploy read files below the directory it started in, or
+--root, and only if that is not your home directory or above it.
 
 Its token is what limits it, so it refuses one that can do everything, and does not fall back on what moor login
 stored. It takes the context named agent, or another by --context, or $MOOR_SERVER and $MOOR_TOKEN. Logs are written by the
@@ -49,15 +56,21 @@ app and whoever can reach it, and an agent should not be trusted further for hav
 			if err != nil {
 				return err
 			}
-			me, err := c.Me(cmd.Context())
+			// A client waits on this to start, and gives up without saying why.
+			asking, cancel := context.WithTimeout(cmd.Context(), mcpStartLimit)
+			defer cancel()
+			me, err := c.Me(asking)
 			if err != nil {
 				return err
 			}
 			if err := agentMayUse(me, allowDeploy); err != nil {
 				return err
 			}
-			root, err := os.Getwd()
-			if err != nil {
+			if root == "" {
+				if root, err = os.Getwd(); err != nil {
+					return err
+				}
+			} else if root, err = filepath.Abs(root); err != nil {
 				return err
 			}
 			transport := &mcp.IOTransport{Reader: readCloser{cmd.InOrStdin()}, Writer: writeCloser{cmd.OutOrStdout()}}
@@ -71,6 +84,7 @@ app and whoever can reach it, and an agent should not be trusted further for hav
 	f.StringVar(&contextName, "context", agentContext, "the context to use, from moor mcp setup")
 	f.StringVar(&app, "app", "", "the app to use when a tool is not told")
 	f.BoolVar(&allowDeploy, "allow-deploy", false, "offer deploying, rolling back and restarting; the token has to allow them too")
+	f.StringVar(&root, "root", "", "the directory that local files are read from, and only below it; where this started if left out")
 	return cmd
 }
 

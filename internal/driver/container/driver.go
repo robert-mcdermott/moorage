@@ -88,16 +88,57 @@ type Driver struct {
 
 	mu      sync.Mutex
 	tracked map[string]*tracked
+	// launched is what this process has started and not yet removed. A one-off command has no record of an instance, and should not be taken for something left behind.
+	launched map[string]bool
 }
 
 // New returns a driver. server identifies this Moorage server among others
 // that may use the same engine: each manages only its own containers.
 func New(engine *Engine, server string, log *slog.Logger) *Driver {
-	return &Driver{engine: engine, server: server, log: log, tracked: map[string]*tracked{}}
+	return &Driver{engine: engine, server: server, log: log, tracked: map[string]*tracked{}, launched: map[string]bool{}}
 }
 
 // Engine returns the driver's engine.
 func (d *Driver) Engine() *Engine { return d.engine }
+
+// How long the engine has for what should not take long, however it is doing. A daemon can hang with its socket open, and what is waiting holds up its environment.
+const (
+	// runLimit can include pulling an image that has been removed since it was built.
+	runLimit = 10 * time.Minute
+	// stopMargin is on top of what a container has to stop.
+	stopMargin  = 30 * time.Second
+	removeLimit = time.Minute
+)
+
+// tell asks the engine for what has a limit of its own.
+func (d *Driver) tell(limit time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	return d.engine.output(ctx, nil, args...)
+}
+
+// launch notes something this process is starting.
+func (d *Driver) launch(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.launched == nil {
+		d.launched = map[string]bool{}
+	}
+	d.launched[id] = true
+}
+
+func (d *Driver) landed(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.launched, id)
+}
+
+// Launched says that this process started the container of an instance or a one-off command, which is not something that a previous server left.
+func (d *Driver) Launched(id string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.launched[id]
+}
 
 // tracked is a container this server watches.
 type tracked struct {
@@ -262,15 +303,20 @@ func (d *Driver) Start(ctx context.Context, s Spec) (shim.State, error) {
 		return shim.State{}, err
 	}
 	defer cleanup()
-	if _, err := d.engine.output(ctx, append(env, authEnv...), args...); err != nil {
+	d.launch(s.ID)
+	running, stopWaiting := context.WithTimeout(ctx, runLimit)
+	defer stopWaiting()
+	if _, err := d.engine.output(running, append(env, authEnv...), args...); err != nil {
 		// Without the container, nothing was started; a failed run can leave
 		// one that was created and not started.
-		d.engine.output(context.WithoutCancel(ctx), nil, "rm", "-f", name)
+		d.tell(removeLimit, "rm", "-f", name)
+		d.landed(s.ID)
 		return shim.State{}, err
 	}
 	t, err := d.track(s, name)
 	if err != nil {
-		d.engine.output(context.WithoutCancel(ctx), nil, "rm", "-f", name)
+		d.tell(removeLimit, "rm", "-f", name)
+		d.landed(s.ID)
 		return shim.State{}, err
 	}
 	return t.current(), nil
@@ -701,7 +747,7 @@ func (d *Driver) Restart(id string) error {
 		t.signal()
 		return nil
 	}
-	_, err := d.engine.output(context.Background(), nil, "stop", "-t", stopSeconds(t.spec.StopTimeout), t.name)
+	_, err := d.tell(t.spec.StopTimeout+stopMargin, "stop", "-t", stopSeconds(t.spec.StopTimeout), t.name)
 	return err
 }
 
@@ -732,7 +778,7 @@ func (d *Driver) Stop(id string, stopTimeout time.Duration) error {
 			return nil
 		}
 	}
-	_, err := d.engine.output(context.Background(), nil, "stop", "-t", stopSeconds(stopTimeout), name)
+	_, err := d.tell(stopTimeout+stopMargin, "stop", "-t", stopSeconds(stopTimeout), name)
 	if err != nil && !IsNotFound(err) {
 		d.log.Warn("stopping a container", "instance", id, "err", err)
 	}
@@ -753,12 +799,13 @@ func (d *Driver) forget(id, name string) error {
 	d.mu.Lock()
 	t := d.tracked[id]
 	delete(d.tracked, id)
+	delete(d.launched, id)
 	d.mu.Unlock()
 	if t != nil {
 		t.cancel()
 		<-t.done
 	}
-	_, err := d.engine.output(context.Background(), nil, "rm", "-f", name)
+	_, err := d.tell(removeLimit, "rm", "-f", name)
 	if err != nil && !IsNotFound(err) {
 		return err
 	}
@@ -915,7 +962,9 @@ func (d *Driver) RunOnce(ctx context.Context, s Spec, timeout time.Duration, std
 	// Not --rm: the engine's command line may stop before the container, and may
 	// report success for a container somebody removed. What the engine has on
 	// record says how it ended.
-	defer d.engine.output(context.WithoutCancel(ctx), nil, "rm", "-f", name)
+	d.launch(s.ID)
+	defer d.landed(s.ID)
+	defer d.tell(removeLimit, "rm", "-f", name)
 	err = d.engine.stream(ctx, append(env, authEnv...), stdout, stderr, args...)
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("it did not finish within %s", timeout)
@@ -954,7 +1003,9 @@ func (d *Driver) RunSession(ctx context.Context, s Spec, timeout time.Duration, 
 		return err
 	}
 	defer cleanup()
-	defer d.engine.output(context.WithoutCancel(ctx), nil, "rm", "-f", name)
+	d.launch(s.ID)
+	defer d.landed(s.ID)
+	defer d.tell(removeLimit, "rm", "-f", name)
 	cmd := exec.Command(d.engine.Bin, args...)
 	cmd.Env = append(append(os.Environ(), env...), authEnv...)
 	return oneoff.Attach(ctx, cmd, s.Command, session, timeout, platform.TreeLimits{}, nil)

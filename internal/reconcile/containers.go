@@ -19,10 +19,13 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
-// What store.Instance.Driver says.
+// DriverContainer is what store.Instance.Driver says of an instance in a container.
+const DriverContainer = "container"
+
+// What else it says.
 const (
 	driverNative    = "native"
-	driverContainer = "container"
+	driverContainer = DriverContainer
 )
 
 // containerEnv is the environment of a container: [env], the release's
@@ -115,7 +118,9 @@ func (m *Manager) adoptContainer(ctx context.Context, li store.LiveInstance, pla
 		// It is still better adopted, than stopped for this.
 		m.log.Warn("cannot read a container's secrets; they may appear in its log", "app", li.App, "instance", li.ID, "err", err)
 	}
-	return d.Adopt(ctx, spec)
+	asking, cancel := context.WithTimeout(ctx, adoptLimit)
+	defer cancel()
+	return d.Adopt(asking, spec)
 }
 
 // runContainerOnce runs a command once in a container of the release's image:

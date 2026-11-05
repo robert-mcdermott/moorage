@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"math/big"
 	"net"
 	"net/http"
@@ -364,8 +365,15 @@ func TestContainers(t *testing.T) {
 	t.Setenv("PATH", dir)
 	cfg.Containers.Engine = "auto"
 	c = checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin"})
-	if c.Status != Warn || !strings.Contains(c.Detail, "cannot connect") {
+	if c.Status != Warn || !strings.Contains(c.Detail, "cannot connect") || !strings.Contains(c.Detail, "matters only to apps in containers") {
 		t.Errorf("%+v", c)
+	}
+	// The server says how it sees it, which may be the one that what is running stays with.
+	seen := checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin", Engine: func(context.Context) container.Status {
+		return container.Status{State: container.Ready, Kind: "docker", Version: "as the server sees it"}
+	}})
+	if seen.Status != OK || !strings.Contains(seen.Detail, "as the server sees it") {
+		t.Errorf("%+v", seen)
 	}
 	// And only if something here needs one.
 	wants := false
@@ -374,7 +382,7 @@ func TestContainers(t *testing.T) {
 		t.Errorf("nothing needs it: %+v", c)
 	}
 	wants = true
-	if c := checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin", WantsEngine: wanted}); c.Status != Warn {
+	if c := checkContainers(context.Background(), Options{Config: cfg, GOOS: "darwin", WantsEngine: wanted}); c.Status != Warn || !strings.Contains(c.Detail, "cannot run") {
 		t.Errorf("something needs it: %+v", c)
 	}
 	cfg.Containers.Engine = bin

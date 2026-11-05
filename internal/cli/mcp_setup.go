@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +24,9 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 )
 
+// agentTokenPrefix starts the name of each token that moor mcp setup makes.
+const agentTokenPrefix = "moor-mcp-"
+
 // agentClientSetup says how a coding agent is told of a server. Each is as its own documentation had it on 5 November 2026.
 type agentClientSetup struct {
 	name string
@@ -29,6 +34,8 @@ type agentClientSetup struct {
 	command func(moor []string) []string
 	// file and format say where else it goes.
 	file, format string
+	// printOnWindows is for a command that is a batch file there, which would not get the quotes of what it is given.
+	printOnWindows bool
 }
 
 // mcpServersEntry is the usual shape of a config file's entry.
@@ -47,9 +54,16 @@ var agentClients = map[string]agentClientSetup{
 	"vscode": {name: "VS Code", command: func(moor []string) []string {
 		data, _ := json.Marshal(map[string]any{"name": "moorage", "type": "stdio", "command": moor[0], "args": moor[1:]})
 		return []string{"code", "--add-mcp", string(data)}
-	}},
+	}, printOnWindows: true},
 	"gemini": {name: "Gemini CLI", command: func(moor []string) []string {
-		return append([]string{"gemini", "mcp", "add", "-s", "user", "moorage"}, moor...)
+		// It takes the command and its words after the name, and the server's own flags after --.
+		out := []string{"gemini", "mcp", "add", "-s", "user", "moorage"}
+		for i, word := range moor {
+			if strings.HasPrefix(word, "-") {
+				return append(append(append(out, moor[:i]...), "--"), moor[i:]...)
+			}
+		}
+		return append(out, moor...)
 	}},
 	"cline": {name: "Cline", command: func(moor []string) []string {
 		return append([]string{"cline", "mcp", "add", "moorage", "--yes", "--"}, moor...)
@@ -75,9 +89,9 @@ func agentClientNames() []string {
 
 func newMCPSetupCmd() *cobra.Command {
 	var (
-		conn                                    connection
-		clientName, app, envs, expires, ctxName string
-		deploy, printOnly                       bool
+		conn                                          connection
+		clientName, app, envs, expires, ctxName, root string
+		deploy, printOnly                             bool
 	)
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -86,7 +100,7 @@ func newMCPSetupCmd() *cobra.Command {
 moor mcp. The token stays in moor's own file, which only you can read, and goes in no client's configuration or repository.
 
 By default the token can only read. With --deploy it can also deploy, roll back and restart, in previews that take nothing of
-production's: --envs all lets it reach every environment, production included.
+production's, whose names start with agent-, and it can reach nothing else: --envs all lets it reach every environment, production included.
 
 Running this again replaces the token. With --client, it runs that client's own command where it has one, or says what to
 put where. Without, it lists them all.
@@ -121,32 +135,66 @@ what an agent makes from production altogether, give it an app of its own with -
 			if err := lifetime.UnmarshalText([]byte(expires)); err != nil {
 				return usageError{fmt.Errorf("--expires: %w", err)}
 			}
-			serverURL, _, caCert, err := conn.resolve()
+			serverURL, token, caCert, err := conn.resolve()
 			if err != nil {
 				return err
+			}
+			if root != "" {
+				if root, err = filepath.Abs(root); err != nil {
+					return err
+				}
+			}
+			cfg, err := loadClientConfig()
+			if err != nil {
+				return err
+			}
+			// What this replaces has to be its own: moor login's context holds a token that is not for this.
+			before, had := cfg.Contexts[ctxName]
+			if had && !before.Agent {
+				return fmt.Errorf("the context %s is not one that this made, and it would be replaced: name another with --context", ctxName)
+			}
+			for name, other := range cfg.Contexts {
+				if other.Agent && other.Token == token {
+					return fmt.Errorf("the context in use, %s, is a coding agent's, and cannot make tokens: moor context use another", name)
+				}
 			}
 			c, err := conn.client()
 			if err != nil {
 				return err
 			}
-			secret, err := makeAgentToken(cmd.Context(), c, ctxName, app, envs, deploy, lifetime)
+			// The new one first, so that failing here leaves an agent with what it had.
+			existing, err := c.Tokens(cmd.Context())
 			if err != nil {
 				return err
 			}
-			cfg, err := loadClientConfig()
+			name, secret, err := makeAgentToken(cmd.Context(), c, ctxName, app, envs, deploy, lifetime)
 			if err != nil {
 				return err
 			}
 			if cfg.Contexts == nil {
 				cfg.Contexts = map[string]clientContext{}
 			}
-			cfg.Contexts[ctxName] = clientContext{Server: strings.TrimSuffix(serverURL, "/"), Token: secret, CACert: caCert, User: "a coding agent"}
+			serverURL = strings.TrimSuffix(serverURL, "/")
+			cfg.Contexts[ctxName] = clientContext{Server: serverURL, Token: secret, CACert: caCert, User: "a coding agent", Agent: true}
 			if err := cfg.save(); err != nil {
+				if _, undo := c.RevokeToken(cmd.Context(), name); undo != nil {
+					return fmt.Errorf("%w, and the token %s that was made for it could not be revoked: %v", err, name, undo)
+				}
 				return err
+			}
+			for _, t := range existing {
+				if isAgentToken(t.Name, ctxName) {
+					if _, err := c.RevokeToken(cmd.Context(), t.Name); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "The token %s it replaces could not be revoked, and works until it expires: %v\n", t.Name, err)
+					}
+				}
+			}
+			if had && before.Server != serverURL {
+				fmt.Fprintf(cmd.ErrOrStderr(), "The context %s held a token for %s, which is not reached from here, and it works until it expires. moor tokens revoke removes it there.\n", ctxName, before.Server)
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "Made a token for an agent, and kept it in the context %s. %s It expires in %s.\n", ctxName, describeAgent(app, envs, deploy), expires)
-			moor := agentCommandLine(ctxName, app, deploy)
+			moor := agentCommandLine(ctxName, app, root, deploy)
 			if clientName == "" {
 				fmt.Fprintln(out, "\nTell your client of it. For each of them:")
 				for _, name := range agentClientNames() {
@@ -166,32 +214,38 @@ what an agent makes from production altogether, give it an app of its own with -
 	f.StringVar(&expires, "expires", "90d", "how long the token lasts")
 	f.StringVar(&ctxName, "context", agentContext, "the context to keep it in")
 	f.BoolVar(&printOnly, "print", false, "say what to do, and run nothing of the client's")
+	f.StringVar(&root, "root", "", "the directory that moor mcp reads local files from; where the client starts it if left out")
 	return cmd
 }
 
-// makeAgentToken replaces the token this context had, so that running this again leaves one and not two.
-func makeAgentToken(ctx context.Context, c *client.Client, ctxName, app, envs string, deploy bool, lifetime manifest.Duration) (string, error) {
+// makeAgentToken makes a token for a context, under a name of its own: an older one goes only once this one is kept.
+func makeAgentToken(ctx context.Context, c *client.Client, ctxName, app, envs string, deploy bool, lifetime manifest.Duration) (name, secret string, err error) {
 	scope := auth.ScopeRead
 	if deploy {
 		scope = auth.ScopeDeploy
 	}
-	name := "moor-mcp-" + ctxName
-	existing, err := c.Tokens(ctx)
-	if err != nil {
-		return "", err
-	}
-	for _, t := range existing {
-		if t.Name == name {
-			if _, err := c.RevokeToken(ctx, name); err != nil {
-				return "", err
-			}
-		}
-	}
+	name = fmt.Sprintf("%s%s.%d", agentTokenPrefix, ctxName, time.Now().UnixMilli())
 	made, err := c.CreateToken(ctx, apitypes.NewToken{Name: name, Scopes: []string{scope}, App: app, Envs: envs, ExpiresAt: time.Now().Add(lifetime.Std()).UTC()})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return made.Secret, nil
+	return name, made.Secret, nil
+}
+
+// isAgentToken says that a token's name is one that makeAgentToken gave for this context, and not for another whose name starts the same.
+func isAgentToken(name, ctxName string) bool {
+	rest, ok := strings.CutPrefix(name, agentTokenPrefix+ctxName)
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	stamp, ok := strings.CutPrefix(rest, ".")
+	if !ok || stamp == "" {
+		return false
+	}
+	return strings.Trim(stamp, "0123456789") == ""
 }
 
 func describeAgent(app, envs string, deploy bool) string {
@@ -200,7 +254,7 @@ func describeAgent(app, envs string, deploy bool) string {
 		what = "It can read and deploy"
 	}
 	if envs == auth.EnvsPreviews {
-		what += ", in previews"
+		what += ", in previews named agent-something"
 	}
 	if app != "" {
 		return what + ", for " + app + "."
@@ -209,7 +263,7 @@ func describeAgent(app, envs string, deploy bool) string {
 }
 
 // agentCommandLine is what a client runs. A desktop app does not start from a shell, so that it needs the whole path.
-func agentCommandLine(ctxName, app string, deploy bool) []string {
+func agentCommandLine(ctxName, app, root string, deploy bool) []string {
 	path, err := os.Executable()
 	if err != nil {
 		path = "moor"
@@ -220,6 +274,9 @@ func agentCommandLine(ctxName, app string, deploy bool) []string {
 	}
 	if app != "" {
 		line = append(line, "--app", app)
+	}
+	if root != "" {
+		line = append(line, "--root", root)
 	}
 	if deploy {
 		line = append(line, "--allow-deploy")
@@ -248,7 +305,7 @@ func printAgentSetup(out io.Writer, s agentClientSetup, moor []string) {
 // applyAgentSetup runs a client's own command, if it has one and it is installed. What it cannot do, it says.
 func applyAgentSetup(cmd *cobra.Command, s agentClientSetup, moor []string, printOnly bool) error {
 	out := cmd.OutOrStdout()
-	if s.command == nil || printOnly {
+	if s.command == nil || printOnly || s.printOnWindows && runtime.GOOS == "windows" {
 		printAgentSetup(out, s, moor)
 		return nil
 	}

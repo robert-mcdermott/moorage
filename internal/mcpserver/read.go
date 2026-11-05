@@ -96,7 +96,7 @@ func (t *tools) getApp(ctx context.Context, _ *mcp.CallToolRequest, in appInput)
 				e = full
 			}
 		}
-		row := envRow{Name: e.Name, Kind: e.Kind, URL: e.URL, Asleep: e.Asleep, LockedBy: e.LockedBy, Instances: []instanceRow{}}
+		row := envRow{Name: e.Name, Kind: e.Kind, URL: e.URL, Asleep: e.Asleep, LockedBy: clean(e.LockedBy), Instances: []instanceRow{}}
 		if e.Release != nil {
 			row.Release = e.Release.Version
 		}
@@ -128,7 +128,8 @@ type deploymentRow struct {
 }
 
 func deploymentOf(d apitypes.Deployment) deploymentRow {
-	row := deploymentRow{ID: d.ID, App: d.App, Env: d.Env, URL: d.URL, Status: d.Status, Finished: d.Finished(), Ref: d.Ref, Commit: d.Commit, Error: d.Error, Created: d.CreatedAt}
+	// A commit and a branch are named by whoever pushed them, and a failure can quote the app's files.
+	row := deploymentRow{ID: d.ID, App: d.App, Env: d.Env, URL: d.URL, Status: d.Status, Finished: d.Finished(), Ref: clean(d.Ref), Commit: clean(d.Commit), Error: cleanText(d.Error), Created: d.CreatedAt}
 	if d.Release != nil {
 		row.Release = d.Release.Version
 	}
@@ -246,7 +247,7 @@ func (t *tools) listReleases(ctx context.Context, _ *mcp.CallToolRequest, in rel
 	}
 	out := releaseList{Releases: []releaseRow{}}
 	for _, r := range list {
-		out.Releases = append(out.Releases, releaseRow{Version: r.Version, Reason: r.Reason, Current: r.Current, By: r.CreatedBy, Created: r.CreatedAt})
+		out.Releases = append(out.Releases, releaseRow{Version: r.Version, Reason: clean(r.Reason), Current: r.Current, By: clean(r.CreatedBy), Created: r.CreatedAt})
 	}
 	return nil, out, nil
 }

@@ -710,6 +710,20 @@ func TestContainerEngineDownAtStart(t *testing.T) {
 		t.Errorf("deploying: %+v", failed)
 	}
 
+	// Nor can it stop what it cannot reach, and it does not record that it has: going to sleep or restarting says why, and leaves things as they were.
+	if _, err := c.SleepEnvironment(ctx, "boxed", "production"); status(err) != http.StatusConflict || !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("going to sleep: %v", err)
+	}
+	if env, err := c.Environment(ctx, "boxed", "production"); err != nil || env.Asleep {
+		t.Errorf("it went to sleep: %+v %v", env, err)
+	}
+	if _, err := c.Restart(ctx, "boxed", "production"); err == nil || !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("restarting: %v", err)
+	}
+	if lives, err := authn.DB.LiveInstances(ctx); err != nil || len(lives) != 1 || lives[0].ID != before[0].ID {
+		t.Errorf("its record, after those: %+v %v", lives, err)
+	}
+
 	// With the daemon back, it finds the same container, and needs no restart.
 	if err := os.Remove(down); err != nil {
 		t.Fatal(err)

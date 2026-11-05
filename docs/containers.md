@@ -160,8 +160,7 @@ engine runs as the server's user, with its usual settings: `CONTAINER_HOST` and
 
 ## The engine
 
-**Only an app that runs in a container needs one.** The server asks as it starts, without waiting for the answer, and says what it found in its log. After
-that it asks only when something wants to know, and keeps the answer for half a minute. An app that does not run in a container never causes it to ask.
+**Only an app that runs in a container needs one.** The server asks as it starts, without waiting for the answer, and says what it found in its log. A server with apps in containers waits a few seconds for it, and what it cannot find out in that time waits for the engine. After that it asks when something needs the engine, such as deploying one of those apps, and when someone looks at how the server stands, keeping the answer for half a minute. An app that does not run in a container never causes it to ask.
 
 | It finds | Means | What happens |
 |---|---|---|
@@ -170,7 +169,10 @@ that it asks only when something wants to know, and keeps the answer for half a 
 | Ready | It answered | Apps can run in containers |
 
 So you can start Docker Desktop an hour later, or install Podman, with no restart. A daemon that goes down does not make Moorage think that what it was running has stopped: once it
-answers, the same containers carry on. If it stops answering while apps need it, `server.engine_down` says so, to [the rules that ask](notifications.md).
+answers, the same containers carry on. While it is down, deploying, restarting or putting such an app to sleep says why it cannot, and changes nothing. If it stops answering while apps need it, `server.engine_down` says so, to [the rules that ask](notifications.md). A container that could not be stopped is stopped once the engine answers, or for an app that has been deleted, the next time the server starts.
+
+Once a container has run under an engine, it stays with that one while anything is running under it, even if another is answering. Until then, the server takes whichever answers.
+
 `moor server doctor` and the [API](api.md) say how it stands too.
 
 ## Good to know

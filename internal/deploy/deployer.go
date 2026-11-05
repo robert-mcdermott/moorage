@@ -266,9 +266,28 @@ func (d *Deployer) ensureEnv(ctx context.Context, app, env, kind, branch string)
 	return nil
 }
 
+// AgentPreviewPrefix starts the name of each preview that a token limited to previews makes, so that it cannot take a name that a manifest will come to want.
+const AgentPreviewPrefix = "agent-"
+
 // EnsurePreviewAlone makes the preview that a token limited to previews deploys to, if it does not exist yet. It takes nothing of production's, as the code
 // such a token deploys could otherwise read production's secrets.
 func (d *Deployer) EnsurePreviewAlone(ctx context.Context, app, env string) error {
+	envs, err := d.db.Environments(ctx, app)
+	if err != nil {
+		return err
+	}
+	previews := 0
+	for _, e := range envs {
+		if e.Name == env {
+			return nil
+		}
+		if e.Kind == store.KindPreview {
+			previews++
+		}
+	}
+	if previews >= MaxPreviews {
+		return &NotPreviewableError{fmt.Sprintf("%s has %d previews, which is as many as an app may have: destroy one", app, previews)}
+	}
 	created, err := d.db.CreatePreviewAlone(ctx, app, env)
 	if err != nil {
 		return err
@@ -512,7 +531,7 @@ func (d *Deployer) run(dep store.Deployment) {
 	d.finish(dep, store.Live, "", nil)
 	d.emit(ctx, events.DeploymentLive, dep, map[string]any{"version": rel.Version, "url": d.opts.URL(dep.App, dep.Env)})
 	d.log.Info("deployed", "app", dep.App, "env", dep.Env, "release", rel.Version, "build", b.ID, "deployment", dep.ID)
-	d.collect(dep.App, res.Plan.Deploy.KeepReleases)
+	d.collect(dep.App, d.releasesToKeep(ctx, dep.App, dep.Env, res.Plan))
 }
 
 // releaseError reports a failed release command.
@@ -631,6 +650,11 @@ func (d *Deployer) declareEnvironments(ctx context.Context, app string, plan man
 		if name == names.Production || name == "preview" {
 			continue
 		}
+		// The name was taken by a token limited to previews. Such a preview is not fit to become this, and it goes in its time.
+		if existing, err := d.db.Environment(ctx, app, name); err == nil && existing.Kind == store.KindPreview && !existing.Inherits {
+			build.Marker(log, "             the environment %s is not made: a coding agent's preview has that name, and moor environments destroy removes it", name)
+			continue
+		}
 		err := d.ensureEnv(ctx, app, name, store.KindNamed, e.Branch)
 		if err == nil && e.Branch != "" {
 			err = d.db.SetEnvironmentBranch(ctx, app, name, e.Branch)
@@ -722,8 +746,23 @@ func (d *Deployer) Publish(ctx context.Context, req PublishRequest) (store.Relea
 	} else {
 		d.emit(ctx, events.ReleaseCreated, dep, map[string]any{"version": rel.Version, "reason": req.Reason, "url": d.opts.URL(app, env)})
 	}
-	d.collect(app, plan.Deploy.KeepReleases)
+	d.collect(app, d.releasesToKeep(ctx, app, env, plan))
 	return rel, dep, nil
+}
+
+// releasesToKeep says how many releases of each environment to keep. Production's manifest decides that, as another environment's is whatever its branch says, and
+// should not be able to take away production's way back.
+func (d *Deployer) releasesToKeep(ctx context.Context, app, env string, plan manifest.Plan) int {
+	if env != names.Production {
+		if _, b, err := d.db.CurrentRelease(ctx, app, names.Production); err == nil {
+			var production manifest.Plan
+			if json.Unmarshal(b.Plan, &production) == nil {
+				production.Defaults()
+				return production.Deploy.KeepReleases
+			}
+		}
+	}
+	return plan.Deploy.KeepReleases
 }
 
 // collect removes the builds of app that are kept for no release (beyond

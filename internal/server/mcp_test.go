@@ -301,9 +301,9 @@ func TestATokenLimitedToPreviews(t *testing.T) {
 		}
 	}
 
-	// A preview that takes production's secrets would hand them to what it deploys, so it can look at that one and no more.
-	if code, body := api.do(made.Secret, "GET", "/api/v1/apps/shop/envs/inherits-it/deployments", ""); code != http.StatusForbidden && code != http.StatusOK {
-		t.Errorf("reading a preview: %d %s", code, body)
+	// A preview that takes production's secrets is the same to it.
+	if code, body := api.do(made.Secret, "GET", "/api/v1/apps/shop/envs/inherits-it/deployments", ""); code != http.StatusForbidden {
+		t.Errorf("reading one that takes production's secrets: %d %s", code, body)
 	}
 	if code, body := api.do(made.Secret, "POST", "/api/v1/apps/shop/envs/inherits-it/restart", ""); code != http.StatusForbidden {
 		t.Errorf("changing one that takes production's secrets: %d %s", code, body)

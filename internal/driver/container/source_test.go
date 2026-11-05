@@ -4,6 +4,8 @@ package container
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -68,7 +70,7 @@ func TestProbe(t *testing.T) {
 // A daemon can hang with its socket open, and nothing here should wait for it.
 func TestProbeOfAnEngineThatHangs(t *testing.T) {
 	dir := t.TempDir()
-	hung := engineScript(t, dir, "docker", "exec sleep 30")
+	hung := engineScript(t, dir, "docker", "exec /bin/sleep 30")
 	began := time.Now()
 	st := Probe(context.Background(), hung)
 	if took := time.Since(began); took > probeLimit+waitForDescendants+time.Second {
@@ -121,8 +123,14 @@ func TestSource(t *testing.T) {
 	before := s.Driver()
 	engineScript(t, dir, "podman", answers)
 	s.checked = time.Time{}
-	if st := s.Status(ctx); !st.Ready() || s.Driver() != before || len(pinned) != 1 || pinned[0] != podman {
+	if st := s.Status(ctx); !st.Ready() || s.Driver() != before || len(pinned) != 0 {
 		t.Errorf("started: %+v %v", st, pinned)
+	}
+	// Answering chooses nothing: running something under it does.
+	s.Used()
+	s.Used()
+	if len(pinned) != 1 || pinned[0] != podman {
+		t.Errorf("used: %v", pinned)
 	}
 
 	// What it ran stays with it, even when another is answering and it is not.
@@ -142,5 +150,174 @@ func TestSource(t *testing.T) {
 	fresh := NewSource(SourceOptions{})
 	if st := fresh.Status(ctx); !st.Ready() || st.Kind != "docker" {
 		t.Errorf("fresh: %+v", st)
+	}
+}
+
+// TestOneThatOnlyAnsweredIsNotKeptTo: until a container has run, a server takes whichever answers, so that one found by chance does not hold it.
+func TestOneThatOnlyAnsweredIsNotKeptTo(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	docker := engineScript(t, dir, "docker", answers)
+	s := NewSource(SourceOptions{Kept: time.Nanosecond})
+	if st := s.Status(ctx); st.Bin != docker {
+		t.Fatalf("%+v", st)
+	}
+	engineScript(t, dir, "docker", refuses)
+	podman := engineScript(t, dir, "podman", answers)
+	if st := s.Status(ctx); st.Bin != podman || !st.Ready() {
+		t.Errorf("after that one stopped, with another answering: %+v", st)
+	}
+}
+
+// TestADriverStaysWithItsProgram: an engine whose --version fails for a moment is not another engine, and what is tracked would be lost with its driver.
+func TestADriverStaysWithItsProgram(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	podman := engineScript(t, dir, "podman", answers)
+	drivers := 0
+	s := NewSource(SourceOptions{Kept: time.Nanosecond, NewDriver: func(e *Engine) *Driver { drivers++; return &Driver{engine: e} }})
+	if st := s.Status(ctx); st.Kind != "podman" || drivers != 1 {
+		t.Fatalf("%+v %d", st, drivers)
+	}
+	if err := os.WriteFile(podman, []byte("#!/bin/sh\necho nope >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if st := s.Status(ctx); st.State != NotAnswering || st.Kind != "podman" || drivers != 1 {
+		t.Errorf("when it would not say: %+v, %d drivers", st, drivers)
+	}
+}
+
+// TestOneThatHangsHoldsUpNothing: a daemon can hang with its socket open, and what only wants to know should not wait for it.
+func TestOneThatHangsHoldsUpNothing(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	engineScript(t, dir, "podman", answers)
+	s := NewSource(SourceOptions{Kept: time.Nanosecond, NewDriver: func(e *Engine) *Driver { return &Driver{engine: e} }})
+	if st := s.Status(ctx); !st.Ready() {
+		t.Fatalf("%+v", st)
+	}
+	engineScript(t, dir, "podman", "exec /bin/sleep 30")
+	done := make(chan Status, 1)
+	go func() { done <- s.Status(ctx) }()
+	// Long enough for that to be asking.
+	time.Sleep(200 * time.Millisecond)
+	began := time.Now()
+	if s.Engine() == nil || s.Driver() == nil {
+		t.Error("no engine, while it was being asked")
+	}
+	if st := s.Known(); !st.Ready() {
+		t.Errorf("what was last found: %+v", st)
+	}
+	if took := time.Since(began); took > time.Second {
+		t.Errorf("that took %s", took)
+	}
+	// Whoever else asks can stop waiting.
+	cut, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	began = time.Now()
+	if st := s.Status(cut); !st.Ready() {
+		t.Errorf("as last found: %+v", st)
+	}
+	if took := time.Since(began); took > time.Second {
+		t.Errorf("that took %s", took)
+	}
+	select {
+	case st := <-done:
+		if st.State != NotAnswering {
+			t.Errorf("%+v", st)
+		}
+	case <-time.After(3 * probeLimit):
+		t.Error("the probe did not end")
+	}
+}
+
+// TestSomeoneWhoLeftSaysNothingOfTheEngine: an answer cut short by whoever asked is not an answer, even the first.
+func TestSomeoneWhoLeftSaysNothingOfTheEngine(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	engineScript(t, dir, "podman", answers)
+	s := NewSource(SourceOptions{})
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	if st := s.Status(gone); st.Ready() {
+		t.Errorf("with no one to tell: %+v", st)
+	}
+	if st := s.Status(context.Background()); !st.Ready() {
+		t.Errorf("that was kept: %+v", st)
+	}
+}
+
+// TestWhatWasLastFoundDoesNotAsk says what it can, and has it found out behind the scenes.
+func TestWhatWasLastFoundDoesNotAsk(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	var nothing *Source
+	if st := nothing.Known(); st.State != Absent {
+		t.Errorf("no source: %+v", st)
+	}
+	// Before anything has answered, it waits for no more than a moment.
+	engineScript(t, dir, "podman", "exec /bin/sleep 30")
+	s := NewSource(SourceOptions{Kept: time.Hour})
+	began := time.Now()
+	if st := s.Known(); st.State != Unknown || st.Ready() || st.Problem() != "" {
+		t.Errorf("as yet: %+v", st)
+	}
+	if took := time.Since(began); took > 2*firstAnswerWait {
+		t.Errorf("that took %s", took)
+	}
+	engineScript(t, dir, "podman", answers)
+	fresh := NewSource(SourceOptions{Kept: time.Hour})
+	if st := fresh.Known(); !st.Ready() {
+		t.Errorf("one that answers at once: %+v", st)
+	}
+}
+
+// TestWhatIsMadeHereIsNotLeftBehind: a one-off command has no record of an instance, and should not be taken for something a previous server left.
+func TestWhatIsMadeHereIsNotLeftBehind(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake engine is a shell script")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in\n  run) sleep 1 ;;\n  inspect) echo '{\"ExitCode\":0}' ;;\nesac\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := New(&Engine{Bin: bin, Kind: "docker"}, "test", slog.Default())
+	done := make(chan error, 1)
+	go func() {
+		done <- d.RunOnce(context.Background(), Spec{ID: "ins_oneoff", App: "a", Env: "b", Process: "release", Image: "x", Command: "true"}, time.Minute, io.Discard, io.Discard)
+	}()
+	waitFor(t, "it to start", func() bool { return d.Launched("ins_oneoff") })
+	if d.Launched("ins_other") {
+		t.Error("what it did not start")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if d.Launched("ins_oneoff") {
+		t.Error("it has ended")
+	}
+}
+
+// TestTheEngineCannotHoldThingsUp: what stops and removes a container is bounded, as the alternative is an environment held for as long as a daemon hangs.
+func TestTheEngineCannotHoldThingsUp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake engine is a shell script")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := New(&Engine{Bin: bin, Kind: "docker"}, "test", slog.Default())
+	began := time.Now()
+	if _, err := d.tell(200*time.Millisecond, "stop", "x"); err == nil {
+		t.Error("it answered")
+	}
+	if took := time.Since(began); took > 10*time.Second {
+		t.Errorf("that took %s", took)
 	}
 }

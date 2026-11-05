@@ -150,9 +150,9 @@ func newTokensCreateCmd() *cobra.Command {
 --app restricts it to one app, and --expires makes it stop working after a
 time, such as 90d.
 
---envs previews limits a read or deploy token to previews. It can deploy only to
-previews that it makes itself, by deploying to a name that is not taken, and
-those take nothing of production's. It cannot push.`,
+--envs previews limits a read or deploy token to previews that take nothing of
+production's. It makes one by deploying to a name that starts with agent-, and
+can reach nothing else: not production, other previews or the repository.`,
 		Example: `  moor tokens create ci --scope deploy --app shop --expires 90d`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

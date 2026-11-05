@@ -27,7 +27,7 @@ output, and a natural path to a narrow token. So both are first-class: `--json` 
 runs commands would combine untrusted input, the app's secrets and outbound access in one call.
 
 - `deploy` returns at once, as clients give up after as little as 60 seconds.
-- `deploy` only reads below the directory `moor mcp` started in, with the usual ignore rules, so that a tricked agent cannot upload `~/.ssh`.
+- `deploy` and `check_manifest` only read below the directory `moor mcp` started in, or `--root`, with the usual ignore rules, so that a tricked agent cannot upload `~/.ssh`. That directory cannot be the home directory or above it, as a client may start a server there. The lexical check comes first, so that a path elsewhere is not even looked at, then hidden and ignored directories are refused, and a tree with a link leading out of it, since what reads it would follow the link.
 - Logs are 100 lines by default, with a byte limit, and say when they were cut. Clients warn at about 10,000 tokens.
 - Descriptions are static, and a test holds `tools/list` to what it was, so that nothing from an app can reach a description.
 - Stdout carries only the protocol, and logs go to stderr. The server ends when stdin does.
@@ -41,8 +41,11 @@ has been beaten by adaptive ones, so it is hygiene and not a defence. Anyone who
 - `moor mcp setup` makes a narrow, expiring token and keeps it in a `moor` context, a file only you can read, and sets up the client. The token never goes in a client's config or the repository.
 - **A token can be limited to previews,** with `--envs previews`. A `deploy` token can run commands and read an app's files, and deploying is itself running code, so there is little point in a
   scope between `read` and `deploy`. What does help is an agent that can deploy a branch and look at it, and cannot ask the API for anything of production's, even with a shell. The API enforces it.
-- **Such a token changes only previews that take nothing of production's.** Previews normally inherit production's variables, which would hand its secrets to the code deployed, so that deploying to a new name makes a
-  preview that stands alone (`environments.inherits`), and any other is read-only to it. It cannot push, as a push can go to any branch.
+- **Such a token reaches only previews that take nothing of production's, and is refused everything else.** Previews normally inherit production's variables, which would hand its secrets to the code deployed, so that deploying to a new name makes a
+  preview that stands alone (`environments.inherits`), which takes neither production's variables nor those set for every environment. Reads are limited in the same way.
+- **It is deny by default.** A route has to be marked as fit for such a token, and a test holds the marked ones to a list. Blocking routes one at a time missed several: promotion, events, a run's log by its ID, the repository, and a free name on any route with an environment in it.
+- **A new preview's name starts with `agent-`,** so that it cannot take a name that a manifest later declares and then have that environment's data, access and variables. A manifest that names one anyway does not get it, and its deployment says so.
+- **What it deploys cannot reach beyond its preview.** Its manifest does not decide how many of production's releases are kept, or how long the preview lasts, and it is held to the limit on previews.
 
 **What this limit is not.** It limits what a token can ask for. The code an agent deploys runs on the server, and on Linux an app's environments share a user, so that a preview's code can read production's data, and with no
 isolation it can read what the server can. To keep what an agent makes from production altogether, it needs an app of its own, on a server where apps are kept apart. The documents say so plainly.

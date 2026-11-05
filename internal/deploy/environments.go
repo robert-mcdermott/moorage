@@ -320,6 +320,10 @@ func (*CannotDeleteProductionError) Error() string {
 
 // PreviewTTL says how long a preview lasts, from what its current build's manifest says.
 func (d *Deployer) PreviewTTL(ctx context.Context, app, env string) time.Duration {
+	// What deploys to a preview that stands alone does not get to say how long it stays.
+	if e, err := d.db.Environment(ctx, app, env); err == nil && e.Kind == store.KindPreview && !e.Inherits {
+		return DefaultPreviewTTL
+	}
 	if _, b, err := d.db.CurrentRelease(ctx, app, env); err == nil {
 		var plan manifest.Plan
 		if json.Unmarshal(b.Plan, &plan) == nil && plan.Previews != nil && plan.Previews.TTL > 0 {

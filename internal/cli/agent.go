@@ -63,6 +63,26 @@ be careful of. They hold no token, so they can be committed. Running this again 
 					app = m.App.Name
 				}
 			}
+			// Nothing is written unless all of it can be.
+			paths := []string{"AGENTS.md"}
+			for _, d := range agentSkillDirs {
+				paths = append(paths, filepath.Join(d, "SKILL.md"))
+			}
+			for _, p := range paths {
+				if err := notThroughALink(dir, p); err != nil {
+					return err
+				}
+			}
+			path := filepath.Join(dir, "AGENTS.md")
+			agents, err := agentsWithSection(path, app)
+			if err != nil {
+				return err
+			}
+			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o644)
+			if err != nil {
+				return err
+			}
+			f.Close()
 			out := cmd.OutOrStdout()
 			for _, d := range agentSkillDirs {
 				path := filepath.Join(dir, d, "SKILL.md")
@@ -75,8 +95,7 @@ be careful of. They hold no token, so they can be committed. Running this again 
 				}
 				fmt.Fprintf(out, "Wrote %s\n", path)
 			}
-			path := filepath.Join(dir, "AGENTS.md")
-			if err := writeAgentsSection(path, app); err != nil {
+			if err := os.WriteFile(path, []byte(agents), 0o644); err != nil {
 				return err
 			}
 			fmt.Fprintf(out, "Wrote the Moorage section of %s\n", path)
@@ -91,27 +110,97 @@ be careful of. They hold no token, so they can be committed. Running this again 
 	return cmd
 }
 
-// writeAgentsSection puts the section in AGENTS.md, between markers so that it can be brought up to date, and touches nothing else.
-func writeAgentsSection(path, app string) error {
+// notThroughALink refuses a path in a repository with a link along it, as a repository can hold one, and this would write through it to wherever it leads.
+func notThroughALink(dir, rel string) error {
+	path := dir
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		path = filepath.Join(path, part)
+		fi, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a link, and this writes nothing through one", path)
+		}
+	}
+	return nil
+}
+
+// agentsWithSection is AGENTS.md with the section in it, between markers so that it can be brought up to date, and nothing else changed.
+func agentsWithSection(path, app string) (string, error) {
 	line := "Its app is named in `moorage.toml`."
 	if app != "" {
 		line = "Its app is `" + app + "`."
 	}
-	body := strings.ReplaceAll(strings.ReplaceAll(agentsSection, "\r\n", "\n"), "APP_LINE", line)
-	section := agentsStart + "\n" + strings.TrimRight(body, "\n") + "\n" + agentsEnd + "\n"
 	existing, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return "", err
 	}
-	text := strings.ReplaceAll(string(existing), "\r\n", "\n")
-	start, end := strings.Index(text, agentsStart), strings.Index(text, agentsEnd)
+	text := string(existing)
+	eol := "\n"
+	if strings.Contains(text, "\r\n") {
+		eol = "\r\n"
+	}
+	body := strings.ReplaceAll(strings.ReplaceAll(agentsSection, "\r\n", "\n"), "APP_LINE", line)
+	section := strings.ReplaceAll(agentsStart+"\n"+strings.TrimRight(body, "\n")+"\n"+agentsEnd+"\n", "\n", eol)
+	start, end, found, err := agentsMarkers(text)
 	switch {
-	case start >= 0 && end > start:
-		text = text[:start] + section + strings.TrimPrefix(text[end+len(agentsEnd):], "\n")
-	case text == "":
-		text = "# Instructions for coding agents\n\n" + section
-	default:
-		text = strings.TrimRight(text, "\n") + "\n\n" + section
+	case err != nil:
+		return "", fmt.Errorf("%s: %w: put them right, or take them out, and run this again", path, err)
+	case found:
+		return text[:start] + section + text[end:], nil
+	case strings.TrimSpace(text) == "":
+		return "# Instructions for coding agents" + eol + eol + section, nil
 	}
-	return os.WriteFile(path, []byte(text), 0o644)
+	return strings.TrimRight(text, "\r\n") + eol + eol + section, nil
+}
+
+// agentsMarkers finds the section: from the start of the line with the one marker to the end of the line with the other. Each has to be a whole line, outside a code
+// block, where a document that says how this works may show them. Anything else that looks like a section is left for a person, as this would otherwise replace what is between.
+func agentsMarkers(text string) (start, end int, found bool, err error) {
+	var fence string
+	starts, ends := 0, 0
+	for offset := 0; offset < len(text); {
+		next := strings.IndexByte(text[offset:], '\n')
+		lineEnd := len(text)
+		if next >= 0 {
+			lineEnd = offset + next + 1
+		}
+		line := strings.TrimRight(text[offset:lineEnd], "\r\n")
+		trimmed := strings.TrimLeft(line, " ")
+		switch {
+		case fence != "":
+			if len(line)-len(trimmed) <= 3 && strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed, fence[:1]+" \t") == "" {
+				fence = ""
+			}
+		case len(line)-len(trimmed) <= 3 && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")):
+			run := len(trimmed) - len(strings.TrimLeft(trimmed, trimmed[:1]))
+			fence = trimmed[:run]
+		case strings.TrimSpace(line) == agentsStart:
+			if starts++; starts == 1 {
+				start = offset
+			}
+			if ends > 0 {
+				return 0, 0, false, errors.New("its Moorage section ends before it starts")
+			}
+		case strings.TrimSpace(line) == agentsEnd:
+			if ends++; ends == 1 {
+				end = lineEnd
+			}
+			if starts == 0 {
+				return 0, 0, false, errors.New("its Moorage section ends before it starts")
+			}
+		}
+		offset = lineEnd
+	}
+	switch {
+	case starts == 0 && ends == 0:
+		return 0, 0, false, nil
+	case starts != 1 || ends != 1:
+		return 0, 0, false, fmt.Errorf("it has %d lines that start a Moorage section and %d that end one", starts, ends)
+	}
+	return start, end, true, nil
 }

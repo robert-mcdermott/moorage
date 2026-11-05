@@ -46,7 +46,11 @@ The token goes in `moor`'s own file, which only you can read, and **in no client
 
 **Nothing here runs a command, reads a file or a secret, or deletes anything,** and nothing manages domains, gates, members, tokens or the server. That is on purpose: a tool that runs commands would put what an app has written, its secrets and the way out all in one call.
 
-`deploy` reads only below the directory that `moor mcp` started in, with the same rules as `moor deploy` for what to leave out.
+`check_manifest` and `deploy` read only below the directory that `moor mcp` started in, or `--root DIR`, with the same rules as `moor deploy` for what to leave out. They refuse if that directory is your home directory or above it, a directory that is hidden or ignored, and a tree with a link that leads out of it. If a client starts it somewhere else, say where to read from:
+
+```bash
+moor mcp --root ~/code/shop --app shop
+```
 
 ## Letting it deploy
 
@@ -56,10 +60,11 @@ moor mcp setup --client claude-code --app shop-dev --deploy
 
 With `--deploy`, a token can deploy, roll back and restart, and only in previews, unless you say `--envs all`. Such a token:
 
-- Deploys to a name that is not taken, which makes a preview of that name.
-- **Can change only those previews, which take nothing of production's variables,** as the code it deploys could otherwise read production's secrets. They expire as other previews do. A required variable has to be set on the preview by someone who can, with `moor env set`.
-- Can read other previews, and cannot read production's logs, variables, files or deployments.
-- Cannot push with git, as a push can go to any branch.
+- Deploys only to a name that starts with `agent-`, such as `agent-new-pricing`, which makes a preview of that name. The app has to exist already: create it yourself, with `moor apps create`.
+- **Can reach only those previews, for reading as well as changing.** They take nothing of production's variables or those set for every environment, as the code it deploys could otherwise read them. A required variable has to be set on the preview by someone who can, with `moor env set`.
+- Is refused anything else, including what is added to Moorage later. It cannot read production's logs, variables, files, deployments or runs, promote, change variables, lock or pin an environment, or read the app's events.
+- Cannot use git, either to push or to clone, as a repository holds every branch.
+- Is held to what any preview is: at most 10 to an app, and it expires after [the usual time](previews.md). What the code it deploys says in its manifest does not change that, or how many of production's releases are kept.
 
 ## What this does not do
 

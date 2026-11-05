@@ -37,11 +37,11 @@ moor manifest explain
 Deploy somewhere other than production unless you were asked to deploy to production:
 
 ```bash
-moor deploy --app APP --env my-feature --detach
+moor deploy --app APP --env agent-my-feature --detach
 moor deployments show ID --json
 ```
 
-A deployment takes a while. Call `moor deployments show` until it has finished, and read why if it failed. What was running goes on running until the new release is healthy.
+A token limited to previews deploys only to a name starting with `agent-`, and can see nothing else of the app. A deployment takes a while. Call `moor deployments show` until it has finished, and read why if it failed. What was running goes on running until the new release is healthy.
 
 ## Go back
 

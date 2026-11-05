@@ -289,6 +289,11 @@ func (s *Server) appInfo(w http.ResponseWriter, r *http.Request) {
 	if s.projectFailed(w, err) {
 		return
 	}
+	// What production holds is not for a token limited to previews, even how much of it there is.
+	if who(r).Envs != "" {
+		writeJSON(w, http.StatusOK, apitypes.AppInfo{App: apitypes.App{Name: app, URL: s.appURL(app), Project: project.Name}})
+		return
+	}
 	usage := s.deployer.Usage(app)
 	writeJSON(w, http.StatusOK, apitypes.AppInfo{
 		App:    apitypes.App{Name: app, URL: s.appURL(app), Project: project.Name},

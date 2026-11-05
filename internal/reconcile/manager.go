@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/config"
@@ -89,6 +90,8 @@ type Manager struct {
 	// pending is what a previous server left in containers, until the engine can be asked about it.
 	pendingMu sync.Mutex
 	pending   []store.LiveInstance
+	// adopting is whether that is being looked at, which does not hold up anything else.
+	adopting atomic.Bool
 	// engineDown is what was last said of the engine.
 	engineDown bool
 	db         *store.DB
@@ -114,6 +117,8 @@ type envState struct {
 }
 
 type instance struct {
+	// leaving is one that should have stopped, and could not be got to: the engine is asked again once it answers.
+	leaving   atomic.Bool
 	id        string
 	process   string
 	index     int
@@ -238,7 +243,7 @@ func (es *envState) servePool(ins []*instance) {
 func (es *envState) serve(releaseID string) {
 	var backends []*ingress.Backend
 	for _, in := range es.list() {
-		if in.releaseID == releaseID && in.backend != nil {
+		if in.releaseID == releaseID && in.backend != nil && !in.leaving.Load() {
 			backends = append(backends, in.backend)
 		}
 	}
@@ -255,6 +260,14 @@ func readPlan(b store.Build) (manifest.Plan, error) {
 	return plan, nil
 }
 
+const (
+	// engineAtStart and adoptAtStart are how long a server waits as it starts for an engine to say how it stands, and for it to say what it is running.
+	engineAtStart = 5 * time.Second
+	adoptAtStart  = 15 * time.Second
+	// adoptLimit is how long it has to say so of one container.
+	adoptLimit = 10 * time.Second
+)
+
 // Adopt finds the instances a previous server left running: those whose
 // shims are alive are taken over, the rest are recorded as stopped (and an
 // app a dead shim left behind is killed). Instances not in the database are
@@ -265,21 +278,24 @@ func (m *Manager) Adopt(ctx context.Context) error {
 		return err
 	}
 	known := map[string]bool{}
-	// Only what runs in containers has to wait for an engine: most servers never ask here.
+	// Only what runs in containers has to wait for an engine: most servers never ask here. A server does not wait long, and what it did not get to waits for the engine.
 	engineReady := false
 	for _, li := range lives {
 		if li.Driver == driverContainer {
-			engineReady = m.opts.Containers.Status(ctx).Ready()
+			asking, cancel := context.WithTimeout(ctx, engineAtStart)
+			engineReady = m.opts.Containers.Status(asking).Ready()
+			cancel()
 			break
 		}
 	}
+	deadline := time.Now().Add(adoptAtStart)
 	for _, li := range lives {
 		known[li.ID] = true
 		plan, err := readPlan(li.Build)
 		if err != nil {
 			return err
 		}
-		if li.Driver == driverContainer && !engineReady {
+		if li.Driver == driverContainer && (!engineReady || time.Now().After(deadline)) {
 			m.waitForEngine(li)
 			continue
 		}
@@ -287,20 +303,14 @@ func (m *Manager) Adopt(ctx context.Context) error {
 			return err
 		}
 	}
-	runners := []runner{m.driver}
-	if engineReady {
-		runners = append(runners, m.opts.Containers.Driver())
-	}
-	for _, r := range runners {
-		for _, id := range r.List() {
-			if !known[id] {
-				m.log.Warn("stopping an instance unknown to the database", "instance", id)
-				r.Stop(id, 10*time.Second)
-			}
+	for _, id := range m.driver.List() {
+		if !known[id] {
+			m.log.Warn("stopping an instance unknown to the database", "instance", id)
+			m.driver.Stop(id, 10*time.Second)
 		}
 	}
-	// With nothing in containers to adopt, that can wait for the engine to say, and nothing else waits for it.
-	if !engineReady && len(m.pendingContainers()) == 0 {
+	// That can wait for the engine to say, and nothing else waits for it. With something still to adopt, it comes after.
+	if len(m.pendingContainers()) == 0 {
 		go m.stopUnknownContainers(ctx)
 	}
 	// Serve the current release of every adopted environment; instances of
@@ -375,6 +385,7 @@ func (m *Manager) adoptOne(ctx context.Context, li store.LiveInstance, plan mani
 	es := m.env(li.App, li.Env)
 	if li.Port != 0 {
 		in.backend = ingress.NewBackend(li.ID, fmt.Sprintf("127.0.0.1:%d", li.Port))
+		in.backend.UseH2C(plan.Processes[li.Process].Protocol == "h2c")
 	}
 	if m.opts.Isolation.Isolating() && !in.container && !m.driver.RunsAsItsOwnUser(li.ID) {
 		in.sharesUser = true
@@ -398,31 +409,60 @@ func (m *Manager) pendingContainers() []store.LiveInstance {
 	return slices.Clone(m.pending)
 }
 
-// adoptPending takes over what was waiting for the engine, if it now answers.
+// dropPending takes one instance off what is waiting for the engine.
+func (m *Manager) dropPending(id string) {
+	m.pendingMu.Lock()
+	defer m.pendingMu.Unlock()
+	m.pending = slices.DeleteFunc(m.pending, func(li store.LiveInstance) bool { return li.ID == id })
+}
+
+// isPending says that an environment has instances waiting for the engine, which are running as far as anyone knows.
+func (m *Manager) isPending(app, env string) bool {
+	m.pendingMu.Lock()
+	defer m.pendingMu.Unlock()
+	return slices.ContainsFunc(m.pending, func(li store.LiveInstance) bool { return li.App == app && li.Env == env })
+}
+
+// startAdopting looks at what was waiting for the engine behind the scenes, as it can be slow, and every other app should go on being looked after.
+func (m *Manager) startAdopting(ctx context.Context) {
+	if len(m.pendingContainers()) == 0 || !m.adopting.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer m.adopting.Store(false)
+		m.adoptPending(ctx)
+	}()
+}
+
+// adoptPending takes over what was waiting for the engine, if it now answers. What cannot be got to stays waiting. Each is taken with its environment's
+// rollout lock, and comes off the list only once that is held, so that nothing starts another in its place.
 func (m *Manager) adoptPending(ctx context.Context) {
 	pending := m.pendingContainers()
 	if len(pending) == 0 || !m.opts.Containers.Status(ctx).Ready() {
 		return
 	}
-	m.pendingMu.Lock()
-	m.pending = nil
-	m.pendingMu.Unlock()
-	touched := map[*envState]string{}
 	for _, li := range pending {
 		plan, err := readPlan(li.Build)
 		if err != nil {
 			m.log.Error("cannot read the plan of a container", "instance", li.ID, "err", err)
+			m.dropPending(li.ID)
 			continue
 		}
 		es := m.env(li.App, li.Env)
-		es.rollout.Lock()
+		if !es.rollout.TryLock() {
+			continue // a rollout is under way: the next look gets it
+		}
+		m.dropPending(li.ID)
 		err = m.adoptOne(ctx, li, plan)
 		if err == nil {
 			for _, in := range es.list() {
 				if in.id == li.ID {
 					m.watch(es, in)
-					touched[es] = in.releaseID
 				}
+			}
+			// Whichever release is current now, which need not be the one this was running.
+			if rel, _, err := m.db.CurrentRelease(ctx, li.App, li.Env); err == nil {
+				es.serve(rel.ID)
 			}
 		}
 		es.rollout.Unlock()
@@ -430,10 +470,9 @@ func (m *Manager) adoptPending(ctx context.Context) {
 			m.log.Error("cannot adopt a container", "instance", li.ID, "err", err)
 		}
 	}
-	for es, release := range touched {
-		es.serve(release)
+	if len(m.pendingContainers()) == 0 {
+		m.stopUnknownContainers(ctx)
 	}
-	m.stopUnknownContainers(ctx)
 }
 
 // stopUnknownContainers removes what no record explains, once the engine can be asked.
@@ -453,7 +492,8 @@ func (m *Manager) stopUnknownContainers(ctx context.Context) {
 		known[li.ID] = true
 	}
 	for _, id := range ids {
-		if !known[id] {
+		// A one-off command has no record of an instance.
+		if !known[id] && !d.Launched(id) {
 			m.log.Warn("stopping a container unknown to the database", "instance", id)
 			d.Stop(id, 10*time.Second)
 		}
@@ -466,6 +506,33 @@ func (m *Manager) containerDriver(ctx context.Context) (*container.Driver, error
 		return nil, err
 	}
 	return m.opts.Containers.Driver(), nil
+}
+
+// engineFor is the engine's problem, if it has one and this environment needs it: for what its plan runs, for what it is running, or for what may still be running from
+// before. Going on without it would stop nothing and record that it had.
+func (m *Manager) engineFor(ctx context.Context, es *envState, plan manifest.Plan) error {
+	if !m.needsEngine(es, plan) {
+		return nil
+	}
+	return m.opts.Containers.Status(ctx).Err()
+}
+
+func (m *Manager) needsEngine(es *envState, plan manifest.Plan) bool {
+	if plan.Container != nil || m.isPending(es.app, es.env) {
+		return true
+	}
+	return slices.ContainsFunc(es.list(), func(in *instance) bool { return in.container })
+}
+
+// noteEngineNotNeeded clears what was said, if nothing here is waiting for it any more.
+func (m *Manager) noteEngineNotNeeded(ctx context.Context) {
+	if !m.engineDown {
+		return
+	}
+	m.engineDown = false
+	if m.opts.Events != nil {
+		m.opts.Events.Publish(ctx, store.Event{Type: events.EngineOK, Data: map[string]any{"not_needed": true}})
+	}
 }
 
 // noteEngine says, once, when what apps here need has stopped answering, and when it comes back.
@@ -557,29 +624,39 @@ func (m *Manager) ensure(ctx context.Context) {
 		m.log.Error("cannot read the current releases", "err", err)
 		return
 	}
-	m.adoptPending(ctx)
+	m.startAdopting(ctx)
+	wanted := false
 	for _, r := range routes {
 		plan, err := readPlan(r.Build)
 		if err != nil || plan.Kind != manifest.KindProcess {
 			continue
 		}
+		es := m.env(r.App, r.Env)
 		// This is the only thing here that asks for an engine, and only for an app that needs one. With none, what is running is left as it
 		// is, and nothing is started to fail every few seconds.
-		if plan.Container != nil {
+		if m.needsEngine(es, plan) {
+			wanted = true
 			st := m.opts.Containers.Status(ctx)
 			m.noteEngine(ctx, st)
 			if !st.Ready() {
 				continue
 			}
 		}
-		es := m.env(r.App, r.Env)
 		if !es.rollout.TryLock() {
 			continue // a rollout is under way
+		}
+		// What is waiting may yet be found running, and nothing should start in its place.
+		if m.isPending(r.App, r.Env) {
+			es.rollout.Unlock()
+			continue
 		}
 		if err := m.ensureRoute(ctx, es, r, plan); err != nil && ctx.Err() == nil {
 			m.log.Error("cannot start an instance", "app", r.App, "env", r.Env, "err", err)
 		}
 		es.rollout.Unlock()
+	}
+	if !wanted {
+		m.noteEngineNotNeeded(ctx)
 	}
 }
 
@@ -624,6 +701,9 @@ func (m *Manager) Settle(ctx context.Context, app, env string) error {
 		if err != nil || plan.Kind != manifest.KindProcess {
 			return err
 		}
+		if err := m.engineFor(ctx, es, plan); err != nil {
+			return err
+		}
 		return m.ensureRoute(ctx, es, r, plan)
 	}
 	return nil
@@ -638,6 +718,10 @@ func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release
 	have := map[string]bool{}
 	var keep, extra, earlier []*instance
 	for _, in := range es.list() {
+		if in.leaving.Load() {
+			m.retire(es, []*instance{in}, 0)
+			continue
+		}
 		if in.releaseID != rel.ID {
 			earlier = append(earlier, in)
 			continue

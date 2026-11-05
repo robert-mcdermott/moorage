@@ -7,6 +7,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -14,6 +15,7 @@ import (
 func (s *Server) describeEnv(ctx context.Context, doc *apitypes.Environment, e store.Environment) {
 	doc.Kind, doc.Branch, doc.Pinned, doc.LockedBy, doc.LastActive = e.Kind, e.Branch, e.Pinned, e.LockedBy, e.LastActive
 	doc.Asleep = !e.AsleepAt.IsZero()
+	doc.StandsAlone = standsAlone(e)
 	if e.Kind == store.KindPreview && !e.Pinned {
 		doc.ExpiresAt = s.deployer.EnvironmentActive(ctx, e).Add(s.deployer.PreviewTTL(ctx, e.App, e.Name))
 	}
@@ -40,6 +42,9 @@ func (s *Server) environments(w http.ResponseWriter, r *http.Request) {
 	}
 	docs := make([]apitypes.Environment, 0, len(list))
 	for _, e := range list {
+		if who(r).Envs != "" && !standsAlone(e) {
+			continue
+		}
 		docs = append(docs, s.environmentSummary(r.Context(), e))
 	}
 	writeJSON(w, http.StatusOK, docs)
@@ -81,6 +86,8 @@ func (s *Server) environmentFailed(w http.ResponseWriter, err error) bool {
 		return false
 	case errors.As(err, &production), errors.As(err, &busy), errors.As(err, &locked), errors.As(err, &preview), errors.As(err, &redeploy), errors.As(err, &sleepless):
 		problem(w, http.StatusConflict, "conflict", sentenceOf(err))
+	case errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
+		problem(w, http.StatusConflict, "no_container_engine", sentenceOf(err))
 	case errors.As(err, &invalid):
 		problem(w, http.StatusUnprocessableEntity, "invalid_environment_name", err.Error())
 	case errors.Is(err, store.ErrNotFound):

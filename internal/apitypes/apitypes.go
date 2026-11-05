@@ -602,6 +602,8 @@ type Environment struct {
 	// Kind is production, named or preview, and Branch what deploys to it, if a branch does.
 	Kind   string `json:"kind,omitempty"`
 	Branch string `json:"branch,omitempty"`
+	// StandsAlone says that a preview takes nothing of production's, as one made by a token limited to previews does.
+	StandsAlone bool `json:"stands_alone,omitempty"`
 	// Pinned keeps a preview from expiring, and ExpiresAt says when it will otherwise.
 	Pinned    bool      `json:"pinned,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
