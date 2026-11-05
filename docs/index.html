@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -134,7 +135,7 @@
         <li class="toc-2"><a href="#reference">Reference</a></li>
         <li class="toc-2"><a href="#how-moorage-works-in-brief">How Moorage works, in brief</a></li>
       </ul></details>
-<p>How to install Moorage, run it, and deploy apps to it. This documentation describes Moorage 0.8.0; the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/README.md">design documents</a> describe how it works inside and where it is going.</p>
+<p>How to install Moorage, run it, and deploy apps to it. This documentation describes Moorage 0.9.0; the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/README.md">design documents</a> describe how it works inside and where it is going.</p>
 <h2 id="start-here">Start here<a class="anchor" href="#start-here" aria-label="Link to this section">#</a></h2>
 <ul><li><a href="getting-started.html">Getting started</a>: from nothing to an app with a URL, a preview and a rollback, in ten minutes.</li><li><a href="concepts.html">Concepts</a>: apps, environments, releases, gates and roles, on one page.</li><li>The <a href="examples.html">examples</a>: complete apps, ready to deploy.</li></ul>
 <h2 id="deploying-apps">Deploying apps<a class="anchor" href="#deploying-apps" aria-label="Link to this section">#</a></h2>
@@ -142,7 +143,7 @@
 <h2 id="running-apps">Running apps<a class="anchor" href="#running-apps" aria-label="Link to this section">#</a></h2>
 <ul><li><a href="console.html">The web console</a>: the apps, what happened, and getting started.</li><li><a href="releases.html">Releases, rollbacks and scaling</a>: how a release takes over, what happens when one fails, and going back</li><li><a href="variables.html">Variables and secrets</a></li><li><a href="previews.html">Previews and environments</a>: a place of its own for every branch, staging, promoting, locks and sleeping</li><li><a href="cron.html">Cron jobs and one-off commands</a></li><li><a href="interactive.html">Getting into an app</a>: a terminal, a console in the browser, and the data directory</li><li><a href="logs.html">Logs</a>: what apps say, followed and searched</li><li><a href="metrics.html">Metrics</a>: charts in the console, and for Prometheus</li><li><a href="notifications.html">Notifications</a>: told when something goes wrong, in the console, by webhook, in chat and by email</li><li><a href="access.html">Who can reach an app</a>: passwords, signing in, share links and lists of addresses</li><li><a href="domains.html">Your own domains, and paths</a>: hostnames of your own, several apps on one hostname, and servers with no wildcard DNS</li></ul>
 <h2 id="running-a-server">Running a server<a class="anchor" href="#running-a-server" aria-label="Link to this section">#</a></h2>
-<ul><li><a href="install.html">Installing Moorage</a>: get <code>moor</code>, configure the server, run it as a service, back it up.</li><li><a href="configuration.html">Server configuration</a>: every setting of <code>server.toml</code>.</li><li><a href="administration.html">Running a server</a>: the first week, what to look at, and what changes as it grows.</li><li><a href="tls.html">TLS and trusting the server</a>: the certificates, and <code>moor trust</code>.</li><li><a href="proxy.html">Behind a TLS proxy</a>: nginx or anything else in front of Moorage.</li><li><a href="accounts.html">Accounts and access</a>: claiming a server, signing in, users, API tokens and SSH keys.</li><li><a href="sign-in.html">How people sign in</a>: single sign-on with your identity provider, and signing in through a proxy.</li><li><a href="isolation.html">How apps are kept apart</a>: a user of its own for each app, limits and a sandbox</li><li><a href="backups.html">Backups</a>: on demand and on a schedule, to a directory or a bucket, and restoring them</li><li><a href="telemetry.html">Sending telemetry elsewhere</a>: logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds</li><li><a href="troubleshooting.html">When something is wrong</a>: <code>moor server doctor</code>, stopping everything, and logs.</li></ul>
+<ul><li><a href="install.html">Installing Moorage</a>: get <code>moor</code>, configure the server, run it as a service, back it up.</li><li><a href="configuration.html">Server configuration</a>: every setting of <code>server.toml</code>.</li><li><a href="administration.html">Running a server</a>: the first week, what to look at, and what changes as it grows.</li><li><a href="tls.html">TLS and trusting the server</a>: the certificates, and <code>moor trust</code>.</li><li><a href="proxy.html">Behind a TLS proxy</a>: nginx or anything else in front of Moorage.</li><li><a href="accounts.html">Accounts and access</a>: claiming a server, signing in, users, API tokens and SSH keys.</li><li><a href="sign-in.html">How people sign in</a>: single sign-on with your identity provider, and signing in through a proxy.</li><li><a href="isolation.html">How apps are kept apart</a>: a user of its own for each app, limits and a sandbox</li><li><a href="backups.html">Backups</a>: on demand and on a schedule, to a directory or a bucket, and restoring them</li><li><a href="telemetry.html">Sending telemetry elsewhere</a>: logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds</li><li><a href="agents.html">Coding agents</a>: <code>moor mcp</code>, connecting Claude Code, Codex, Kiro and others, and what limits them</li><li><a href="troubleshooting.html">When something is wrong</a>: <code>moor server doctor</code>, stopping everything, and logs.</li></ul>
 <h2 id="how-it-works">How it works<a class="anchor" href="#how-it-works" aria-label="Link to this section">#</a></h2>
 <ul><li><a href="architecture.html">Architecture</a>: one process and its small helpers, how a request and a push go, and where everything is kept.</li><li><a href="security.html">Security</a>: what Moorage protects, what it does not, and how to report a problem.</li></ul>
 <h2 id="reference">Reference<a class="anchor" href="#reference" aria-label="Link to this section">#</a></h2>
@@ -206,7 +207,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

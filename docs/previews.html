@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -175,7 +176,7 @@ remote: ✔ live     v1 at https://shop--feature-new-pricing.apps.example.com</c
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> environments create staging --app shop --branch develop</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> deploy --env staging</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">git</span> push -o env=staging moorage my-branch</code></pre></div>
-<p>Unlike a preview, a named environment inherits nothing of production's: it has the variables set for every environment (<code>moor env set --all-envs</code>), and its own. It has its own data directory, and it stays until it is removed, which takes a maintainer:</p>
+<p>Unlike most previews, a named environment inherits nothing of production's: it has the variables set for every environment (<code>moor env set --all-envs</code>), and its own. It has its own data directory, and it stays until it is removed, which takes a maintainer:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> environments delete staging --app shop</code></pre></div>
 <p>Every command about one environment takes <code>--env</code>, and on an app's pages in the console the environment is chosen at the top.</p>
 <h2 id="promoting">Promoting<a class="anchor" href="#promoting" aria-label="Link to this section">#</a></h2>
@@ -266,7 +267,7 @@ remote: ✔ live     v1 at https://shop--feature-new-pricing.apps.example.com</c
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

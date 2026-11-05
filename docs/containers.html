@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -132,6 +133,7 @@
         <li class="toc-2"><a href="#what-runs">What runs</a></li>
         <li class="toc-2"><a href="#running-them">Running them</a></li>
         <li class="toc-2"><a href="#choosing-the-engine">Choosing the engine</a></li>
+        <li class="toc-2"><a href="#the-engine">The engine</a></li>
         <li class="toc-2"><a href="#good-to-know">Good to know</a></li>
       </ul></details>
 <p>Moorage runs most apps directly, with a toolchain it installs. An app runs in a container when it brings its own image: a <code>Containerfile</code> or <code>Dockerfile</code> to build, or an image that is built already. It is deployed, released, rolled back, routed and logged like any other app.</p>
@@ -196,7 +198,13 @@
 <p>Under <code>[containers]</code> in <code>server.toml</code>:</p>
 <div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[containers]</span>
 <span class="t-k">engine</span> = <span class="t-s">&quot;auto&quot;</span></code></pre></div>
-<p><code>auto</code> is Podman if it is installed, or else Docker. Otherwise, name a binary. The engine runs as the server's user, with its usual settings: <code>CONTAINER_HOST</code> and <code>DOCKER_HOST</code> in the server's environment are honoured. The server looks for it as it starts, and says what it found in its log.</p>
+<p><code>auto</code> is whichever of Podman and Docker is answering, or else the first one found. Otherwise, name a binary. The engine runs as the server's user, with its usual settings: <code>CONTAINER_HOST</code> and <code>DOCKER_HOST</code> in the server's environment are honoured.</p>
+<h2 id="the-engine">The engine<a class="anchor" href="#the-engine" aria-label="Link to this section">#</a></h2>
+<p><strong>Only an app that runs in a container needs one.</strong> The server asks as it starts, without waiting for the answer, and says what it found in its log. A server with apps in containers waits a few seconds for it, and what it cannot find out in that time waits for the engine. After that it asks when something needs the engine, such as deploying one of those apps, and when someone looks at how the server stands, keeping the answer for half a minute. An app that does not run in a container never causes it to ask.</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>It finds</th><th>Means</th><th>What happens</th></tr></thead><tbody><tr><td>Absent</td><td>No program to run</td><td>The server and every other app carry on. Deploying what needs an engine says to install one</td></tr><tr><td>Not answering</td><td>A program with no daemon or machine behind it, such as Docker Desktop not started or <code>podman machine</code> stopped</td><td>The same, and it says to start it</td></tr><tr><td>Ready</td><td>It answered</td><td>Apps can run in containers</td></tr></tbody></table></div>
+<p>So you can start Docker Desktop an hour later, or install Podman, with no restart. A daemon that goes down does not make Moorage think that what it was running has stopped: once it answers, the same containers carry on. While it is down, deploying, restarting, scaling, rolling back, putting such an app to sleep or deleting it says why it cannot, and changes nothing. If it stops answering while apps need it, <code>server.engine_down</code> says so, to <a href="notifications.html">the rules that ask</a>. A container that could not be stopped is stopped once the engine answers.</p>
+<p>Once an image has been built or fetched under an engine, the server stays with that one while anything here needs it, even if another is answering, as the image is in that engine's store. Until then, it takes whichever answers.</p>
+<p><code>moor server doctor</code> and the <a href="api.html">API</a> say how it stands too.</p>
 <h2 id="good-to-know">Good to know<a class="anchor" href="#good-to-know" aria-label="Link to this section">#</a></h2>
 <ul><li><strong>Secrets are visible to the engine's users.</strong> A secret reaches the engine through its environment, on no command line and in no file. The container keeps it in its configuration, so anyone who can <code>inspect</code> the container can read it: on a server, that is whoever can already use the engine.</li><li><strong>A secret cannot be called what the engine's command line uses for itself</strong>: <code>PATH</code>, <code>HOME</code>, <code>TMPDIR</code>, or <code>DOCKER_*</code>, <code>CONTAINER_*</code> and <code>XDG_*</code> variables it reads. The deploy says so.</li><li><strong>The data directory is writable by any user</strong>, because the image's user is whoever the image says. The directories above it keep out the server's other users. With rootless Podman, files a container's non-root user writes belong to a user of the container's, and to read them on the server you need <code>podman unshare</code>.</li><li><strong>Old images are removed</strong> with their releases, beyond <code>keep_releases</code>. An image another app also uses is pulled again when it is next needed.</li><li><strong>Metrics come later.</strong> The engine's numbers for CPU and memory arrive with metrics, in 0.5.0.</li></ul>
 <p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/containers.md">Suggest a change to this page</a></p>
@@ -212,6 +220,7 @@
         <li class="toc-2"><a href="#what-runs">What runs</a></li>
         <li class="toc-2"><a href="#running-them">Running them</a></li>
         <li class="toc-2"><a href="#choosing-the-engine">Choosing the engine</a></li>
+        <li class="toc-2"><a href="#the-engine">The engine</a></li>
         <li class="toc-2"><a href="#good-to-know">Good to know</a></li>
       </ul>
     </aside>
@@ -253,7 +262,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

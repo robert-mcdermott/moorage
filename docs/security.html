@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -156,7 +157,7 @@
 <h2 id="secrets">Secrets<a class="anchor" href="#secrets" aria-label="Link to this section">#</a></h2>
 <ul><li>A secret is encrypted at rest with AES-256-GCM, under a key wrapped by the master key, and bound to its app, environment and name, so that a value cannot be moved to another variable.</li><li>It is shown once, when set. A maintainer can reveal it, and that is recorded.</li><li>It reaches an app in memory, and is on no command line or disk. A container's engine does keep it in the container's configuration, where those who can use the engine can read it.</li><li>Its value is taken out of logs as they are captured, as far as it can be found there.</li><li>Builds do not get secrets, unless you say so for each one.</li><li><strong>A backup leaves out the master key.</strong> Keep that safe and apart: with both, anyone can read the secrets, and without it, nobody can.</li></ul>
 <h2 id="the-console-and-api">The console and API<a class="anchor" href="#the-console-and-api" aria-label="Link to this section">#</a></h2>
-<ul><li>The console has its own hostname, and its cookie goes nowhere else, so that an app cannot read it.</li><li>Pages run under a strict Content-Security-Policy, with no inline scripts or styles, and cannot be framed.</li><li>Requests that change something from a browser need a token bound to the session, and a same-origin request.</li><li>A permission is declared for each route of the API, in one table, and a test goes through all of them for each kind of caller.</li><li>A project can hide its apps from those with no role in it, who get the answer that an app that is not there gets. <a href="accounts.html#projects-and-roles">Accounts</a> says where that stops.</li><li>A token limited to one app reaches that app, and nothing of its project or of the others.</li><li><code>moor server doctor</code> and the System page warn of plain HTTP with no proxy in front, as credentials would travel unencrypted.</li></ul>
+<ul><li>The console has its own hostname, and its cookie goes nowhere else, so that an app cannot read it.</li><li>Pages run under a strict Content-Security-Policy, with no inline scripts or styles, and cannot be framed.</li><li>Requests that change something from a browser need a token bound to the session, and a same-origin request.</li><li>A permission is declared for each route of the API, in one table, and a test goes through all of them for each kind of caller.</li><li>A project can hide its apps from those with no role in it, who get the answer that an app that is not there gets. <a href="accounts.html#projects-and-roles">Accounts</a> says where that stops.</li><li>A token limited to one app reaches that app, and nothing of its project or of the others. One limited to previews reaches those, and changes only those that take nothing of production's.</li><li><a href="agents.html"><code>moor mcp</code></a> gives coding agents little: nothing that runs a command, reads a secret or deletes anything. It refuses a token that can do everything. <a href="agents.html#what-this-does-not-do">What this does not do</a> is worth reading.</li><li><code>moor server doctor</code> and the System page warn of plain HTTP with no proxy in front, as credentials would travel unencrypted.</li></ul>
 <h2 id="facing-the-internet">Facing the internet<a class="anchor" href="#facing-the-internet" aria-label="Link to this section">#</a></h2>
 <ul><li>Plain HTTP is redirected to HTTPS, and <a href="tls.html#staying-on-https"><code>hsts</code></a>, which the <code>public</code> preset turns on, tells browsers not to try it.</li><li>A static site does not serve files or directories whose names start with a dot, except <code>.well-known</code>, unless it says to. So a <code>.env</code> or a <code>.git</code> left in the directory stays there.</li><li>A request cannot pass itself off as the platform. Every spelling of <code>X-Moorage-*</code> is removed, as some ways of serving apps read <code>X.Moorage.User</code> and <code>X_Moorage_User</code> as the same header.</li></ul>
 <h2 id="what-the-server-fetches">What the server fetches<a class="anchor" href="#what-the-server-fetches" aria-label="Link to this section">#</a></h2>
@@ -231,7 +232,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

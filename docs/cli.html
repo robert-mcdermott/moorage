@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -127,6 +128,7 @@
       <p class="doc-lede">Every moor command and its flags.</p>
 <details class="toc-inline"><summary>On this page</summary><ul>
         <li class="toc-2"><a href="#moor-access"><code>moor access</code></a></li>
+        <li class="toc-2"><a href="#moor-agent"><code>moor agent</code></a></li>
         <li class="toc-2"><a href="#moor-alerts"><code>moor alerts</code></a></li>
         <li class="toc-2"><a href="#moor-apps"><code>moor apps</code></a></li>
         <li class="toc-2"><a href="#moor-audit"><code>moor audit</code></a></li>
@@ -148,6 +150,7 @@
         <li class="toc-2"><a href="#moor-logout"><code>moor logout</code></a></li>
         <li class="toc-2"><a href="#moor-logs"><code>moor logs</code></a></li>
         <li class="toc-2"><a href="#moor-manifest"><code>moor manifest</code></a></li>
+        <li class="toc-2"><a href="#moor-mcp"><code>moor mcp</code></a></li>
         <li class="toc-2"><a href="#moor-metrics"><code>moor metrics</code></a></li>
         <li class="toc-2"><a href="#moor-notifications"><code>moor notifications</code></a></li>
         <li class="toc-2"><a href="#moor-password"><code>moor password</code></a></li>
@@ -197,6 +200,13 @@ moor share --expires 3d</code></pre></div>
 <p>--allow-cidr replaces the list of addresses it can be reached from, and --anywhere takes the list away. Otherwise the list stays as it is.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor access set public|password|login|share|default</code></pre></div>
 <div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--allow-cidr strings</code></td><td></td><td>addresses it can be reached from, such as 10.0.0.0/8</td></tr><tr><td><code>--any-user</code></td><td></td><td>with login, let in anyone with an account</td></tr><tr><td><code>--anywhere</code></td><td></td><td>take away the list of addresses</td></tr><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>--password</code></td><td></td><td>set the password too, for when the manifest asks for the gate</td></tr></tbody></table></div>
+<h2 id="moor-agent"><code>moor agent</code><a class="anchor" href="#moor-agent" aria-label="Link to this section">#</a></h2>
+<p>Tell coding agents how to use Moorage</p>
+<h3 id="moor-agent-init"><code>moor agent init</code><a class="anchor" href="#moor-agent-init" aria-label="Link to this section">#</a></h3>
+<p>Add instructions for coding agents to the repository in DIR (default: the current directory): a section of AGENTS.md, and an Agent Skill in .agents/skills, .claude/skills and .kiro/skills. They teach an agent to deploy and look at this app with moor or moor mcp, and what to be careful of. They hold no token, so they can be committed. Running this again brings them up to date, and leaves the rest of AGENTS.md as it was.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor agent init [DIR]</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor agent init --app shop</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>the app; moorage.toml's name if left out</td></tr></tbody></table></div>
 <h2 id="moor-alerts"><code>moor alerts</code><a class="anchor" href="#moor-alerts" aria-label="Link to this section">#</a></h2>
 <p>List an environment's thresholds. Past one for as long as it says, a notification goes to whoever a rule sends &quot;A threshold is crossed&quot; to, and another when it comes right.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor alerts</code></pre></div>
@@ -522,6 +532,24 @@ moor logs --app api --problems --since 24h</code></pre></div>
 <h3 id="moor-manifest-validate"><code>moor manifest validate</code><a class="anchor" href="#moor-manifest-validate" aria-label="Link to this section">#</a></h3>
 <p>Check the moorage.toml in DIR (default: the current directory): its syntax, keys and values. Warnings point at values that look like credentials and at settings this version accepts but does not act on yet.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor manifest validate [DIR]</code></pre></div>
+<h2 id="moor-mcp"><code>moor mcp</code><a class="anchor" href="#moor-mcp" aria-label="Link to this section">#</a></h2>
+<p>Serve coding agents over the Model Context Protocol, on standard input and output. A client runs this for itself: moor mcp setup says how, and makes the token it needs.</p>
+<p>It reads apps, deployments, releases and logs. With --allow-deploy, it can also deploy, roll back and restart. Nothing here runs commands, reads secrets or deletes anything. check_manifest and deploy read files below the directory it started in, or --root, and only if that is not your home directory or above it.</p>
+<p>Its token is what limits it, so it refuses one that can do everything, and does not fall back on what moor login stored. It takes the context named agent, or another by --context, or $MOOR_SERVER and $MOOR_TOKEN. Logs are written by the app and whoever can reach it, and an agent should not be trusted further for having read them.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor mcp</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor mcp setup --client claude-code --app shop
+moor mcp --allow-deploy --app shop</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--allow-deploy</code></td><td></td><td>offer deploying, rolling back and restarting; the token has to allow them too</td></tr><tr><td><code>--app string</code></td><td></td><td>the app to use when a tool is not told</td></tr><tr><td><code>--context string</code></td><td><code>agent</code></td><td>the context to use, from moor mcp setup</td></tr><tr><td><code>--root string</code></td><td></td><td>the directory that local files are read from, and only below it; where this started if left out</td></tr></tbody></table></div>
+<h3 id="moor-mcp-setup"><code>moor mcp setup</code><a class="anchor" href="#moor-mcp-setup" aria-label="Link to this section">#</a></h3>
+<p>Make a narrow, expiring token for a coding agent, keep it in a context of its own, and tell its client how to run moor mcp. The token stays in moor's own file, which only you can read, and goes in no client's configuration or repository.</p>
+<p>By default the token can only read. With --deploy it can also deploy, roll back and restart, in previews that take nothing of production's, whose names start with agent-, and it can reach nothing else: --envs all lets it reach every environment, production included.</p>
+<p>Running this again replaces the token. With --client, it runs that client's own command where it has one, or says what to put where. Without, it lists them all.</p>
+<p>The clients are: antigravity, claude-code, claude-desktop, cline, codex, cursor, devin, gemini, goose, jetbrains, junie, kiro, vscode, zed.</p>
+<p>Code an agent deploys runs on your server. On Linux, an app's environments share a user, so a preview's code can read production's data. To keep what an agent makes from production altogether, give it an app of its own with --app.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor mcp setup</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor mcp setup --client claude-code --app shop
+moor mcp setup --client codex --app shop-dev --deploy</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>limit the token to one app</td></tr><tr><td><code>--client string</code></td><td></td><td>the client to set up</td></tr><tr><td><code>--context string</code></td><td><code>agent</code></td><td>the context to keep it in</td></tr><tr><td><code>--deploy</code></td><td></td><td>let it deploy, roll back and restart</td></tr><tr><td><code>--envs string</code></td><td></td><td>previews or all; with --deploy, previews unless told otherwise</td></tr><tr><td><code>--expires string</code></td><td><code>90d</code></td><td>how long the token lasts</td></tr><tr><td><code>--print</code></td><td></td><td>say what to do, and run nothing of the client's</td></tr><tr><td><code>--root string</code></td><td></td><td>the directory that moor mcp reads local files from; where the client starts it if left out</td></tr></tbody></table></div>
 <h2 id="moor-metrics"><code>moor metrics</code><a class="anchor" href="#moor-metrics" aria-label="Link to this section">#</a></h2>
 <p>Show an environment's requests, response times, CPU and memory, as a line of text for each, with its latest value. --range is live, 1h, 24h, 7d or 30d. The console's Metrics tab has the same as charts.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor metrics</code></pre></div>
@@ -559,7 +587,7 @@ moor notifications channels add mail --kind email --host smtp.example.com --from
 <div class="code"><pre tabindex="0"><code class="language-text">moor notifications rules</code></pre></div>
 <div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
 <h4 id="moor-notifications-rules-add"><code>moor notifications rules add</code><a class="anchor" href="#moor-notifications-rules-add" aria-label="Link to this section">#</a></h4>
-<p>Send events to a channel: of an app, or a project, or the whole server if neither is given. Without --events it asks for failures: deployment.failed, instance.crashloop, cron.failed, server.disk_low, backup.failed and server.certificate_failed. It can also ask for instance.unhealthy and deployment.live, or for * to have them all. A channel that is told something went wrong is also told when it has come right.</p>
+<p>Send events to a channel: of an app, or a project, or the whole server if neither is given. Without --events it asks for failures: deployment.failed, instance.crashloop, cron.failed, server.disk_low, backup.failed, server.certificate_failed and server.engine_down. It can also ask for instance.unhealthy and deployment.live, or for * to have them all. A channel that is told something went wrong is also told when it has come right.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor notifications rules add</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-text">moor notifications rules add --channel alerts
 moor notifications rules add --channel alerts --project web
@@ -898,9 +926,10 @@ moor share revoke shr_01J…</code></pre></div>
   admin   also change variables, and manage your tokens and keys
   gate    only get through the sign-in gates of apps, as you</code></pre></div>
 <p>--app restricts it to one app, and --expires makes it stop working after a time, such as 90d.</p>
+<p>--envs previews limits a read or deploy token to previews that take nothing of production's. It makes one by deploying to a name that starts with agent-, and can reach nothing else: not production, other previews or the repository.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor tokens create NAME</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-text">moor tokens create ci --scope deploy --app shop --expires 90d</code></pre></div>
-<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>restrict it to one app</td></tr><tr><td><code>--expires string</code></td><td></td><td>stop working after this long, such as 90d</td></tr><tr><td><code>--scope strings</code></td><td><code>[deploy]</code></td><td>what it may do: read, deploy, admin, or gate to get through sign-in gates</td></tr></tbody></table></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>restrict it to one app</td></tr><tr><td><code>--envs string</code></td><td></td><td>previews, to limit it to previews</td></tr><tr><td><code>--expires string</code></td><td></td><td>stop working after this long, such as 90d</td></tr><tr><td><code>--scope strings</code></td><td><code>[deploy]</code></td><td>what it may do: read, deploy, admin, or gate to get through sign-in gates</td></tr></tbody></table></div>
 <h3 id="moor-tokens-revoke"><code>moor tokens revoke</code><a class="anchor" href="#moor-tokens-revoke" aria-label="Link to this section">#</a></h3>
 <p>Revoke an API token</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor tokens revoke NAME</code></pre></div>
@@ -940,6 +969,7 @@ moor trust --remove</code></pre></div>
       <h2>On this page</h2>
       <ul>
         <li class="toc-2"><a href="#moor-access"><code>moor access</code></a></li>
+        <li class="toc-2"><a href="#moor-agent"><code>moor agent</code></a></li>
         <li class="toc-2"><a href="#moor-alerts"><code>moor alerts</code></a></li>
         <li class="toc-2"><a href="#moor-apps"><code>moor apps</code></a></li>
         <li class="toc-2"><a href="#moor-audit"><code>moor audit</code></a></li>
@@ -961,6 +991,7 @@ moor trust --remove</code></pre></div>
         <li class="toc-2"><a href="#moor-logout"><code>moor logout</code></a></li>
         <li class="toc-2"><a href="#moor-logs"><code>moor logs</code></a></li>
         <li class="toc-2"><a href="#moor-manifest"><code>moor manifest</code></a></li>
+        <li class="toc-2"><a href="#moor-mcp"><code>moor mcp</code></a></li>
         <li class="toc-2"><a href="#moor-metrics"><code>moor metrics</code></a></li>
         <li class="toc-2"><a href="#moor-notifications"><code>moor notifications</code></a></li>
         <li class="toc-2"><a href="#moor-password"><code>moor password</code></a></li>
@@ -1024,7 +1055,7 @@ moor trust --remove</code></pre></div>
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

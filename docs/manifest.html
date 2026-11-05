@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -149,7 +150,7 @@
         <li class="toc-2"><a href="#detection">Detection</a></li>
         <li class="toc-2"><a href="#accepted-not-acted-on-yet">Accepted, not acted on yet</a></li>
       </ul></details>
-<p><code>moorage.toml</code>, at the top of an app's directory, says how Moorage builds and runs the app. It is optional: without it, Moorage detects the kind of app (see <a href="#detection">Detection</a>), and <code>moor manifest explain</code> shows what it detected. This page describes the manifest as Moorage 0.8.0 implements it; the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/03-manifest.md">design</a> describes what later releases add.</p>
+<p><code>moorage.toml</code>, at the top of an app's directory, says how Moorage builds and runs the app. It is optional: without it, Moorage detects the kind of app (see <a href="#detection">Detection</a>), and <code>moor manifest explain</code> shows what it detected. This page describes the manifest as Moorage 0.9.0 implements it; the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/03-manifest.md">design</a> describes what later releases add.</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> manifest validate      # checks the file, reporting every problem at once</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> manifest explain       # shows how the app will be built and run</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> manifest schema        # prints a JSON Schema for editors</code></pre></div>
@@ -318,7 +319,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -189,7 +190,7 @@
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> tokens create ci --scope deploy --app shop --expires 90d</code></pre></div>
 <p>The secret is printed to standard output, this once. Moorage keeps only its hash.</p>
 <div class="table-wrap" tabindex="0"><table><thead><tr><th>Scope</th><th>What it allows</th></tr></thead><tbody><tr><td><code>read</code></td><td>See apps, deployments, releases, instances and logs; fetch repositories</td></tr><tr><td><code>deploy</code></td><td>Also deploy, restart, roll back and push; see variables</td></tr><tr><td><code>admin</code></td><td>Also change variables; manage its owner's tokens, keys and sessions; for an admin, manage users</td></tr></tbody></table></div>
-<p><code>--app</code> restricts a token to one app: it sees and reaches nothing else, and cannot manage credentials. <code>--expires</code> ends it after a time. <code>moor tokens</code> lists yours with when each was last used, and <code>moor tokens revoke NAME</code> ends one at once. Scripts pass a token with <code>MOOR_TOKEN</code> (and <code>MOOR_SERVER</code>), or <code>--token</code>.</p>
+<p><code>--app</code> restricts a token to one app: it sees and reaches nothing else, and cannot manage credentials. <code>--envs previews</code> limits a <code>read</code> or <code>deploy</code> token to previews, for a <a href="agents.html#letting-it-deploy">coding agent</a>. <code>--expires</code> ends it after a time. <code>moor tokens</code> lists yours with when each was last used, and <code>moor tokens revoke NAME</code> ends one at once. Scripts pass a token with <code>MOOR_TOKEN</code> (and <code>MOOR_SERVER</code>), or <code>--token</code>.</p>
 <h2 id="ssh-keys">SSH keys<a class="anchor" href="#ssh-keys" aria-label="Link to this section">#</a></h2>
 <p><code>moor keys add</code> registers your public key on your account, so that your pushes over SSH are yours (<a href="git.html">Deploying with git push</a>). A key belongs to one account.</p>
 <figure><div class="shot"><img class="shot-light" src="../assets/img/ssh-keys-light.webp" width="1600" height="1194" loading="lazy" decoding="async" alt="Your SSH keys, with the command that adds yours, and a form to add one by hand" /><img class="shot-dark" src="../assets/img/ssh-keys-dark.webp" width="1600" height="1194" loading="lazy" decoding="async" alt="Your SSH keys, with the command that adds yours, and a form to add one by hand" /></div><figcaption>Your <strong>SSH keys</strong>, under your account.</figcaption></figure>
@@ -256,7 +257,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

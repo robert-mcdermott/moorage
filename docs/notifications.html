@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html" aria-current="page">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
             <li><a href="domains.html">Your own domains, and paths</a></li>
@@ -161,7 +162,7 @@
 <p>Nothing goes to a channel until a rule says so. A rule is for the whole server, a project or an app. A rule of the whole server takes an administrator, and one of a project or an app takes a maintainer of it, who can add it on the project's page or from the command line:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> notifications rules add --channel alerts --project web</code></pre></div>
 <p>A rule says what it wants. Without <code>--events</code> it has the first five of these:</p>
-<div class="table-wrap" tabindex="0"><table><thead><tr><th>Event</th><th>When</th></tr></thead><tbody><tr><td><code>deployment.failed</code></td><td>A deployment fails</td></tr><tr><td><code>instance.crashloop</code></td><td>A process has exited three times in five minutes</td></tr><tr><td><code>cron.failed</code></td><td>A cron job fails</td></tr><tr><td><code>server.disk_low</code></td><td>The data volume is 90% full, which only a rule of the whole server hears</td></tr><tr><td><code>server.certificate_failed</code></td><td>A certificate <a href="tls.html#from-a-public-ca-with-acme">from a CA</a> could not be had or renewed, which only a rule of the whole server hears</td></tr><tr><td><code>backup.failed</code></td><td>A <a href="backups.html">backup</a> fails, which only a rule of the whole server hears</td></tr><tr><td><code>instance.unhealthy</code></td><td>An instance fails its health check</td></tr><tr><td><code>deployment.live</code></td><td>A deployment goes live</td></tr></tbody></table></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Event</th><th>When</th></tr></thead><tbody><tr><td><code>deployment.failed</code></td><td>A deployment fails</td></tr><tr><td><code>instance.crashloop</code></td><td>A process has exited three times in five minutes</td></tr><tr><td><code>cron.failed</code></td><td>A cron job fails</td></tr><tr><td><code>server.disk_low</code></td><td>The data volume is 90% full, which only a rule of the whole server hears</td></tr><tr><td><code>server.certificate_failed</code></td><td>A certificate <a href="tls.html#from-a-public-ca-with-acme">from a CA</a> could not be had or renewed, which only a rule of the whole server hears</td></tr><tr><td><code>backup.failed</code></td><td>A <a href="backups.html">backup</a> fails, which only a rule of the whole server hears</td></tr><tr><td><code>server.engine_down</code></td><td>The <a href="containers.html#the-engine">container engine</a> stops answering while apps here need it, which only a rule of the whole server hears</td></tr><tr><td><code>instance.unhealthy</code></td><td>An instance fails its health check</td></tr><tr><td><code>deployment.live</code></td><td>A deployment goes live</td></tr></tbody></table></div>
 <p><code>*</code> asks for all of them. A channel told that something went wrong is told when it has come right:</p>
 <ul><li>a deployment goes live after one that failed;</li><li>a process that kept crashing has not exited for 10 minutes, or a new release has replaced it;</li><li>all the instances that were unhealthy are healthy, or a new release has replaced them;</li><li>the data volume is below 85%;</li><li>a backup works after one that failed.</li></ul>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> notifications rules add --channel alerts --app shop --events deployment.failed,deployment.live</code></pre></div>
@@ -203,7 +204,7 @@ def is_genuine(secret: str, header: str, body: bytes) -&gt; bool:
 <h2 id="see-also">See also<a class="anchor" href="#see-also" aria-label="Link to this section">#</a></h2>
 <ul><li><a href="metrics.html">Metrics</a>, for how an app is doing all the time</li><li><a href="accounts.html#projects-and-roles">Projects and roles</a>, for who maintains what</li><li><a href="cron.html">Cron jobs</a></li></ul>
 <p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/notifications.md">Suggest a change to this page</a></p>
-<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="metrics.html"><span>Previous</span>Metrics</a><a class="doc-pager-next" rel="next" href="access.html"><span>Next</span>Who can reach an app</a></nav>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="agents.html"><span>Previous</span>Coding agents</a><a class="doc-pager-next" rel="next" href="access.html"><span>Next</span>Who can reach an app</a></nav>
     </main>
 
     <aside class="toc" aria-label="On this page">
@@ -257,7 +258,7 @@ def is_genuine(secret: str, header: str, body: bytes) -&gt; bool:
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 
