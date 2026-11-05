@@ -1028,6 +1028,29 @@ Check the moorage.toml in DIR (default: the current directory): its syntax, keys
 moor manifest validate [DIR]
 ```
 
+## `moor mcp`
+
+Serve coding agents over the Model Context Protocol, on standard input and output. A client runs this for itself: moor mcp setup says how, and makes the token it needs.
+
+It reads apps, deployments, releases and logs. With --allow-deploy, it can also deploy, roll back and restart. Nothing here runs commands, reads files or secrets, or deletes anything.
+
+Its token is what limits it, so it refuses one that can do everything, and does not fall back on what moor login stored. It takes the context named agent, or another by --context, or $MOOR\_SERVER and $MOOR\_TOKEN. Logs are written by the app and whoever can reach it, and an agent should not be trusted further for having read them.
+
+```text
+moor mcp
+```
+
+```text
+moor mcp setup --client claude-code --app shop
+moor mcp --allow-deploy --app shop
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--allow-deploy` |  | offer deploying, rolling back and restarting; the token has to allow them too |
+| `--app string` |  | the app to use when a tool is not told |
+| `--context string` | `agent` | the context to use, from moor mcp setup |
+
 ## `moor metrics`
 
 Show an environment's requests, response times, CPU and memory, as a line of text for each, with its latest value. --range is live, 1h, 24h, 7d or 30d. The console's Metrics tab has the same as charts.

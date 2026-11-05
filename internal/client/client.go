@@ -471,6 +471,32 @@ func (c *Client) Deployments(ctx context.Context, app, env string, limit int) ([
 	return page.Items, err
 }
 
+// DeploymentLog passes on a deployment's log as it stands, without waiting for the deployment to end.
+func (c *Client) DeploymentLog(ctx context.Context, id string, fn func(apitypes.LogLine) error) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+"/api/v1/deployments/"+url.PathEscape(id)+"/log", nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.send(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	dec := json.NewDecoder(res.Body)
+	for {
+		var l apitypes.LogLine
+		if err := dec.Decode(&l); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if err := fn(l); err != nil {
+			return err
+		}
+	}
+}
+
 // FollowDeployment calls fn with each line of a deployment's log, as it is
 // written, until the deployment ends (or ctx does), and returns the
 // deployment as it ended.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`moor mcp`,** a small Model Context Protocol server for coding agents, on standard input and output. It reads apps, deployments, releases and logs, and checks a local manifest. With `--allow-deploy`, it can deploy, roll back and restart. Nothing in it runs commands, reads files or secrets, or deletes anything. It refuses a token that can do everything, and does not fall back on what `moor login` stored.
+
 ### Fixed
 
 - **Container apps lost part of their manifest.** With `runtime = "image"` or `"dockerfile"`, `[environments]`, `[[cron]]`, `[vars]` and `strip_prefix` were silently ignored: no named environment, no cron job, and no required or generated variable. They now count, and an environment's `resources` reach the engine.
