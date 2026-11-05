@@ -332,6 +332,30 @@ it), so the console reports the protection that is actually in effect.
   world-writable, because the user in an image is whoever the image says; the
   directories above it keep out the server's other users.
 
+## The engine
+
+A container engine is optional ([D19](12-decisions.md#d19--the-container-engine-is-optional-and-provably-so)). There is one answer to whether this server can run containers, and everything asks it:
+
+| State | Means | Example |
+|---|---|---|
+| `absent` | No program to run | A laptop with neither installed |
+| `not answering` | A program, and no daemon or machine behind it | Docker Desktop not started, `podman machine` stopped |
+| `ready` | It answered, with its kind and version | |
+
+The probe asks the daemon rather than just the program, and is killed after three seconds, which counts as `not answering`. It runs once at start, off the main path so that a hung
+daemon cannot delay anything, and again when something wants the answer, keeping it for 30 seconds. So starting Docker Desktop an hour later, or installing Podman, needs no restart. Nothing polls when
+nothing wants it. `auto` prefers one that is `ready` to the first found, and what already runs under one engine stays with it.
+
+| Where | With no usable engine |
+|---|---|
+| Server start | One informational line, and no warning |
+| An app without services or containers | Nothing is probed and nothing differs |
+| Deploying what needs an engine | Refused before any build, saying why and what to do. What is running goes on running |
+| The console | Says it is unavailable and how to make it available |
+| The API | A capability on the server's information: its state for anyone signed in, and the reason for administrators |
+| `moor server doctor` | Informational if nothing wants an engine. A warning if something does |
+| An engine that goes away later | Records are kept, and an event says so. Native apps go on, and a daemon that is down never marks anything stopped |
+
 ## Platform notes
 
 **Windows.** Native apps run under the service's account, `NT SERVICE\Moorage`. Each shim owns a windowless console and creates its app in a new

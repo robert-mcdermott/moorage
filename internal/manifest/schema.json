@@ -260,7 +260,7 @@
         "additionalProperties": false,
         "required": ["type"],
         "properties": {
-          "type": { "enum": ["postgres", "mysql", "redis", "valkey", "s3"] },
+          "type": { "enum": ["postgres", "s3"] },
           "version": { "type": "string" }
         }
       }

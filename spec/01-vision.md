@@ -85,8 +85,9 @@ as an internal "pages" service that can also run real applications.
   networks. Internet-facing installations — public certificates, hardening for
   public exposure — are designed for but come later.
 - **Production-scale autoscaling, multi-region, CDNs.** Out of scope.
-- **Replacing a database operations team.** Managed services (Postgres, Redis,
-  …) are planned for convenience in dev/preview environments, not as
+- **Replacing a database operations team.** Managed services (PostgreSQL and S3)
+  are planned for convenience, above all in dev and preview environments. Production
+  can use them, labelled as one container with no replica, kept by backups. It is not
   production-grade database hosting.
 
 ## Design principles

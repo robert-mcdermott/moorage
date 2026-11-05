@@ -64,7 +64,7 @@ variable sealed with the server's master key, which is handed to the app in memo
 The **data directory** of an environment survives deploys, and is at `$MOORAGE_DATA_DIR`. Everything else about a release
 is read-only once built, which is why an app's own files belong in that directory ([more](interactive.md#the-data-directory)). It suits a
 SQLite database, with [a dump for backups](backups.md#apps-with-databases). Moorage does not run other databases yet: reach yours through a
-variable, such as `DATABASE_URL`. Services are [planned for 0.9.0](../spec/11-roadmap.md).
+variable, such as `DATABASE_URL`. Services are [planned for 0.10.0](../spec/11-roadmap.md).
 
 ## Gates
 

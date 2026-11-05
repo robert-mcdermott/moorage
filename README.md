@@ -237,7 +237,8 @@ It [gets certificates from a public CA](docs/tls.md#from-a-public-ca-with-acme) 
 Next, in the [roadmap](spec/11-roadmap.md):
 
 - **An outside penetration test,** which Moorage has not had: until it has, read [Security](docs/security.md) before putting a server on the internet.
-- **0.9.0, services:** PostgreSQL, MySQL, Redis and S3-compatible storage in containers, linked to apps, with their own copies for previews.
+- **0.9.0, agents:** an MCP server, with narrow tokens and instructions for coding agents, and a container engine that is provably optional.
+- **0.10.0, services:** PostgreSQL and S3-compatible storage in containers, linked to apps, with their own copies for previews. Only those who use them need an engine.
 
 ## Building Moorage
 

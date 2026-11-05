@@ -321,8 +321,8 @@ func (m *Manifest) validateTables() []string {
 		}
 	}
 	for name, s := range m.Services {
-		if !oneOf(s.Type, []string{"postgres", "mysql", "redis", "valkey", "s3"}) {
-			add("services.%s.type %q must be postgres, mysql, redis, valkey or s3", name, s.Type)
+		if !oneOf(s.Type, []string{"postgres", "s3"}) {
+			add("services.%s.type %q must be postgres or s3", name, s.Type)
 		}
 	}
 	return p
