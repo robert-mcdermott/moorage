@@ -69,7 +69,8 @@ be careful of. They hold no token, so they can be committed. Running this again 
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					return err
 				}
-				if err := os.WriteFile(path, []byte(agentSkill), 0o644); err != nil {
+				// A checkout on Windows can change the line endings of what is embedded, and a skill's header wants these.
+				if err := os.WriteFile(path, []byte(strings.ReplaceAll(agentSkill, "\r\n", "\n")), 0o644); err != nil {
 					return err
 				}
 				fmt.Fprintf(out, "Wrote %s\n", path)
@@ -96,7 +97,8 @@ func writeAgentsSection(path, app string) error {
 	if app != "" {
 		line = "Its app is `" + app + "`."
 	}
-	section := agentsStart + "\n" + strings.TrimRight(strings.ReplaceAll(agentsSection, "APP_LINE", line), "\n") + "\n" + agentsEnd + "\n"
+	body := strings.ReplaceAll(strings.ReplaceAll(agentsSection, "\r\n", "\n"), "APP_LINE", line)
+	section := agentsStart + "\n" + strings.TrimRight(body, "\n") + "\n" + agentsEnd + "\n"
 	existing, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -75,7 +76,8 @@ func TestToolsAreWhatTheyWere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(want) {
+	// A checkout on Windows can change a file's line endings, which are not what this is about.
+	if string(got) != strings.ReplaceAll(string(want), "\r\n", "\n") {
 		t.Errorf("the tools differ from %s, which is written with UPDATE_MCP_TOOLS=1:\n%s", file, got)
 	}
 }
@@ -182,10 +184,14 @@ func TestLocalFilesStayBelowTheRoot(t *testing.T) {
 			t.Errorf("%q: %v", dir, err)
 		}
 	}
-	for _, dir := range []string{"..", "../secret", "sub/../../secret", secret, "nowhere", "/"} {
+	for _, dir := range []string{"..", "../secret", "sub/../../secret", secret, "nowhere"} {
 		if got, err := tools.below(dir); err == nil {
 			t.Errorf("%q gave %s", dir, got)
 		}
+	}
+	// On Windows, / is not a path from the top of anything, and it stays below the root.
+	if got, err := tools.below("/"); err == nil && runtime.GOOS != "windows" {
+		t.Errorf("/ gave %s", got)
 	}
 	// Nor through a link: a repository can hold one.
 	if err := os.Symlink(secret, filepath.Join(root, "innocent")); err == nil {
