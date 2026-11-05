@@ -673,6 +673,8 @@ func TestContainerEngineDownAtStart(t *testing.T) {
 	if err := os.WriteFile(down, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// From here on, this is what counts of what it is asked.
+	os.Remove(calls)
 	addrs, stop = start(t, cfg)
 	t.Cleanup(func() { stop() })
 	c = apiClient(t, cfg, addrs)
