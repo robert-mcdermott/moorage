@@ -1173,6 +1173,9 @@ A product site and full documentation, so that people can find Moorage and try i
 3. **Exposure hardening.** An external penetration test of every public
    surface, and its fixes.
 4. **Protocols.** Cleartext HTTP/2 backends (gRPC); sticky sessions.
+   - Done (slice 4): `protocol = "h2c"` on a `web` process, for backends that speak only cleartext HTTP/2: to them, for their health checks, and from
+     clients on the plain listener. `sticky = true`, by a cookie of Moorage's that the app does not hear. The drill calls a real gRPC server with a real
+     gRPC client: an answer, a status other than OK, and a stream.
 5. **Release 0.8.0.**
 
 ## 0.9.0: services (planned)

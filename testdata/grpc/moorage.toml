@@ -1,0 +1,5 @@
+[app]
+name = "grpc-drill"
+
+[processes.web]
+protocol = "h2c"

@@ -625,6 +625,10 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		go func() { served <- httpsSrv.ServeTLS(httpsLn, "", "") }()
 	}
 	httpSrv := newHTTPServer(httpHandler, errorLog)
+	// With no TLS, gRPC and others speak HTTP/2 straight away: a client on this computer, or a proxy that has dealt with TLS.
+	httpSrv.Protocols = new(http.Protocols)
+	httpSrv.Protocols.SetHTTP1(true)
+	httpSrv.Protocols.SetUnencryptedHTTP2(true)
 	servers = append(servers, httpSrv)
 	go func() { served <- httpSrv.Serve(httpLn) }()
 	if acmeCerts != nil {

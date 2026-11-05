@@ -8,6 +8,7 @@
 //	TESTAPP_FAIL_BEYOND  do so if this instance's number is beyond this one
 //	TESTAPP_START_DELAY  wait this long (a Go duration) before listening
 //	TESTAPP_IGNORE_TERM  ignore the stop signal (to test forced stops)
+//	TESTAPP_H2C          speak cleartext HTTP/2, and nothing else
 //	TESTAPP_PRINT        print the value of this variable at start
 //
 // Paths: /health, /pid, /env?name=X, /headers, /redirect?to=X, /path, /slow?ms=N, /crash, /sick
@@ -73,6 +74,11 @@ func Main() int {
 		return 0
 	}
 	srv := &http.Server{Addr: "127.0.0.1:" + port, Handler: handler()}
+	if os.Getenv("TESTAPP_H2C") != "" {
+		// Cleartext HTTP/2 and nothing else, as a gRPC server speaks.
+		srv.Protocols = new(http.Protocols)
+		srv.Protocols.SetUnencryptedHTTP2(true)
+	}
 	ln, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testapp:", err)
@@ -106,6 +112,22 @@ func handler() http.Handler {
 	})
 	mux.HandleFunc("/sick", func(w http.ResponseWriter, r *http.Request) { sick.Store(true); fmt.Fprint(w, "now sick") })
 	mux.HandleFunc("/pid", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, os.Getpid()) })
+	mux.HandleFunc("/instance", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, os.Getenv("MOORAGE_INSTANCE_ID")) })
+	mux.HandleFunc("/cookies", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, r.Header.Get("Cookie")) })
+	mux.HandleFunc("/proto", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, r.Proto) })
+	// What gRPC does on a stream: answers as it reads, and says how it went in a trailer.
+	mux.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Header().Set("Trailer", "Grpc-Status")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		lines := bufio.NewScanner(r.Body)
+		for lines.Scan() {
+			fmt.Fprintln(w, "heard "+lines.Text())
+			w.(http.Flusher).Flush()
+		}
+		w.Header().Set("Grpc-Status", "0")
+	})
 	mux.HandleFunc("/env", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, os.Getenv(r.URL.Query().Get("name"))) })
 	mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "from_app", Value: "1", Path: "/"})

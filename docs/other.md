@@ -51,6 +51,24 @@ current directory:
 moor deploy --artifact ./dist --app tool
 ```
 
+## gRPC
+
+A gRPC server speaks HTTP/2 with no TLS, and nothing else, so say so:
+
+```toml
+[processes.web]
+protocol = "h2c"
+```
+
+Clients reach it at its address like anything else. With TLS, they use `https` as a browser would, and with no TLS, as on your own
+computer, they speak HTTP/2 from the first byte. Streams work in both directions, and trailers come through, which is where gRPC says how a call went.
+
+Moorage reads none of it, so that a failed call is still a `200` in [the metrics](metrics.md), and [its gates](access.md) apply as they do to anything:
+a sign-in gate means a browser's sign-in, which is no use to a program, so an API token or `public` suits a gRPC server better.
+
+The health check is a TCP connection to `$PORT` by default. `health.path` asks a path over HTTP/2, for a server that answers one, and a server
+with only gRPC services has none. Behind [a proxy](proxy.md), the proxy has to speak HTTP/2 to Moorage: with nginx, that is `grpc_pass` to the plain port.
+
 ## What every app gets
 
 - `PORT` to listen on, and `HOST=127.0.0.1`: apps are reached only through

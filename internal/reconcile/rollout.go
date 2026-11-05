@@ -72,6 +72,7 @@ func (m *Manager) rollout(ctx context.Context, es *envState, rel store.Release, 
 		return err
 	}
 	plan = plan.ForEnv(env, kind).WithFormation(formation)
+	es.pool.SetSticky(plan.Processes[manifest.Web].Sticky)
 
 	var old, others []*instance
 	for _, in := range es.list() {
@@ -306,6 +307,7 @@ func (m *Manager) start(ctx context.Context, es *envState, rel store.Release, bu
 	}
 	if in.port != 0 {
 		in.backend = ingress.NewBackend(in.id, net.JoinHostPort("127.0.0.1", strconv.Itoa(in.port)))
+		in.backend.UseH2C(proc.Protocol == "h2c")
 		in.backend.SetHealthy(false)
 	}
 	es.add(in)
@@ -619,7 +621,14 @@ func (m *Manager) probe(es *envState, in *instance) bool {
 	}
 	req.Host = m.cfg.EnvHost(es.app, es.env)
 	req.Header.Set("User-Agent", "moorage-health")
-	client := &http.Client{Timeout: h.Timeout.Std(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	var transport http.RoundTripper
+	if in.backend != nil && in.backend.H2C() {
+		cleartext := &http.Transport{Protocols: new(http.Protocols)}
+		cleartext.Protocols.SetUnencryptedHTTP2(true)
+		defer cleartext.CloseIdleConnections()
+		transport = cleartext
+	}
+	client := &http.Client{Transport: transport, Timeout: h.Timeout.Std(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Do(req)
 	if err != nil {
 		return false

@@ -410,6 +410,32 @@ def try_forge(forge):
     check(f"{forge.name}: no problem is left standing", not json.loads(state.stdout).get("last_error"), state.stdout[:400])
 
 
+def try_grpc():
+    """A real gRPC server, reached by a real gRPC client, through the server."""
+    print("--- gRPC", flush=True)
+    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", "grpcio==1.76.0", "grpcio-health-checking==1.76.0"], check=True)
+    import grpc
+    from grpc_health.v1 import health_pb2, health_pb2_grpc
+
+    source = pathlib.Path(__file__).resolve().parent.parent.parent / "testdata" / "grpc"
+    done = subprocess.run([moor, "deploy", str(source), "--app", "grpc-drill", "--server", f"http://127.0.0.1:{port}", "--token", (data / "keys" / "admin-token").read_text().strip()], env=env, cwd=source, capture_output=True, text=True)
+    check("gRPC: it deploys and becomes healthy", done.returncode == 0, done.stdout[-800:] + done.stderr[-800:])
+    channel = grpc.insecure_channel(f"127.0.0.1:{port}", options=[("grpc.default_authority", "grpc-drill.localhost")])
+    stub = health_pb2_grpc.HealthStub(channel)
+    answer = stub.Check(health_pb2.HealthCheckRequest(service="drill"), timeout=30)
+    check("gRPC: a call gets its answer", answer.status == health_pb2.HealthCheckResponse.SERVING, str(answer))
+    try:
+        stub.Check(health_pb2.HealthCheckRequest(service="no such service"), timeout=30)
+        check("gRPC: a status other than OK comes through", False)
+    except grpc.RpcError as e:
+        check("gRPC: a status other than OK comes through", e.code() == grpc.StatusCode.NOT_FOUND, str(e.code()))
+    stream = stub.Watch(health_pb2.HealthCheckRequest(service="drill"), timeout=30)
+    first = next(stream)
+    check("gRPC: a stream gets what it says as it says it", first.status == health_pb2.HealthCheckResponse.SERVING, str(first))
+    stream.cancel()
+    channel.close()
+
+
 def try_telemetry():
     print("--- telemetry", flush=True)
     (work / "otel.yaml").write_text("""
@@ -749,7 +775,7 @@ try:
     (work / "ca.pem").write_text("")
     start_server()
     for what in wanted:
-        {"gitea": lambda: try_forge(Gitea()), "gitlab": lambda: try_forge(GitLab()), "telemetry": try_telemetry, "acme": try_acme}[what]()
+        {"gitea": lambda: try_forge(Gitea()), "gitlab": lambda: try_forge(GitLab()), "grpc": try_grpc, "telemetry": try_telemetry, "acme": try_acme}[what]()
 except Exception as e:
     check("the drill ran to the end", False, repr(e))
     raise

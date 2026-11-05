@@ -119,7 +119,7 @@ status polling and platform page assets. Requests under it never reach apps.
   even to `h2c` processes); server-sent events and streaming responses are
   flushed immediately; response trailers pass through; HTTP/2 to clients; HTTP/1.1 to
   backends by default, with opt-in cleartext HTTP/2 to a process for gRPC
-  (`protocol = "h2c"`, Phase 3).
+  (`protocol = "h2c"`).
 - **Limits:** request body size (default 100 MiB, per-app override), header
   size, header read timeout (slow-client protection).
 - **Errors:** connection failures are retried once on another healthy instance

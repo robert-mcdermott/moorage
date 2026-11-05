@@ -299,7 +299,7 @@ jobs:
       - name: Build moor
         run: go build -o moor-check ./cmd/moor
       - name: Try it
-        run: python3 .github/scripts/real-services-check.py "$PWD/moor-check" gitea telemetry acme
+        run: python3 .github/scripts/real-services-check.py "$PWD/moor-check" gitea grpc telemetry acme
 
   isolation:
     # Runs a real server as root, here where that costs nothing, and tries how its apps are kept

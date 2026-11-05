@@ -318,7 +318,8 @@
         "stop_timeout": { "$ref": "#/$defs/duration", "description": "Time between the stop signal and a forced kill.", "default": "30s" },
         "restart": { "description": "When the process is restarted.", "enum": ["always", "on-failure", "never"], "default": "always" },
         "sleep": { "description": "Stopped when the environment sleeps.", "type": "boolean", "default": true },
-        "protocol": { "description": "Backend protocol.", "enum": ["http", "h2c"], "default": "http" }
+        "protocol": { "type": "string", "enum": ["http", "h2c"], "description": "What web speaks on its port: h2c is cleartext HTTP/2, which gRPC needs." },
+        "sticky": { "type": "boolean", "description": "Keeps a browser with the instance it first reached, by a cookie." }
       }
     },
     "resources": {

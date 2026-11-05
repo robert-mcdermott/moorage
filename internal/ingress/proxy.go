@@ -3,6 +3,7 @@ package ingress
 import (
 	"context"
 	crand "crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"github.com/robert-mcdermott/moorage/internal/auth"
@@ -26,7 +27,14 @@ type Backend struct {
 	inflight atomic.Int64
 	healthy  atomic.Bool
 	ejected  atomic.Int64 // Unix nanoseconds until which it gets no requests
+	h2c      atomic.Bool  // it speaks cleartext HTTP/2, and not HTTP/1.1
 }
+
+// UseH2C says that the backend speaks cleartext HTTP/2 on its port, as gRPC servers do.
+func (b *Backend) UseH2C(on bool) { b.h2c.Store(on) }
+
+// H2C says whether it does.
+func (b *Backend) H2C() bool { return b.h2c.Load() }
 
 // NewBackend returns a healthy backend.
 func NewBackend(id, addr string) *Backend {
@@ -64,6 +72,7 @@ type Pool struct {
 	proxy    *httputil.ReverseProxy
 	trusted  []netip.Prefix
 	log      *slog.Logger
+	sticky   atomic.Bool
 }
 
 // NewPool returns an empty pool. trusted lists the proxies whose
@@ -76,9 +85,12 @@ func NewPool(app, env string, trusted []netip.Prefix, log *slog.Logger) *Pool {
 	transport.DialContext = (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	transport.MaxIdleConnsPerHost = 32
 	transport.ResponseHeaderTimeout = 0
+	cleartext := transport.Clone()
+	cleartext.Protocols = new(http.Protocols)
+	cleartext.Protocols.SetUnencryptedHTTP2(true)
 	p.proxy = &httputil.ReverseProxy{
 		Rewrite:      p.rewrite,
-		Transport:    &retryTransport{pool: p, base: transport},
+		Transport:    &retryTransport{pool: p, base: transport, h2c: cleartext},
 		ErrorHandler: p.proxyError,
 		ErrorLog:     slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 	}
@@ -123,8 +135,47 @@ func (p *Pool) pick(skip *Backend) *Backend {
 
 type backendKey struct{}
 
-func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// SetSticky says whether a browser stays with the instance it first reached.
+func (p *Pool) SetSticky(on bool) { p.sticky.Store(on) }
+
+// stickyName is the cookie's name: this environment's own, as apps can share a hostname.
+func (p *Pool) stickyName() string {
+	sum := sha256.Sum256([]byte(p.App + "/" + p.Env))
+	return "moorage_sticky_" + hex.EncodeToString(sum[:4])
+}
+
+// stickyValue says which instance a cookie means, and nothing else. A value that someone has made up can only choose among
+// the instances that are there, as anyone choosing at random might.
+func (p *Pool) stickyValue(b *Backend) string {
+	sum := sha256.Sum256([]byte(p.App + "/" + p.Env + "/" + b.ID))
+	return hex.EncodeToString(sum[:8])
+}
+
+// sticking chooses the instance that the cookie names, if it is there and can take a request, or else any.
+func (p *Pool) sticking(w http.ResponseWriter, r *http.Request) *Backend {
+	name := p.stickyName()
+	if c, err := r.Cookie(name); err == nil {
+		now := time.Now().UnixNano()
+		for _, b := range *p.backends.Load() {
+			if b.usable(now) && p.stickyValue(b) == c.Value {
+				return b
+			}
+		}
+	}
 	b := p.pick(nil)
+	if b != nil {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: p.stickyValue(b), Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
+	}
+	return b
+}
+
+func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var b *Backend
+	if p.sticky.Load() {
+		b = p.sticking(w, r)
+	} else {
+		b = p.pick(nil)
+	}
 	if b == nil {
 		w.Header().Set("Retry-After", "5")
 		unavailable(p.App).ServeHTTP(w, r)
@@ -142,6 +193,20 @@ func (p *Pool) rewrite(pr *httputil.ProxyRequest) {
 	pr.Out.Host = pr.In.Host // apps see the hostname they are served at
 	setForwarded(pr, p.trusted)
 	identityHeaders(pr.Out.Header, pr.In)
+	if p.sticky.Load() {
+		withoutCookie(pr.Out, p.stickyName())
+	}
+}
+
+// withoutCookie takes a cookie of Moorage's out of what an app hears.
+func withoutCookie(r *http.Request, name string) {
+	cookies := r.Cookies()
+	r.Header.Del("Cookie")
+	for _, c := range cookies {
+		if c.Name != name {
+			r.AddCookie(c)
+		}
+	}
 }
 
 func (p *Pool) proxyError(w http.ResponseWriter, r *http.Request, err error) {
@@ -160,10 +225,20 @@ func (p *Pool) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 type retryTransport struct {
 	pool *Pool
 	base http.RoundTripper
+	h2c  http.RoundTripper
+}
+
+// to is how to reach a backend.
+func (t *retryTransport) to(b *Backend) http.RoundTripper {
+	if b != nil && b.H2C() {
+		return t.h2c
+	}
+	return t.base
 }
 
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	res, err := t.base.RoundTrip(req)
+	chosen, _ := req.Context().Value(backendKey{}).(*Backend)
+	res, err := t.to(chosen).RoundTrip(req)
 	if err == nil || !isDialError(err) || !idempotent(req) {
 		return res, err
 	}
@@ -177,7 +252,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	retry := req.Clone(req.Context())
 	retry.URL.Host = alt.Addr
-	return t.base.RoundTrip(retry)
+	return t.to(alt).RoundTrip(retry)
 }
 
 func idempotent(r *http.Request) bool {

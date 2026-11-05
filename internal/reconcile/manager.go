@@ -324,7 +324,7 @@ func (m *Manager) Adopt(ctx context.Context) error {
 	// Serve the current release of every adopted environment; instances of
 	// any other release are what an interrupted rollout left, and go.
 	for _, es := range m.allEnvs() {
-		rel, _, err := m.db.CurrentRelease(ctx, es.app, es.env)
+		rel, build, err := m.db.CurrentRelease(ctx, es.app, es.env)
 		if err != nil {
 			continue
 		}
@@ -334,6 +334,16 @@ func (m *Manager) Adopt(ctx context.Context) error {
 				stale = append(stale, in)
 			} else {
 				m.watch(es, in)
+			}
+		}
+		// What this release's web process speaks, and whether it sticks, is in its plan.
+		if plan, err := readPlan(build); err == nil {
+			web := plan.Processes[manifest.Web]
+			es.pool.SetSticky(web.Sticky)
+			for _, in := range es.list() {
+				if in.backend != nil {
+					in.backend.UseH2C(web.Protocol == "h2c")
+				}
 			}
 		}
 		es.serve(rel.ID)
