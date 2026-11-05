@@ -396,7 +396,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// It takes its ports from the runtime's allocator, which counts its ports in turn.
 	var runtime *reconcile.Manager
 	backing := services.New(services.Options{
-		DB: db, Keyring: keyring, Engines: containers, Events: bus, Log: log, Tick: opts.Tick,
+		DB: db, Keyring: keyring, Engines: containers, Events: bus, Log: log, Tick: opts.Tick, DataDir: cfg.DataDir, GateFor: cfg.GateFor,
 		AllocPort:   func(ctx context.Context) (int, error) { return runtime.AllocPort(ctx) },
 		ReleasePort: func(port int) { runtime.ReleasePort(port) },
 	})
@@ -509,7 +509,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
-	backups := &backup.Service{DB: db, Bus: bus, Keyring: keyring, Keys: masterKey, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
+	backups := &backup.Service{Before: backing.DumpAll, DB: db, Bus: bus, Keyring: keyring, Keys: masterKey, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
 	backupCtx, stopBackups := context.WithCancel(ctx)
 	go backups.Run(backupCtx)
 	defer func() {

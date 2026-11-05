@@ -1094,6 +1094,145 @@ func TestContainerServiceS3(t *testing.T) {
 	}
 }
 
+// What a service holds goes into a backup, comes back on a fresh volume, can seed a preview, and moves to a newer version, on a real engine.
+func TestContainerServiceData(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	db := testAuth(t, cfg).DB
+
+	declared := "\n[services.db]\ntype = \"postgres\"\nversion = \"17\"\n"
+	d, log := deploySource(t, c, "shop", appManifest(declared))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	rec, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	psqlIn := func(id, query string) (string, error) {
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(id), "psql", "-U", "app", "-d", "app", "-At", "-c", query).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	psql := func(id, query string) string {
+		t.Helper()
+		got, err := psqlIn(id, query)
+		if err != nil {
+			t.Fatalf("%s: %v: %s", query, err, got)
+		}
+		return got
+	}
+	psql(rec.ID, "create table people (name text, email text); insert into people values ('Ada', 'ada@example.com')")
+
+	// A backup dumps it into the data directory, and so holds it.
+	started, err := c.StartBackup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the backup", func() bool {
+		list, err := c.Backups(ctx)
+		if err != nil {
+			return false
+		}
+		for _, b := range list.Items {
+			if b.ID == started.ID {
+				return b.Status != "running"
+			}
+		}
+		return false
+	})
+	dump := filepath.Join(cfg.DataDir, "data", "shop", "production", ".services", "db.sql")
+	data, err := os.ReadFile(dump)
+	if err != nil || !strings.Contains(string(data), "ada@example.com") {
+		t.Fatalf("its dump: %v\n%s", err, data)
+	}
+
+	// With its volume gone, as on a new machine after a restore, it comes back with what it held.
+	if out, err := exec.Command(e.Bin, "rm", "-f", container.ServiceName(rec.ID)).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "rm", "-f", rec.Volume).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	waitUntil(t, "what it held to come back", func() bool {
+		got, err := psqlIn(rec.ID, "select email from people")
+		return err == nil && got == "ada@example.com"
+	})
+
+	// A preview behind a gate is seeded from that dump, and sanitized before anything connects.
+	seeded := appManifest("# a preview\n\n[environments.preview]\naccess = \"login\"\n\n[services.db]\ntype = \"postgres\"\nversion = \"17\"\nseed = \"production\"\nsanitize = \"sanitize.sql\"\n")
+	seeded["sanitize.sql"] = "update people set email = 'nobody@example.com';\n"
+	if _, err := db.CreateEnvironment(ctx, "shop", "topic", "preview", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	dep, _, err := c.DeploySource(ctx, "shop", "topic", writeSite(t, seeded), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the preview", func() bool {
+		d, err := c.Deployment(ctx, dep.ID)
+		return err == nil && d.Finished()
+	})
+	if d, err := c.Deployment(ctx, dep.ID); err != nil || d.Status != "live" {
+		t.Fatalf("%+v %v", d, err)
+	}
+	preview, err := db.Service(ctx, "shop", "topic", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := psql(preview.ID, "select name || ' ' || email from people"); got != "Ada nobody@example.com" {
+		t.Errorf("in the preview: %q", got)
+	}
+
+	// An upgrade moves what it holds to the newer version, with the app stopped for that, and keeps the old volume until told.
+	said, err := c.UpgradeService(ctx, "shop", "production", "db", "18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(said, "1 tables") {
+		t.Errorf("what it said: %q", said)
+	}
+	after, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != "18" || after.OldVolume != rec.Volume || after.Volume == rec.Volume {
+		t.Errorf("%+v", after)
+	}
+	if got := psql(rec.ID, "show server_version_num"); !strings.HasPrefix(got, "18") {
+		t.Errorf("its version: %q", got)
+	}
+	if got := psql(rec.ID, "select email from people"); got != "ada@example.com" {
+		t.Errorf("what it holds: %q", got)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err != nil {
+		t.Errorf("its old volume: %v: %s", err, out)
+	}
+	// The app came back, on the same address.
+	waitUntil(t, "the app to come back", func() bool {
+		res, _ := get(t, addrs.HTTP, "shop."+cfg.Domain, "/health")
+		return res.StatusCode == http.StatusOK
+	})
+	// A manifest that still says the older version is told so.
+	refused, log := deploySource(t, c, "shop", appManifest("# still 17\n"+declared))
+	if refused.Status != "failed" || !strings.Contains(refused.Error, "holds data of PostgreSQL 18") {
+		t.Errorf("%+v\n%s", refused, log)
+	}
+	if d, log := deploySource(t, c, "shop", appManifest("# now 18\n\n[services.db]\ntype = \"postgres\"\nversion = \"18\"\n")); d.Status != "live" {
+		t.Errorf("%+v\n%s", d, log)
+	}
+	if err := c.FinishServiceUpgrade(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err == nil {
+		t.Errorf("its old volume is still there: %s", out)
+	}
+}
+
 // removeServices leaves no container, volume or network of a test's server behind.
 func removeServices(t *testing.T, e *container.Engine, cfg config.Config) {
 	t.Helper()

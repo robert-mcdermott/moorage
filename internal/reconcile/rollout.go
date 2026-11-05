@@ -256,6 +256,31 @@ func (m *Manager) Retire(app, env string) {
 	m.retire(es, es.list(), 0)
 }
 
+// Offline stops an environment's instances, does something, and starts them again however it went. It holds the environment's rollout lock, so that nothing starts them in the meantime.
+func (m *Manager) Offline(ctx context.Context, app, env string, do func() error) error {
+	es := m.env(app, env)
+	es.rollout.Lock()
+	defer es.rollout.Unlock()
+	es.pool.Set(nil)
+	m.retire(es, es.list(), 0)
+	err := do()
+	routes, routesErr := m.db.Routes(ctx)
+	if routesErr != nil {
+		return errors.Join(err, routesErr)
+	}
+	for _, r := range routes {
+		if r.App != app || r.Env != env {
+			continue
+		}
+		plan, planErr := readPlan(r.Build)
+		if planErr != nil || plan.Kind != manifest.KindProcess {
+			return errors.Join(err, planErr)
+		}
+		return errors.Join(err, m.ensureRoute(ctx, es, r, plan))
+	}
+	return err
+}
+
 // Forget lets go of what the manager holds for an app that has been retired: its files
 // are moving or going, and the name may come back as another app.
 func (m *Manager) Forget(app string) {

@@ -1220,6 +1220,8 @@ type Service struct {
 	State   string `json:"state"`
 	Running bool   `json:"running"`
 	Unknown bool   `json:"unknown,omitempty"`
+	// OldVolume says that it kept what it held before its last upgrade, until someone says that the upgrade was good.
+	OldVolume string `json:"old_volume,omitempty"`
 	// Unused says that the current release's manifest does not name it. It stays, with what it holds, until someone removes it.
 	Unused    bool      `json:"unused,omitempty"`
 	CreatedBy string    `json:"created_by,omitempty"`
@@ -1228,5 +1230,15 @@ type Service struct {
 
 // ServiceLog is the newest of what a service has said.
 type ServiceLog struct {
+	Log string `json:"log"`
+}
+
+// ServiceUpgrade asks for a newer major version of a service.
+type ServiceUpgrade struct {
+	Version string `json:"version"`
+}
+
+// ServiceChange says what a change to a service did, in the words of what it did.
+type ServiceChange struct {
 	Log string `json:"log"`
 }

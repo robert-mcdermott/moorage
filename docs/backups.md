@@ -98,6 +98,8 @@ server.
 
 ## Apps with databases
 
+[Services](services.md) are looked after: a backup holds a dump of each, made just before.
+
 The data directories are read while the apps go on running, so that a file being written at that moment
 may be caught halfway. For most files that does not matter, but a database file copied while it is
 in use may not open again, and the command says how many files changed as they were read: the server's log

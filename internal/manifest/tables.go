@@ -159,8 +159,11 @@ const (
 	ServiceS3       = "s3"
 )
 
-// DefaultPostgres is the version of PostgreSQL that a service is made with, unless it says.
+// DefaultPostgres is the version of PostgreSQL that a service is made with, unless it says. What is made stays at what it was made with, as this moves.
 const DefaultPostgres = "18"
+
+// SanitizeNone says, under sanitize, that what is in production is fit to copy as it is.
+const SanitizeNone = "none"
 
 var (
 	postgresVersions = []string{"15", "16", "17", "18", "19"}
@@ -199,15 +202,11 @@ func (s ServicePlan) Variables() []string {
 
 // Plan is what a build keeps of a service.
 func (s Service) Plan() ServicePlan {
-	version := s.Version
-	if version == "" && s.Type == ServicePostgres && s.Image == "" {
-		version = DefaultPostgres
-	}
 	previews := s.Previews
 	if previews == "" {
 		previews = "own"
 	}
-	return ServicePlan{Type: s.Type, Version: version, Image: s.Image, Env: s.AddressVariable(), Memory: int64(s.Memory), Previews: previews, Seed: s.Seed, Sanitize: s.Sanitize}
+	return ServicePlan{Type: s.Type, Version: s.Version, Image: s.Image, Env: s.AddressVariable(), Memory: int64(s.Memory), Previews: previews, Seed: s.Seed, Sanitize: s.Sanitize}
 }
 
 // checkServices says what is wrong with [services].
@@ -262,6 +261,12 @@ func checkServices(add func(string, ...any), services map[string]Service) {
 		}
 		if s.Sanitize != "" && s.Seed == "" {
 			add("%s.sanitize is for what a seed copies, and there is no seed", where)
+		}
+		if s.Seed != "" && s.Sanitize == "" {
+			add("%s.seed copies production's data into previews: say what removes what should not be copied, with sanitize, or say sanitize = \"none\"", where)
+		}
+		if s.Type == ServiceS3 && s.Sanitize != "" && s.Sanitize != SanitizeNone {
+			add("%s.sanitize: s3 has no script to run, so that it can only be none", where)
 		}
 		if strings.HasPrefix(s.Sanitize, "/") || slices.Contains(strings.Split(s.Sanitize, "/"), "..") {
 			add("%s.sanitize %q must be a path in the app", where, s.Sanitize)

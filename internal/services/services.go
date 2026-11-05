@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"sort"
@@ -73,6 +74,10 @@ type Options struct {
 	ReleasePort func(port int)
 	Events      *events.Bus
 	Log         *slog.Logger
+	// DataDir is the server's, as a dump goes in an environment's data directory.
+	DataDir string
+	// GateFor says who can reach an environment, as a copy of production's data is not for everyone.
+	GateFor func(set, asked, kind string) (mode, source string)
 	// Tick is how often it looks that what should be running is.
 	Tick time.Duration
 	// ReadyLimit is how long a service has to become healthy, for tests.
@@ -156,7 +161,7 @@ func (m *Manager) Any(ctx context.Context) bool {
 
 // Ensure makes and starts what a release needs, and returns when it is healthy, so that a release command can migrate. It comes before the release: a service
 // that does not become healthy fails the deployment, with the previous release still serving.
-func (m *Manager) Ensure(ctx context.Context, app, env, kind, by string, plan manifest.Plan, log io.Writer) error {
+func (m *Manager) Ensure(ctx context.Context, app, env, kind, by, appDir string, plan manifest.Plan, log io.Writer) error {
 	wanted, err := m.Wanted(ctx, app, env, kind, plan)
 	if err != nil || len(wanted) == 0 {
 		return err
@@ -172,7 +177,7 @@ func (m *Manager) Ensure(ctx context.Context, app, env, kind, by string, plan ma
 		rec, err := m.o.DB.Service(ctx, app, env, name)
 		switch {
 		case errors.Is(err, store.ErrNotFound):
-			if err := m.create(ctx, app, env, by, name, s, log); err != nil {
+			if err := m.create(ctx, app, env, by, appDir, name, s, plan, log); err != nil {
 				return fmt.Errorf("the service %s: %w", name, err)
 			}
 		case err != nil:
@@ -196,7 +201,7 @@ func sortedNames(services map[string]manifest.ServicePlan) []string {
 }
 
 // create makes a service afresh. If it does not come up, nothing is left: it holds nothing yet.
-func (m *Manager) create(ctx context.Context, app, env, by, name string, s manifest.ServicePlan, log io.Writer) (err error) {
+func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string, s manifest.ServicePlan, plan manifest.Plan, log io.Writer) (err error) {
 	engine := m.o.Engines.Claim()
 	driver := m.o.Engines.Driver()
 	if engine == nil || driver == nil {
@@ -207,7 +212,11 @@ func (m *Manager) create(ctx context.Context, app, env, by, name string, s manif
 	case s.Type == manifest.ServiceS3:
 		image = versityImage
 	case image == "":
-		image = fmt.Sprintf(postgresImage, s.Version)
+		version := s.Version
+		if version == "" {
+			version = manifest.DefaultPostgres
+		}
+		image = fmt.Sprintf(postgresImage, version)
 	default:
 		image = qualified(image)
 	}
@@ -262,12 +271,18 @@ func (m *Manager) create(ctx context.Context, app, env, by, name string, s manif
 			m.forget(rec, driver)
 		}
 	}()
-	if err := m.start(ctx, driver, rec, password); err != nil {
+	if _, err := m.start(ctx, driver, rec, password); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "▸ service    %s: waiting for it to be ready\n", name)
 	if err := m.waitReady(ctx, driver, rec); err != nil {
 		return err
+	}
+	if s.Seed != "" {
+		// If this goes wrong, nothing is left of it, which is better than half a copy with what sanitizing it was to remove.
+		if err := m.seed(ctx, driver, rec, s, plan, appDir, log); err != nil {
+			return err
+		}
 	}
 	if s.Type == manifest.ServiceS3 {
 		if err := m.makeBucket(ctx, rec, password); err != nil {
@@ -309,8 +324,14 @@ func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manif
 			return err
 		}
 		fmt.Fprintf(log, "▸ service    %s: starting it\n", rec.Name)
-		if err := m.start(ctx, driver, rec, password); err != nil {
+		fresh, err := m.start(ctx, driver, rec, password)
+		if err != nil {
 			return err
+		}
+		if fresh {
+			if err := m.recover(ctx, driver, rec); err != nil {
+				return err
+			}
 		}
 	}
 	return m.waitReady(ctx, driver, rec)
@@ -340,8 +361,13 @@ func (m *Manager) password(ctx context.Context, rec store.Service) (string, erro
 	return m.o.Keyring.Open(ctx, appID, rec.EnvID, sealedPrefix+rec.Name, rec.Sealed)
 }
 
-// start runs a service's container, from what is on record.
-func (m *Manager) start(ctx context.Context, driver *container.Driver, rec store.Service, password string) error {
+// start runs a service's container, from what is on record, and says whether it has come up on a fresh volume.
+func (m *Manager) start(ctx context.Context, driver *container.Driver, rec store.Service, password string) (bool, error) {
+	return driver.RunService(ctx, m.spec(rec, password))
+}
+
+// spec is how a service runs.
+func (m *Manager) spec(rec store.Service, password string) container.ServiceSpec {
 	image := rec.Image
 	if rec.Digest != "" {
 		image = rec.Digest
@@ -361,7 +387,7 @@ func (m *Manager) start(ctx context.Context, driver *container.Driver, rec store
 		spec.Vars = map[string]string{"POSTGRES_USER": postgresUser, "POSTGRES_DB": postgresUser}
 		spec.Secrets = map[string]string{"POSTGRES_PASSWORD": password}
 	}
-	return driver.RunService(ctx, spec)
+	return spec
 }
 
 // stopLimit is how long a service has to stop without losing anything.
@@ -404,7 +430,10 @@ func postgresMount(version string) string {
 
 // waitReady returns once a service answers. It asks on the loopback address, as its image first starts a server on a socket alone, to set things up.
 func (m *Manager) waitReady(ctx context.Context, driver *container.Driver, rec store.Service) error {
-	name := container.ServiceName(rec.ID)
+	return m.waitReadyNamed(ctx, driver, rec, container.ServiceName(rec.ID))
+}
+
+func (m *Manager) waitReadyNamed(ctx context.Context, driver *container.Driver, rec store.Service, name string) error {
 	limit, cancel := context.WithTimeout(ctx, m.o.ReadyLimit)
 	defer cancel()
 	for {
@@ -540,7 +569,12 @@ func (m *Manager) keepUp(ctx context.Context, rec store.Service) {
 	password, err := m.password(ctx, rec)
 	if err == nil {
 		m.o.Log.Warn("a service had stopped: starting it again", "app", rec.App, "env", rec.Env, "service", rec.Name)
-		err = m.start(ctx, driver, rec, password)
+		var fresh bool
+		fresh, err = m.start(ctx, driver, rec, password)
+		// A restore to a new machine has records of services, and no volumes.
+		if err == nil && fresh {
+			err = m.recover(ctx, driver, rec)
+		}
 	}
 	if err != nil {
 		m.o.Log.Error("start a service again", "app", rec.App, "env", rec.Env, "service", rec.Name, "err", err)
@@ -569,8 +603,14 @@ func (m *Manager) Wake(ctx context.Context, app, env string) error {
 		if err != nil {
 			return err
 		}
-		if err := m.start(ctx, driver, rec, password); err != nil {
+		fresh, err := m.start(ctx, driver, rec, password)
+		if err != nil {
 			return err
+		}
+		if fresh {
+			if err := m.recover(ctx, driver, rec); err != nil {
+				return err
+			}
 		}
 		return m.waitReady(ctx, driver, rec)
 	})
@@ -632,6 +672,9 @@ func (m *Manager) Remove(ctx context.Context, app, env, name, by string) error {
 	}
 	if err := removeVolumes(driver, rec); err != nil {
 		return err
+	}
+	if err := os.Remove(m.dumpPath(rec)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		m.o.Log.Warn("remove a service's dump", "service", rec.Name, "err", err)
 	}
 	if err := m.o.DB.DeleteService(ctx, rec.ID); err != nil {
 		return err
@@ -746,6 +789,11 @@ func (m *Manager) Logs(ctx context.Context, app, env, name string, tail int) (st
 func removeVolumes(driver *container.Driver, rec store.Service) error {
 	if err := driver.RemoveVolume(rec.Volume); err != nil {
 		return err
+	}
+	if rec.OldVolume != "" {
+		if err := driver.RemoveVolume(rec.OldVolume); err != nil {
+			return err
+		}
 	}
 	if rec.Type == manifest.ServiceS3 {
 		return driver.RemoveVolume(container.ServiceMetadataVolume(rec.ID))

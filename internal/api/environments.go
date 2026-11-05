@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/services"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -231,7 +233,7 @@ func (s *Server) services(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		docs = append(docs, apitypes.Service{
 			Name: row.Name, Type: row.Type, Version: row.Version, Image: row.Image, Variable: row.EnvVar, Port: row.Port, State: row.State,
-			Running: row.Running, Unknown: row.Unknown, Unused: row.Unused, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
+			Running: row.Running, Unknown: row.Unknown, Unused: row.Unused, OldVolume: row.OldVolume, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, docs)
@@ -262,4 +264,57 @@ func (s *Server) removeService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) updateService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	var log bytes.Buffer
+	digest, err := s.deployer.UpdateService(lasting(r), app, env, r.PathValue("name"), &log)
+	if s.serviceFailed(w, err) {
+		return
+	}
+	said := "It was up to date.\n"
+	if digest != "" {
+		said = "It now runs " + digest + ".\n"
+	}
+	writeJSON(w, http.StatusOK, apitypes.ServiceChange{Log: said})
+}
+
+func (s *Server) upgradeService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	var req apitypes.ServiceUpgrade
+	if !decode(w, r, &req) {
+		return
+	}
+	var log bytes.Buffer
+	if s.serviceFailed(w, s.deployer.UpgradeService(lasting(r), app, env, r.PathValue("name"), req.Version, &log)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, apitypes.ServiceChange{Log: log.String()})
+}
+
+func (s *Server) finishServiceUpgrade(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.serviceFailed(w, s.deployer.FinishServiceUpgrade(lasting(r), app, env, r.PathValue("name"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) serviceFailed(w http.ResponseWriter, err error) bool {
+	var major *services.MajorChangeError
+	if errors.As(err, &major) {
+		problem(w, http.StatusConflict, "conflict", sentenceOf(err))
+		return true
+	}
+	return s.environmentFailed(w, err)
 }

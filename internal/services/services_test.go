@@ -76,7 +76,16 @@ case "$1" in
   inspect) if [ -e "` + dir + `/running" ]; then echo '{"Running":true,"Status":"running"}'; else echo "Error: no such object" >&2; exit 1; fi ;;
   run) touch "` + dir + `/running" ;;
   rm|stop) rm -f "` + dir + `/running" ;;
-  exec) if [ -e "` + dir + `/never-ready" ]; then exit 2; fi ;;
+  exec)
+    if [ -e "` + dir + `/never-ready" ]; then exit 2; fi
+    if [ -e "` + dir + `/no-dump" ] && echo "$*" | grep -q pg_dump; then echo "pg_dump: it went wrong" >&2; exit 1; fi
+    if [ "$2" = -i ]; then cat >> "` + dir + `/loaded"; echo "--- $*" >> "` + dir + `/loaded"; fi
+    case "$*" in
+      *pg_dump*) echo "a dump of it" ;;
+      *"tar -C /data -cf"*) echo "a tar of it" ;;
+      *n_live_tup*) echo "3 rows in 1 tables" ;;
+    esac
+    ;;
   logs) echo "what it said" ;;
   volume|network)
     if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1" ]; then echo "no such $1" >&2; exit 1; fi
@@ -114,7 +123,7 @@ func TestAPlanWithNoServicesAsksNothingOfAnEngine(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	plain := manifest.Plan{Kind: manifest.KindProcess}
-	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", plain, io.Discard); err != nil {
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", plain, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.m.CheckEngine(ctx, "shop", "production", store.KindProduction, plain); err != nil {
@@ -142,7 +151,7 @@ func TestAPlanWithNoServicesAsksNothingOfAnEngine(t *testing.T) {
 	}
 	// And so does none at all.
 	var none *Manager
-	if err := none.Ensure(ctx, "shop", "production", store.KindProduction, "me", postgresPlan(), io.Discard); err != nil || none.Any(ctx) {
+	if err := none.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", postgresPlan(), io.Discard); err != nil || none.Any(ctx) {
 		t.Errorf("no manager: %v", err)
 	}
 }
@@ -151,7 +160,7 @@ func TestMakingAService(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	plan := postgresPlan()
-	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", plan, io.Discard); err != nil {
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", plan, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := f.db.Service(ctx, "shop", "production", "db")
@@ -207,7 +216,7 @@ func TestMakingAService(t *testing.T) {
 
 	// Deploying again makes nothing, and pulls nothing: an update is something that you ask for.
 	before := f.asked()
-	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", plan, io.Discard); err != nil {
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", plan, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if again := strings.TrimPrefix(f.asked(), before); strings.Contains(again, "pull") || strings.Contains(again, "volume create") {
@@ -219,7 +228,7 @@ func TestMakingAService(t *testing.T) {
 	// A major version is not something to change under its data.
 	newer := postgresPlan()
 	newer.Services["db"] = manifest.ServicePlan{Type: manifest.ServicePostgres, Version: "19", Env: "DATABASE_URL"}
-	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", newer, io.Discard); err == nil || !strings.Contains(err.Error(), "holds data of PostgreSQL 18") {
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", newer, io.Discard); err == nil || !strings.Contains(err.Error(), "holds data of PostgreSQL 18") {
 		t.Errorf("a newer major: %v", err)
 	}
 
@@ -306,7 +315,7 @@ func TestAServiceThatDoesNotComeUpLeavesNothing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.dir, "never-ready"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", postgresPlan(), io.Discard)
+	err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", postgresPlan(), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "did not become ready") || !strings.Contains(err.Error(), "what it said") {
 		t.Errorf("%v", err)
 	}
@@ -377,7 +386,7 @@ func TestAServiceOfS3(t *testing.T) {
 	port, _ := strconv.Atoi(portText)
 	f.m.o.AllocPort = func(context.Context) (int, error) { return port, nil }
 	plan := manifest.Plan{Kind: manifest.KindProcess, Services: map[string]manifest.ServicePlan{"files": {Type: manifest.ServiceS3, Env: "S3_ENDPOINT", Previews: "own"}}}
-	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", plan, io.Discard); err != nil {
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", plan, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := f.db.Service(ctx, "shop", "production", "files")
@@ -427,7 +436,7 @@ func TestAServiceOfS3(t *testing.T) {
 	}
 	// A service cannot become another kind of thing.
 	other := manifest.Plan{Kind: manifest.KindProcess, Services: map[string]manifest.ServicePlan{"files": {Type: manifest.ServicePostgres, Version: "18", Env: "DATABASE_URL"}}}
-	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", other, io.Discard); err == nil || !strings.Contains(err.Error(), "a service of s3") {
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", other, io.Discard); err == nil || !strings.Contains(err.Error(), "a service of s3") {
 		t.Errorf("%v", err)
 	}
 	// Both of its volumes go with it.
@@ -469,5 +478,185 @@ func TestSmallThings(t *testing.T) {
 	a, err := newPassword()
 	if err != nil || len(a) < 32 || strings.ContainsAny(a, "@:/?#%") {
 		t.Errorf("%q %v", a, err)
+	}
+}
+
+// Data: a dump for a backup, what comes back on a fresh volume, what a preview may be seeded with, and moving between versions.
+func TestDumpsAndWhatComesOfThem(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.m.o.DataDir = f.dir
+	f.m.o.GateFor = func(set, asked, kind string) (string, string) {
+		if set != "" {
+			return set, "setting"
+		}
+		return "public", "default"
+	}
+	plan := postgresPlan()
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", plan, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	dump := filepath.Join(f.dir, "data", "shop", "production", ".services", "db.sql")
+
+	// A preview's is left out of a backup, as it is not meant to last.
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "topic", store.KindPreview, "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Ensure(ctx, "shop", "topic", store.KindPreview, "me", "", plan, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if problems := f.m.DumpAll(ctx); len(problems) != 0 {
+		t.Fatalf("%v", problems)
+	}
+	data, err := os.ReadFile(dump)
+	if err != nil || string(data) != "a dump of it\n" {
+		t.Errorf("%q %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "data", "shop", "topic", ".services", "db.sql")); err == nil {
+		t.Error("a preview's was dumped")
+	}
+	// One that fails says so, and leaves the last one as it was.
+	if err := os.WriteFile(filepath.Join(f.dir, "no-dump"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	problems := f.m.DumpAll(ctx)
+	if len(problems) != 1 || !strings.Contains(problems[0], "was not dumped") || !strings.Contains(problems[0], "it went wrong") {
+		t.Errorf("%v", problems)
+	}
+	if data, _ := os.ReadFile(dump); string(data) != "a dump of it\n" {
+		t.Errorf("the last one: %q", data)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(dump)); len(entries) != 1 {
+		t.Errorf("what it left: %v", entries)
+	}
+	os.Remove(filepath.Join(f.dir, "no-dump"))
+
+	// On a fresh volume, as after a restore to a new machine, what it held comes back from its dump.
+	rec, err := f.db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(f.dir, "running"))
+	os.Remove(filepath.Join(f.dir, "volume"))
+	f.m.keepUp(ctx, rec)
+	loaded, err := os.ReadFile(filepath.Join(f.dir, "loaded"))
+	if err != nil || !strings.Contains(string(loaded), "a dump of it") {
+		t.Errorf("what it loaded: %q %v", loaded, err)
+	}
+	os.Remove(filepath.Join(f.dir, "loaded"))
+	// And on the volume that it had, nothing is loaded over it.
+	os.Remove(filepath.Join(f.dir, "running"))
+	f.m.keepUp(ctx, rec)
+	if _, err := os.Stat(filepath.Join(f.dir, "loaded")); err == nil {
+		t.Error("it loaded a dump over what it held")
+	}
+
+	// A preview is seeded only if it says so, and only behind a gate.
+	appDir := filepath.Join(f.dir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "sanitize.sql"), []byte("update users set email = 'x';"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seeded := manifest.Plan{Kind: manifest.KindProcess, Services: map[string]manifest.ServicePlan{
+		"db": {Type: manifest.ServicePostgres, Version: "18", Env: "DATABASE_URL", Previews: "own", Seed: "production", Sanitize: "sanitize.sql"},
+	}}
+	make := func(env string) string {
+		t.Helper()
+		var log strings.Builder
+		if err := f.m.Ensure(ctx, "shop", env, store.KindPreview, "me", appDir, seeded, &log); err != nil {
+			t.Fatal(err)
+		}
+		return log.String()
+	}
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "open", store.KindPreview, "open"); err != nil {
+		t.Fatal(err)
+	}
+	if log := make("open"); !strings.Contains(log, "anyone can reach this preview") {
+		t.Errorf("one with no gate:\n%s", log)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "loaded")); err == nil {
+		t.Error("it copied production's data to where anyone can reach it")
+	}
+	if _, err := f.db.CreatePreviewAlone(ctx, "shop", "agent-work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetEnvironmentAccess(ctx, "shop", "agent-work", store.EnvAccess{Mode: "login"}); err != nil {
+		t.Fatal(err)
+	}
+	if log := make("agent-work"); !strings.Contains(log, "takes nothing of production") {
+		t.Errorf("an agent's:\n%s", log)
+	}
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "gated", store.KindPreview, "gated"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetEnvironmentAccess(ctx, "shop", "gated", store.EnvAccess{Mode: "login"}); err != nil {
+		t.Fatal(err)
+	}
+	log := make("gated")
+	if !strings.Contains(log, "seeding it") || !strings.Contains(log, "sanitizing it") {
+		t.Errorf("one behind a gate:\n%s", log)
+	}
+	loaded, _ = os.ReadFile(filepath.Join(f.dir, "loaded"))
+	if a, b := strings.Index(string(loaded), "a dump of it"), strings.Index(string(loaded), "update users"); a < 0 || b < a {
+		t.Errorf("what it loaded, in order: %q", loaded)
+	}
+	// If what removes what should not be copied goes wrong, nothing is left of the copy.
+	if err := os.Remove(filepath.Join(appDir, "sanitize.sql")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "gated2", store.KindPreview, "gated2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetEnvironmentAccess(ctx, "shop", "gated2", store.EnvAccess{Mode: "login"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Ensure(ctx, "shop", "gated2", store.KindPreview, "me", appDir, seeded, io.Discard); err == nil || !strings.Contains(err.Error(), "sanitize") {
+		t.Errorf("no script: %v", err)
+	}
+	if list, _ := f.db.Services(ctx, "shop", "gated2"); len(list) != 0 {
+		t.Errorf("%+v", list)
+	}
+
+	// Updating takes the newest image of its version, if there is one.
+	if digest, err := f.m.Update(ctx, "shop", "production", "db", io.Discard); err != nil || digest != "" {
+		t.Errorf("%q %v", digest, err)
+	}
+
+	// Upgrading goes only up, and keeps what it held until told.
+	if err := f.m.Upgrade(ctx, "shop", "production", "db", "17", io.Discard); err == nil || !strings.Contains(err.Error(), "not newer") {
+		t.Errorf("going down: %v", err)
+	}
+	if err := f.m.Upgrade(ctx, "shop", "production", "db", "18", io.Discard); err == nil || !strings.Contains(err.Error(), "not newer") {
+		t.Errorf("staying: %v", err)
+	}
+	if err := f.db.SetServiceImage(ctx, rec.ID, "17", "docker.io/library/postgres:17-trixie", "", rec.Volume, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Upgrade(ctx, "shop", "production", "db", "18", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != "18" || got.OldVolume != rec.Volume || got.Volume == rec.Volume {
+		t.Errorf("%+v", got)
+	}
+	if err := f.m.Upgrade(ctx, "shop", "production", "db", "19", io.Discard); err == nil || !strings.Contains(err.Error(), "--finish") {
+		t.Errorf("again before finishing: %v", err)
+	}
+	if strings.Contains(f.asked(), "volume rm -f "+rec.Volume) {
+		t.Error("it removed what it held")
+	}
+	if err := f.m.FinishUpgrade(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.asked(), "volume rm -f "+rec.Volume) {
+		t.Error("it kept what it held")
+	}
+	if got, _ := f.db.Service(ctx, "shop", "production", "db"); got.OldVolume != "" {
+		t.Errorf("%+v", got)
 	}
 }

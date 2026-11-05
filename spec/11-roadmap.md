@@ -1228,7 +1228,10 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
 3. **S3,** as the rest of the same design.
    - Done (slice 3): one bucket and one key, under the names that clients look for, with what is secret kept apart from what is not, as a bucket's name is too short a word to remove from what an app prints.
 4. **Previews.** Their own, empty, sleeping and removed, and then opt-in seeding.
+   - Done (slice 4): refused for a preview that anyone can reach, one from a fork and one that a coding agent's token made. What removes what should not be copied has to be said, even if to say that nothing should.
 5. **Backups and upgrades.**
+   - Done (slice 5): a dump before each backup, loaded by itself on a fresh volume, `moor services update` and `moor services upgrade`, which keeps the old volume until told.
+   - Found by slice 5: a cold rootless Podman takes more than the three seconds its first answer was given, and that no was kept for half a minute, which failed a first deployment. It now has 15 seconds, a no lasts five, and looking after what is running goes by what was last found. A version in the plan by default would have refused a service after its upgrade, as the manifest named none, so that what is made stays at what it was made with.
 6. **Release 0.10.0.**
 
 ## 0.11.0: ecosystem (planned)

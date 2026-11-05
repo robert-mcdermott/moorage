@@ -61,11 +61,6 @@ func Lint(m *Manifest) []string {
 			notYet("previews.data", "a preview's data directory starts empty")
 		}
 	}
-	for name, s := range m.Services {
-		if s.Seed != "" {
-			notYet("services."+name+".seed", "a preview starts empty for now; [release] on_create can fill it")
-		}
-	}
 	if m.Static != nil && len(m.Processes) > 0 {
 		notYet("[static] beside [processes]", "serving both arrives with [[routes]]; the processes serve the app")
 	}

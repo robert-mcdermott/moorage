@@ -11,6 +11,8 @@ CREATE TABLE services (
     -- The engine that holds its image and its volume, which it stays with.
     engine       TEXT NOT NULL,
     volume       TEXT NOT NULL,
+    -- What it held before an upgrade, kept until someone says that the upgrade was good.
+    old_volume   TEXT NOT NULL DEFAULT '',
     port         INTEGER NOT NULL,
     password_enc BLOB NOT NULL,
     -- The variable that gives the app its address.
@@ -21,5 +23,5 @@ CREATE TABLE services (
     created_by   TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     UNIQUE (env_id, name)
-);
+) STRICT;
 CREATE INDEX services_env ON services (env_id);

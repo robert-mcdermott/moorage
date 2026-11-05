@@ -29,11 +29,18 @@ const (
 	Unknown State = "unknown"
 )
 
+// probeLimit is how long an engine has to answer. A daemon can hang with its socket open, and nothing here should wait for it for long. Rootless Podman on a machine that has
+// just started can take several seconds to answer for the first time, and saying that it is not answering would fail what someone has just asked for. What only wants to show
+// how things stand, or looks after what is running, uses Known, and so does not wait for this.
+const defaultProbeLimit = 15 * time.Second
+
+var probeLimit = defaultProbeLimit
+
 const (
-	// probeLimit is how long an engine has to answer. A daemon can hang with its socket open, and nothing here should wait for it.
-	probeLimit = 3 * time.Second
 	// statusKept is how long an answer stands, so that asking often costs nothing.
 	statusKept = 30 * time.Second
+	// notReadyKept is how long a no stands, as someone who has just started Docker Desktop should not have to wait to be believed.
+	notReadyKept = 5 * time.Second
 	// firstAnswerWait is how long what only wants to know waits for the first answer there is, which an engine that answers gives in far less.
 	firstAnswerWait = time.Second
 )
@@ -268,7 +275,7 @@ func (s *Source) Known() Status {
 	if s.refreshing.CompareAndSwap(false, true) {
 		go func() {
 			defer s.refreshing.Store(false)
-			ctx, cancel := context.WithTimeout(context.Background(), 4*probeLimit)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*probeLimit)
 			defer cancel()
 			s.Status(ctx)
 		}()
@@ -286,7 +293,11 @@ func (s *Source) Known() Status {
 func (s *Source) last() (Status, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.status, !s.checked.IsZero() && time.Since(s.checked) < s.o.Kept
+	kept := s.o.Kept
+	if !s.status.Ready() {
+		kept = min(kept, notReadyKept)
+	}
+	return s.status, !s.checked.IsZero() && time.Since(s.checked) < kept
 }
 
 func (s *Source) orUnknown() Status {

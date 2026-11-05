@@ -35,6 +35,8 @@ type Runtime interface {
 	// new instances are ready and before they take the traffic.
 	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, commit func() error) error
 	Retire(app, env string)
+	// Offline stops an environment's instances, does something, and starts them again however it went.
+	Offline(ctx context.Context, app, env string, do func() error) error
 	// EngineBlocks says why what runs in an environment, or with none in any of an app's, could not be stopped now.
 	EngineBlocks(ctx context.Context, app, env string) error
 	Forget(app string)
@@ -670,7 +672,8 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 		if err != nil {
 			return store.Release{}, err
 		}
-		if err := d.opts.Services.Ensure(ctx, dep.App, dep.Env, kind, dep.CreatedBy, plan, log); err != nil {
+		appDir := filepath.Join(d.opts.DataDir, filepath.FromSlash(b.ArtifactRef), "app")
+		if err := d.opts.Services.Ensure(ctx, dep.App, dep.Env, kind, dep.CreatedBy, appDir, plan, log); err != nil {
 			return store.Release{}, err
 		}
 	}

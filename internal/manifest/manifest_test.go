@@ -383,7 +383,7 @@ env = "VECTORS_URL"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := m.Services["db"].Plan(); got.Version != DefaultPostgres || got.Env != "DATABASE_URL" || got.Previews != "own" || got.Type != ServicePostgres {
+	if got := m.Services["db"].Plan(); got.Version != "" || got.Env != "DATABASE_URL" || got.Previews != "own" || got.Type != ServicePostgres {
 		t.Errorf("the default: %+v", got)
 	}
 	if got := m.Services["analytics"].Plan(); got.Version != "16" || got.Env != "ANALYTICS_DATABASE_URL" || got.Memory != 512<<20 || got.Previews != "none" {
@@ -402,7 +402,9 @@ env = "VECTORS_URL"
 		"no tag":            {"[services.db]\ntype = \"postgres\"\nimage = \"example.com:5000/postgres\"\n", "needs a tag"},
 		"a variable":        {"[services.db]\ntype = \"postgres\"\nenv = \"not-a-name\"\n", "not a valid variable name"},
 		"previews":          {"[services.db]\ntype = \"postgres\"\npreviews = \"shared\"\n", "must be own or none"},
-		"a seed":            {"[services.db]\ntype = \"postgres\"\nseed = \"staging\"\n", "must be production"},
+		"a seed, no word":   {"[services.db]\ntype = \"postgres\"\nseed = \"production\"\n", "say sanitize"},
+		"s3 sanitized":      {"[services.files]\ntype = \"s3\"\nseed = \"production\"\nsanitize = \"a.sql\"\n", "can only be none"},
+		"a seed":            {"[services.db]\ntype = \"postgres\"\nseed = \"staging\"\nsanitize = \"none\"\n", "must be production"},
 		"sanitize, no seed": {"[services.db]\ntype = \"postgres\"\nsanitize = \"a.sql\"\n", "there is no seed"},
 		"sanitize, outside": {"[services.db]\ntype = \"postgres\"\nseed = \"production\"\nsanitize = \"../a.sql\"\n", "a path in the app"},
 		"s3 version":        {"[services.files]\ntype = \"s3\"\nversion = \"1\"\n", "no version"},

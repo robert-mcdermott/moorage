@@ -21,6 +21,8 @@ That is all it takes. On the next deployment, Moorage starts PostgreSQL 18 for t
 | `env` | Another name for the variable, or for `s3` the start of each, needed for a second of one type | `DATABASE_URL`, or `S3_ENDPOINT` and its fellows |
 | `memory` | A limit, such as `512MiB` | None |
 | `previews` | `own`, or `none` for previews to have none | `own` |
+| `seed` | `production`, for a new preview to start with a copy. See [what a preview starts with](#what-a-preview-starts-with) | Empty |
+| `sanitize` | With `seed`, a script in the app that removes what should not be copied, or `none` to say that nothing should | |
 
 Two of a type need different variables:
 
@@ -82,6 +84,54 @@ The address is given as an instance starts, as a secret is. It is not in a relea
 | The engine stops answering | What is running is left alone. Deploying, restarting, putting to sleep or deleting says why it cannot, and changes nothing. `server.engine_down` says so, to [the rules that ask](notifications.md) |
 
 A manifest that asks for another major version than a service holds is refused, as that takes moving its data. PostgreSQL itself also refuses to start on a newer version's files, so this is not all that stands between a mistake and lost data.
+
+## What a preview starts with
+
+**Empty,** unless the manifest says otherwise, with `[release] on_create` to put something in it, which runs once. Copying production into previews is how customer data leaks.
+
+To copy it anyway, it takes saying so, and saying what removes what should not be copied:
+
+```toml
+[environments.preview]
+access = "login"
+
+[services.db]
+type = "postgres"
+seed = "production"
+sanitize = "scripts/sanitize.sql"
+```
+
+A new preview then starts with production's latest dump, which [a backup](backups.md) makes. The script runs before anything can connect, and if it fails, nothing is left of the copy, and the deployment fails. `sanitize = "none"` says that nothing needs removing.
+
+A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request from a fork, or if a [coding agent's token](agents.md) made it. An existing preview is not seeded again: destroy it, or remove its service.
+
+## Backups
+
+A [backup](backups.md) holds a dump of each service of production and of the named environments, written to `.services` in the environment's data directory just before: `pg_dump`, or a tar of the object store. A dump that fails is reported, and the rest of the backup goes on. Volumes are not in a backup, and previews are not dumped.
+
+After a restore, a service comes up on a fresh volume and loads its dump, by itself. So does one whose volume has gone for any other reason. What was written after the last dump is gone.
+
+## Updates and upgrades
+
+Nothing changes an image by itself: which one it runs is recorded when a service is made.
+
+```bash
+moor services update db
+```
+
+That takes the newest image of its version, such as 18.7 where it ran 18.6, and restarts it.
+
+A new major version takes moving its data, as an image holds only its own version:
+
+```bash
+moor services upgrade db --to 19
+```
+
+The app stops for that, as what it wrote after the dump would be lost. Moorage dumps the service with the newer version's tools, restores into a new volume, checks that it holds as many rows and tables, and switches. Anything going wrong leaves the old one as it was, and the app starts again however it goes. Say the new version in the manifest too, if it names one. The old volume stays until you are happy:
+
+```bash
+moor services upgrade db --finish
+```
 
 ## Seeing and removing them
 

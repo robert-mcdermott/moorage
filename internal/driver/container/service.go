@@ -3,8 +3,12 @@
 package container
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -58,20 +62,22 @@ func idPart(id string) string {
 }
 
 // RunService starts a service's container, replacing any that is there. The data is in the volume, so that nothing is lost by starting afresh, and what it
-// was started with is always what is on record.
-func (d *Driver) RunService(ctx context.Context, s ServiceSpec) error {
+// was started with is always what is on record. It says whether a volume had to be made, which means that the service holds nothing.
+func (d *Driver) RunService(ctx context.Context, s ServiceSpec) (fresh bool, err error) {
 	for _, name := range sortedKeys(s.Volumes) {
-		if err := d.ensureVolume(ctx, name, s); err != nil {
-			return err
+		made, err := d.ensureVolume(ctx, name, s)
+		if err != nil {
+			return false, err
 		}
+		fresh = fresh || made
 	}
 	if s.Network != "" {
 		if err := d.EnsureNetwork(ctx, s.Network); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if _, err := d.tell(removeLimit, "rm", "-f", s.Name); err != nil && !IsNotFound(err) {
-		return err
+		return false, err
 	}
 	args := []string{"run", "-d", "--name", s.Name, "--restart=no", "--security-opt", "no-new-privileges"}
 	args = append(args, d.serviceLabels(s)...)
@@ -105,16 +111,16 @@ func (d *Driver) RunService(ctx context.Context, s ServiceSpec) error {
 	args = append(args, s.Command...)
 	authEnv, cleanup, err := d.engine.withAuth(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer cleanup()
 	running, stopWaiting := context.WithTimeout(ctx, runLimit)
 	defer stopWaiting()
 	if _, err := d.engine.output(running, append(env, authEnv...), args...); err != nil {
 		d.tell(removeLimit, "rm", "-f", s.Name)
-		return err
+		return false, err
 	}
-	return nil
+	return fresh, nil
 }
 
 func (d *Driver) serviceLabels(s ServiceSpec) []string {
@@ -125,18 +131,20 @@ func (d *Driver) serviceLabels(s ServiceSpec) []string {
 	return args
 }
 
-func (d *Driver) ensureVolume(ctx context.Context, name string, s ServiceSpec) error {
+func (d *Driver) ensureVolume(ctx context.Context, name string, s ServiceSpec) (made bool, err error) {
 	asking, cancel := context.WithTimeout(ctx, serviceLimit)
 	defer cancel()
 	if _, err := d.engine.output(asking, nil, "volume", "inspect", name); err == nil {
-		return nil
+		return false, nil
 	}
 	args := []string{"volume", "create"}
 	for _, l := range [][2]string{{labelManaged, "true"}, {labelServer, d.server}, {labelService, s.ID}} {
 		args = append(args, "--label", l[0]+"="+l[1])
 	}
-	_, err := d.engine.output(asking, nil, append(args, name)...)
-	return err
+	if _, err := d.engine.output(asking, nil, append(args, name)...); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // EnsureNetwork makes a network, if there is none of that name.
@@ -175,6 +183,27 @@ func (d *Driver) ExecService(ctx context.Context, name string, env map[string]st
 	command = append(append(command, name), args...)
 	out, err := d.engine.output(ctx, secrets, command...)
 	return string(out), err
+}
+
+// ExecServiceTo runs a command in a service's container, with what it writes going to w.
+func (d *Driver) ExecServiceTo(ctx context.Context, name string, w io.Writer, args ...string) error {
+	var said bytes.Buffer
+	if err := d.engine.stream(ctx, nil, w, &said, append([]string{"exec", name}, args...)...); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(said.String()))
+	}
+	return nil
+}
+
+// ExecServiceFrom runs a command in a service's container, reading r.
+func (d *Driver) ExecServiceFrom(ctx context.Context, name string, r io.Reader, args ...string) error {
+	cmd := exec.CommandContext(ctx, d.engine.Bin, append([]string{"exec", "-i", name}, args...)...)
+	cmd.Stdin = r
+	cmd.WaitDelay = waitForDescendants
+	said, err := cmd.CombinedOutput()
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(said)))
+	}
+	return nil
 }
 
 // StopService stops a service's container and removes it. What it holds stays in its volume.

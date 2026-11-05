@@ -52,6 +52,8 @@ type Service struct {
 	KeyFingerprint string
 	// Keys seals the private keys among the certificates.
 	Keys Keyed
+	// Before, if set, is done ahead of each backup, and says what went wrong, which does not lose the rest of it. What it writes in the data directory goes in the backup.
+	Before func(context.Context) []string
 	// Tick, if set, overrides how often it looks at the schedule (tests).
 	Tick time.Duration
 
@@ -204,6 +206,12 @@ func (s *Service) Start(ctx context.Context, trigger, by string) (store.Backup, 
 }
 
 func (s *Service) run(ctx context.Context, b store.Backup, dest Destination, cfg store.BackupConfig) {
+	if s.Before != nil {
+		for _, problem := range s.Before(ctx) {
+			s.Log.Warn("a backup goes on without something", "problem", problem)
+			s.Bus.Publish(context.WithoutCancel(ctx), store.Event{Type: events.BackupFailed, Actor: b.CreatedBy, Data: map[string]any{"error": problem + "; the rest of the backup goes on"}})
+		}
+	}
 	result, err := Run(ctx, dest, Options{DataDir: s.DataDir, Keys: s.Keys, KeyFingerprint: s.KeyFingerprint, Version: s.Version, Domain: s.Domain})
 	done := context.WithoutCancel(ctx)
 	b.FinishedAt = time.Now().UTC()

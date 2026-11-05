@@ -369,3 +369,53 @@ func TestADaemonThatIsDownIsNotAContainerThatHasGone(t *testing.T) {
 		}
 	}
 }
+
+// TestANoStandsForLessThanAYes: someone who has just started Docker Desktop should not have to wait to be believed.
+func TestANoStandsForLessThanAYes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	engineScript(t, dir, "podman", refuses)
+	s := NewSource(SourceOptions{Kept: time.Hour})
+	if st := s.Status(ctx); st.State != NotAnswering {
+		t.Fatalf("%+v", st)
+	}
+	engineScript(t, dir, "podman", answers)
+	if st := s.Status(ctx); st.State != NotAnswering {
+		t.Errorf("at once: %+v", st)
+	}
+	s.mu.Lock()
+	s.checked = time.Now().Add(-2 * notReadyKept)
+	s.mu.Unlock()
+	if st := s.Status(ctx); !st.Ready() {
+		t.Errorf("a little later: %+v", st)
+	}
+	s.mu.Lock()
+	s.checked = time.Now().Add(-2 * notReadyKept)
+	s.mu.Unlock()
+	engineScript(t, dir, "podman", refuses)
+	if st := s.Status(ctx); !st.Ready() {
+		t.Errorf("a yes stands for longer: %+v", st)
+	}
+}
+
+// TestASlowFirstAnswerIsAnAnswer: rootless Podman takes a while, the first time on a machine that has just started.
+func TestASlowFirstAnswerIsAnAnswer(t *testing.T) {
+	if defaultProbeLimit < 10*time.Second {
+		t.Errorf("%s is not long enough for that", defaultProbeLimit)
+	}
+	probeLimit = 6 * time.Second
+	defer func() { probeLimit = 2 * time.Second }()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	engineScript(t, dir, "podman", "/bin/sleep 3")
+	s := NewSource(SourceOptions{})
+	if st := s.Status(context.Background()); !st.Ready() {
+		t.Errorf("%+v", st)
+	}
+}
+
+func init() {
+	// These try engines that hang, and need not wait for as long as a real one is given.
+	probeLimit = 2 * time.Second
+}

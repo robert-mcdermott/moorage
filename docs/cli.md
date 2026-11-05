@@ -2123,6 +2123,8 @@ moor services
 ```text
 moor services --app shop
 moor services logs db --env staging
+moor services update db
+moor services upgrade db --to 19
 moor services remove db --env my-branch --yes
 ```
 
@@ -2167,6 +2169,43 @@ moor services remove db --env my-branch --yes
 | `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
 | `--env string` | `production` | the environment |
 | `--yes` |  | say that you mean it |
+
+### `moor services update`
+
+Take the newest image of a service's version, such as PostgreSQL 18.7 where it ran 18.6, and restart it. What it holds stays. This does not happen by itself: an image is recorded when a service is made, and an update is something that you ask for.
+
+```text
+moor services update NAME
+```
+
+```text
+moor services update db
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+
+### `moor services upgrade`
+
+Move a PostgreSQL service to a newer major version: a dump with the newer version's tools, a new volume, a restore and a check that it holds what it did. The app is stopped for that, as what it wrote after the dump would be lost, and is started again however it goes. The old volume stays until you say that all is well with --finish, and anything going wrong leaves the old one as it was. Say the new version in the manifest too, if it names one.
+
+```text
+moor services upgrade NAME
+```
+
+```text
+moor services upgrade db --to 19
+moor services upgrade db --finish
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--finish` |  | let go of what it held before its last upgrade |
+| `--to string` |  | the major version to move to |
 
 ## `moor share`
 

@@ -2657,6 +2657,9 @@
           "name": {
             "type": "string"
           },
+          "old_volume": {
+            "type": "string"
+          },
           "port": {
             "type": "integer"
           },
@@ -2694,6 +2697,17 @@
         ],
         "type": "object"
       },
+      "ServiceChange": {
+        "properties": {
+          "log": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "log"
+        ],
+        "type": "object"
+      },
       "ServiceLog": {
         "properties": {
           "log": {
@@ -2702,6 +2716,17 @@
         },
         "required": [
           "log"
+        ],
+        "type": "object"
+      },
+      "ServiceUpgrade": {
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -5744,6 +5769,204 @@
           "apps"
         ],
         "x-moorage-permission": "logs"
+      }
+    },
+    "/apps/{app}/envs/{env}/services/{name}/old-volume": {
+      "delete": {
+        "operationId": "deleteAppsAppEnvsEnvServicesNameOldVolume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Let go of what a service held before its last upgrade",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/services/{name}/update": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvServicesNameUpdate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Take the newest image of a service's version",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/services/{name}/upgrade": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvServicesNameUpgrade",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceUpgrade"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Move a service to a newer major version, with what connects to it stopped",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
       }
     },
     "/apps/{app}/envs/{env}/share-links": {
