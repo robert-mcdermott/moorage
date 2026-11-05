@@ -29,7 +29,7 @@ That makes a token that can only read, keeps it in a context of its own, and tel
 | Goose | `goose` | `~/.config/goose/config.yaml` | [Extensions](https://goose-docs.ai/docs/getting-started/using-extensions) |
 | Claude Desktop | `claude-desktop` | `claude_desktop_config.json` | [MCP](https://modelcontextprotocol.io/docs/develop/connect-local-servers) |
 
-Kiro's IDE and `kiro-cli` read the one file, so that setting up either sets up both, and `kiro-cli` and `kiro-ide` are other names for `--client kiro`. It says what to put in that file, and not to run `kiro-cli mcp add`, which takes a server as one string and does not document how to give it the server's own flags. `KIRO_HOME` moves that file if you have set it. Kiro's `autoApprove` skips its prompts for the tools it lists, so that it is best to leave `deploy`, `rollback` and `restart` off.
+Kiro's IDE and `kiro-cli` read the one file, so that setting up either sets up both, and `kiro-cli` and `kiro-ide` are other names for `--client kiro`. `moor mcp setup` says what to put in that file. It does not run `kiro-cli mcp add`, which takes a server as one string and does not document how to give it the server's own flags. `KIRO_HOME` moves that file if you have set it. Kiro's `autoApprove` skips its prompts for the tools it lists, so that it is best to leave `deploy`, `rollback` and `restart` off.
 
 These were each read from the client's own documentation in November 2026, and these tools change quickly, so that their pages have the last word. Clients that take only a remote server, such as ChatGPT, cannot use it yet, as `moor mcp` runs on your own computer.
 
@@ -45,9 +45,9 @@ The token goes in `moor`'s own file, which only you can read, and **in no client
 | `list_releases` | What has run, and what can be gone back to | Always |
 | `check_manifest` | Checks a local `moorage.toml`, and says how Moorage would build and run the app | Always |
 | `deploy` | Uploads a directory, and returns at once with an id to ask about | `--allow-deploy` |
-| `rollback`, `restart` | | `--allow-deploy` |
+| `rollback`, `restart` | Serves an earlier release again, or replaces what is running | `--allow-deploy` |
 
-**Nothing here runs a command, reads a file or a secret, or deletes anything,** and nothing manages domains, gates, members, tokens or the server. That is on purpose: a tool that runs commands would put what an app has written, its secrets and the way out all in one call.
+**Nothing here runs a command, reads a secret or deletes anything,** and nothing manages domains, gates, members, tokens or the server. That is on purpose: a tool that runs commands would put what an app has written, its secrets and the way out all in one call.
 
 `check_manifest` and `deploy` read only below the directory that `moor mcp` started in, or `--root DIR`, with the same rules as `moor deploy` for what to leave out. They refuse if that directory is your home directory or above it, a directory that is hidden or ignored, and a tree with a link that leads out of it. If a client starts it somewhere else, say where to read from:
 
