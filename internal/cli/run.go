@@ -18,8 +18,6 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/client"
 	"github.com/robert-mcdermott/moorage/internal/names"
-
-	"mvdan.cc/sh/v3/syntax"
 )
 
 // followRun prints what a run says, and ends as it ends: with its exit status, for scripts.
@@ -379,12 +377,22 @@ func commandFrom(args []string) string {
 	}
 	words := make([]string, len(args))
 	for i, arg := range args {
-		quoted, err := syntax.Quote(arg, syntax.LangPOSIX)
-		if err != nil {
-			// What cannot be quoted cannot be in an argument either, as it is a NUL.
-			quoted = arg
-		}
-		words[i] = quoted
+		words[i] = shellWord(arg)
 	}
 	return strings.Join(words, " ")
+}
+
+// shellWord quotes a word for a POSIX shell, if it needs it. Between single quotes, everything but a single quote stands for itself.
+func shellWord(word string) string {
+	plain := word != ""
+	for _, r := range word {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return word
+	}
+	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }
