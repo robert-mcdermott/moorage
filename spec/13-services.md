@@ -42,26 +42,40 @@ in its own append-only volume files with a metadata store beside them, and is bu
 |---|---|---|
 | Data on disk | A bucket is a directory, and an object is a file | Volume files and a metadata store, readable only through SeaweedFS |
 | What runs | One gateway | Master, volume, filer, S3, WebDAV, admin UI and a maintenance worker |
-| Image | About 35 MB | About 270 MB |
+| Image, unpacked | 80 MB | 780 MB |
+| Memory at rest, and after the test below | 9 MB, and 21 to 30 MB | 66 MB, and about 300 MB |
+| Ready after starting | Under 0.1 second | About 4 seconds |
 | Everyday S3: put, get, multipart, presigned URLs, CORS, bucket policies | Yes | Yes |
-| Versioning | Marked experimental | Yes |
-| Lifecycle rules | Not in the POSIX backend's code | Yes |
-| Object ACLs | Ignored | Yes |
-| Many small objects | A file and an inode each | Built for this |
+| Versioning | Refused unless given a directory for it, and marked experimental | Yes |
+| Lifecycle rules | Refused: not implemented | Yes |
+| Object ACLs | Refused: not implemented | Yes |
+| Keys `a` and `a/b` both | Refused, as a file cannot also be a directory | Yes |
+| 1,000 small objects | 2.7 seconds to write, and 0.15 to list | 3.5 seconds, and 0.11 |
 | Who | Versity Software, with three main contributors | One main maintainer, and a paid edition |
 | Advisories published by November 2026 | 8: 1 critical, 2 high | 25: 9 critical, 12 high |
 
 Why it suits Moorage: a service is one for each environment, so what scales with previews is what each instance runs. Plain files make a dump a tar and seeding a preview a
 copy. Moorage needs one bucket and one credential on one machine, and none of what SeaweedFS is built for.
 
-What it costs: an app that depends on versioning, lifecycle rules or object ACLs needs real S3, or SeaweedFS. Keys `a` and `a/b` cannot both exist, on either server. Its default
-metadata is in extended attributes, which plain `tar` in an Alpine image would lose, which is why it runs with `--sidecar`.
+What it costs: an app that depends on versioning, lifecycle rules, object ACLs or keys `a` and `a/b` at once needs real S3, or SeaweedFS. Its default metadata is in extended
+attributes, which plain `tar` in an Alpine image would lose, which is why it runs with `--sidecar`.
 
 The C++ in its repository is for NVIDIA's cuObject, S3 over RDMA for GPU clusters, behind the build tag `linux && amd64 && cgo && rdma`. The published image and release builds set
 `CGO_ENABLED=0`. Moorage pulls an image and talks S3 to it, so that its own rule of no cgo is untouched.
 
-Memory use at rest could not be found for either server, and the first test of wave 10 settles this. Choosing wrongly is cheap to undo: the manifest says only `type = "s3"`, an
-app sees the same variables whichever runs, and moving data is an S3 copy.
+Choosing wrongly is cheap to undo: the manifest says only `type = "s3"`, an app sees the same variables whichever runs, and moving data is an S3 copy.
+
+### What the first test found
+
+`.github/workflows/services-first-test.yml` tried the images under rootless Podman and Docker on 5 November 2026, with `boto3`, the AWS command line and `psql`. It runs when asked, or when it changes. What it settled:
+
+- **PostgreSQL does what this design needs,** under both: on a named volume, on a loopback port and by name on a network, ready in about a second and stopped cleanly by SIGINT in under half a second, with its data surviving a new container and a dump restoring into a fresh volume. At rest it uses 27 MiB.
+- **Where a volume goes depends on the major version.** It is `/var/lib/postgresql` from 18 on, and `/var/lib/postgresql/data` before that.
+- **An older major on a newer volume stops at once,** and does not start empty: `initdb` says that the directory is not empty. So the refusal at deploy is a kindness, and not the only thing between a mistake and lost data.
+- **A plain `tar` of Versity's two directories is a dump.** Restored onto fresh volumes, an object comes back with its content type and metadata, which is the claim that decided on `--sidecar`.
+- **Everyday S3 works on both,** with real clients: multipart, presigned GET and PUT, CORS, enforced bucket policies, tags, and names in other alphabets. A presigned URL is refused for another host on both, as above.
+- **Versity runs as root in its image, as does PostgreSQL's** until it drops to its own user. `tar` and a shell are in Versity's image.
+- **An image's digest differs between engines:** one records the list for all platforms, and the other this platform's. So a digest is recorded with the engine that holds it, and is not compared across them.
 
 ## One for each environment
 

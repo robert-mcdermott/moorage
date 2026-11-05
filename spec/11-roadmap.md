@@ -1221,6 +1221,7 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
 ### Wave 10
 
 1. **A first test, in CI.** The images under rootless Podman and Docker, and Versity Gateway against SeaweedFS with real S3 clients.
+   - Done (slice 1): both engines, with `boto3`, the AWS command line and `psql`. Versity Gateway stays, using about a tenth of the memory and image of SeaweedFS, and a plain `tar` of it restores with its metadata. Where PostgreSQL's volume goes depends on its major version, and what the design said of image sizes and of keys `a` and `a/b` was wrong. [What it found](13-services.md#what-the-first-test-found).
 2. **PostgreSQL from end to end.** Manifest, table, container, address, deploy order, sleep, console, command line, doctor and logs.
 3. **S3,** as the rest of the same design.
 4. **Previews.** Their own, empty, sleeping and removed, and then opt-in seeding.

@@ -297,7 +297,7 @@ provisional until the corresponding Phase 0 spike reports back.
 ### D21 — Versity Gateway for S3
 
 - **Context:** a single-node S3 server for each environment. MinIO's repository is archived.
-- **Decision:** Versity Gateway on its POSIX backend with `--sidecar`, subject to a CI test, with SeaweedFS as the fallback. The comparison is in [Backing services](13-services.md#the-s3-server).
+- **Decision:** Versity Gateway on its POSIX backend with `--sidecar`, with SeaweedFS as the fallback. A test in CI bore this out, at about a tenth of the memory and of the image. The comparison and what the test found are in [Backing services](13-services.md#the-s3-server).
 - **Consequences:** plain files make dumps and seeding simple. Apps that depend on versioning, lifecycle rules or object ACLs need something else. The choice is cheap to undo, as the manifest
   names only `s3`.
 
