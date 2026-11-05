@@ -47,7 +47,7 @@
     <section class="hero">
       <div class="container">
         <div class="hero-text">
-          <a class="eyebrow" href="https://github.com/robert-mcdermott/moorage/releases"><span class="pill">v0.7.0</span> Windows servers, GitHub, GitLab and Gitea, and a terminal in your app</a>
+          <a class="eyebrow" href="https://github.com/robert-mcdermott/moorage/releases"><span class="pill">v0.8.0</span> Certificates from a public CA, gRPC, and sticky sessions</a>
           <h1>Push code. Get a URL. <span class="accent">Own the platform.</span></h1>
           <p class="lede">One binary turns your laptop or a server into your own app platform. Every branch gets a live address to try out or show off. Releases roll out with no downtime and roll back in a second, and scaling takes one command.</p>
           <div class="btn-row">
@@ -154,7 +154,7 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
             </ul>
             <a class="more-link" href="docs/releases.html">Releases, rollbacks and scaling</a>
           </div>
-          <figure><div class="shot"><img class="shot-light" src="assets/img/deployment-failed-light.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage is marked as failed, and the compiler's error is in the log, while the previous release goes on serving" /><img class="shot-dark" src="assets/img/deployment-failed-dark.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage is marked as failed, and the compiler's error is in the log, while the previous release goes on serving" /></div></figure>
+          <figure><div class="shot"><img class="shot-light" src="assets/img/deployment-failed-light.webp" width="1600" height="1074" loading="lazy" decoding="async" alt="A failed deployment: the build stage is marked as failed, and the compiler's error is in the log, while the previous release goes on serving" /><img class="shot-dark" src="assets/img/deployment-failed-dark.webp" width="1600" height="1074" loading="lazy" decoding="async" alt="A failed deployment: the build stage is marked as failed, and the compiler's error is in the log, while the previous release goes on serving" /></div></figure>
         </article>
 
         <article class="feature">
@@ -259,6 +259,9 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
           <div class="card"><h3><a href="docs/static.html">Static sites</a></h3><p>Served by Moorage itself, with clean URLs, headers, redirects and a 404 page. Drop a folder on the console, and that is a site.</p></div>
           <div class="card"><h3><a href="docs/containers.html">Containers, if you want them</a></h3><p>A <code>Containerfile</code>, or an image from a registry, under Podman or Docker, released and rolled back like any other app. Nothing else needs an engine.</p></div>
           <div class="card"><h3><a href="docs/forges.html">GitHub, GitLab and Gitea</a></h3><p>Connect a repository: a push deploys, and a pull request gets a preview, with a check and a comment. Code from a stranger waits for approval.</p></div>
+          <div class="card"><h3><a href="docs/tls.html">HTTPS by itself</a></h3><p>Certificates from Let's Encrypt, any other ACME server, your company's CA or files of your own, for each hostname or a wildcard for them all.</p></div>
+          <div class="card"><h3><a href="docs/other.html#grpc">gRPC and sticky sessions</a></h3><p>Streams both ways through the same address and rollouts as anything else, and a cookie to keep a browser with one instance.</p></div>
+          <div class="card"><h3><a href="docs/telemetry.html">Telemetry where you look</a></h3><p>What apps say and do stays here, and can go to syslog, an OpenTelemetry collector or any HTTP endpoint as well.</p></div>
           <div class="card"><h3><a href="docs/cli.html">A command line for everything</a></h3><p>Nearly everything in the console has a command, and lists take <code>--json</code> for your scripts.</p></div>
           <div class="card"><h3><a href="docs/api.html">A REST API</a></h3><p>Versioned, documented with OpenAPI, and the same one the command line uses, with a permission declared for every route.</p></div>
           <div class="card"><h3><a href="docs/console.html">A console that works on a phone</a></h3><p>And without scripts: every page is plain HTML that gets better with them, in light and dark, under a strict Content-Security-Policy.</p></div>
@@ -296,8 +299,8 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
         </div>
         <div class="status">
           <h3>Where it stands</h3>
-          <p>Moorage is at 0.7.0, young, and moving quickly. CI tries it on Linux, macOS and Windows, including real installs, upgrades, backups and browsers. It has not had an outside security review, and it is meant for a network you control until it has: certificates from public CAs and a penetration test come next, in 0.8.0.</p>
-          <p>Its connections to GitHub, GitLab, Gitea, OpenTelemetry and syslog have so far been tested against stand-ins, and trying them against the real services is the next thing on <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">the roadmap</a>. If you try them first, <a href="https://github.com/robert-mcdermott/moorage/issues">tell us how it goes</a>.</p>
+          <p>Moorage is at 0.8.0, young, and moving quickly. CI tries it on Linux, macOS and Windows, including real installs, upgrades, backups and browsers. It has had close reviews of what faces the internet, and no outside one yet, so that we would keep it on a network you control until it has.</p>
+          <p>Its connections have met the real thing: GitHub by hand, and GitLab, Gitea, an OpenTelemetry collector, syslog-ng, a gRPC client and an ACME test server in CI, each time that code changes. It has not yet taken a certificate from Let's Encrypt itself, or a webhook directly from GitHub. If you try them first, <a href="https://github.com/robert-mcdermott/moorage/issues">tell us how it goes</a>.</p>
         </div>
       </div>
     </section>
@@ -319,7 +322,7 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
           </div>
           <div>
             <h3>Can I put it on the internet?</h3>
-            <p>You can, with <a href="docs/tls.html">certificates of your own</a> or <a href="docs/proxy.html">behind a proxy</a> that has them. We would keep it on a network you control for now, or behind something that decides who reaches it. Automatic public certificates and a penetration test are the work of 0.8.0.</p>
+            <p>You can: <a href="docs/tls.html#from-a-public-ca-with-acme">the <code>public</code> preset</a> gets certificates from a public CA, and keeps all but production behind a sign-in. It has not had an outside penetration test, though, so we would keep it on a network you control for now, or behind something that decides who reaches it, and read <a href="docs/security.html">Security</a> first.</p>
           </div>
           <div>
             <h3>How does it compare with a hosted platform, or an orchestrator?</h3>
@@ -385,7 +388,7 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

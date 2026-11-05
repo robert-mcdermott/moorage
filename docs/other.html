@@ -125,7 +125,12 @@
     <main id="main" class="doc">
       <h1>Anything else</h1>
       <p class="doc-lede">Your own build, a script, or an app that is already built.</p>
-
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#build-on-the-server">Build on the server</a></li>
+        <li class="toc-2"><a href="#run-it-as-it-is">Run it as it is</a></li>
+        <li class="toc-2"><a href="#grpc">gRPC</a></li>
+        <li class="toc-2"><a href="#what-every-app-gets">What every app gets</a></li>
+      </ul></details>
 <p>Moorage runs anything that serves HTTP on a port: say how to build it, if it needs building, and what to run.</p>
 <h2 id="build-on-the-server">Build on the server<a class="anchor" href="#build-on-the-server" aria-label="Link to this section">#</a></h2>
 <p>The <code>command</code> runtime runs your build command, with extra toolchains on the <code>PATH</code> — installed by Moorage (<code>go</code>, <code>node</code>, <code>python</code>, <code>uv</code>) or, with <code>@system</code>, the server's own:</p>
@@ -152,6 +157,13 @@
 <span class="t-k">command</span> = <span class="t-s">&quot;./server.py&quot;</span></code></pre></div>
 <p>To upload something you built elsewhere, such as in CI, deploy the build's output with <code>--artifact</code> and the <code>[processes]</code> of the <code>moorage.toml</code> in the current directory:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> deploy --artifact ./dist --app tool</code></pre></div>
+<h2 id="grpc">gRPC<a class="anchor" href="#grpc" aria-label="Link to this section">#</a></h2>
+<p>A gRPC server speaks HTTP/2 with no TLS, and nothing else, so say so:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[processes.web]</span>
+<span class="t-k">protocol</span> = <span class="t-s">&quot;h2c&quot;</span></code></pre></div>
+<p>Clients reach it at its address like anything else. With TLS, they use <code>https</code> as a browser would, and with no TLS, as on your own computer, they speak HTTP/2 from the first byte. Streams work in both directions, and trailers come through, which is where gRPC says how a call went.</p>
+<p>Moorage reads none of it, so that a failed call is still a <code>200</code> in <a href="metrics.html">the metrics</a>, and <a href="access.html">its gates</a> apply as they do to anything: a sign-in gate means a browser's sign-in, which is no use to a program, so an API token or <code>public</code> suits a gRPC server better.</p>
+<p>The health check is a TCP connection to <code>$PORT</code> by default. <code>health.path</code> asks a path over HTTP/2, for a server that answers one, and a server with only gRPC services has none. Behind <a href="proxy.html">a proxy</a>, the proxy has to speak HTTP/2 to Moorage: with nginx, that is <code>grpc_pass</code> to the plain port.</p>
 <h2 id="what-every-app-gets">What every app gets<a class="anchor" href="#what-every-app-gets" aria-label="Link to this section">#</a></h2>
 <ul><li><code>PORT</code> to listen on, and <code>HOST=127.0.0.1</code>: apps are reached only through Moorage.</li><li><code>MOORAGE_DATA_DIR</code>, a directory that survives deploys, and <code>MOORAGE_APP</code>, <code>MOORAGE_ENV</code>, <code>MOORAGE_RELEASE</code>, <code>MOORAGE_URL</code> and others describing where it runs.</li><li>A health check: a TCP connection to <code>PORT</code>, or with <code>health.path</code>, an HTTP request that must answer 2xx or 3xx. A new release takes traffic only once every instance is healthy; until then the previous one keeps serving.</li><li>Commands are run by a POSIX shell built into Moorage, the same on every system; a simple command (a program and its arguments) is run directly. The programs they call must exist on the server.</li><li>The stop signal (TERM, or <code>stop_signal</code>), then a kill after <code>stop_timeout</code> (30 seconds). Processes that exit are restarted, more and more slowly if they keep crashing.</li></ul>
 <p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/other.md">Suggest a change to this page</a></p>
@@ -163,6 +175,7 @@
       <ul>
         <li class="toc-2"><a href="#build-on-the-server">Build on the server</a></li>
         <li class="toc-2"><a href="#run-it-as-it-is">Run it as it is</a></li>
+        <li class="toc-2"><a href="#grpc">gRPC</a></li>
         <li class="toc-2"><a href="#what-every-app-gets">What every app gets</a></li>
       </ul>
     </aside>
@@ -204,7 +217,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

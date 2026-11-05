@@ -145,6 +145,8 @@
 <h2 id="one-off-commands">One-off commands<a class="anchor" href="#one-off-commands" aria-label="Link to this section">#</a></h2>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> run -- python manage.py migrate</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> run --env staging --timeout 10m -- ./seed.sh</code></pre></div>
+<p>What follows <code>--</code> runs as you gave it, word for word. One word is a command line, for the shell that Moorage has built in:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> run -- <span class="t-s">'python manage.py migrate &amp;&amp; python manage.py seed'</span></code></pre></div>
 <p>What it says comes back as it says it, on standard output and standard error, and <code>moor</code> ends with its exit status, so that a script can tell. Interrupting <code>moor</code> stops the command. <code>--detach</code> leaves it running.</p>
 <p>It takes an hour at the most unless <code>--timeout</code> says otherwise, up to a day. A command that asks for input gets none, unless you are <a href="interactive.html#a-terminal">at a terminal</a>, with <code>-it</code>. Running a command takes a deployer, as deploying does, and each is in <a href="accounts.html#who-did-what">the audit log</a>. Secrets are kept out of what is recorded of its output.</p>
 <p>The <strong>Cron</strong> tab in the console has a box to run one, too.</p>
@@ -200,7 +202,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

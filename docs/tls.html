@@ -125,9 +125,17 @@
     <main id="main" class="doc">
       <h1>TLS and trusting the server</h1>
       <p class="doc-lede">The certificates, and moor trust.</p>
-
-<p>Moorage serves apps over TLS in one of three ways, chosen by <code>tls.mode</code> in <code>server.toml</code>:</p>
-<div class="table-wrap" tabindex="0"><table><thead><tr><th><code>tls.mode</code></th><th>Certificates</th><th>For</th></tr></thead><tbody><tr><td><code>internal</code></td><td>Issued by Moorage's own CA, for each hostname as it is first asked for, and renewed by themselves</td><td>A server on your network. The default</td></tr><tr><td><code>files</code></td><td>Files you provide under <code>[[tls.certificates]]</code>, such as a corporate wildcard, reloaded when they change</td><td>A company that issues its own</td></tr><tr><td><code>off</code></td><td>None: plain HTTP</td><td><a href="proxy.html">Behind a TLS proxy</a>, or on your own computer</td></tr></tbody></table></div>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#trusting-the-internal-ca">Trusting the internal CA</a></li>
+        <li class="toc-2"><a href="#with-your-companys-ca">With your company's CA</a></li>
+        <li class="toc-2"><a href="#from-a-public-ca-with-acme">From a public CA, with ACME</a></li>
+        <li class="toc-3"><a href="#one-certificate-for-the-whole-domain">One certificate for the whole domain</a></li>
+        <li class="toc-3"><a href="#another-ca-or-one-of-your-own">Another CA, or one of your own</a></li>
+        <li class="toc-3"><a href="#when-it-cannot-get-one">When it cannot get one</a></li>
+        <li class="toc-2"><a href="#staying-on-https">Staying on HTTPS</a></li>
+      </ul></details>
+<p>Moorage serves apps over TLS in one of four ways, chosen by <code>tls.mode</code> in <code>server.toml</code>:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th><code>tls.mode</code></th><th>Certificates</th><th>For</th></tr></thead><tbody><tr><td><code>internal</code></td><td>Issued by Moorage's own CA, for each hostname as it is first asked for, and renewed by themselves</td><td>A server on your network. The default</td></tr><tr><td><code>files</code></td><td>Files you provide under <code>[[tls.certificates]]</code>, such as a corporate wildcard, reloaded when they change</td><td>A company that issues its own</td></tr><tr><td><code>acme</code></td><td><a href="#from-a-public-ca-with-acme">From a public CA</a>, or an internal ACME server, and renewed by themselves</td><td>A server on the internet</td></tr><tr><td><code>off</code></td><td>None: plain HTTP</td><td><a href="proxy.html">Behind a TLS proxy</a>, or on your own computer</td></tr></tbody></table></div>
 <p>A certificate from the internal CA goes only to the console's hostname and to names of apps under the base domain, so a stranger's guess at a hostname gets nothing.</p>
 <h2 id="trusting-the-internal-ca">Trusting the internal CA<a class="anchor" href="#trusting-the-internal-ca" aria-label="Link to this section">#</a></h2>
 <p>Browsers warn about the certificates of a CA they do not know. On each computer that uses the server, once:</p>
@@ -159,6 +167,48 @@ moor server status shows on the server. Trust this CA on this computer? [y/N]</c
 <span class="t-k">cert</span> = <span class="t-s">&quot;/etc/moorage/tls/wildcard.crt&quot;</span>
 <span class="t-k">key</span>  = <span class="t-s">&quot;/etc/moorage/tls/wildcard.key&quot;</span></code></pre></div>
 <p><a href="troubleshooting.html"><code>moor server doctor</code></a> checks the certificates: that they exist, match their keys, cover the hostnames, and when they expire.</p>
+<h2 id="from-a-public-ca-with-acme">From a public CA, with ACME<a class="anchor" href="#from-a-public-ca-with-acme" aria-label="Link to this section">#</a></h2>
+<blockquote><p><strong>What this has been tried against.</strong> CI runs each way of getting a certificate described here against Pebble, the test server that Let's Encrypt publishes, and RFC 2136 against a real DNS server. It has not yet got a certificate from Let's Encrypt itself, or set a record at Cloudflare. If you try them first, please <a href="https://github.com/robert-mcdermott/moorage/issues">say how it goes</a>.</p></blockquote>
+<div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server init --preset public --domain apps.example.com --email ops@example.com --agree-terms</code></pre></div>
+<p><code>--agree-terms</code> says that you have read and accept <a href="https://letsencrypt.org/repository/">the terms of Let's Encrypt</a>, which is the CA unless you say otherwise. Point a wildcard DNS record, <code>*.apps.example.com</code>, at the server, and open ports 80 and 443 to the internet, as that is where the CA looks. That is all: a certificate comes the first time a hostname is asked for, and is renewed by itself. Browsers already trust it, so there is nothing to install.</p>
+<p>The preset also puts everything but production behind a sign-in. See <a href="configuration.html#access"><code>[access]</code></a>.</p>
+<p><strong>Only what the server serves gets a certificate:</strong> the console, and the hostnames of apps, environments and <a href="domains.html">your own domains</a> that it knows. A CA limits how many certificates a domain can have, and anyone who connects can say any name they like, so a made-up name gets nothing, and the CA is not asked.</p>
+<h3 id="one-certificate-for-the-whole-domain">One certificate for the whole domain<a class="anchor" href="#one-certificate-for-the-whole-domain" aria-label="Link to this section">#</a></h3>
+<p>Each hostname having its own certificate is simple, but <a href="https://letsencrypt.org/docs/rate-limits/">Let's Encrypt allows 50 for a domain each week</a>, the first visit to each waits a few seconds for one, and each name is published in the CA's public logs. With many previews, get one certificate for <code>*.apps.example.com</code> instead, which takes showing the CA a DNS record, so tell Moorage how to set one:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[tls.acme.dns]</span>
+<span class="t-k">provider</span> = <span class="t-s">&quot;cloudflare&quot;</span>
+<span class="t-k">token_file</span> = <span class="t-s">&quot;/etc/moorage/cloudflare.token&quot;</span></code></pre></div>
+<p>The file holds an API token that can edit that zone's DNS, and should be readable only by the server. The server gets the certificate when it starts. Your own domains, which are not under that wildcard, still get one each.</p>
+<p>For a DNS server of your own, <code>rfc2136</code> sends it signed updates:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[tls.acme.dns]</span>
+<span class="t-k">provider</span> = <span class="t-s">&quot;rfc2136&quot;</span>
+<span class="t-k">server</span> = <span class="t-s">&quot;ns1.example.com:53&quot;</span>
+<span class="t-k">key_name</span> = <span class="t-s">&quot;moorage&quot;</span>
+<span class="t-k">key_file</span> = <span class="t-s">&quot;/etc/moorage/tsig.key&quot;</span></code></pre></div>
+<p>For anything else, <code>command</code> runs a program of yours, which sets a TXT record on any DNS service you can reach from a script:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[tls.acme.dns]</span>
+<span class="t-k">provider</span> = <span class="t-s">&quot;command&quot;</span>
+<span class="t-k">command</span> = <span class="t-s">&quot;/usr/local/bin/moorage-dns&quot;</span>
+<span class="t-k">wait</span> = <span class="t-s">&quot;60s&quot;</span></code></pre></div>
+<p>It is run as <code>moorage-dns add _acme-challenge.apps.example.com VALUE</code> before the CA looks, and with <code>remove</code> afterwards. <code>wait</code> is how long to give the record to reach the servers the CA asks. A failure, and what the program said, goes in the server's log.</p>
+<h3 id="another-ca-or-one-of-your-own">Another CA, or one of your own<a class="anchor" href="#another-ca-or-one-of-your-own" aria-label="Link to this section">#</a></h3>
+<p><code>directory</code> names another ACME server, and <code>ca_file</code> the root to trust it by, if that is not a public one:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[tls.acme]</span>
+<span class="t-k">directory</span> = <span class="t-s">&quot;https://ca.internal.example.com/acme/directory&quot;</span>
+<span class="t-k">ca_file</span> = <span class="t-s">&quot;/etc/moorage/tls/internal-root.pem&quot;</span>
+<span class="t-k">email</span> = <span class="t-s">&quot;ops@example.com&quot;</span>
+<span class="t-k">agree_terms</span> = true</code></pre></div>
+<p>To try it first, with no limits to speak of, use Let's Encrypt's staging directory, <code>https://acme-staging-v02.api.letsencrypt.org/directory</code>, whose certificates browsers do not trust.</p>
+<h3 id="when-it-cannot-get-one">When it cannot get one<a class="anchor" href="#when-it-cannot-get-one" aria-label="Link to this section">#</a></h3>
+<p><a href="troubleshooting.html"><code>moor server doctor</code></a> says how many certificates there are and when the next one ends. A certificate is renewed when a third of its life is left, and if that fails, the server's log says why, it goes on trying, and <a href="notifications.html">those concerned are told</a>, once, and again when it has worked. What it was serving goes on being served until the certificate ends.</p>
+<p>Port 80 and port 443 are what a CA checks, on the hostname itself. With only one of them open, <code>challenges = [&quot;http-01&quot;]</code> or <code>[&quot;tls-alpn-01&quot;]</code> says which to use. Behind a port forward, or with <code>listen.http</code> and <code>listen.https</code> on other ports, what the CA reaches on 80 and 443 has to arrive there.</p>
+<p>The account and the certificates are kept in <code>certs/acme</code> in the data directory. <a href="backups.html">Backups</a> hold them, with their private keys sealed.</p>
+<h2 id="staying-on-https">Staying on HTTPS<a class="anchor" href="#staying-on-https" aria-label="Link to this section">#</a></h2>
+<p>Moorage redirects plain HTTP to HTTPS whenever it handles TLS. A browser that was sent somewhere by a plain link still asks over HTTP first, though, where someone on the same network can get in the way. <code>hsts</code> tells browsers not to ask:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[tls]</span>
+<span class="t-k">hsts</span> = true</code></pre></div>
+<p>Each hostname then answers with <code>Strict-Transport-Security: max-age=31536000</code>. For a year from the last time it saw that, a browser goes straight to HTTPS for that hostname, and will not let anyone click past a certificate problem there. So turn it on for a server that means to stay on HTTPS with certificates that browsers trust. The <code>public</code> preset does, and the others leave it off.</p>
+<p>It says nothing about subdomains, so that it cannot affect anything else under your domain. An app that sends this header itself is left to say what it likes, which is how one asks for <code>includeSubDomains</code> or <code>preload</code>. Behind a proxy, it is the proxy's to send.</p>
 <p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/tls.md">Suggest a change to this page</a></p>
 <nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="administration.html"><span>Previous</span>Running a server</a><a class="doc-pager-next" rel="next" href="proxy.html"><span>Next</span>Behind a TLS proxy</a></nav>
     </main>
@@ -168,6 +218,11 @@ moor server status shows on the server. Trust this CA on this computer? [y/N]</c
       <ul>
         <li class="toc-2"><a href="#trusting-the-internal-ca">Trusting the internal CA</a></li>
         <li class="toc-2"><a href="#with-your-companys-ca">With your company's CA</a></li>
+        <li class="toc-2"><a href="#from-a-public-ca-with-acme">From a public CA, with ACME</a></li>
+        <li class="toc-3"><a href="#one-certificate-for-the-whole-domain">One certificate for the whole domain</a></li>
+        <li class="toc-3"><a href="#another-ca-or-one-of-your-own">Another CA, or one of your own</a></li>
+        <li class="toc-3"><a href="#when-it-cannot-get-one">When it cannot get one</a></li>
+        <li class="toc-2"><a href="#staying-on-https">Staying on HTTPS</a></li>
       </ul>
     </aside>
   </div>
@@ -208,7 +263,7 @@ moor server status shows on the server. Trust this CA on this computer? [y/N]</c
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

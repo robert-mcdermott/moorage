@@ -149,7 +149,7 @@
 <p>A <strong>static site</strong> has nothing to start. Its files are switched at once.</p>
 <h2 id="when-a-deployment-fails">When a deployment fails<a class="anchor" href="#when-a-deployment-fails" aria-label="Link to this section">#</a></h2>
 <p>If the build fails, the release command fails, or a new instance does not become healthy in time, the new instances are stopped and the traffic never moves, so that with the default rolling strategy nobody using the app sees anything. The page says what went wrong, and shows the log:</p>
-<figure><div class="shot"><img class="shot-light" src="../assets/img/deployment-failed-light.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage marked as failed, and the compiler's error in the log" /><img class="shot-dark" src="../assets/img/deployment-failed-dark.webp" width="1600" height="1106" loading="lazy" decoding="async" alt="A failed deployment: the build stage marked as failed, and the compiler's error in the log" /></div><figcaption>A failed deployment says which stage failed, and why.</figcaption></figure>
+<figure><div class="shot"><img class="shot-light" src="../assets/img/deployment-failed-light.webp" width="1600" height="1074" loading="lazy" decoding="async" alt="A failed deployment: the build stage marked as failed, and the compiler's error in the log" /><img class="shot-dark" src="../assets/img/deployment-failed-dark.webp" width="1600" height="1074" loading="lazy" decoding="async" alt="A failed deployment: the build stage marked as failed, and the compiler's error in the log" /></div><figcaption>A failed deployment says which stage failed, and why.</figcaption></figure>
 <p>The app's page and the list of apps then show that its last deployment failed, beside the release that is still serving. A <code>git push</code> fails too, and says why, so that you need not go and look. <a href="notifications.html">Notifications</a> can tell the people concerned.</p>
 <p>A deployment interrupted by the server restarting is marked as failed: deploy or push again.</p>
 <h2 id="rolling-back">Rolling back<a class="anchor" href="#rolling-back" aria-label="Link to this section">#</a></h2>
@@ -170,6 +170,11 @@
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> scale web=3 worker=1</code></pre></div>
 <p>New instances start beside those running, and take traffic once they are healthy. Those beyond the number finish their requests and stop. If a new instance cannot start, the app goes back to how it was, and says why. The number stays, over the manifest's <code>instances</code>, through restarts and the releases to come, and the console says what the manifest would have had. <code>0</code> turns a process off, and 20 is the most.</p>
 <p>Requests are spread over the healthy instances. An instance holds nothing in common with another unless you arrange it, so that an app with more than one needs to keep what it shares somewhere they can all reach.</p>
+<p>An app that keeps something in memory for each visitor, as many keep a session, can ask to have each browser kept with one instance:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[processes.web]</span>
+<span class="t-k">instances</span> = 3
+<span class="t-k">sticky</span> = true</code></pre></div>
+<p>Moorage does that with a cookie of its own, which the app does not hear, for as long as the browser is open. A browser moves to another instance when its instance is gone or unhealthy, as it is after every release, so that what was in memory is lost then: it makes an app work with several instances, and not safe to lose one.</p>
 <p>This is one machine: scaling lets an app use more of its CPUs, and does not add to them.</p>
 <h2 id="restarts-and-crashes">Restarts and crashes<a class="anchor" href="#restarts-and-crashes" aria-label="Link to this section">#</a></h2>
 <p>An instance that exits is restarted, by the small supervisor that runs it, even while the server itself is away. The wait between restarts starts at a second and doubles, up to a minute. An instance that keeps failing, five times in ten minutes, counts as crashed, and is then restarted every five minutes. <a href="notifications.html">Those concerned are told</a> sooner, at three exits in five minutes.</p>
@@ -234,7 +239,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

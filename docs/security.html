@@ -131,6 +131,7 @@
         <li class="toc-2"><a href="#signing-in">Signing in</a></li>
         <li class="toc-2"><a href="#secrets">Secrets</a></li>
         <li class="toc-2"><a href="#the-console-and-api">The console and API</a></li>
+        <li class="toc-2"><a href="#facing-the-internet">Facing the internet</a></li>
         <li class="toc-2"><a href="#what-the-server-fetches">What the server fetches</a></li>
         <li class="toc-2"><a href="#what-it-builds">What it builds</a></li>
         <li class="toc-2"><a href="#its-own-releases">Its own releases</a></li>
@@ -139,7 +140,7 @@
         <li class="toc-2"><a href="#reporting-a-problem">Reporting a problem</a></li>
       </ul></details>
 <p>Moorage is meant for a team that trusts one another, on a network it controls, showing work to people outside it. This page says what it protects, how, and what it does not. The <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/08-security.md">design document</a> has more depth.</p>
-<blockquote><p><strong>Where this stands.</strong> Moorage is young, and has not had an outside security review. It has had close reviews of its own, and tests for what is described here, but no one has been paid to break it. A penetration test is on the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">roadmap</a> before Moorage is meant for the open internet. Until then, keep it on a network you control, or behind something that decides who reaches it.</p></blockquote>
+<blockquote><p><strong>Where this stands.</strong> Moorage is young, and has not had an outside security review. It has had close reviews of its own, the latest of what faces the internet and of what a low-privilege account can reach, and tests for what is described here, but no one has been paid to break it. A penetration test is on the <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">roadmap</a>. Until then, and whatever the <code>public</code> preset makes easy, keep it on a network you control, or behind something that decides who reaches it.</p></blockquote>
 <h2 id="what-it-trusts-and-what-it-does-not">What it trusts, and what it does not<a class="anchor" href="#what-it-trusts-and-what-it-does-not" aria-label="Link to this section">#</a></h2>
 <div class="table-wrap" tabindex="0"><table><thead><tr><th>Who</th><th>Trust</th><th></th></tr></thead><tbody><tr><td>An administrator</td><td>Complete</td><td>Runs the server, its users and settings</td></tr><tr><td>A maintainer or deployer</td><td>High</td><td><strong>Deploying is running code on the server.</strong> Give it as you would give someone a shell</td></tr><tr><td>A viewer</td><td>Some</td><td>Sees status and metrics, and usually logs</td></tr><tr><td>Someone visiting an app</td><td>None</td><td>Anyone who can reach the server</td></tr><tr><td>An app and its dependencies</td><td>Some</td><td>May have bugs, or a compromised dependency</td></tr></tbody></table></div>
 <p><strong>Moorage does not contain someone who sets out to attack it from inside.</strong> A hostile deployer on a server with several teams is beyond what it is for: that takes separate machines. It is not a hosting service for strangers' code.</p>
@@ -155,7 +156,9 @@
 <h2 id="secrets">Secrets<a class="anchor" href="#secrets" aria-label="Link to this section">#</a></h2>
 <ul><li>A secret is encrypted at rest with AES-256-GCM, under a key wrapped by the master key, and bound to its app, environment and name, so that a value cannot be moved to another variable.</li><li>It is shown once, when set. A maintainer can reveal it, and that is recorded.</li><li>It reaches an app in memory, and is on no command line or disk. A container's engine does keep it in the container's configuration, where those who can use the engine can read it.</li><li>Its value is taken out of logs as they are captured, as far as it can be found there.</li><li>Builds do not get secrets, unless you say so for each one.</li><li><strong>A backup leaves out the master key.</strong> Keep that safe and apart: with both, anyone can read the secrets, and without it, nobody can.</li></ul>
 <h2 id="the-console-and-api">The console and API<a class="anchor" href="#the-console-and-api" aria-label="Link to this section">#</a></h2>
-<ul><li>The console has its own hostname, and its cookie goes nowhere else, so that an app cannot read it.</li><li>Pages run under a strict Content-Security-Policy, with no inline scripts or styles, and cannot be framed.</li><li>Requests that change something from a browser need a token bound to the session, and a same-origin request.</li><li>A permission is declared for each route of the API, in one table, and a test goes through all of them for each kind of caller.</li><li>A project can hide its apps from those with no role in it, who then get a 404, and not a 403.</li><li><code>moor server doctor</code> and the System page warn of plain HTTP with no proxy in front, as credentials would travel unencrypted.</li></ul>
+<ul><li>The console has its own hostname, and its cookie goes nowhere else, so that an app cannot read it.</li><li>Pages run under a strict Content-Security-Policy, with no inline scripts or styles, and cannot be framed.</li><li>Requests that change something from a browser need a token bound to the session, and a same-origin request.</li><li>A permission is declared for each route of the API, in one table, and a test goes through all of them for each kind of caller.</li><li>A project can hide its apps from those with no role in it, who get the answer that an app that is not there gets. <a href="accounts.html#projects-and-roles">Accounts</a> says where that stops.</li><li>A token limited to one app reaches that app, and nothing of its project or of the others.</li><li><code>moor server doctor</code> and the System page warn of plain HTTP with no proxy in front, as credentials would travel unencrypted.</li></ul>
+<h2 id="facing-the-internet">Facing the internet<a class="anchor" href="#facing-the-internet" aria-label="Link to this section">#</a></h2>
+<ul><li>Plain HTTP is redirected to HTTPS, and <a href="tls.html#staying-on-https"><code>hsts</code></a>, which the <code>public</code> preset turns on, tells browsers not to try it.</li><li>A static site does not serve files or directories whose names start with a dot, except <code>.well-known</code>, unless it says to. So a <code>.env</code> or a <code>.git</code> left in the directory stays there.</li><li>A request cannot pass itself off as the platform. Every spelling of <code>X-Moorage-*</code> is removed, as some ways of serving apps read <code>X.Moorage.User</code> and <code>X_Moorage_User</code> as the same header.</li></ul>
 <h2 id="what-the-server-fetches">What the server fetches<a class="anchor" href="#what-the-server-fetches" aria-label="Link to this section">#</a></h2>
 <p>Webhooks, mail servers, telemetry sinks and forges are named by people who may not run the server, so it refuses this machine, link-local addresses and clouds' metadata services for them, unless an administrator allows them in <a href="configuration.html#notifications"><code>[notifications] allow</code></a>. It checks as it connects, so that a name cannot resolve to one thing and then another, and follows no redirects. The address of an S3 service for backups and of a sign-in provider are set by administrators, and are not limited in this way.</p>
 <h2 id="what-it-builds">What it builds<a class="anchor" href="#what-it-builds" aria-label="Link to this section">#</a></h2>
@@ -181,6 +184,7 @@
         <li class="toc-2"><a href="#signing-in">Signing in</a></li>
         <li class="toc-2"><a href="#secrets">Secrets</a></li>
         <li class="toc-2"><a href="#the-console-and-api">The console and API</a></li>
+        <li class="toc-2"><a href="#facing-the-internet">Facing the internet</a></li>
         <li class="toc-2"><a href="#what-the-server-fetches">What the server fetches</a></li>
         <li class="toc-2"><a href="#what-it-builds">What it builds</a></li>
         <li class="toc-2"><a href="#its-own-releases">Its own releases</a></li>
@@ -227,7 +231,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

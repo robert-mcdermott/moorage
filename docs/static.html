@@ -158,6 +158,7 @@
 <p>Each release of a static site that is still kept can be seen at an address of its own, as it was when it was deployed, to compare versions or to show someone an exact build:</p>
 <div class="code"><pre tabindex="0"><code class="language-text">https://docs--production--v12.apps.example.com</code></pre></div>
 <p><code>moor releases</code> lists them, and the <strong>view</strong> link in an app's <strong>Deployments</strong> goes to them.</p>
+<p>This takes a certificate for those addresses. A server that <a href="tls.html#from-a-public-ca-with-acme">gets one for each hostname from a CA</a> does not ask for them, since anyone could then spend the CA's limit for your domain by visiting them, so that it does not offer them either. A <a href="tls.html#from-a-public-ca-with-acme">wildcard</a> covers them. The other ways of getting a certificate do too.</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> releases --app docs</code></pre></div>
 <p>They are behind the gate that the environment has now, so that closing an environment closes its old releases too, and they tell search engines to stay away. Moorage keeps an app's last five releases, or as many as <a href="manifest.html#deploy"><code>keep_releases</code></a> says. They need the same wildcard DNS record as the rest of your apps, so that with <a href="domains.html#with-no-wildcard-dns-path-routing">path routing</a> there are none.</p>
 <h2 id="serving-rules">Serving rules<a class="anchor" href="#serving-rules" aria-label="Link to this section">#</a></h2>
@@ -178,6 +179,7 @@
 <span class="t-k">to</span> = <span class="t-s">&quot;/posts/:year/:splat&quot;</span>
 <span class="t-k">status</span> = 301</code></pre></div>
 <p>Files whose names carry a content hash (<code>app.3f2a9c1b.js</code>) are cached as immutable, HTML is revalidated, and pre-compressed <code>.br</code> and <code>.gz</code> files are served to browsers that accept them. <code>listing = true</code> lists directories, for file shares.</p>
+<p>Files and directories whose names start with a dot are as good as absent, since <code>.env</code> and <code>.git</code> are far more often left behind than meant to be served. <code>.well-known</code> is the exception, and <code>dotfiles = true</code> serves the others.</p>
 <p>A complete site: the <a href="https://github.com/robert-mcdermott/moorage/tree/main/examples/static-site">Handbook example</a>, with clean URLs, a 404 page, headers and redirects.</p>
 <p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/static.md">Suggest a change to this page</a></p>
 <nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="node.html"><span>Previous</span>Node.js</a><a class="doc-pager-next" rel="next" href="containers.html"><span>Next</span>In containers</a></nav>
@@ -231,7 +233,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

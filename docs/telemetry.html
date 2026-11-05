@@ -132,7 +132,7 @@
         <li class="toc-2"><a href="#thresholds">Thresholds</a></li>
         <li class="toc-3"><a href="#the-servers-disk">The server's disk</a></li>
       </ul></details>
-<blockquote><p><strong>Tested against stand-ins so far.</strong> This has run against test receivers written to follow each format's published description, and not yet against a real OpenTelemetry collector or syslog server. Trying them is <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">on the roadmap</a>. If you try it first, please <a href="https://github.com/robert-mcdermott/moorage/issues">say how it goes</a>.</p></blockquote>
+<blockquote><p><strong>What this has been tried against.</strong> CI sends logs and metrics to a real OpenTelemetry collector, and logs to syslog-ng over UDP, TCP and TLS, on each change to this code. It has not met a hosted service. If yours disagrees, please <a href="https://github.com/robert-mcdermott/moorage/issues">say how it goes</a>.</p></blockquote>
 <p>Moorage keeps what apps say, in <a href="troubleshooting.html">its logs</a>, and what they do, in <a href="metrics.html">its metrics</a>. It can send them somewhere else as well, if that is where your team looks, and tell you when an environment <a href="#thresholds">crosses a threshold</a>.</p>
 <h2 id="sinks">Sinks<a class="anchor" href="#sinks" aria-label="Link to this section">#</a></h2>
 <p>A sink is somewhere to send things, and it takes an administrator to add one. In the console, it is <strong>Settings</strong>, then <strong>Telemetry</strong>. From the command line:</p>
@@ -228,7 +228,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

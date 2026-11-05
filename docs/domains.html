@@ -144,7 +144,8 @@
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> domains remove portal.example.com</code></pre></div>
 <p>A domain goes with one environment, and takes <code>--env</code> like everything else. Attaching one takes a maintainer. A hostname under the server's own domain is not needed: it names its apps by itself.</p>
 <h2 id="certificates">Certificates<a class="anchor" href="#certificates" aria-label="Link to this section">#</a></h2>
-<p>The CA that Moorage makes for itself vouches only for the server's own domain, so that HTTPS at another hostname needs one of these:</p>
+<p>With <code>tls.mode = &quot;acme&quot;</code>, <a href="tls.html#from-a-public-ca-with-acme">a domain gets a certificate of its own</a> the first time it is asked for, once its DNS points here.</p>
+<p>The CA that Moorage makes for itself vouches only for the server's own domain, so that otherwise, HTTPS at another hostname needs one of these:</p>
 <ul><li><code>[tls] mode = &quot;files&quot;</code> with <a href="tls.html">a certificate</a> for that hostname, or</li><li><a href="proxy.html">a proxy in front</a> that has one.</li></ul>
 <h2 id="a-path-on-a-hostname">A path on a hostname<a class="anchor" href="#a-path-on-a-hostname" aria-label="Link to this section">#</a></h2>
 <p>Requests under the path go to the environment, and the longest path that fits wins. What an app must know of it:</p>
@@ -206,7 +207,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.7.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.8.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

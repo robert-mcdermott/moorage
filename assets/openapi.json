@@ -5118,7 +5118,7 @@
             "session": []
           }
         ],
-        "summary": "A release, with what it runs",
+        "summary": "A release, and, for those who can deploy, its manifest",
         "tags": [
           "apps"
         ],
@@ -5191,7 +5191,7 @@
             "session": []
           }
         ],
-        "summary": "What changed from one release to another; of variables, their names only",
+        "summary": "What changed from one release to another; of variables, their names only, and all but whether the build changed is for those who can deploy",
         "tags": [
           "apps"
         ],
@@ -8041,7 +8041,7 @@
         "tags": [
           "notifications"
         ],
-        "x-moorage-permission": "read"
+        "x-moorage-permission": "deploy"
       }
     },
     "/notifications/rules": {
