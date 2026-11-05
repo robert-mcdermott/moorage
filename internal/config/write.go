@@ -11,7 +11,7 @@ import (
 )
 
 // Presets are the starting points `moor server init` offers.
-var Presets = []string{"lan", "local"}
+var Presets = []string{"lan", "local", "public"}
 
 // PresetOptions are the choices passed to a preset.
 type PresetOptions struct {
@@ -27,12 +27,18 @@ type PresetOptions struct {
 	Routing string
 	// ConsoleHost, if set, is the console's hostname, instead of moorage.<domain>.
 	ConsoleHost string
+	// Email and AgreeTerms are for the CA of the "public" preset, and Directory, if set, is another one than the default.
+	Email      string
+	AgreeTerms bool
+	Directory  string
 }
 
 // Preset returns the configuration a preset starts from:
 //   - "local": this computer only — *.localhost on 127.0.0.1:8080, no TLS;
 //   - "lan": a server on an internal network — ports 80, 443 and 2222 with
-//     Moorage's internal CA, or plain HTTP behind a TLS proxy.
+//     Moorage's internal CA, or plain HTTP behind a TLS proxy;
+//   - "public": a server on the internet — the same ports, with certificates from
+//     a public CA, and every environment but production behind a sign-in.
 func Preset(name string, o PresetOptions) (Config, error) {
 	var c Config
 	switch name {
@@ -64,6 +70,21 @@ func Preset(name string, o PresetOptions) (Config, error) {
 			c.Listen = Listen{HTTP: "127.0.0.1:8080", SSH: ":2222"}
 			c.TLS = TLS{Mode: "off"}
 			c.Proxy = Proxy{Trusted: []string{"127.0.0.1", "::1"}, ExternalScheme: "https"}
+		}
+	case "public":
+		if o.Domain == "" {
+			return Config{}, errors.New("the public preset needs --domain: the domain whose wildcard DNS record points at this server")
+		}
+		if o.BehindProxy {
+			return Config{}, errors.New("--behind-proxy applies to the lan preset: with the public preset, Moorage gets its own certificates")
+		}
+		c = Config{
+			Domain: o.Domain,
+			Listen: Listen{HTTP: ":80", HTTPS: ":443", SSH: ":2222"},
+			TLS:    TLS{Mode: "acme", ACME: ACME{Email: o.Email, AgreeTerms: o.AgreeTerms, Directory: o.Directory}},
+			Proxy:  Proxy{ExternalScheme: "https"},
+			// What is not production is work in progress: strangers get a sign-in, and not the work.
+			Access: Access{Production: "public", Named: "login", Preview: "login"},
 		}
 	default:
 		return Config{}, fmt.Errorf("unknown preset %q: choose %s", name, list(Presets))
@@ -214,6 +235,8 @@ dns   = {{q .Listen.DNS}}   # answers for the domain on loopback (moor server re
 #               (uncomment ca_cert and ca_key below);
 #   "files"     certificate and key files you provide (uncomment the
 #               [[tls.certificates]] entry below; repeat it for more);
+#   "acme"      certificates from a public CA or an internal ACME server
+#               ([tls.acme] below);
 #   "off"       plain HTTP, for example behind a TLS-terminating proxy such
 #               as nginx (also set [proxy] below).
 mode = {{q .TLS.Mode}}
@@ -234,6 +257,25 @@ key  = {{q .Key}}
 # [[tls.certificates]]
 # cert = "/etc/moorage/tls/wildcard.crt"
 # key  = "/etc/moorage/tls/wildcard.key"
+{{- end}}
+{{- if eq .TLS.Mode "acme"}}
+
+[tls.acme]
+# By default, the CA is Let's Encrypt, whose terms you accept with agree_terms:
+# https://letsencrypt.org/repository/
+{{- if .TLS.ACME.Directory}}
+directory = {{q .TLS.ACME.Directory}}
+{{- else}}
+# directory = "https://acme-staging-v02.api.letsencrypt.org/directory"   # to try it, with no limits to speak of
+{{- end}}
+email = {{q .TLS.ACME.Email}}
+agree_terms = {{.TLS.ACME.AgreeTerms}}
+# Each hostname gets a certificate of its own the first time it is asked for, which a public CA limits. One certificate
+# for the whole domain has no such limit, and takes showing the CA a DNS record, so tell Moorage how to set one:
+#
+# [tls.acme.dns]
+# provider = "cloudflare"
+# token_file = "/etc/moorage/cloudflare.token"
 {{- end}}
 
 [proxy]

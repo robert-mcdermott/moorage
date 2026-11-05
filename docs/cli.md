@@ -1659,6 +1659,9 @@ Presets:
           certificates from Moorage's own CA (ports 80, 443 and 2222), or plain
           HTTP on 127.0.0.1:8080 behind your TLS proxy with --behind-proxy
   local   this computer only: apps at http://<app>.localhost:8080
+  public  a server on the internet: apps at https://<app>.<domain> with
+          certificates from a public CA (ports 80, 443 and 2222), and everything
+          but production behind a sign-in
 ```
 
 The file is written to --config, $MOORAGE\_CONFIG, or a default location: system-wide when run as root (Administrator on Windows), per-user otherwise.
@@ -1671,17 +1674,21 @@ moor server init
 moor server init --preset local
 sudo moor server init --domain apps.example.com
 sudo moor server init --domain apps.example.com --behind-proxy
+sudo moor server init --preset public --domain apps.example.com --email ops@example.com --agree-terms
 ```
 
 | Flag | Default | What it does |
 |---|---|---|
+| `--acme-directory string` |  | another ACME server's directory than the default CA's (public) |
+| `--agree-terms` |  | you have read and accept the CA's terms, which it asks for (public) |
 | `--behind-proxy` |  | serve plain HTTP on 127.0.0.1:8080 behind a TLS-terminating proxy such as nginx (lan) |
 | `--config string` |  | where to write server.toml (default: $MOORAGE\_CONFIG or a per-platform location) |
 | `--console-host string` |  | the console's hostname (default: moorage.\<domain\>) |
 | `--data-dir string` |  | data directory (default: $MOORAGE\_DATA\_DIR or a per-platform location) |
 | `--domain string` |  | base domain; apps are served at \<app\>.\<domain\> (required for lan) |
+| `--email string` |  | whom the CA tells of the account (public) |
 | `--force` |  | replace an existing server.toml |
-| `--preset string` | `lan` | starting point: lan or local |
+| `--preset string` | `lan` | starting point: lan or local or public |
 | `--routing string` | `host` | how apps are told apart: host, as \<app\>.\<domain\>, or path, as \<domain\>/\<app\>, for where there can be no wildcard DNS record |
 
 ### `moor server install`

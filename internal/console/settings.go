@@ -14,6 +14,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
+	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/doctor"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -140,6 +141,15 @@ func (c *Console) settingsPage(w http.ResponseWriter, r *http.Request) {
 		tls = "Certificates from Moorage's own CA"
 		if cfg.TLS.CACert != "" {
 			tls = "Certificates from an intermediate CA: " + cfg.TLS.CACert
+		}
+	case "acme":
+		directory := cfg.TLS.ACME.Directory
+		if directory == "" {
+			directory = config.LetsEncrypt
+		}
+		tls = "Certificates for each hostname, from the ACME server at " + directory
+		if cfg.WildcardCertificate() {
+			tls = "One certificate for *." + cfg.Domain + ", from the ACME server at " + directory
 		}
 	case "files":
 		tls = fmt.Sprintf("Certificates from files (%d)", len(cfg.TLS.Certificates))

@@ -31,5 +31,5 @@ touches trust '^(internal/truststore/|internal/localdns/|internal/ingress/tls|in
 touches service '^(cmd/|internal/(service|shim|reconcile|server|platform|upgrade)/|internal/cli/(service|server|upgrade)|\.github/scripts/service-check)'
 touches isolation '^(cmd/|internal/(isolate|shim|reconcile|oneoff|build|server|platform|config)/|\.github/scripts/isolation-check)'
 touches backup '^(cmd/|internal/(backup|store|secrets|server|layout)/|internal/cli/backup|\.github/scripts/backup-check)'
-touches real '^(cmd/|internal/(forge|telemetry|notify)/|internal/gitserver/|\.github/scripts/real-services)'
+touches real '^(cmd/|internal/(forge|telemetry|notify)/|internal/gitserver/|internal/ingress/acme|\.github/scripts/real-services)'
 touches upgrade '^(cmd/|internal/(store|shim|reconcile|server|platform|config|secrets)/|\.github/scripts/upgrade-check)'

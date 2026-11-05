@@ -561,6 +561,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	router.SetConsole(console)
 
 	var tlsConfig *tls.Config
+	var acmeCerts *ingress.ACME
 	switch cfg.TLS.Mode {
 	case "files":
 		certs, err := ingress.NewFileCertificates(cfg.TLS.Certificates, log)
@@ -581,6 +582,19 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		router.SetCACert(ca.PEM())
 		log.Info("the internal CA; moor trust installs it on other machines", "fingerprint", "SHA-256 "+truststore.Fingerprint(ca.Certificate()))
 		tlsConfig = ingress.TLSConfig(ca)
+	case "acme":
+		acmeCerts, err = ingress.NewACME(ingress.ACMEOptions{Dir: filepath.Join(layout.Certs, ingress.ACMEDir), Config: cfg, Allow: router.AllowIssuing, Log: log,
+			Told: func(failed bool, name, problem string) {
+				kind := events.CertificateOK
+				if failed {
+					kind = events.CertificateFailed
+				}
+				bus.Publish(context.Background(), store.Event{Type: kind, Data: map[string]any{"name": name, "error": problem}})
+			}})
+		if err != nil {
+			return err
+		}
+		tlsConfig = acmeCerts.TLSConfig()
 	}
 
 	httpLn, err := net.Listen("tcp", cfg.Listen.HTTP)
@@ -602,6 +616,9 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		addrs.HTTPS = httpsLn.Addr()
 		_, port, _ := net.SplitHostPort(httpsLn.Addr().String())
 		httpHandler = router.RedirectToHTTPS(port)
+		if acmeCerts != nil {
+			httpHandler = acmeCerts.HTTPChallenges(httpHandler)
+		}
 		httpsSrv := newHTTPServer(router, errorLog)
 		httpsSrv.TLSConfig = tlsConfig
 		servers = append(servers, httpsSrv)
@@ -610,6 +627,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	httpSrv := newHTTPServer(httpHandler, errorLog)
 	servers = append(servers, httpSrv)
 	go func() { served <- httpSrv.Serve(httpLn) }()
+	if acmeCerts != nil {
+		if err := acmeCerts.Start(ctx); err != nil {
+			log.Warn("could not start asking for certificates", "err", err)
+		}
+	}
 
 	var sshSrv *gitserver.SSH
 	if cfg.Listen.SSH != "" {

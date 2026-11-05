@@ -51,6 +51,7 @@ var RuleEvents = []RuleEvent{
 	{events.DiskLow, "The server's disk is nearly full", true},
 	{events.ThresholdCrossed, "A threshold is crossed", true},
 	{events.BackupFailed, "A backup fails", true},
+	{events.CertificateFailed, "A certificate cannot be had", true},
 	{events.InstanceUnhealthy, "An instance is unhealthy", false},
 	{events.DeploymentLive, "A deployment goes live", false},
 }
@@ -327,6 +328,16 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 	case events.BackupFailed:
 		s.failing[backupKey] = true
 		alerts = append(alerts, events.BackupFailed)
+	case events.CertificateFailed:
+		name, _ := e.Data["name"].(string)
+		s.failing[certificateKey+name] = true
+		alerts = append(alerts, events.CertificateFailed)
+	case events.CertificateOK:
+		name, _ := e.Data["name"].(string)
+		if s.failing[certificateKey+name] {
+			delete(s.failing, certificateKey+name)
+			recovered = append(recovered, recovery{kind: events.CertificateFailed, summary: events.Summary(e)})
+		}
 	case events.BackupDone:
 		if s.failing[backupKey] {
 			delete(s.failing, backupKey)
@@ -351,9 +362,10 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 }
 
 const (
-	diskKey      = "disk"
-	backupKey    = "backup"
-	thresholdKey = "threshold/"
+	diskKey        = "disk"
+	backupKey      = "backup"
+	certificateKey = "certificate/"
+	thresholdKey   = "threshold/"
 )
 
 func (s *Service) anyUnhealthy(where string) bool {
@@ -705,7 +717,7 @@ func (s *Service) Test(ctx context.Context, channel, by string) (store.Notificat
 }
 
 // toldInConsole are the alerts people are told of in the console, whatever the rules say.
-var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow, events.BackupFailed}
+var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow, events.BackupFailed, events.CertificateFailed}
 
 // tellPeople puts an alert in the console of those it concerns: a project's maintainers, whoever
 // pushed a deployment that failed and, for all of it, the server's administrators.

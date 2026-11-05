@@ -165,6 +165,8 @@ func findCA(cmd *cobra.Command, conn *connection, file string) (foundCA, error) 
 		switch cfg.TLS.Mode {
 		case "off":
 			return foundCA{}, errors.New("this server serves plain HTTP, so there is no certificate of its to trust. Behind a TLS proxy, the proxy's certificate is the one that matters")
+		case "acme":
+			return foundCA{}, errors.New("this server's certificates come from a CA: a public CA's are trusted already, and for an internal one, trust its root with moor trust --file")
 		case "files":
 			return foundCA{}, errors.New("this server uses the certificates you gave it: trust their issuer with moor trust --file ISSUER.pem")
 		}

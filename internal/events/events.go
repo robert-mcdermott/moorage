@@ -49,6 +49,8 @@ const (
 	ThresholdOK          = "threshold.ok"
 	DiskLow              = "server.disk_low"
 	DiskOK               = "server.disk_ok"
+	CertificateFailed    = "server.certificate_failed"
+	CertificateOK        = "server.certificate_ok"
 	DomainAdded          = "domain.added"
 	DomainVerified       = "domain.verified"
 	DomainRemoved        = "domain.removed"
@@ -186,7 +188,7 @@ func Level(kind string) string {
 		return "warn"
 	case ThresholdOK:
 		return "ok"
-	case BackupFailed:
+	case BackupFailed, CertificateFailed:
 		return "fail"
 	case BackupDone:
 		return "ok"
@@ -324,6 +326,10 @@ func Summary(e store.Event) string {
 	case ThresholdOK:
 		name, unit := thresholdWords(text(e, "metric"))
 		return fmt.Sprintf("%s is back under %v%s, at %v%s", name, e.Data["above"], unit, e.Data["value"], unit)
+	case CertificateFailed:
+		return "The server could not get a certificate for " + text(e, "name") + ": " + text(e, "error")
+	case CertificateOK:
+		return "The server has a certificate for " + text(e, "name") + " again"
 	case DiskLow:
 		return fmt.Sprintf("The server's data volume is %v%% full", e.Data["percent"])
 	case DiskOK:

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Tries a real server against the real services it talks to, here where running them costs nothing: a forge in a
-container, which reaches the server with real webhooks, and an OpenTelemetry collector and a syslog server, which read
-what it sends with parsers of their own.
+container, which reaches the server with real webhooks, an OpenTelemetry collector and a syslog server, which read what it
+sends with parsers of their own, and an ACME server, with a real DNS server, which check what they are shown.
 
-    python3 .github/scripts/real-services-check.py MOOR gitea telemetry
+    python3 .github/scripts/real-services-check.py MOOR gitea telemetry acme
     python3 .github/scripts/real-services-check.py MOOR gitlab
 
 A pull request from a fork is a real fork, by a second user, and its code is really fetched once it is approved.
@@ -16,6 +16,8 @@ import pathlib
 import re
 import shutil
 import signal
+import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -236,6 +238,9 @@ class Gitea:
         rows = request(self.base, "GET", f"/api/v1/repos/{self.owner}/{APP}/commits/{sha}/statuses", None, self.auth())
         return next((r["status"] for r in rows if r.get("context") == "moorage"), None)
 
+    def head(self, branch):
+        return request(self.base, "GET", f"/api/v1/repos/{self.owner}/{APP}/branches/{branch}", None, self.auth())["commit"]["id"]
+
     def comments(self, number):
         return [c["body"] for c in request(self.base, "GET", f"/api/v1/repos/{self.owner}/{APP}/issues/{number}/comments", None, self.auth())]
 
@@ -272,10 +277,12 @@ class GitLab:
                   "o = s.personal_access_tokens.create!(scopes: ['api'], name: 'theirs', expires_at: 2.days.from_now); o.set_token('drill-stranger-token-0123456789'); o.save!; "
                   "ApplicationSetting.current.update!(allow_local_requests_from_web_hooks_and_services: true)")
         sh("docker", "exec", "gitlab", "gitlab-rails", "runner", script)
+        # Each of GitLab's processes keeps its settings for a minute, and until then refuses a webhook to this machine.
+        time.sleep(70)
         self.setup, self.their = "drill-setup-token-0123456789", "drill-stranger-token-0123456789"
         self.project = request(self.base, "POST", "/api/v4/projects", {"name": APP, "default_branch": "main", "initialize_with_readme": True, "visibility": "public"}, self.auth())["id"]
-        # What docs/forges.md says a token needs: a project access token with the api scope, as a Developer.
-        made = request(self.base, "POST", f"/api/v4/projects/{self.project}/access_tokens", {"name": "moorage", "scopes": ["api"], "access_level": 30, "expires_at": time.strftime("%Y-%m-%d", time.gmtime(time.time() + 172800))}, self.auth())
+        # What docs/forges.md says a token needs: a project access token with the api scope, as a Maintainer.
+        made = request(self.base, "POST", f"/api/v4/projects/{self.project}/access_tokens", {"name": "moorage", "scopes": ["api"], "access_level": 40, "expires_at": time.strftime("%Y-%m-%d", time.gmtime(time.time() + 172800))}, self.auth())
         self.token = made["token"]
         self.write("moorage.toml", MANIFEST, "main", "How to serve it", new=True)
         self.write("index.html", page("first on main"), "main", "A page", new=True)
@@ -316,6 +323,9 @@ class GitLab:
         rows = request(self.base, "GET", f"/api/v4/projects/{self.project}/repository/commits/{sha}/statuses", None, self.auth())
         state = next((r["status"] for r in rows if r.get("name") == "moorage"), None)
         return {"failed": "failure", "running": "pending"}.get(state, state)
+
+    def head(self, branch):
+        return request(self.base, "GET", f"/api/v4/projects/{self.project}/repository/commits/{branch}", None, self.auth())["id"]
 
     def comments(self, number):
         notes = request(self.base, "GET", f"/api/v4/projects/{self.project}/merge_requests/{number}/notes", None, self.auth())
@@ -382,6 +392,7 @@ def try_forge(forge):
     wait_for(f"{forge.name}: the second pull request's preview", lambda: serves(f"{APP}--pr-{merged}.localhost", "merged"))
     forge.merge(merged)
     wait_for(f"{forge.name}: merging deploys to production", lambda: serves(f"{APP}.localhost", "merged"))
+    wait_for(f"{forge.name}: the check on what was merged says so", lambda: forge.status_of(forge.head("main")) == "success")
     wait_for(f"{forge.name}: merging takes its preview away", lambda: get(f"{APP}--pr-{merged}.localhost", "/")[0] == 404)
 
     # A real fork, by someone else.
@@ -504,6 +515,232 @@ log { source(s_tls); destination { file("/out/tls.log" template(t_fields) perm(0
     check("telemetry: no sink reports a problem", '"last_error":"' not in listed.replace(" ", "") or all(not s.get("last_error") for s in json.loads(listed)), listed[:600])
 
 
+PEBBLE = "v2.10.1"
+ACME_DOMAIN = "apps.drill.test"
+
+
+def stop_this_server():
+    global server
+    if server is not None and server.poll() is None:
+        server.send_signal(signal.SIGTERM)
+        server.wait(timeout=60)
+    server = None
+
+
+def start_acme_server(name, settings):
+    """A server of its own for each way of getting a certificate, on the ports Pebble looks at."""
+    global env, data, log_file, server
+    stop_this_server()
+    home = work / name
+    home.mkdir()
+    data = home / "data"
+    log_file = open(home / "server.log", "ab")
+    env = {**os.environ, "MOORAGE_CONFIG": str(home / "server.toml"), "MOOR_CONFIG": str(home / "client.toml")}
+    (home / "server.toml").write_text(f"""
+data_dir = "{data}"
+domain = "{ACME_DOMAIN}"
+console_host = "moorage.{ACME_DOMAIN}"
+routing = "host"
+
+[access]
+production = "public"
+named = "public"
+preview = "public"
+
+[listen]
+http = "127.0.0.1:5002"
+https = "127.0.0.1:5001"
+ssh = ""
+
+[tls]
+mode = "acme"
+
+[tls.acme]
+directory = "https://127.0.0.1:14000/dir"
+email = "ops@example.com"
+agree_terms = true
+ca_file = "{work}/pebble.minica.pem"
+{settings}
+[proxy]
+trusted = []
+external_scheme = "https"
+""")
+    server = subprocess.Popen([moor, "server", "run"], env=env, stdout=log_file, stderr=log_file)
+    for _ in range(150):
+        try:
+            socket.create_connection(("127.0.0.1", 5002), timeout=1).close()
+            return home
+        except OSError:
+            time.sleep(0.2)
+    raise SystemExit("the server did not start:\n" + (home / "server.log").read_text()[-3000:])
+
+
+def pebble_root():
+    unchecked = ssl.create_default_context()
+    unchecked.check_hostname = False
+    unchecked.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen("https://127.0.0.1:15000/roots/0", context=unchecked, timeout=10) as res:
+        return res.read().decode()
+
+
+def handshake(name, path="/"):
+    """Connects by a hostname, checking the certificate against Pebble's root: who it is for, and what the page says."""
+    context = ssl.create_default_context(cadata=pebble_root())
+    with socket.create_connection(("127.0.0.1", 5001), timeout=60) as raw:
+        with context.wrap_socket(raw, server_hostname=name) as conn:
+            cert = conn.getpeercert()
+            conn.sendall(f"GET {path} HTTP/1.1\r\nHost: {name}\r\nConnection: close\r\n\r\n".encode())
+            answer = b""
+            while True:
+                part = conn.recv(65536)
+                if not part:
+                    break
+                answer += part
+    return {"names": [v for k, v in cert["subjectAltName"]], "serial": cert["serialNumber"], "answer": answer.decode(errors="replace")}
+
+
+def refused(name):
+    try:
+        handshake(name)
+        return False
+    except (ssl.SSLError, OSError):
+        return True
+
+
+def acme_moor(*args):
+    (work / "root.pem").write_text(pebble_root())
+    token = (data / "keys" / "admin-token").read_text().strip()
+    command, rest = list(args[:1]), list(args[1:])
+    return subprocess.run([moor, *command, *rest, "--server", f"https://moorage.{ACME_DOMAIN}:5001", "--ca-cert", str(work / "root.pem"), "--token", token], env=env, capture_output=True, text=True)
+
+
+def start_pebble(dns="127.0.0.1:8053", validity=7776000):
+    subprocess.run(["pkill", "-x", "pebble"], check=False)
+    time.sleep(1)
+    certs = work / "pebble-certs"
+    (work / "pebble.json").write_text(json.dumps({"pebble": {
+        "listenAddress": "127.0.0.1:14000", "managementListenAddress": "127.0.0.1:15000",
+        "certificate": str(certs / "localhost" / "cert.pem"), "privateKey": str(certs / "localhost" / "key.pem"),
+        "httpPort": 5002, "tlsPort": 5001, "ocspResponderURL": "", "externalAccountBindingRequired": False,
+        "retryAfter": {"authz": 1, "order": 1}, "keyAlgorithm": "ecdsa",
+        "profiles": {"default": {"description": "for the drill", "validityPeriod": validity}},
+    }}))
+    subprocess.Popen([str(work / "bin" / "pebble"), "-config", str(work / "pebble.json"), "-dnsserver", dns],
+                     env={**os.environ, "PEBBLE_VA_NOSLEEP": "1", "PEBBLE_WFE_NONCEREJECT": "0"}, stdout=open(work / "pebble.log", "ab"), stderr=subprocess.STDOUT)
+    for _ in range(100):
+        try:
+            pebble_root()
+            return
+        except OSError:
+            time.sleep(0.2)
+    raise SystemExit("Pebble did not start:\n" + (work / "pebble.log").read_text()[-2000:])
+
+
+def try_acme():
+    print("--- ACME, against Pebble", flush=True)
+    bin_dir = work / "bin"
+    env_go = {**os.environ, "GOBIN": str(bin_dir)}
+    subprocess.run(["go", "install", f"github.com/letsencrypt/pebble/v2/cmd/pebble@{PEBBLE}", f"github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@{PEBBLE}"], env=env_go, check=True)
+    module = pathlib.Path(sh("go", "env", "GOMODCACHE").stdout.strip()) / "github.com" / "letsencrypt" / "pebble" / f"v2@{PEBBLE}" / "test" / "certs"
+    shutil.copytree(module, work / "pebble-certs")
+    subprocess.run(["chmod", "-R", "u+rw", str(work / "pebble-certs")], check=True)
+    shutil.copy(work / "pebble-certs" / "pebble.minica.pem", work / "pebble.minica.pem")
+    (work / "pebble.minica.pem").chmod(0o644)
+    subprocess.run(["sudo", "sh", "-c", f"echo '127.0.0.1 moorage.{ACME_DOMAIN}' >> /etc/hosts"], check=True)
+    subprocess.Popen([str(bin_dir / "pebble-challtestsrv"), "-defaultIPv4", "127.0.0.1", "-defaultIPv6", "", "-management", "127.0.0.1:8055", "-dns01", "127.0.0.1:8053", "-doh", "", "-http01", "", "-https01", "", "-tlsalpn01", ""],
+                     stdout=open(work / "chall.log", "ab"), stderr=subprocess.STDOUT)
+    time.sleep(1)
+    start_pebble()
+    site = work / "site"
+    site.mkdir()
+    (site / "index.html").write_text(page("served over a real certificate"))
+
+    # Each hostname, by HTTP-01.
+    home = start_acme_server("http", 'challenges = ["http-01"]\n')
+    console = wait_for("ACME: HTTP-01 gets the console a certificate", lambda: handshake(f"moorage.{ACME_DOMAIN}"), 120)
+    check("ACME: it is for that hostname", bool(console) and console["names"] == [f"moorage.{ACME_DOMAIN}"], str(console and console["names"]))
+    check("ACME: a hostname nothing serves gets none", refused(f"made-up.{ACME_DOMAIN}"))
+    logged = (home / "server.log").read_text()
+    check("ACME: nor is one asked for", f"made-up.{ACME_DOMAIN}" not in (work / "pebble.log").read_text(), logged[-400:])
+    deployed = acme_moor("deploy", "--static", str(site), "--app", "shop")
+    check("ACME: the command line reaches it, trusting the CA", deployed.returncode == 0, deployed.stdout[-400:] + deployed.stderr[-400:])
+    app = wait_for("ACME: an app gets a certificate when it is asked for", lambda: handshake(f"shop.{ACME_DOMAIN}"), 120)
+    check("ACME: the app is served over it", bool(app) and "served over a real certificate" in app["answer"], str(app and app["answer"][:300]))
+    plain = http.client.HTTPConnection("127.0.0.1", 5002, timeout=10)
+    plain.request("GET", "/page", headers={"Host": f"shop.{ACME_DOMAIN}"})
+    answer = plain.getresponse()
+    check("ACME: plain HTTP goes to HTTPS", answer.status in (301, 308) and answer.getheader("Location", "").startswith("https://"), f"{answer.status} {answer.getheader('Location')}")
+    plain.close()
+    doctor = subprocess.run([moor, "server", "doctor"], env=env, capture_output=True, text=True)
+    print(doctor.stdout[-1500:], flush=True)
+    check("ACME: the doctor says how they stand", "certificates from" in doctor.stdout, doctor.stdout[-500:])
+    check("ACME: the doctor mentions a CA's limits", "limits" in doctor.stdout, doctor.stdout[-500:])
+    keys = sorted(p.stat().st_mode & 0o777 for p in (data / "certs" / "acme").rglob("*.key"))
+    check("ACME: private keys are private", bool(keys) and all(m & 0o077 == 0 for m in keys), str([oct(m) for m in keys]))
+
+    # A restart asks for nothing new.
+    before = handshake(f"moorage.{ACME_DOMAIN}")["serial"]
+    stop_this_server()
+    global server
+    server = subprocess.Popen([moor, "server", "run"], env=env, stdout=log_file, stderr=log_file)
+    wait_for("ACME: a restart keeps its certificate", lambda: handshake(f"moorage.{ACME_DOMAIN}")["serial"] == before, 60)
+
+    # Each hostname, by TLS-ALPN-01.
+    start_acme_server("alpn", 'challenges = ["tls-alpn-01"]\n')
+    wait_for("ACME: TLS-ALPN-01 gets a certificate", lambda: handshake(f"moorage.{ACME_DOMAIN}"), 120)
+
+    # One for the whole domain, by a command that sets the record.
+    script = work / "set-dns"
+    script.write_text('#!/bin/sh\ncase "$1" in\nadd) curl -sS -X POST -d "{\\"host\\":\\"$2.\\",\\"value\\":\\"$3\\"}" http://127.0.0.1:8055/set-txt ;;\nremove) curl -sS -X POST -d "{\\"host\\":\\"$2.\\"}" http://127.0.0.1:8055/clear-txt ;;\nesac\n')
+    script.chmod(0o755)
+    start_acme_server("dns", f'\n[tls.acme.dns]\nprovider = "command"\ncommand = "{script}"\nwait = "1s"\n')
+    wild = wait_for("ACME: DNS-01 gets a wildcard, with no one asking", lambda: handshake(f"moorage.{ACME_DOMAIN}"), 120)
+    check("ACME: it is for the whole domain", bool(wild) and wild["names"] == [f"*.{ACME_DOMAIN}"], str(wild and wild["names"]))
+    other = handshake(f"anything.{ACME_DOMAIN}") if wild else None
+    check("ACME: every hostname shares it", bool(other) and other["serial"] == wild["serial"], str(other))
+
+    # By RFC 2136, against a real DNS server, which the CA then asks.
+    dns = work / "bind"
+    dns.mkdir()
+    dns.chmod(0o777)
+    secret = base64.b64encode(b"a key for the drill, thirty-two!").decode()
+    (dns / "named.conf").write_text(f"""
+key "drill" {{ algorithm hmac-sha256; secret "{secret}"; }};
+options {{ directory "/var/lib/bind"; listen-on {{ any; }}; listen-on-v6 {{ none; }}; allow-query {{ any; }}; recursion no; dnssec-validation no; }};
+zone "drill.test" {{ type primary; file "/var/lib/bind/drill.test"; update-policy {{ grant drill zonesub TXT; }}; }};
+""")
+    (dns / "drill.test").write_text(f"""$TTL 5
+@ IN SOA ns.drill.test. hostmaster.drill.test. 1 60 60 3600 5
+@ IN NS ns.drill.test.
+ns IN A 127.0.0.1
+*.apps IN A 127.0.0.1
+""")
+    (dns / "drill.test").chmod(0o666)
+    sh("docker", "run", "-d", "--name", "bind", "-p", "5353:53/udp", "-p", "5353:53/tcp", "-v", f"{dns}/named.conf:/etc/bind/named.conf:ro", "-v", f"{dns}:/var/lib/bind", "internetsystemsconsortium/bind9:9.20")
+    time.sleep(4)
+    print(sh("docker", "logs", "--tail", "6", "bind", check_it=False).stderr[-600:], flush=True)
+    start_pebble(dns="127.0.0.1:5353")
+    (work / "tsig").write_text(secret + "\n")
+    (work / "tsig").chmod(0o600)
+    start_acme_server("rfc2136", f"""
+[tls.acme.dns]
+provider = "rfc2136"
+server = "127.0.0.1:5353"
+key_name = "drill"
+key_file = "{work}/tsig"
+resolvers = ["127.0.0.1:5353"]
+""")
+    wild = wait_for("ACME: RFC 2136 gets a wildcard", lambda: handshake(f"moorage.{ACME_DOMAIN}"), 180)
+    check("ACME: by a record it set itself", bool(wild) and wild["names"] == [f"*.{ACME_DOMAIN}"], str(wild and wild["names"]))
+
+    # A certificate about to end is renewed, at a handshake, with nobody doing anything.
+    start_pebble(validity=120)
+    start_acme_server("renew", 'challenges = ["http-01"]\n')
+    first = wait_for("ACME: a certificate of two minutes", lambda: handshake(f"moorage.{ACME_DOMAIN}"), 120)
+    if first:
+        wait_for("ACME: it is renewed before it ends", lambda: handshake(f"moorage.{ACME_DOMAIN}")["serial"] != first["serial"], 180)
+
+
 try:
     write_config()
     subprocess.run(["sudo", "sh", "-c", "grep -q host.docker.internal /etc/hosts || echo '127.0.0.1 host.docker.internal' >> /etc/hosts"], check=True)
@@ -511,7 +748,7 @@ try:
     (work / "ca.pem").write_text("")
     start_server()
     for what in wanted:
-        {"gitea": lambda: try_forge(Gitea()), "gitlab": lambda: try_forge(GitLab()), "telemetry": try_telemetry}[what]()
+        {"gitea": lambda: try_forge(Gitea()), "gitlab": lambda: try_forge(GitLab()), "telemetry": try_telemetry, "acme": try_acme}[what]()
 except Exception as e:
     check("the drill ran to the end", False, repr(e))
     raise
@@ -524,7 +761,10 @@ finally:
             server.kill()
     if failures:
         print("\n=== the server's log\n" + (work / "server.log").read_text(errors="replace")[-6000:])
-        for c in ("gitea", "gitlab", "otel", "syslog"):
+        for extra in sorted(work.glob("*/server.log")) + [work / "pebble.log"]:
+            if extra.exists():
+                print(f"\n=== {extra}\n" + extra.read_text(errors="replace")[-2500:])
+        for c in ("gitea", "gitlab", "otel", "syslog", "bind"):
             logs = subprocess.run(["docker", "logs", "--tail", "40", c], capture_output=True, text=True)
             if logs.returncode == 0:
                 print(f"\n=== {c}\n{logs.stdout[-2500:]}{logs.stderr[-2500:]}")
