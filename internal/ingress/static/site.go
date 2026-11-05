@@ -60,6 +60,12 @@ func (s *Site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p == "" || p[0] != '/' {
 		p = "/" + p
 	}
+	// Nothing has a name like this, and redirecting to it would send a browser elsewhere: it reads a backslash as a slash and
+	// leaves out tabs and newlines, so that /\\evil.example and /<tab>/evil.example are both another site.
+	if strings.ContainsFunc(p, func(r rune) bool { return r == '\\' || r < 0x20 || r == 0x7f }) {
+		s.serveNotFound(w, r, "/")
+		return
+	}
 	clean := path.Clean(p)
 	if strings.HasSuffix(p, "/") && clean != "/" {
 		clean += "/"
@@ -69,6 +75,10 @@ func (s *Site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.applyRedirects(w, r, clean) {
+		return
+	}
+	if s.hides(clean) {
+		s.serveNotFound(w, r, clean)
 		return
 	}
 	res := s.resolve(clean)
@@ -82,6 +92,20 @@ func (s *Site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.serveNotFound(w, r, clean)
 	}
+}
+
+// hides says whether a path goes through a dotfile, which is left behind by accident far more often than meant to be served:
+// .env, .git, .DS_Store. What is in .well-known is meant to be found.
+func (s *Site) hides(clean string) bool {
+	if s.rules.Dotfiles {
+		return false
+	}
+	for _, part := range strings.Split(strings.Trim(clean, "/"), "/") {
+		if strings.HasPrefix(part, ".") && part != ".well-known" {
+			return true
+		}
+	}
+	return false
 }
 
 // resolve maps a clean request path to a file, following the clean URL and
@@ -179,7 +203,9 @@ func (s *Site) applyRedirects(w http.ResponseWriter, r *http.Request, clean stri
 		}
 		if rule.Status == http.StatusOK {
 			p, _, _ := strings.Cut(target, "?")
-			if res := s.resolve(path.Clean(p)); res.file != "" {
+			p = path.Clean(p)
+			// What a rule captured comes from the request, so that /pages/.env is not a way to reach what /.env is not.
+			if res := s.resolve(p); res.file != "" && !s.hides(p) {
 				s.serveFile(w, r, clean, res.file, http.StatusOK)
 			} else {
 				s.serveNotFound(w, r, clean)
@@ -390,7 +416,7 @@ func (s *Site) serveListing(w http.ResponseWriter, r *http.Request, dir string) 
 	var entries []listingEntry
 	for name, f := range s.idx.Files {
 		rest, ok := strings.CutPrefix(name, prefix)
-		if !ok {
+		if !ok || s.hides("/"+name) {
 			continue
 		}
 		if sub, _, isDir := strings.Cut(rest, "/"); isDir {

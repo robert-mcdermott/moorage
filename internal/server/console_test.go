@@ -1269,8 +1269,8 @@ func TestProjectsAndRoles(t *testing.T) {
 	if strings.Contains(list, `data-app-row="shop"`) {
 		t.Errorf("shop, with no role left:\n%s", list)
 	}
-	if res, _ := ana.post("/new", url.Values{"csrf": {anaToken}, "name": {"her-app"}, "project": {"default"}}); res.StatusCode != http.StatusForbidden {
-		t.Errorf("making an app: %d", res.StatusCode)
+	if res, _ := ana.post("/new", url.Values{"csrf": {anaToken}, "name": {"her-app"}, "project": {"default"}}); res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("making an app in a project she cannot see: %d", res.StatusCode)
 	}
 	if res, _ := ana.post("/new", url.Values{"csrf": {anaToken}, "name": {"her-app"}, "project": {"payments"}}); res.StatusCode != http.StatusSeeOther {
 		t.Errorf("making an app where she may: %d", res.StatusCode)
@@ -1445,8 +1445,8 @@ func TestRenameAndDeleteAnApp(t *testing.T) {
 	if ins := instances(t, c, "store"); len(ins) != 2 {
 		t.Errorf("its number of instances: %+v", ins)
 	}
-	if ins := instances(t, c, "shop"); len(ins) != 0 {
-		t.Errorf("under the old name: %+v", ins)
+	if _, err := c.Instances(ctx, "shop", "production"); status(err) != http.StatusNotFound {
+		t.Errorf("under the old name: %v", err)
 	}
 	if !exists(filepath.Join(data, "store", "production", "kept.txt")) || exists(filepath.Join(data, "shop")) {
 		t.Errorf("its data did not move")

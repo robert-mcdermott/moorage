@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/buildinfo"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/layout"
 	"github.com/robert-mcdermott/moorage/internal/platform"
@@ -299,6 +300,57 @@ func (o Options) anyLocal(addrs []string) bool {
 	return false
 }
 
+// checkACME says how a server's certificates from a CA stand. A wildcard is renewed when it has a third of its life left, so that one
+// with less than two weeks to go has been failing for a while. Those for each hostname are renewed when next wanted, and stay on disk once they
+// are not: an old one says nothing, and the event that a certificate could not be got is what says that something is wrong.
+func checkACME(o Options) []Check {
+	cfg := o.Config
+	directory := cfg.TLS.ACME.Directory
+	if directory == "" {
+		directory = config.LetsEncrypt
+	}
+	var checks []Check
+	found, err := ingress.ACMECertificates(filepath.Join(layout.New(cfg.DataDir).Certs, ingress.ACMEDir))
+	switch {
+	case err != nil:
+		checks = append(checks, Check{Name: "tls", Status: Info, Detail: "this user cannot read the certificates", Fix: "run moor server doctor as the server's user"})
+	case len(found) == 0:
+		checks = append(checks, Check{Name: "tls", Status: Info, Detail: "no certificate yet from " + directory + ": each is asked for when it is first wanted"})
+	default:
+		c := Check{Name: "tls", Status: OK, Detail: fmt.Sprintf("%d certificates from %s", len(found), directory)}
+		now := time.Now()
+		if i := slices.IndexFunc(found, func(f ingress.CertificateOnDisk) bool { return f.NotAfter.After(now) }); i >= 0 {
+			c.Detail += fmt.Sprintf("; the next to expire is for %s, on %s", strings.Join(found[i].Names, ", "), found[i].NotAfter.Format("2 Jan 2006"))
+		}
+		if cfg.WildcardCertificate() {
+			wildcard := "*." + cfg.Domain
+			var newest time.Time
+			for _, f := range found {
+				if slices.Contains(f.Names, wildcard) && f.NotAfter.After(newest) {
+					newest = f.NotAfter
+				}
+			}
+			switch {
+			case newest.IsZero():
+				c.Status, c.Fix = Warn, "there is no certificate for "+wildcard+" yet: the server's log says why"
+			case time.Until(newest) < 14*24*time.Hour:
+				c.Status, c.Fix = Warn, "the certificate for "+wildcard+" expires on "+newest.Format("2 Jan 2006")+", and should have been renewed by now: the server's log says why it has not"
+			}
+		}
+		checks = append(checks, c)
+	}
+	if !cfg.WildcardCertificate() {
+		checks = append(checks, Check{Name: "tls (limits)", Status: Info, Detail: "each hostname has a certificate of its own, and a public CA limits how many a domain can have in a week",
+			Fix: "with many previews, set [tls.acme.dns] in " + cfg.Path + " for one certificate for the whole domain"})
+	}
+	for _, listen := range []struct{ address, port, what string }{{cfg.Listen.HTTP, "80", "http-01"}, {cfg.Listen.HTTPS, "443", "tls-alpn-01"}} {
+		if _, port, err := net.SplitHostPort(listen.address); err == nil && port != listen.port {
+			checks = append(checks, Check{Name: "tls (ports)", Status: Info, Detail: fmt.Sprintf("a CA looks at port %s for %s, and this server listens on %s", listen.port, listen.what, listen.address), Fix: "forward that port here, or see [tls.acme]"})
+		}
+	}
+	return checks
+}
+
 func checkTLS(ctx context.Context, o Options, running bool) []Check {
 	cfg := o.Config
 	switch cfg.TLS.Mode {
@@ -323,6 +375,8 @@ func checkTLS(ctx context.Context, o Options, running bool) []Check {
 		return []Check{c}
 	case "files":
 		return checkCertFiles(o)
+	case "acme":
+		return checkACME(o)
 	}
 	return checkInternalCA(ctx, o, running)
 }

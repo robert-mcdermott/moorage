@@ -24,6 +24,8 @@ const (
 type Remote struct {
 	Kind, APIURL, Repo, Token string
 	Client                    *http.Client
+	// Pull is the pull request that what is being said is about, if it is about one.
+	Pull int
 }
 
 // Where finds a forge's kind, the address of its API and the repository's path there, from the repository's address.
@@ -76,6 +78,42 @@ func repositoryURL(kind, address string) string {
 	return strings.TrimSuffix(address, "/") + ".git"
 }
 
+// answerError is what a forge said, when it was not a yes.
+type answerError struct {
+	Code   int
+	Status string
+}
+
+func (e *answerError) Error() string { return "the forge said " + e.Status }
+
+// CheckToken asks the forge about the repository with the token, so that one it will not take is refused now, and not
+// found out from a pull request later. A forge that cannot say at the moment is no reason to refuse.
+func (r Remote) CheckToken(ctx context.Context) error {
+	if !r.Reports() {
+		return nil
+	}
+	path := "/repos/" + r.Repo
+	name := "Gitea"
+	switch r.Kind {
+	case GitHub:
+		name = "GitHub"
+	case GitLab:
+		name = "GitLab"
+		path = "/projects/" + url.PathEscape(r.Repo)
+	}
+	_, err := r.send(ctx, http.MethodGet, path, nil)
+	var answer *answerError
+	if errors.As(err, &answer) {
+		switch answer.Code {
+		case http.StatusUnauthorized:
+			return &InvalidError{name + " does not accept this token, so nothing has changed. Check that you copied all of it, and that it has not expired."}
+		case http.StatusNotFound:
+			return &InvalidError{name + " has no repository " + r.Repo + " that this token can see, so nothing has changed. Check the address, and which repositories the token is for."}
+		}
+	}
+	return nil
+}
+
 // Reports says whether anything can be told to this forge.
 func (r Remote) Reports() bool { return r.Token != "" && r.Kind != Generic && r.APIURL != "" }
 
@@ -91,9 +129,15 @@ func (r Remote) SetStatus(ctx context.Context, sha, state, target, description s
 		if state == StateFailure {
 			state = "failed"
 		}
-		_, err := r.send(ctx, http.MethodPost, "/projects/"+url.PathEscape(r.Repo)+"/statuses/"+sha, map[string]string{
-			"state": state, "name": "moorage", "target_url": target, "description": description,
-		})
+		path := "/projects/" + url.PathEscape(r.Repo) + "/statuses/" + sha
+		status := map[string]string{"state": state, "name": "moorage", "target_url": target, "description": description}
+		_, err := r.send(ctx, http.MethodPost, path, status)
+		// GitLab looks for a branch of this project that holds the commit, and one from a fork is on none: say where it is.
+		var answer *answerError
+		if errors.As(err, &answer) && answer.Code == http.StatusNotFound && r.Pull != 0 {
+			status["ref"] = "refs/merge-requests/" + strconv.Itoa(r.Pull) + "/head"
+			_, err = r.send(ctx, http.MethodPost, path, status)
+		}
 		return err
 	}
 	_, err := r.send(ctx, http.MethodPost, "/repos/"+r.Repo+"/statuses/"+sha, map[string]string{
@@ -135,15 +179,21 @@ func (r Remote) Comment(ctx context.Context, number int, id, text string) (strin
 }
 
 func (r Remote) send(ctx context.Context, method, path string, body any) ([]byte, error) {
-	payload, err := json.Marshal(body)
+	var content io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		content = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, r.APIURL+path, content)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, r.APIURL+path, bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "moorage")
 	switch r.Kind {
@@ -173,7 +223,7 @@ func (r Remote) send(ctx context.Context, method, path string, body any) ([]byte
 		return nil, err
 	}
 	if res.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("the forge said %s", res.Status)
+		return nil, &answerError{Code: res.StatusCode, Status: res.Status}
 	}
 	return answer, nil
 }

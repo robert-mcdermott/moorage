@@ -656,7 +656,11 @@ func newReleaseShowCmd(conn *connection, app, env *string) *cobra.Command {
 			if asJSON {
 				return printJSON(cmd.OutOrStdout(), rel)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "v%d of %s: %s, %s (the build %s)\n\n%s", rel.Version, appName, rel.Reason, ago(rel.CreatedAt), rel.Build, rel.Manifest)
+			what := rel.Manifest
+			if what == "" {
+				what = "What it runs is for those who can deploy it.\n"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "v%d of %s: %s, %s (the build %s)\n\n%s", rel.Version, appName, rel.Reason, ago(rel.CreatedAt), rel.Build, what)
 			return nil
 		},
 	}
@@ -713,6 +717,10 @@ func printDiff(w io.Writer, diff apitypes.ReleaseDiff) {
 		fmt.Fprintf(w, "v%d and v%d are different builds.\n", diff.From, diff.To)
 	} else {
 		fmt.Fprintf(w, "v%d and v%d are the same build.\n", diff.From, diff.To)
+	}
+	if len(diff.Manifest) == 0 {
+		fmt.Fprintln(w, "What else changed is for those who can deploy it.")
+		return
 	}
 	changed := false
 	for _, l := range diff.Manifest {

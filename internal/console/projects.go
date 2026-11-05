@@ -379,6 +379,10 @@ func (c *Console) createApp(w http.ResponseWriter, r *http.Request, p auth.Princ
 		c.internal(w, err)
 		return
 	}
+	if !access.See {
+		refuse(http.StatusUnprocessableEntity, "There is no such project.")
+		return
+	}
 	if !access.Deploy {
 		refuse(http.StatusForbidden, "You may not make apps in that project: it takes being a deployer of it.")
 		return

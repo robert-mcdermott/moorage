@@ -165,7 +165,8 @@ pass this way, and the deploy says so.
 - Connection failures to an instance are retried once on another instance for
   idempotent requests, and feed passive health (the instance is temporarily
   ejected).
-- Sticky sessions (cookie-based) are an optional per-app setting (Phase 3).
+- Sticky sessions are an option of the `web` process (`sticky = true`): a cookie names the instance, by a hash, and a browser
+  moves on when its instance is gone or unhealthy.
 
 ## Resource limits
 

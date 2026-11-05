@@ -145,13 +145,9 @@ func checkUpgrade(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the Sec-WebSocket-Key header did not arrive", http.StatusBadRequest)
 		return
 	}
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		http.Error(w, "this connection cannot be upgraded", http.StatusInternalServerError)
-		return
-	}
-	conn, rw, err := hijacker.Hijack()
+	conn, rw, err := http.NewResponseController(w).Hijack()
 	if err != nil {
+		http.Error(w, "this connection cannot be upgraded", http.StatusInternalServerError)
 		return
 	}
 	defer conn.Close()

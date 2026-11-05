@@ -47,14 +47,16 @@ type ExitError struct {
 	TimedOut    time.Duration // the timeout, if the command ran out of time
 }
 
+// Error says what happened and not what the command was: this ends up where more people read it than can read
+// what the command is, and its log says that.
 func (e *ExitError) Error() string {
 	if e.OutOfMemory {
-		return fmt.Sprintf("%q ran out of memory", e.Command)
+		return "it ran out of memory"
 	}
 	if e.TimedOut > 0 {
-		return fmt.Sprintf("%q did not finish within %s", e.Command, e.TimedOut)
+		return fmt.Sprintf("it did not finish within %s", e.TimedOut)
 	}
-	return fmt.Sprintf("%q exited with status %d", e.Command, e.Code)
+	return fmt.Sprintf("it exited with status %d", e.Code)
 }
 
 // Run runs c and waits for it. It returns an *ExitError if the command

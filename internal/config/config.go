@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -131,6 +133,50 @@ type TLS struct {
 	CAKey  string `toml:"ca_key"`
 	// Certificates are the certificate and key pairs for "files".
 	Certificates []Certificate `toml:"certificates"`
+	// ACME says where certificates come from with "acme".
+	ACME ACME `toml:"acme"`
+	// HSTS tells browsers to use nothing but HTTPS here from now on, for each hostname that says so.
+	HSTS bool `toml:"hsts"`
+}
+
+// LetsEncrypt is the directory that ACME certificates come from, unless one is named.
+const LetsEncrypt = "https://acme-v02.api.letsencrypt.org/directory"
+
+// ACME says where certificates come from, and how they are asked for.
+type ACME struct {
+	// Directory is the address of the ACME server's directory: a public CA's or an internal one's.
+	Directory string `toml:"directory"`
+	// Email is who the CA tells of what it has to say about the account.
+	Email string `toml:"email"`
+	// AgreeTerms says that the CA's terms have been read and accepted, which it asks for.
+	AgreeTerms bool `toml:"agree_terms"`
+	// CAFile holds the certificates to trust an internal ACME server's address by.
+	CAFile string `toml:"ca_file"`
+	// Challenges are how a hostname is shown to be this server's, of "http-01" and "tls-alpn-01". Nothing means both.
+	Challenges []string `toml:"challenges"`
+	// DNS, with a provider, gets a wildcard certificate for the whole domain.
+	DNS ACMEDNS `toml:"dns"`
+}
+
+// ACMEDNS says how a TXT record is set, to show that a domain is this server's by DNS-01. Each secret is in a file of its
+// own, so that server.toml can be read by those who should not have it.
+type ACMEDNS struct {
+	// Provider is "cloudflare", "rfc2136" or "command".
+	Provider string `toml:"provider"`
+	// TokenFile holds a Cloudflare API token.
+	TokenFile string `toml:"token_file"`
+	// Server is the DNS server that takes RFC 2136 updates, as host:port.
+	Server string `toml:"server"`
+	// KeyName, KeyAlgorithm and KeyFile are its TSIG key. The file holds the base64 secret.
+	KeyName      string `toml:"key_name"`
+	KeyAlgorithm string `toml:"key_algorithm"`
+	KeyFile      string `toml:"key_file"`
+	// Command is a program that is run as Command add|remove NAME VALUE, to set and take away a TXT record.
+	Command string `toml:"command"`
+	// Resolvers are the DNS servers to look for the record through, as host:port. Nothing means the system's.
+	Resolvers []string `toml:"resolvers"`
+	// Wait is how long to give a record to reach the CA, as a duration, when it is set by a command. Nothing means 30s.
+	Wait string `toml:"wait"`
 }
 
 // Certificate is a certificate chain and its private key, in PEM files.
@@ -180,11 +226,10 @@ type Log struct {
 // Values accepted by the enumerated settings.
 var (
 	routings      = []string{"host", "path"}
-	tlsModes      = []string{"internal", "files", "off"}
+	tlsModes      = []string{"internal", "files", "acme", "off"}
 	schemes       = []string{"http", "https"}
 	logLevels     = []string{"debug", "info", "warn", "error"}
 	logFormats    = []string{"text", "json"}
-	plannedModes  = map[string]string{"acme": "ACME certificates are planned for a later release"}
 	envOverriders = []struct {
 		name string
 		set  func(*Config, string)
@@ -299,6 +344,71 @@ func (c *Config) ApplyDefaults() {
 	}
 }
 
+// WildcardCertificate says whether this server gets one certificate for its whole domain, by DNS.
+func (c Config) WildcardCertificate() bool {
+	return c.TLS.Mode == "acme" && c.TLS.ACME.DNS.Provider != ""
+}
+
+// validateACME checks what [tls.acme] says.
+func (c Config) validateACME(add func(string, ...any)) {
+	a := c.TLS.ACME
+	if c.TLS.Mode != "acme" {
+		if a.Directory != "" || a.Email != "" || a.AgreeTerms || a.CAFile != "" || len(a.Challenges) > 0 || a.DNS.Provider != "" {
+			add("[tls.acme] applies only to tls.mode \"acme\"")
+		}
+		return
+	}
+	if c.Domain == "localhost" || strings.HasSuffix(c.Domain, ".localhost") {
+		add("tls.mode \"acme\" needs a domain that a CA can check: %q is only this computer", c.Domain)
+	}
+	if !a.AgreeTerms {
+		add("tls.acme.agree_terms must be true: a CA asks you to accept its terms, so read them, and say so here")
+	}
+	if a.Directory != "" {
+		if u, err := url.Parse(a.Directory); err != nil || u.Scheme != "https" || u.Host == "" {
+			add("tls.acme.directory %q must be an https address", a.Directory)
+		}
+	}
+	for _, challenge := range a.Challenges {
+		if !oneOf(challenge, []string{"http-01", "tls-alpn-01"}) {
+			add("tls.acme.challenges: %q must be http-01 or tls-alpn-01: DNS-01 is what tls.acme.dns does", challenge)
+		}
+	}
+	d := a.DNS
+	switch d.Provider {
+	case "":
+		if d.TokenFile != "" || d.Server != "" || d.KeyFile != "" || d.KeyName != "" || d.Command != "" || len(d.Resolvers) > 0 || d.Wait != "" {
+			add("tls.acme.dns needs a provider: cloudflare, rfc2136 or command")
+		}
+	case "cloudflare":
+		if d.TokenFile == "" {
+			add("tls.acme.dns.token_file is required with the provider cloudflare: the file that holds its API token")
+		}
+	case "rfc2136":
+		if d.Server == "" || d.KeyName == "" || d.KeyFile == "" {
+			add("tls.acme.dns.server, key_name and key_file are required with the provider rfc2136")
+		} else if _, _, err := net.SplitHostPort(d.Server); err != nil {
+			add("tls.acme.dns.server %q must be a host and a port, such as ns1.example.com:53", d.Server)
+		}
+	case "command":
+		if !filepath.IsAbs(d.Command) {
+			add("tls.acme.dns.command is required with the provider command, and must be an absolute path")
+		}
+	default:
+		add("tls.acme.dns.provider %q must be cloudflare, rfc2136 or command", d.Provider)
+	}
+	if d.Wait != "" {
+		if wait, err := time.ParseDuration(d.Wait); err != nil || wait < 0 {
+			add("tls.acme.dns.wait %q is not a duration, such as 30s", d.Wait)
+		}
+	}
+	for _, r := range d.Resolvers {
+		if _, _, err := net.SplitHostPort(r); err != nil {
+			add("tls.acme.dns.resolvers: %q must be a host and a port, such as 1.1.1.1:53", r)
+		}
+	}
+}
+
 // ValidationError lists everything wrong with a configuration.
 type ValidationError struct {
 	Path     string
@@ -382,8 +492,6 @@ func (c Config) Validate() error {
 	}
 
 	switch {
-	case plannedModes[c.TLS.Mode] != "":
-		add("tls.mode %q is not available yet (%s); use %s", c.TLS.Mode, plannedModes[c.TLS.Mode], list(tlsModes))
 	case !oneOf(c.TLS.Mode, tlsModes):
 		add("tls.mode %q must be one of %s", c.TLS.Mode, list(tlsModes))
 	case c.TLS.Mode == "off" && c.Listen.HTTPS != "":
@@ -396,6 +504,10 @@ func (c Config) Validate() error {
 	}
 	if c.TLS.CACert != "" && c.TLS.Mode != "internal" {
 		add("tls.ca_cert and tls.ca_key apply only to tls.mode \"internal\"")
+	}
+	c.validateACME(add)
+	if c.TLS.HSTS && c.TLS.Mode == "off" {
+		add("tls.hsts needs Moorage to terminate TLS: behind a proxy, the proxy sends it")
 	}
 	if c.TLS.Mode == "files" && len(c.TLS.Certificates) == 0 {
 		add("tls.mode \"files\" needs at least one [[tls.certificates]] entry with cert and key")
@@ -455,9 +567,10 @@ func ParseTrusted(s string) (netip.Prefix, error) {
 }
 
 // ReleaseURL is the address of one release of a static site. With path routing there is none: apps
-// have no hostnames of their own.
+// have no hostnames of their own. Nor is there with a certificate from a CA for each hostname: anyone could spend a week's limit on
+// them by visiting them, so that those take a wildcard.
 func (c Config) ReleaseURL(app, env string, version int) string {
-	if c.Routing == "path" {
+	if c.Routing == "path" || c.TLS.Mode == "acme" && !c.WildcardCertificate() {
 		return ""
 	}
 	return c.PublicURL(names.PermalinkLabel(app, env, version) + "." + c.Domain)

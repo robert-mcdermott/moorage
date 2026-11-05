@@ -1,8 +1,10 @@
 # Deploying from a forge
 
-> **Tested against stand-ins so far.** This has run against test servers written to follow each forge's published API, and not yet against
-> GitHub, GitLab or Gitea themselves. Trying it against them is [the next thing on the roadmap](../spec/11-roadmap.md). If you try it first,
-> please [say how it goes](https://github.com/robert-mcdermott/moorage/issues).
+> **What this has been tried against.** GitHub, by hand, with a real repository and a real token: polling, a private repository, pushes, a named
+> environment, pull requests with their previews, checks and comments, approval, and catching up after being away. CI does the same with GitLab and
+> Gitea in containers on each change to this code, a real fork's pull request included. Two things have not been tried on GitHub itself: delivery to a server
+> that it reaches directly, as the deliveries were replayed from its own log, and a real fork, as that one's payload was edited to say so. If you try
+> them first, please [say how it goes](https://github.com/robert-mcdermott/moorage/issues).
 
 Connect an app to a repository on GitHub, GitLab or Gitea, and what happens there deploys here:
 
@@ -64,7 +66,7 @@ repository, and sets the checks and comments. It is kept sealed, and is not show
 | Forge | What it needs |
 |---|---|
 | GitHub | A fine-grained token for the repository: Contents to read, Commit statuses and Pull requests to read and write |
-| GitLab | A project access token with the `api` scope, as a Developer |
+| GitLab | A project access token with the `api` scope, as a Maintainer: a Developer cannot set a check on a protected branch, such as the default one |
 | Gitea | A token with `read:repository`, `write:repository` and `write:issue` |
 
 A token only goes to the forge it was given for. Changing the repository's address, or `--api-url`, without giving a token

@@ -240,7 +240,10 @@ func allowGit(ctx context.Context, authn *auth.Service, p auth.Principal, app st
 	if err != nil {
 		return err
 	}
-	if push && !access.Deploy || !push && !access.See {
+	if !access.See {
+		return gitserver.ErrNoRepository
+	}
+	if push && !access.Deploy {
 		return gitserver.ErrForbidden
 	}
 	return nil
@@ -561,6 +564,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	router.SetConsole(console)
 
 	var tlsConfig *tls.Config
+	var acmeCerts *ingress.ACME
 	switch cfg.TLS.Mode {
 	case "files":
 		certs, err := ingress.NewFileCertificates(cfg.TLS.Certificates, log)
@@ -581,6 +585,19 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		router.SetCACert(ca.PEM())
 		log.Info("the internal CA; moor trust installs it on other machines", "fingerprint", "SHA-256 "+truststore.Fingerprint(ca.Certificate()))
 		tlsConfig = ingress.TLSConfig(ca)
+	case "acme":
+		acmeCerts, err = ingress.NewACME(ingress.ACMEOptions{Dir: filepath.Join(layout.Certs, ingress.ACMEDir), Config: cfg, Allow: router.AllowIssuing, Log: log,
+			Told: func(failed bool, name, problem string) {
+				kind := events.CertificateOK
+				if failed {
+					kind = events.CertificateFailed
+				}
+				bus.Publish(context.Background(), store.Event{Type: kind, Data: map[string]any{"name": name, "error": problem}})
+			}})
+		if err != nil {
+			return err
+		}
+		tlsConfig = acmeCerts.TLSConfig()
 	}
 
 	httpLn, err := net.Listen("tcp", cfg.Listen.HTTP)
@@ -602,14 +619,30 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		addrs.HTTPS = httpsLn.Addr()
 		_, port, _ := net.SplitHostPort(httpsLn.Addr().String())
 		httpHandler = router.RedirectToHTTPS(port)
-		httpsSrv := newHTTPServer(router, errorLog)
+		if acmeCerts != nil {
+			httpHandler = acmeCerts.HTTPChallenges(httpHandler)
+		}
+		var tlsHandler http.Handler = router
+		if cfg.TLS.HSTS {
+			tlsHandler = ingress.HSTS(router)
+		}
+		httpsSrv := newHTTPServer(tlsHandler, errorLog)
 		httpsSrv.TLSConfig = tlsConfig
 		servers = append(servers, httpsSrv)
 		go func() { served <- httpsSrv.ServeTLS(httpsLn, "", "") }()
 	}
 	httpSrv := newHTTPServer(httpHandler, errorLog)
+	// With no TLS, gRPC and others speak HTTP/2 straight away: a client on this computer, or a proxy that has dealt with TLS.
+	httpSrv.Protocols = new(http.Protocols)
+	httpSrv.Protocols.SetHTTP1(true)
+	httpSrv.Protocols.SetUnencryptedHTTP2(true)
 	servers = append(servers, httpSrv)
 	go func() { served <- httpSrv.Serve(httpLn) }()
+	if acmeCerts != nil {
+		if err := acmeCerts.Start(ctx); err != nil {
+			log.Warn("could not start asking for certificates", "err", err)
+		}
+	}
 
 	var sshSrv *gitserver.SSH
 	if cfg.Listen.SSH != "" {

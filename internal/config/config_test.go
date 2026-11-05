@@ -144,7 +144,7 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 		`domain "-bad-.example.com"`,
 		`routing "hostname"`,
 		`listen.http: "80"`,
-		`tls.mode "acme" is not available yet`,
+		`tls.acme.agree_terms must be true`,
 		"tls.ca_cert and tls.ca_key must be given together",
 		`proxy.trusted: "office"`,
 		`proxy.external_scheme "ftp"`,
@@ -427,5 +427,130 @@ func TestNginx(t *testing.T) {
 	direct, _ := Preset("lan", PresetOptions{Domain: "apps.example.com", DataDir: t.TempDir()})
 	if p := direct.ProxyProblems(); len(p) < 2 {
 		t.Errorf("%v", p)
+	}
+}
+
+func TestACMEConfig(t *testing.T) {
+	dataDir := t.TempDir()
+	program := filepath.Join(dataDir, "set-dns")
+	good := func() Config {
+		return Config{DataDir: dataDir, Domain: "apps.example.com", Routing: "host", Listen: Listen{HTTP: ":80", HTTPS: ":443"},
+			TLS: TLS{Mode: "acme", ACME: ACME{AgreeTerms: true}}, Log: Log{Level: "info", Format: "text"}}
+	}
+	for _, c := range []struct {
+		name   string
+		change func(*Config)
+		says   string
+	}{
+		{"as it is", func(*Config) {}, ""},
+		{"terms", func(c *Config) { c.TLS.ACME.AgreeTerms = false }, "agree_terms"},
+		{"only this computer", func(c *Config) { c.Domain = "localhost" }, "only this computer"},
+		{"a directory over HTTP", func(c *Config) { c.TLS.ACME.Directory = "http://acme.example.com/dir" }, "https address"},
+		{"a challenge it does not have", func(c *Config) { c.TLS.ACME.Challenges = []string{"dns-01"} }, "tls.acme.dns does"},
+		{"both challenges", func(c *Config) { c.TLS.ACME.Challenges = []string{"http-01", "tls-alpn-01"} }, ""},
+		{"a provider it does not know", func(c *Config) { c.TLS.ACME.DNS.Provider = "carrier-pigeon" }, "must be cloudflare"},
+		{"cloudflare with no token", func(c *Config) { c.TLS.ACME.DNS.Provider = "cloudflare" }, "token_file"},
+		{"rfc2136 with no key", func(c *Config) { c.TLS.ACME.DNS.Provider = "rfc2136"; c.TLS.ACME.DNS.Server = "ns:53" }, "key_name"},
+		{"rfc2136 with no port", func(c *Config) {
+			c.TLS.ACME.DNS = ACMEDNS{Provider: "rfc2136", Server: "ns", KeyName: "k", KeyFile: "/k"}
+		}, "host and a port"},
+		{"a relative command", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: "set-dns"} }, "absolute"},
+		{"a wait that is not one", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: program, Wait: "soon"} }, "duration"},
+		{"a resolver with no port", func(c *Config) {
+			c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: program, Resolvers: []string{"1.1.1.1"}}
+		}, "host and a port"},
+		{"settings with no provider", func(c *Config) { c.TLS.ACME.DNS.TokenFile = "/t" }, "needs a provider"},
+		{"another mode", func(c *Config) {
+			c.TLS.Mode = "internal"
+			c.TLS.ACME.AgreeTerms = false
+			c.TLS.ACME.Email = "a@example.com"
+		}, "applies only to"},
+		{"a command", func(c *Config) { c.TLS.ACME.DNS = ACMEDNS{Provider: "command", Command: program, Wait: "5s"} }, ""},
+	} {
+		cfg := good()
+		c.change(&cfg)
+		cfg.ApplyDefaults()
+		err := cfg.Validate()
+		switch {
+		case c.says == "" && err != nil:
+			t.Errorf("%s: %v", c.name, err)
+		case c.says != "" && (err == nil || !strings.Contains(err.Error(), c.says)):
+			t.Errorf("%s: %v, and not %q", c.name, err, c.says)
+		}
+	}
+}
+
+func TestPublicPreset(t *testing.T) {
+	dataDir := t.TempDir()
+	if _, err := Preset("public", PresetOptions{DataDir: dataDir, AgreeTerms: true}); err == nil || !strings.Contains(err.Error(), "--domain") {
+		t.Errorf("with no domain: %v", err)
+	}
+	if _, err := Preset("public", PresetOptions{DataDir: dataDir, Domain: "apps.example.com"}); err == nil || !strings.Contains(err.Error(), "agree_terms") {
+		t.Errorf("with no terms: %v", err)
+	}
+	c, err := Preset("public", PresetOptions{DataDir: dataDir, Domain: "apps.example.com", Email: "ops@example.com", AgreeTerms: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.TLS.Mode != "acme" || c.Listen.HTTP != ":80" || c.Listen.HTTPS != ":443" || c.Proxy.ExternalScheme != "https" {
+		t.Errorf("%+v", c)
+	}
+	if c.Access.Production != "public" || c.Access.Named != "login" || c.Access.Preview != "login" {
+		t.Errorf("what is not production is not behind a sign-in: %+v", c.Access)
+	}
+	if !c.TLS.HSTS {
+		t.Errorf("a server on the internet does not ask browsers to stay on HTTPS: %+v", c.TLS)
+	}
+	// What it writes is what it means.
+	data, err := Render(c, "public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := Parse(data, "server.toml")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, data)
+	}
+	back.ApplyDefaults()
+	if err := back.Validate(); err != nil {
+		t.Fatalf("%v\n%s", err, data)
+	}
+	if back.TLS.ACME.Email != "ops@example.com" || !back.TLS.ACME.AgreeTerms || back.Access.Named != "login" || !back.TLS.HSTS {
+		t.Errorf("%+v\n%s", back, data)
+	}
+}
+
+func TestHSTSWantsTLS(t *testing.T) {
+	c, err := Preset("local", PresetOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.TLS.HSTS = true
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "tls.hsts") {
+		t.Errorf("with TLS off: %v", err)
+	}
+	// The others do not ask for it, and do not write it.
+	c.TLS.HSTS = false
+	data, err := Render(c, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "hsts") {
+		t.Errorf("%s", data)
+	}
+}
+
+// A static release's address takes a certificate for that address.
+func TestReleaseURL(t *testing.T) {
+	c := Config{Domain: "apps.example.com", Routing: "host", Listen: Listen{HTTP: ":80", HTTPS: ":443"}, TLS: TLS{Mode: "internal"}, Proxy: Proxy{ExternalScheme: "https"}}
+	if got := c.ReleaseURL("docs", "production", 3); got != "https://docs--production--v3.apps.example.com" {
+		t.Errorf("internal: %q", got)
+	}
+	c.TLS.Mode = "acme"
+	if got := c.ReleaseURL("docs", "production", 3); got != "" {
+		t.Errorf("a certificate for each hostname: %q", got)
+	}
+	c.TLS.ACME.DNS.Provider = "command"
+	if got := c.ReleaseURL("docs", "production", 3); got != "https://docs--production--v3.apps.example.com" {
+		t.Errorf("a wildcard: %q", got)
 	}
 }

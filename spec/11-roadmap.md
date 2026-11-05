@@ -1144,7 +1144,7 @@ A product site and full documentation, so that people can find Moorage and try i
   breaking words in the middle at a laptop's width, which is fixed. The site says plainly what has not been proven, which is
   what wave 8 begins with.
 
-## 0.8.0: beyond the firewall (planned)
+## 0.8.0: beyond the firewall (released 2026-11-04)
 
 ### Wave 8
 
@@ -1162,11 +1162,32 @@ A product site and full documentation, so that people can find Moorage and try i
    - Needs the owner: the repository and the token are theirs to make, and
      fetching and deploying from a real repository on their machine is theirs
      to allow.
+   - Done (slice 1): GitHub by hand, with a real public repository and a real token. GitLab, Gitea, an OpenTelemetry collector and syslog-ng in containers in CI, driven by
+     `.github/scripts/real-services-check.py`, each time that code changes. Not tried: a webhook delivered directly by GitHub, as it cannot reach a server on a laptop, and a real
+     fork there.
+   - Found by slice 1: `moor forge connect` took any token, and now asks the forge; GitLab wants a Maintainer's token, and a fork's commit by its merge request's ref; `moor run` joined its words
+     without quoting them; a rollback on macOS could leave the server stopped.
 2. **ACME.** Internal ACME servers and public CAs; HTTP-01, TLS-ALPN-01 and
    DNS-01 wildcard certificates; the `public` preset.
+   - Done (slice 2): `tls.mode = "acme"`, by certmagic: a certificate for each hostname the first time it is wanted, by HTTP-01 or TLS-ALPN-01,
+     or one for the whole domain by DNS-01, through Cloudflare, RFC 2136 or a command; `moor server init --preset public`, with everything
+     but production behind a sign-in; a certificate only for what the routing table has; the doctor, the console, and
+     `server.certificate_failed` and its recovery in notifications. `.github/scripts/real-services-check.py` tries HTTP-01, TLS-ALPN-01, DNS-01 by a command
+     and by RFC 2136 against a real DNS server, a restart, and a renewal, against Pebble.
+   - Not tried: Let's Encrypt itself, which takes a server the internet can reach, and Cloudflare, which takes an account.
 3. **Exposure hardening.** An external penetration test of every public
    surface, and its fixes.
+   - Done (slice 3), short of that test: two close reviews, of what faces the internet and of what a low-privilege account reaches, each against a real server. An open
+     redirect on static sites, a way to pass an identity to apps that fold header names, a cursor that named hidden apps, a viewer reading what a failed
+     deployment printed and what a manifest set, and a token for one app reading its project, are all fixed, with tests that fail without the fixes. `tls.hsts`, on with the
+     `public` preset, and dotfiles kept back on static sites, came of the same reviews. **The outside test has not happened:** it takes someone engaged to do it, and until then
+     [Security](../docs/security.md) says so.
+   - Found by slice 3: a failure's message goes to more people than a command does, so that it no longer quotes one. App names being hostnames, "cannot tell that it exists" could not be
+     kept as it was written, and the documents now say where it stops.
 4. **Protocols.** Cleartext HTTP/2 backends (gRPC); sticky sessions.
+   - Done (slice 4): `protocol = "h2c"` on a `web` process, for backends that speak only cleartext HTTP/2: to them, for their health checks, and from
+     clients on the plain listener. `sticky = true`, by a cookie of Moorage's that the app does not hear. The drill calls a real gRPC server with a real
+     gRPC client: an answer, a status other than OK, and a stream.
 5. **Release 0.8.0.**
 
 ## 0.9.0: services (planned)

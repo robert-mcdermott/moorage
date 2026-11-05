@@ -49,6 +49,8 @@ const (
 	ThresholdOK          = "threshold.ok"
 	DiskLow              = "server.disk_low"
 	DiskOK               = "server.disk_ok"
+	CertificateFailed    = "server.certificate_failed"
+	CertificateOK        = "server.certificate_ok"
 	DomainAdded          = "domain.added"
 	DomainVerified       = "domain.verified"
 	DomainRemoved        = "domain.removed"
@@ -186,7 +188,7 @@ func Level(kind string) string {
 		return "warn"
 	case ThresholdOK:
 		return "ok"
-	case BackupFailed:
+	case BackupFailed, CertificateFailed:
 		return "fail"
 	case BackupDone:
 		return "ok"
@@ -245,6 +247,14 @@ func thresholdWords(metric string) (name, unit string) {
 	return metric, ""
 }
 
+// WithoutVariables leaves out which variables changed, which takes being able to deploy an app to know.
+func WithoutVariables(e store.Event) store.Event {
+	if e.Type == ConfigChanged {
+		e.Data = nil
+	}
+	return e
+}
+
 // Summary says in a few words what happened, without saying where: a timeline
 // shows the app beside it.
 func Summary(e store.Event) string {
@@ -295,6 +305,9 @@ func Summary(e store.Event) string {
 		return processName(e) + " was lost, and is being replaced"
 	case ConfigChanged:
 		changed := append(append([]string{}, names(e, "set")...), names(e, "unset")...)
+		if len(changed) == 0 {
+			return "Variables changed" + by
+		}
 		return "Variables changed" + by + ": " + strings.Join(changed, ", ")
 	case ScaleChanged:
 		return "Scaled to " + text(e, "formation") + by
@@ -324,6 +337,10 @@ func Summary(e store.Event) string {
 	case ThresholdOK:
 		name, unit := thresholdWords(text(e, "metric"))
 		return fmt.Sprintf("%s is back under %v%s, at %v%s", name, e.Data["above"], unit, e.Data["value"], unit)
+	case CertificateFailed:
+		return "The server could not get a certificate for " + text(e, "name") + ": " + text(e, "error")
+	case CertificateOK:
+		return "The server has a certificate for " + text(e, "name") + " again"
 	case DiskLow:
 		return fmt.Sprintf("The server's data volume is %v%% full", e.Data["percent"])
 	case DiskOK:

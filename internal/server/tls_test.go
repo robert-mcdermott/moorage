@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,9 @@ func TestInternalTLS(t *testing.T) {
 	res, _, err := fetchTLS(t, addrs.HTTPS, caPEM, "moorage.localhost", "/.moorage/health")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := res.Header.Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("a server that did not ask for HSTS sent %q", got)
 	}
 	leaf := res.TLS.PeerCertificates[0]
 	if res.StatusCode != 200 || len(leaf.DNSNames) != 1 || leaf.DNSNames[0] != "moorage.localhost" {
@@ -267,5 +271,54 @@ func TestBehindTLSProxy(t *testing.T) {
 	// Moorage does not redirect to HTTPS itself behind a proxy.
 	if res, _ := get(t, addrs.HTTP, "docs.localhost", "/"); res.StatusCode != 200 {
 		t.Errorf("plain HTTP behind a proxy: %d", res.StatusCode)
+	}
+}
+
+func TestHSTS(t *testing.T) {
+	cfg := tlsConfigFor(t, testConfig(t), "internal")
+	cfg.TLS.HSTS = true
+	addrs, _ := start(t, cfg)
+	caPEM, err := os.ReadFile(filepath.Join(cfg.DataDir, "certs", "ca.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	if _, _, err := c.DeployStatic(ctx, "docs", "production", writeSite(t, map[string]string{"index.html": "plain"}), manifest.Static{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	own := manifest.Static{Headers: []manifest.HeaderRule{{For: "*", Values: map[string]string{"Strict-Transport-Security": "max-age=60"}}}}
+	if _, _, err := c.DeployStatic(ctx, "own", "production", writeSite(t, map[string]string{"index.html": "plain"}), own, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, try := range []struct {
+		host, path string
+		want       []string
+	}{
+		{"moorage.localhost", "/.moorage/health", []string{"max-age=31536000"}},
+		{"moorage.localhost", "/", []string{"max-age=31536000"}},
+		{"docs.localhost", "/", []string{"max-age=31536000"}},
+		{"nothing-here.localhost", "/", []string{"max-age=31536000"}},
+		{"own.localhost", "/", []string{"max-age=60"}},
+	} {
+		res, _, err := fetchTLS(t, addrs.HTTPS, caPEM, try.host, try.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := res.Header.Values("Strict-Transport-Security"); !slices.Equal(got, try.want) {
+			t.Errorf("%s%s: %q, want %q", try.host, try.path, got, try.want)
+		}
+	}
+	// Not over plain HTTP, where a browser would be right to ignore it.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	req, _ := http.NewRequest(http.MethodGet, "http://"+addrs.HTTP.String()+"/", nil)
+	req.Host = "docs.localhost"
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.Header.Get("Strict-Transport-Security") != "" {
+		t.Errorf("over plain HTTP: %q", res.Header.Get("Strict-Transport-Security"))
 	}
 }

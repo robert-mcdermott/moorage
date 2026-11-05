@@ -50,18 +50,18 @@ sudo sh install-moor.sh
 
 | Variable | `install.sh` | `install.ps1` | |
 |---|---|---|---|
-| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.7.0`. By default, the latest |
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.8.0`. By default, the latest |
 | `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
 | `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
 | `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
 | `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.7.0 sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.8.0 sh
 ```
 
 ```powershell
-$env:MOOR_VERSION = 'v0.7.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+$env:MOOR_VERSION = 'v0.8.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
 
 **On Windows,** `irm … | iex` reads the script into memory and runs it, so the
@@ -163,6 +163,17 @@ server](tls.md)). To use your own certificates — a corporate wildcard, for ins
 `tls.mode = "files"` and list them under `[[tls.certificates]]`; an
 intermediate CA from your corporate CA can issue certificates instead
 (`tls.ca_cert`, `tls.ca_key`).
+
+**A server on the internet** — apps at `https://<app>.<domain>`, with certificates
+from a public CA, and everything but production behind a sign-in:
+
+```bash
+sudo moor server init --preset public --domain apps.example.com --email ops@example.com --agree-terms
+```
+
+Point a wildcard DNS record at the server, and open ports 80 and 443. See
+[From a public CA, with ACME](tls.md#from-a-public-ca-with-acme), and read [Security](security.md) first: Moorage has
+not yet had an outside security review.
 
 **Behind a TLS proxy such as nginx** — Moorage serves plain HTTP on
 127.0.0.1:8080 and your proxy terminates TLS:

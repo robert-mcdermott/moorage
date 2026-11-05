@@ -42,13 +42,22 @@ func (w *Windows) File() string {
 	return "the " + ServiceName + " service"
 }
 
-// Definition says what the service runs.
+// Definition says what the service runs. As with Status, anyone may ask, and it takes no administrator.
 func (w *Windows) Definition() ([]byte, error) {
-	m, s, err := open()
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return nil, err
 	}
-	defer m.Disconnect()
+	defer windows.CloseServiceHandle(scm)
+	name, err := windows.UTF16PtrFromString(ServiceName)
+	if err != nil {
+		return nil, err
+	}
+	h, err := windows.OpenService(scm, name, windows.SERVICE_QUERY_CONFIG)
+	if err != nil {
+		return nil, err
+	}
+	s := &mgr.Service{Name: ServiceName, Handle: h}
 	defer s.Close()
 	cfg, err := s.Config()
 	if err != nil {

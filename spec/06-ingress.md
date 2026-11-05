@@ -119,7 +119,7 @@ status polling and platform page assets. Requests under it never reach apps.
   even to `h2c` processes); server-sent events and streaming responses are
   flushed immediately; response trailers pass through; HTTP/2 to clients; HTTP/1.1 to
   backends by default, with opt-in cleartext HTTP/2 to a process for gRPC
-  (`protocol = "h2c"`, Phase 3).
+  (`protocol = "h2c"`).
 - **Limits:** request body size (default 100 MiB, per-app override), header
   size, header read timeout (slow-client protection).
 - **Errors:** connection failures are retried once on another healthy instance
@@ -151,7 +151,8 @@ behind your own TLS proxy. ACME arrives with internet-facing support.
   notifications.
 - HTTP→HTTPS redirects are on whenever Moorage terminates TLS (behind a proxy,
   the proxy does this). HSTS is off by default (internal domains are often
-  shared with other services) and can be enabled.
+  shared with other services), on with the `public` preset, and can be enabled. It covers
+  only the hostname that answers, and an app's own header wins.
 
 ## Access gates
 

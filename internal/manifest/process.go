@@ -55,8 +55,10 @@ type Process struct {
 	Restart     string   `toml:"restart" json:"restart,omitempty"`
 	// Sleep, if false, keeps it running while its environment sleeps.
 	Sleep *bool `toml:"sleep" json:"sleep,omitempty"`
-	// Protocol configures a feature of a later release.
+	// Protocol is what the process speaks on its port: "http", or "h2c" for cleartext HTTP/2, which gRPC needs.
 	Protocol string `toml:"protocol" json:"protocol,omitempty"`
+	// Sticky keeps a browser with the instance it first reached, with a cookie, for as long as that instance is there.
+	Sticky bool `toml:"sticky" json:"sticky,omitempty"`
 }
 
 // Health is a process's health check.
@@ -181,8 +183,11 @@ func validateProcesses(procs map[string]Process, requireWebCommand bool) error {
 		if proc.Health.Threshold < 0 {
 			add("%s.health.threshold must be positive", at)
 		}
-		if proc.Protocol != "" && proc.Protocol != "http" {
-			add("%s.protocol %q is not supported yet", at, proc.Protocol)
+		if proc.Protocol != "" && proc.Protocol != "http" && proc.Protocol != "h2c" {
+			add("%s.protocol %q must be http or h2c", at, proc.Protocol)
+		}
+		if name != "web" && (proc.Protocol == "h2c" || proc.Sticky) {
+			add("%s: protocol and sticky are for web, which is what gets requests", at)
 		}
 	}
 	if len(p) > 0 {

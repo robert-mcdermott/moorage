@@ -64,6 +64,10 @@ https://docs--production--v12.apps.example.com
 
 `moor releases` lists them, and the **view** link in an app's **Deployments** goes to them.
 
+This takes a certificate for those addresses. A server that [gets one for each hostname from a CA](tls.md#from-a-public-ca-with-acme) does not ask for them,
+since anyone could then spend the CA's limit for your domain by visiting them, so that it does not offer them either. A
+[wildcard](tls.md#from-a-public-ca-with-acme) covers them. The other ways of getting a certificate do too.
+
 ```bash
 moor releases --app docs
 ```
@@ -99,6 +103,9 @@ Files whose names carry a content hash (`app.3f2a9c1b.js`) are cached as
 immutable, HTML is revalidated, and pre-compressed `.br` and `.gz` files are
 served to browsers that accept them. `listing = true` lists directories, for
 file shares.
+
+Files and directories whose names start with a dot are as good as absent, since `.env` and `.git` are far more
+often left behind than meant to be served. `.well-known` is the exception, and `dotfiles = true` serves the others.
 
 A complete site: the [Handbook example](../examples/static-site), with clean
 URLs, a 404 page, headers and redirects.

@@ -45,9 +45,14 @@ func RenameDir(from, to string) error {
 	if runtime.GOOS != "windows" {
 		return err
 	}
-	for wait := 50 * time.Millisecond; err != nil && !errors.Is(err, os.ErrNotExist) && wait < 5*time.Second; wait *= 2 {
+	// Half a minute: a scanner looking at a whole app's builds has been seen to take more than six seconds.
+	deadline := time.Now().Add(30 * time.Second)
+	for wait := 50 * time.Millisecond; err != nil && !errors.Is(err, os.ErrNotExist) && time.Now().Before(deadline); {
 		time.Sleep(wait)
 		err = os.Rename(from, to)
+		if wait < 2*time.Second {
+			wait *= 2
+		}
 	}
 	return err
 }

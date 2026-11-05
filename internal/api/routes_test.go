@@ -118,8 +118,8 @@ func TestEveryRouteDeclaresItsPermission(t *testing.T) {
 	// Who may use a route of each permission, for the app shop (or no app).
 	allowed := map[permission][]string{
 		signedIn: {"local", "admin-all", "admin-read", "member-all", "member-deploy", "member-read", "member-gate", "shop-all", "other-all"},
-		// A token for one app passes on routes that name no app: their
-		// handlers show it only its own (see TestListsAndRestrictedTokens).
+		// A token for one app passes on routes that name no app and keep to it by themselves (see
+		// TestListsAndRestrictedTokens), and those that do not say so refuse it, as below.
 		canRead:     {"local", "admin-all", "admin-read", "member-all", "member-deploy", "member-read", "shop-all", "other-all"},
 		canReadLogs: {"local", "admin-all", "admin-read", "member-all", "member-deploy", "member-read", "shop-all", "other-all"},
 		canDeploy:   {"local", "admin-all", "member-all", "member-deploy"},
@@ -165,6 +165,9 @@ func TestEveryRouteDeclaresItsPermission(t *testing.T) {
 				case "other-all":
 					want = http.StatusForbidden
 				}
+			}
+			if !strings.Contains(rt.path, "{app}") && !rt.oneApp && (rt.perm == canRead || rt.perm == canReadLogs) && (name == "shop-all" || name == "other-all") {
+				want = http.StatusForbidden
 			}
 			w := f.do(rt.method, path, func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+secret) })
 			if w.Code != want {
@@ -427,6 +430,20 @@ func TestOpenAPIDocument(t *testing.T) {
 	for _, name := range []string{"Problem", "AppPage", "DeploymentPage", "CreatedToken", "Me"} {
 		if _, ok := parsed.Components.Schemas[name]; !ok {
 			t.Errorf("no schema %s", name)
+		}
+	}
+}
+
+// What changes anything takes more than a token that can only read, and what a token for one app can do with a route
+// that names no app is for the route to say.
+func TestReadingChangesNothing(t *testing.T) {
+	f := newFixture(t)
+	for _, rt := range f.s.routes() {
+		if rt.method != http.MethodGet && rt.method != http.MethodHead && (rt.perm == canRead || rt.perm == canReadLogs) {
+			t.Errorf("%s %s changes something, and a token that can only read may use it", rt.method, rt.path)
+		}
+		if rt.oneApp && strings.Contains(rt.path, "{app}") {
+			t.Errorf("%s %s names an app, and has no need to say that it keeps to one", rt.method, rt.path)
 		}
 	}
 }

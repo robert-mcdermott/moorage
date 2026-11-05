@@ -255,6 +255,11 @@ provisional until the corresponding Phase 0 spike reports back.
   `moor server doctor` support the proxied one. ACME (internal ACME servers
   and public CAs, including DNS-01 wildcards) moves to Phase 3 with the
   `public` preset.
+- **Later (wave 8):** ACME uses `certmagic` with `libdns` providers, as planned. Renewal, retries, account handling and locking are the
+  riskiest things to get wrong and the slowest to find out about, as a mistake shows months later, so they are worth a dozen modules. They
+  are all pure Go, and it is tried against Pebble and a real DNS server in CI. Only Cloudflare and RFC 2136 are built in, as each provider is another
+  dependency; a `command` provider covers any other service. Issuing is limited to what the routing table has, not to hostnames of the
+  right shape as with the internal CA, because a public CA's limits can be used up by anyone who connects.
 - **Consequences:** Phase 1 needs no ACME library — the internal CA and
   certificate selection use the standard library (`crypto/x509`,
   `crypto/tls`). With a corporate intermediate, company machines trust

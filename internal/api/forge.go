@@ -47,7 +47,17 @@ func (s *Server) getForge(w http.ResponseWriter, r *http.Request) {
 		s.forgeFailed(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.forgeDoc(c))
+	access, err := s.auth.AppAccess(r.Context(), who(r), r.PathValue("app"))
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	doc := s.forgeDoc(c)
+	// What went wrong can say where the server looked, and is for those who can do something about it.
+	if !access.Deploy {
+		doc.LastError = ""
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
 func (s *Server) connectForge(w http.ResponseWriter, r *http.Request) {

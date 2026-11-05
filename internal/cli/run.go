@@ -147,7 +147,7 @@ sees the same files from anywhere: moor run has them, with its variables and its
 			if err != nil {
 				return err
 			}
-			return joinTerminal(cmd, c, app, env, client.TerminalOptions{Instance: args[0], Command: strings.Join(args[1:], " "), Timeout: timeout, TTY: tty}, interactive)
+			return joinTerminal(cmd, c, app, env, client.TerminalOptions{Instance: args[0], Command: commandFrom(args[1:]), Timeout: timeout, TTY: tty}, interactive)
 		},
 	}
 	f.add(cmd)
@@ -190,9 +190,9 @@ input, without a terminal.`,
 				if detach {
 					return errors.New("there is no one to be at it, if it is detached: leave out --detach, or -i and -t")
 				}
-				return joinTerminal(cmd, c, app, env, client.TerminalOptions{Command: strings.Join(args, " "), Timeout: timeout, TTY: tty}, interactive)
+				return joinTerminal(cmd, c, app, env, client.TerminalOptions{Command: commandFrom(args), Timeout: timeout, TTY: tty}, interactive)
 			}
-			run, err := c.StartRun(cmd.Context(), app, env, apitypes.NewRun{Command: strings.Join(args, " "), Timeout: timeout})
+			run, err := c.StartRun(cmd.Context(), app, env, apitypes.NewRun{Command: commandFrom(args), Timeout: timeout})
 			if err != nil {
 				return err
 			}
@@ -366,4 +366,33 @@ func newCronLogCmd() *cobra.Command {
 	}
 	f.add(cmd)
 	return cmd
+}
+
+// commandFrom is the command line that a server runs for what was given after --. One word is a command line as it stands, with
+// whatever a shell would make of it. Several are the words of a command, each as it was given: without quoting them, the
+// server's shell would read sh -c "echo a; echo b" as something else altogether.
+func commandFrom(args []string) string {
+	if len(args) == 1 {
+		return args[0]
+	}
+	words := make([]string, len(args))
+	for i, arg := range args {
+		words[i] = shellWord(arg)
+	}
+	return strings.Join(words, " ")
+}
+
+// shellWord quotes a word for a POSIX shell, if it needs it. Between single quotes, everything but a single quote stands for itself.
+func shellWord(word string) string {
+	plain := word != ""
+	for _, r := range word {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return word
+	}
+	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }

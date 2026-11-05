@@ -121,6 +121,18 @@ manifest's `instances`, through restarts and the releases to come, and the conso
 Requests are spread over the healthy instances. An instance holds nothing in common with another unless you arrange
 it, so that an app with more than one needs to keep what it shares somewhere they can all reach.
 
+An app that keeps something in memory for each visitor, as many keep a session, can ask to have each browser kept with one instance:
+
+```toml
+[processes.web]
+instances = 3
+sticky = true
+```
+
+Moorage does that with a cookie of its own, which the app does not hear, for as long as the browser is open. A browser moves to another instance
+when its instance is gone or unhealthy, as it is after every release, so that what was in memory is lost then: it makes an app work
+with several instances, and not safe to lose one.
+
 This is one machine: scaling lets an app use more of its CPUs, and does not add to them.
 
 ## Restarts and crashes

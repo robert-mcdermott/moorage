@@ -35,7 +35,7 @@ type SSH struct {
 	// Attempts, if set, slows addresses whose handshakes keep failing.
 	Attempts Attempts
 	// Authorize, if set, says whether the key with this fingerprint may reach an app,
-	// to push or to read. It returns ErrForbidden if not.
+	// to push or to read. It returns ErrForbidden if not, and ErrNoRepository if it may not know that the app is there.
 	Authorize func(ctx context.Context, fingerprint, app string, push bool) error
 
 	mu    sync.Mutex
@@ -264,6 +264,10 @@ func (x *SSH) exec(ctx context.Context, who, fingerprint, command, protocol stri
 	}
 	if x.Authorize != nil {
 		if err := x.Authorize(ctx, fingerprint, app, service == "git-receive-pack"); err != nil {
+			if errors.Is(err, ErrNoRepository) {
+				fmt.Fprintf(ch.Stderr(), "moorage: there is no app named %s\n", app)
+				return 1
+			}
 			fmt.Fprintf(ch.Stderr(), "moorage: you may not do that with %s: pushing takes being a deployer of its project\n", app)
 			return 1
 		}

@@ -434,6 +434,21 @@ func (rt *Router) AllowCertificate(name string) bool {
 	return ok && !strings.Contains(label, ".") && names.ValidHostLabel(label)
 }
 
+// AllowIssuing says whether a CA should be asked for a certificate for a hostname. Asking counts against a limit, so it takes
+// more than having the right shape: the hostname has to be something this server serves. A static release at an address
+// of its own does not count: it would take a certificate for each, and a wildcard covers them.
+func (rt *Router) AllowIssuing(name string) bool {
+	if name == rt.cfg.ConsoleHost || rt.cfg.Routing == "path" && name == rt.cfg.Domain {
+		return true
+	}
+	t := rt.table.Load()
+	if _, ok := t.routes[name]; ok || len(t.prefixed[name]) > 0 {
+		return true
+	}
+	app, ok := rt.appOf(name)
+	return ok && t.apps[app]
+}
+
 // appOf returns the app a hostname under the base domain names: the single
 // label in front of the domain, when it is a valid app name.
 func (rt *Router) appOf(host string) (string, bool) {

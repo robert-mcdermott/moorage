@@ -282,7 +282,8 @@ traffic by default. A process can be given as a plain string
 | `stop_timeout` | duration | `"30s"` | Time between stop signal and forced kill. |
 | `restart` | string | `"always"` | `always`, `on-failure`, `never`. |
 | `sleep` | bool | `true` | Whether this process is stopped when the environment sleeps. |
-| `protocol` | string | `"http"` | `http`, or `h2c` for cleartext HTTP/2 backends such as gRPC *(Phase 3)*. |
+| `protocol` | string | `"http"` | `http`, or `h2c` for cleartext HTTP/2 backends such as gRPC. |
+| `sticky` | bool | `false` | Keeps a browser with the instance it first reached, by a cookie. |
 
 **`health`**
 

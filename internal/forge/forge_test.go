@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -306,5 +307,79 @@ func TestReporting(t *testing.T) {
 	err := Remote{Kind: GitHub, APIURL: refusing.URL, Repo: "acme/shop", Token: "tok"}.SetStatus(ctx, commitA, StateSuccess, "", "")
 	if err == nil || strings.Contains(err.Error(), "tok") {
 		t.Errorf("%v", err)
+	}
+}
+
+func TestCheckToken(t *testing.T) {
+	answers := map[string]int{"/repos/acme/shop": 200, "/repos/acme/gone": 404, "/repos/acme/refused": 401, "/repos/acme/limited": 403, "/repos/acme/down": 503, "/projects/acme%2Fshop": 200}
+	var header http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header = r.Header
+		w.WriteHeader(answers[r.URL.EscapedPath()])
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	for _, c := range []struct {
+		kind, repo, says string
+	}{
+		{GitHub, "acme/shop", ""},
+		{GitHub, "acme/refused", "GitHub does not accept this token"},
+		{GitHub, "acme/gone", "GitHub has no repository acme/gone"},
+		{Gitea, "acme/refused", "Gitea does not accept this token"},
+		{GitLab, "acme/shop", ""},
+		// These may pass: too many requests looks the same as being refused, and a forge may only be down.
+		{GitHub, "acme/limited", ""},
+		{GitHub, "acme/down", ""},
+	} {
+		err := Remote{Kind: c.kind, APIURL: srv.URL, Repo: c.repo, Token: "tok"}.CheckToken(ctx)
+		switch {
+		case c.says == "" && err != nil:
+			t.Errorf("%s %s: %v", c.kind, c.repo, err)
+		case c.says != "" && (err == nil || !strings.Contains(err.Error(), c.says)):
+			t.Errorf("%s %s: %v, not %q", c.kind, c.repo, err, c.says)
+		}
+		if c.says != "" {
+			var invalid *InvalidError
+			if !errors.As(err, &invalid) {
+				t.Errorf("%s %s: %T is not for the person who gave it", c.kind, c.repo, err)
+			}
+		}
+	}
+	if err := (Remote{Kind: GitHub, APIURL: srv.URL, Repo: "acme/refused"}).CheckToken(ctx); err != nil {
+		t.Errorf("no token to check: %v", err)
+	}
+	if err := (Remote{Kind: GitHub, APIURL: "http://127.0.0.1:1", Repo: "acme/shop", Token: "tok"}).CheckToken(ctx); err != nil {
+		t.Errorf("a forge that cannot be reached is no reason to refuse: %v", err)
+	}
+	if header.Get("Content-Type") != "" {
+		t.Errorf("a request with nothing in it says it has %q", header.Get("Content-Type"))
+	}
+}
+
+// GitLab looks for a branch that holds a commit, and none of its project's holds one from a fork.
+func TestCheckOnACommitFromAFork(t *testing.T) {
+	var bodies []map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		if body["ref"] == "" {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	fork := Remote{Kind: GitLab, APIURL: srv.URL, Repo: "acme/shop", Token: "tok", Pull: 7}
+	if err := fork.SetStatus(ctx, commitA, StatePending, "https://x/", "waiting"); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || bodies[1]["ref"] != "refs/merge-requests/7/head" || bodies[1]["state"] != StatePending {
+		t.Errorf("%+v", bodies)
+	}
+	bodies = nil
+	// With no pull request, there is nowhere else to say that it is.
+	branch := Remote{Kind: GitLab, APIURL: srv.URL, Repo: "acme/shop", Token: "tok"}
+	if err := branch.SetStatus(ctx, commitA, StateSuccess, "https://x/", "live"); err == nil || len(bodies) != 1 {
+		t.Errorf("%v %+v", err, bodies)
 	}
 }

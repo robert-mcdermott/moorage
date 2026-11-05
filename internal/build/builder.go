@@ -157,7 +157,7 @@ func (b *Builder) Build(ctx context.Context, job Job) (Result, error) {
 			default:
 				var exit *oneoff.ExitError
 				if errors.As(err, &exit) {
-					return Result{}, &Error{Msg: fmt.Sprintf("the %s step failed: %s exited with status %d", step.Name, step.Command, exit.Code), Err: err}
+					return Result{}, &Error{Msg: fmt.Sprintf("the %s step failed: it exited with status %d", step.Name, exit.Code), Err: err}
 				}
 				return Result{}, &Error{Msg: fmt.Sprintf("the %s step failed: %v", step.Name, err), Err: err}
 			}

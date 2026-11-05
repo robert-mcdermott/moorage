@@ -16,7 +16,11 @@ import (
 // silent connections, and to notice clients that have gone.
 var keepAlive = 25 * time.Second
 
-func eventDoc(e store.Event) apitypes.Event {
+// eventFor is an event as someone may read it, who may or may not be able to deploy its app.
+func eventFor(e store.Event, deployable func(string) bool) apitypes.Event {
+	if !deployable(e.App) {
+		e = events.WithoutVariables(e)
+	}
 	return apitypes.Event{ID: e.ID, At: e.At, Type: e.Type, App: e.App, Env: e.Env, Actor: e.Actor, Summary: events.Summary(e), Level: events.Level(e.Type), Transient: events.Transient(e.Type), Data: e.Data}
 }
 
@@ -45,6 +49,11 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusNotFound, "not_found", "There is no app "+app+" that you can see.")
 		return
 	}
+	deployable, err := s.auth.Deployable(r.Context(), p)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	list, err := s.visibleEvents(r.Context(), visible, store.EventFilter{App: app, Env: env, Before: cursor, Limit: limit + 1})
 	if err != nil {
 		s.internal(w, err)
@@ -56,7 +65,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 			page.NextCursor = encodeCursor(list[i-1].ID)
 			break
 		}
-		page.Items = append(page.Items, eventDoc(e))
+		page.Items = append(page.Items, eventFor(e, deployable))
 	}
 	writeJSON(w, http.StatusOK, page)
 }
@@ -88,13 +97,20 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusNotFound, "not_found", "There is no app "+app+" that you can see.")
 		return
 	}
+	deployable, err := s.auth.Deployable(r.Context(), p)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	// Who may see what changes while a stream stays open, and new apps appear in it: it
 	// looks again every minute.
 	seen := time.Now()
 	wanted := func(e store.Event) bool {
 		if time.Since(seen) > time.Minute || (e.App != "" && !visible(e.App)) {
-			if again, err := s.auth.Visible(r.Context(), p); err == nil {
-				visible, seen = again, time.Now()
+			again, err := s.auth.Visible(r.Context(), p)
+			can, err2 := s.auth.Deployable(r.Context(), p)
+			if err == nil && err2 == nil {
+				visible, deployable, seen = again, can, time.Now()
 			}
 		}
 		return visible(e.App) && (app == "" || e.App == app) && (env == "" || e.Env == env)
@@ -116,7 +132,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 		last = q.Get("after")
 	}
 	write := func(e store.Event) error {
-		data, err := json.Marshal(eventDoc(e))
+		data, err := json.Marshal(eventFor(e, deployable))
 		if err != nil {
 			return err
 		}

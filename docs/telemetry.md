@@ -1,8 +1,7 @@
 # Sending telemetry elsewhere
 
-> **Tested against stand-ins so far.** This has run against test receivers written to follow each format's published description, and not yet
-> against a real OpenTelemetry collector or syslog server. Trying them is [on the roadmap](../spec/11-roadmap.md). If you try it first, please
-> [say how it goes](https://github.com/robert-mcdermott/moorage/issues).
+> **What this has been tried against.** CI sends logs and metrics to a real OpenTelemetry collector, and logs to syslog-ng over UDP, TCP and TLS, on each change
+> to this code. It has not met a hosted service. If yours disagrees, please [say how it goes](https://github.com/robert-mcdermott/moorage/issues).
 
 Moorage keeps what apps say, in [its logs](troubleshooting.md), and what they do, in [its metrics](metrics.md). It can send
 them somewhere else as well, if that is where your team looks, and tell you when an environment [crosses a

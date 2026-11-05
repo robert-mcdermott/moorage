@@ -145,7 +145,7 @@ func guardedDialer(allow []netip.Prefix) *net.Dialer {
 			if err != nil {
 				return err
 			}
-			addr = addr.Unmap()
+			addr = carried(addr.Unmap())
 			for _, p := range allow {
 				if p.Contains(addr) {
 					return nil
@@ -157,6 +157,24 @@ func guardedDialer(allow []netip.Prefix) *net.Dialer {
 			return nil
 		},
 	}
+}
+
+// carried finds the IPv4 address that an IPv6 one may stand for, which some networks would connect it to: ::7f00:1,
+// 64:ff9b::7f00:1 and 2002:7f00:1:: are all ways of writing 127.0.0.1.
+func carried(addr netip.Addr) netip.Addr {
+	if !addr.Is6() {
+		return addr
+	}
+	b := addr.As16()
+	switch {
+	case netip.MustParsePrefix("::/96").Contains(addr) && !addr.IsLoopback() && !addr.IsUnspecified(),
+		netip.MustParsePrefix("64:ff9b::/96").Contains(addr),
+		netip.MustParsePrefix("64:ff9b:1::/48").Contains(addr):
+		return netip.AddrFrom4([4]byte(b[12:16]))
+	case netip.MustParsePrefix("2002::/16").Contains(addr):
+		return netip.AddrFrom4([4]byte(b[2:6]))
+	}
+	return addr
 }
 
 // isOwnAddress says whether an address is this machine's, on any of its interfaces.

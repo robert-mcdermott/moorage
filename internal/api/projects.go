@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"fmt"
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
@@ -63,6 +64,11 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 }
 
 // projectFailed answers what went wrong with a project, and says whether anything did.
+// noProject is what a project someone may not see looks like: the same as one that is not there.
+func noProject(name string) error {
+	return fmt.Errorf("no project %q: %w", name, store.ErrNotFound)
+}
+
 func (s *Server) projectFailed(w http.ResponseWriter, err error) bool {
 	switch {
 	case err == nil:
@@ -104,7 +110,7 @@ func (s *Server) lookupProject(w http.ResponseWriter, r *http.Request) (store.Pr
 		return project, access, false
 	}
 	if !access.See {
-		problem(w, http.StatusNotFound, "not_found", "There is no project "+project.Name+" that you can see.")
+		s.projectFailed(w, noProject(project.Name))
 		return project, access, false
 	}
 	return project, access, true
@@ -258,7 +264,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !access.See {
-		problem(w, http.StatusNotFound, "not_found", "There is no project "+projectName+" that you can see.")
+		s.projectFailed(w, noProject(projectName))
 		return
 	}
 	if !access.Deploy {
@@ -305,6 +311,10 @@ func (s *Server) changeApp(w http.ResponseWriter, r *http.Request) {
 		access, err := s.auth.ProjectAccess(r.Context(), who(r), project)
 		if err != nil {
 			s.internal(w, err)
+			return
+		}
+		if !access.See {
+			s.projectFailed(w, noProject(req.Project))
 			return
 		}
 		if !access.Manage {

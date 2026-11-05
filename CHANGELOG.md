@@ -1,16 +1,58 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (2026-11-04)
+
+Moorage 0.8.0 can take itself beyond the firewall: it gets certificates from a public CA by itself, and has a preset for a server on the internet, with what two close reviews of it found fixed. It speaks gRPC and keeps sessions sticky. Its connections to GitHub, GitLab, Gitea, OpenTelemetry and syslog have now met the real thing.
+
+**It has not had an outside penetration test,** which this release was meant to include: that takes someone engaged to do it. Until then, [Security](docs/security.md) says what we would do, which is to keep a server on a network you control, or behind something that decides who reaches it.
+
+What has been tried: GitHub by hand, with a real repository, and GitLab, Gitea, an OpenTelemetry collector, syslog-ng, a gRPC client and Pebble in CI, on each change to that code. What has not: a certificate from Let's Encrypt itself, a record set at Cloudflare, a webhook delivered directly by GitHub, and a real fork on GitHub.
+
+To upgrade from 0.7.0, run `moor server upgrade`. Running apps are taken over without a restart, and `moor server upgrade --rollback` goes back. Some things to know:
+
+- **A static site no longer serves what starts with a dot,** except `.well-known`. If yours means to, say `dotfiles = true` under `[static]`.
+- **Viewers see less.** A release's manifest, which variables changed, and with `--viewers-see-logs=false` what a failed deployment printed and the commands people ran, are kept from them.
+- **A token limited to one app can no longer read projects,** and a token that can only read cannot mark notifications as read. A script that did either needs a different token.
+- **Reading an app that is not there answers 404 throughout.** A few routes gave an empty list or a 409.
+- **A deleted app's events go with it.** The audit log keeps what happened.
+- **A failed build or release command no longer quotes itself** in its message. A script that looked for the command there should look in the log.
 
 ### Added
 
+- **Certificates from a CA.** `tls.mode = "acme"` gets certificates from Let's Encrypt, any other CA, or an internal ACME server: for each hostname the first time it is wanted, by HTTP-01 or TLS-ALPN-01, or one for the whole domain by DNS-01, through Cloudflare, RFC 2136 or a program of your own. Only what the server serves gets one, so that nobody can use up a CA's limits by making up names. They are renewed by themselves, and a certificate that cannot be had reaches those concerned. See [TLS and trusting the server](docs/tls.md#from-a-public-ca-with-acme).
+- **The `public` preset,** `moor server init --preset public`, for a server on the internet: certificates from a CA, and everything but production behind a sign-in.
+- **`hsts` under `[tls]`** tells browsers to use nothing but HTTPS for each hostname, and the `public` preset turns it on. See [Staying on HTTPS](docs/tls.md#staying-on-https).
+- **gRPC.** `protocol = "h2c"` on a `web` process runs a server that speaks only cleartext HTTP/2. Streams work both ways, trailers come through, and clients can reach it with TLS or, on the plain listener, without. See [gRPC](docs/other.md#grpc).
+- **Sticky sessions.** `sticky = true` on a `web` process keeps a browser with the instance it first reached, by a cookie that the app does not hear. See [Scaling](docs/releases.md#scaling).
 - **A website,** at <https://robert-mcdermott.github.io/moorage/>: what Moorage is, and all of its documentation, in both themes, with a search. `node docs/site/build.mjs` makes it from the guides in `docs`, so that the two say the same, and fails on a broken link, which CI now checks. See [the website's README](docs/site/README.md).
 - **Screenshots in the guides,** all taken from a real server by `node docs/capture/capture.mjs`, which starts one, deploys the examples, and makes some requests.
 - **New guides:** [Getting started](docs/getting-started.md), [Concepts](docs/concepts.md), [Releases, rollbacks and scaling](docs/releases.md), [Logs](docs/logs.md), [Server configuration](docs/configuration.md), [Running a server](docs/administration.md), [Architecture](docs/architecture.md) and [Security](docs/security.md).
 - **[A reference of every command](docs/cli.md),** made from the commands themselves, and an [API reference](https://robert-mcdermott.github.io/moorage/docs/api-reference.html) on the website, made from the OpenAPI document. A test keeps the first the same as the commands.
 
+### Changed
+
+- **Viewers see what the table of roles says, and no more.** A release's manifest and which variables changed, in the API, the console and the activity feed, are for those who can deploy. `--viewers-see-logs=false` now also keeps back what a failed deployment printed and the commands that people ran.
+- **A token limited to one app is limited to it.** It is refused projects and their members, as it should have been. A token that can only read can no longer mark notifications as read.
+- **What a project hides looks like what is not there.** The API, the console and `git` give the same answer for an app or a project someone has no role in as for one that does not exist, and reading a missing app now always answers 404, where a few routes gave an empty list or a 409. [Accounts](docs/accounts.md#projects-and-roles) says where that stops.
+- **What the server does on its own account is for administrators:** backups, certificates, disk space and starting up are no longer in everyone's activity.
+- **Deleting an app deletes its events,** so that whoever takes its name, perhaps in another project, does not inherit them. The audit log keeps what happened.
+- **A failed build or release command says how it ended and not what it was,** as more people read that than can read the command. The log still says.
+- **A static site no longer serves files and directories whose names start with a dot,** such as a `.env` or `.git` left in the directory, except `.well-known`. `dotfiles = true` under `[static]` serves them as before.
+- **Tried against the real thing.** `.github/scripts/real-services-check.py` drives GitLab, Gitea, an OpenTelemetry collector, syslog-ng, a gRPC client and Pebble in CI, and GitHub was tried by hand. They found that GitLab wants a Maintainer's token and asks for a fork's commit by its merge request's ref, and that `moor run` lost the quoting of the words it was given.
+- **`moor forge connect` checks a token with the forge,** and refuses one that it does not accept, or that cannot see the repository, and says so, leaving what was there as it was. Before, a bad token was taken, and found out from the first pull request. A forge that cannot answer at that moment is no reason to refuse.
+
 ### Fixed
 
+- **The list of apps could name those you cannot see.** Its cursor came from the next app, whoever's it was, so that going through the list one at a time read off every name on the server. Pages now end at what you can see, and do not come up short.
+- **An open log could outlast a role.** Following a deployment's log now ends within a minute of losing the right to read it, as other streams do.
+- **The address guard took some IPv6 addresses at face value.** `::7f00:1`, `64:ff9b::7f00:1` and `2002:7f00:1::` all stand for `127.0.0.1` on some networks, and are now judged as that.
+- Going away could wait for something that a container engine's command had left running, for as long as that ran. It now waits two seconds, as other commands do.
+- **An open redirect on static sites.** A path with a backslash in it, such as `/%5Cevil.example//`, was redirected to `/\evil.example/`, which browsers read as another site. A link on your domain could send someone anywhere. Such a path is now not found, as is one with a control character.
+- **A way to pass an identity to some apps.** A client could send `X.Moorage.User`, which an app served through CGI or the like reads as `X-Moorage-User`, the header Moorage uses to say who signed in. Every spelling of the platform's headers is now removed: underscores already were, and dots and the rest now are.
+- Renaming an app on Windows waits longer for a virus scanner to finish with its builds: six seconds was sometimes too few.
+- **`moor run` and `moor exec` keep your words as you gave them.** `moor run -- sh -c "echo a; echo b"` ran as `sh -c echo a; echo b`, and an argument with a space in it, like `moor run -- python -c "print('hi')"`, came apart. Several words are now quoted, and one word is still a command line for the server's shell: `moor run -- 'echo a && echo b'`.
+- Going back from an upgrade on macOS could leave the server stopped, when it took longer to stop than launchd took to be told to start it, which it then ignores. `moor server stop` now waits for it too, so that `moor server start` straight afterwards works.
+- `moor server status` no longer reports a service on this machine that runs another server as if it were this one's.
 - The console's tables no longer break a name, an address or an email in the middle of a word when a window is narrow: the list of apps at a laptop's width, say.
 
 ## 0.7.0 (2026-11-04)

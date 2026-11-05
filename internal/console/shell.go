@@ -288,6 +288,11 @@ func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
 		c.noSuchApp(w, d.FilterApp)
 		return
 	}
+	deployable, err := c.auth.Deployable(r.Context(), p)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
 	list, err := c.visibleEvents(r, visible, store.EventFilter{App: d.FilterApp, Before: before, Limit: activityPage + 1})
 	if err != nil {
 		c.internal(w, err)
@@ -302,6 +307,9 @@ func (c *Console) activity(w http.ResponseWriter, r *http.Request) {
 		d.Older = "/activity?" + older.Encode()
 	}
 	for _, e := range list {
+		if !deployable(e.App) {
+			e = events.WithoutVariables(e)
+		}
 		d.Events = append(d.Events, eventRowOf(e))
 	}
 	// Only the newest page grows by itself, from where it was drawn.

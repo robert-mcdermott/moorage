@@ -3,9 +3,9 @@
 Moorage is meant for a team that trusts one another, on a network it controls, showing work to people outside it. This page
 says what it protects, how, and what it does not. The [design document](../spec/08-security.md) has more depth.
 
-> **Where this stands.** Moorage is young, and has not had an outside security review. It has had close reviews of its own,
-> and tests for what is described here, but no one has been paid to break it. A penetration test is on the
-> [roadmap](../spec/11-roadmap.md) before Moorage is meant for the open internet. Until then, keep it on a network you control, or
+> **Where this stands.** Moorage is young, and has not had an outside security review. It has had close reviews of its own, the latest of what
+> faces the internet and of what a low-privilege account can reach, and tests for what is described here, but no one has been paid to break it. A
+> penetration test is on the [roadmap](../spec/11-roadmap.md). Until then, and whatever the `public` preset makes easy, keep it on a network you control, or
 > behind something that decides who reaches it.
 
 ## What it trusts, and what it does not
@@ -72,8 +72,15 @@ app and made to expire. They are never accepted in a query string. See [Accounts
 - Pages run under a strict Content-Security-Policy, with no inline scripts or styles, and cannot be framed.
 - Requests that change something from a browser need a token bound to the session, and a same-origin request.
 - A permission is declared for each route of the API, in one table, and a test goes through all of them for each kind of caller.
-- A project can hide its apps from those with no role in it, who then get a 404, and not a 403.
+- A project can hide its apps from those with no role in it, who get the answer that an app that is not there gets. [Accounts](accounts.md#projects-and-roles) says where that stops.
+- A token limited to one app reaches that app, and nothing of its project or of the others.
 - `moor server doctor` and the System page warn of plain HTTP with no proxy in front, as credentials would travel unencrypted.
+
+## Facing the internet
+
+- Plain HTTP is redirected to HTTPS, and [`hsts`](tls.md#staying-on-https), which the `public` preset turns on, tells browsers not to try it.
+- A static site does not serve files or directories whose names start with a dot, except `.well-known`, unless it says to. So a `.env` or a `.git` left in the directory stays there.
+- A request cannot pass itself off as the platform. Every spelling of `X-Moorage-*` is removed, as some ways of serving apps read `X.Moorage.User` and `X_Moorage_User` as the same header.
 
 ## What the server fetches
 

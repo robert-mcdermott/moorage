@@ -39,19 +39,22 @@ sudo moor server init --domain apps.example.com
 sudo moor server init --domain apps.example.com --behind-proxy
 ```
 
-| | `local` | `lan` | `lan --behind-proxy` |
-|---|---|---|---|
-| **For** | This computer | A server on your network | A server behind nginx or the like |
-| **Apps at** | `http://<app>.localhost:8080` | `https://<app>.<domain>` | `https://<app>.<domain>` |
-| `listen.http` | `127.0.0.1:8080` | `:80` | `127.0.0.1:8080` |
-| `listen.https` | | `:443` | |
-| `listen.ssh` | `127.0.0.1:2222` | `:2222` | `:2222` |
-| `tls.mode` | `off` | `internal` | `off` |
-| `proxy.trusted` | | | `127.0.0.1`, `::1` |
-| `proxy.external_scheme` | `http` | `https` | `https` |
+```bash
+sudo moor server init --preset public --domain apps.example.com --email ops@example.com --agree-terms
+```
 
-Certificates from a public CA are not there yet: they are planned for 0.8.0. Until then, a server open to the internet uses
-[files of your own](tls.md) or sits [behind a proxy](proxy.md) that has them.
+| | `local` | `lan` | `lan --behind-proxy` | `public` |
+|---|---|---|---|---|
+| **For** | This computer | A server on your network | A server behind nginx or the like | A server on the internet |
+| **Apps at** | `http://<app>.localhost:8080` | `https://<app>.<domain>` | `https://<app>.<domain>` | `https://<app>.<domain>` |
+| `listen.http` | `127.0.0.1:8080` | `:80` | `127.0.0.1:8080` | `:80` |
+| `listen.https` | | `:443` | | `:443` |
+| `listen.ssh` | `127.0.0.1:2222` | `:2222` | `:2222` | `:2222` |
+| `tls.mode` | `off` | `internal` | `off` | `acme` |
+| `tls.hsts` | | | | `true` |
+| `access.named`, `access.preview` | `public`, `login` | `public`, `login` | `public`, `login` | `login`, `login` |
+| `proxy.trusted` | | | `127.0.0.1`, `::1` | |
+| `proxy.external_scheme` | `http` | `https` | `https` | `https` |
 
 ## An example
 
@@ -108,8 +111,9 @@ See [TLS and trusting the server](tls.md).
 
 | Setting | Default | What it says |
 |---|---|---|
-| `mode` | `"internal"` with `listen.https`, otherwise `"off"` | `internal`: certificates from Moorage's own CA, or from an intermediate of yours. `files`: certificates you provide. `off`: plain HTTP, such as behind a proxy. |
+| `mode` | `"internal"` with `listen.https`, otherwise `"off"` | `internal`: certificates from Moorage's own CA, or from an intermediate of yours. `files`: certificates you provide. `acme`: certificates from a public CA or an internal ACME server. `off`: plain HTTP, such as behind a proxy. |
 | `ca_cert`, `ca_key` | | With `internal`, an intermediate CA issued by your company's, so that its certificates are already trusted. Without them, Moorage makes its own root. |
+| `hsts` | `false` | Tells browsers to use nothing but HTTPS for each hostname here: see [Staying on HTTPS](tls.md#staying-on-https). |
 
 `[[tls.certificates]]`, once for each, with `mode = "files"`:
 
@@ -117,6 +121,28 @@ See [TLS and trusting the server](tls.md).
 |---|---|
 | `cert` | A certificate chain, in a PEM file |
 | `key` | Its private key, in a PEM file |
+
+`[tls.acme]`, with `mode = "acme"`: see [From a public CA, with ACME](tls.md#from-a-public-ca-with-acme).
+
+| Setting | Default | What it says |
+|---|---|---|
+| `agree_terms` | required | Must be `true`: it says that you have read and accept the CA's terms. |
+| `directory` | Let's Encrypt | The address of the ACME server's directory. |
+| `email` | | Whom the CA tells of what it has to say about the account. |
+| `ca_file` | | The root to trust an internal ACME server by. |
+| `challenges` | both | How a hostname is shown to be this server's: `http-01`, on port 80, and `tls-alpn-01`, on port 443. |
+
+`[tls.acme.dns]`, for one certificate for the whole domain:
+
+| Setting | What it says |
+|---|---|
+| `provider` | `cloudflare`, `rfc2136` or `command` |
+| `token_file` | With `cloudflare`, the file that holds its API token |
+| `server` | With `rfc2136`, the DNS server, as `host:port` |
+| `key_name`, `key_file`, `key_algorithm` | With `rfc2136`, its TSIG key: its name, the file that holds its base64 secret, and its algorithm, by default `hmac-sha256` |
+| `command` | With `command`, a program run as `add NAME VALUE` and `remove NAME VALUE` |
+| `wait` | With `command`, how long to give a record to reach the CA. By default `30s` |
+| `resolvers` | With `cloudflare` or `rfc2136`, the DNS servers to look for the record through, as `host:port`. By default the system's |
 
 ## `[proxy]`
 

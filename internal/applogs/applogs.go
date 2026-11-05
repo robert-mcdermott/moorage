@@ -457,7 +457,7 @@ func (r Reader) events(ctx context.Context, app, env string, q Query, after stri
 }
 
 func eventEntry(e store.Event) Entry {
-	entry := Entry{Time: e.At, Source: Events, Process: "events", Instance: e.ID, Text: events.Summary(e)}
+	entry := Entry{Time: e.At, Source: Events, Process: "events", Instance: e.ID, Text: events.Summary(events.WithoutVariables(e))}
 	switch events.Level(e.Type) {
 	case "fail":
 		entry.Level = "error"

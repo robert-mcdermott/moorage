@@ -3,7 +3,7 @@
 `moorage.toml`, at the top of an app's directory, says how Moorage builds
 and runs the app. It is optional: without it, Moorage detects the kind of
 app (see [Detection](#detection)), and `moor manifest explain` shows what it
-detected. This page describes the manifest as Moorage 0.7.0 implements it;
+detected. This page describes the manifest as Moorage 0.8.0 implements it;
 the [design](../spec/03-manifest.md) describes what later releases add.
 
 ```bash
@@ -141,6 +141,8 @@ An entry is a command (`worker = "python -m tasks.worker"`) or a table:
 | `stop_timeout` | `"30s"` | How long the process may take to stop before it is killed. |
 | `sleep` | `true` | Whether it stops while its environment [sleeps](previews.md#sleeping). |
 | `restart` | `"always"` | When an exited process is restarted: `always`, `on-failure` or `never`. Restarts slow down when a process keeps failing. |
+| `protocol` | `"http"` | For `web`, what it speaks on `$PORT`: `http`, or `h2c` for [cleartext HTTP/2, which gRPC needs](other.md#grpc). |
+| `sticky` | `false` | For `web`, keeps a browser with the instance it first reached. See [Scaling](releases.md#scaling). |
 
 `health`:
 
@@ -223,6 +225,7 @@ without a `start` script).
 | `not_found` | `"404.html"`, when there is one | The page served, with status 404, for paths that are not files. |
 | `trailing_slash` | `"auto"` | `auto` (directories end in a slash, pages do not), `always` or `never`. |
 | `listing` | `false` | Lists the files of directories without an `index.html`. |
+| `dotfiles` | `false` | Serves files and directories whose names start with a dot. `.well-known` is served either way. |
 
 `[[static.headers]]` adds headers to the paths that match `for`:
 

@@ -332,3 +332,27 @@ func TestCronTimeoutLimit(t *testing.T) {
 		t.Errorf("%v", problems)
 	}
 }
+
+func TestProtocolAndSticky(t *testing.T) {
+	one := 1
+	for _, c := range []struct {
+		name string
+		proc Process
+		says string
+	}{
+		{"web", Process{Command: "x", Protocol: "h2c", Sticky: true, Instances: &one}, ""},
+		{"web", Process{Command: "x", Protocol: "http"}, ""},
+		{"web", Process{Command: "x", Protocol: "spdy"}, "must be http or h2c"},
+		{"worker", Process{Command: "x", Protocol: "h2c"}, "for web"},
+		{"worker", Process{Command: "x", Sticky: true}, "for web"},
+		{"worker", Process{Command: "x", Protocol: "http"}, ""},
+	} {
+		err := validateProcesses(map[string]Process{c.name: c.proc}, false)
+		switch {
+		case c.says == "" && err != nil:
+			t.Errorf("%s %+v: %v", c.name, c.proc, err)
+		case c.says != "" && (err == nil || !strings.Contains(err.Error(), c.says)):
+			t.Errorf("%s %+v: %v, and not %q", c.name, c.proc, err, c.says)
+		}
+	}
+}

@@ -83,33 +83,41 @@ func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	apps, err := s.db.AppsAfter(r.Context(), cursor, limit+1)
-	if err != nil {
-		s.internal(w, err)
-		return
-	}
 	visible, err := s.auth.Visible(r.Context(), who(r))
 	if err != nil {
 		s.internal(w, err)
 		return
 	}
 	page := apitypes.Page[apitypes.App]{Items: []apitypes.App{}}
-	for i, a := range apps {
-		if i == limit {
-			page.NextCursor = encodeCursor(apps[i-1].Name)
-			break
+	// A page ends at what the caller may see: a cursor is a name, and those it may not see are not for it to read.
+	for {
+		apps, err := s.db.AppsAfter(r.Context(), cursor, limit+1)
+		if err != nil {
+			s.internal(w, err)
+			return
 		}
-		if !visible(a.Name) {
-			continue
+		for _, a := range apps {
+			if !visible(a.Name) {
+				continue
+			}
+			if len(page.Items) == limit {
+				page.NextCursor = encodeCursor(page.Items[limit-1].Name)
+				writeJSON(w, http.StatusOK, page)
+				return
+			}
+			app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt, Project: a.Project}
+			if a.Production != nil {
+				rel := release(*a.Production)
+				app.Production = &rel
+			}
+			page.Items = append(page.Items, app)
 		}
-		app := apitypes.App{Name: a.Name, URL: s.appURL(a.Name), CreatedAt: a.CreatedAt, Project: a.Project}
-		if a.Production != nil {
-			rel := release(*a.Production)
-			app.Production = &rel
+		if len(apps) <= limit {
+			writeJSON(w, http.StatusOK, page)
+			return
 		}
-		page.Items = append(page.Items, app)
+		cursor = apps[len(apps)-1].Name
 	}
-	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
@@ -520,12 +528,21 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	text, err := deploy.ResolvedManifest(b)
+	detail := apitypes.ReleaseDetail{Release: release(rel)}
+	access, err := s.auth.AppAccess(r.Context(), who(r), app)
 	if err != nil {
 		s.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apitypes.ReleaseDetail{Release: release(rel), Manifest: text, Plan: b.Plan})
+	// What a manifest sets is a variable like any other, and only those who can deploy see those.
+	if access.Deploy {
+		if detail.Manifest, err = deploy.ResolvedManifest(b); err != nil {
+			s.internal(w, err)
+			return
+		}
+		detail.Plan = b.Plan
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (s *Server) releaseDiff(w http.ResponseWriter, r *http.Request) {
@@ -549,6 +566,14 @@ func (s *Server) releaseDiff(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.internal(w, err)
 		return
+	}
+	access, err := s.auth.AppAccess(r.Context(), who(r), app)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if !access.Deploy {
+		diff.Manifest, diff.Vars = []apitypes.DiffLine{}, []apitypes.VarDiff{}
 	}
 	writeJSON(w, http.StatusOK, diff)
 }

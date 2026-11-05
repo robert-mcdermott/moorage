@@ -74,7 +74,14 @@ func Explain(w io.Writer, plan Plan) {
 		if command == "" {
 			command = "(what the image says to run)"
 		}
-		procs = append(procs, fmt.Sprintf("%s: %s", name, command), fmt.Sprintf("  ×%d · %s", *p.Instances, check))
+		detail := fmt.Sprintf("  ×%d · %s", *p.Instances, check)
+		if p.Protocol == "h2c" {
+			detail += " · speaks h2c"
+		}
+		if p.Sticky {
+			detail += " · sticky"
+		}
+		procs = append(procs, fmt.Sprintf("%s: %s", name, command), detail)
 	}
 	section("processes", procs...)
 	if plan.Release != nil {

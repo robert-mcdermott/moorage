@@ -255,7 +255,11 @@ func (c *Console) deploymentPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !d.Access.Logs {
-		view.Log, view.LogCount, view.Omitted = nil, 0, 0
+		view.Log, view.LogCount, view.Omitted, view.Output = nil, 0, 0, nil
+	}
+	// What a manifest sets is a variable like any other, and only those who can deploy see those.
+	if !d.Access.Deploy {
+		view.Manifest, view.Diff, view.DiffChanged = "", nil, false
 	}
 	d.Deployment = view
 	d.Poll = view.Running

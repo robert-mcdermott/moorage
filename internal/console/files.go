@@ -301,7 +301,7 @@ func (c *Console) showConsole(w http.ResponseWriter, r *http.Request, p auth.Pri
 			continue
 		}
 		if len(view.Recent) < runsShown {
-			view.Recent = append(view.Recent, runRowOf(run))
+			view.Recent = append(view.Recent, runRowOf(run, d.Access))
 		}
 		view.History = append(view.History, run.Command)
 	}

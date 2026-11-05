@@ -324,7 +324,7 @@ func (m *Manager) Adopt(ctx context.Context) error {
 	// Serve the current release of every adopted environment; instances of
 	// any other release are what an interrupted rollout left, and go.
 	for _, es := range m.allEnvs() {
-		rel, _, err := m.db.CurrentRelease(ctx, es.app, es.env)
+		rel, build, err := m.db.CurrentRelease(ctx, es.app, es.env)
 		if err != nil {
 			continue
 		}
@@ -334,6 +334,15 @@ func (m *Manager) Adopt(ctx context.Context) error {
 				stale = append(stale, in)
 			} else {
 				m.watch(es, in)
+			}
+		}
+		// What each process speaks, and whether web sticks, is in this release's plan.
+		if plan, err := readPlan(build); err == nil {
+			es.pool.SetSticky(plan.Processes[manifest.Web].Sticky)
+			for _, in := range es.list() {
+				if in.backend != nil {
+					in.backend.UseH2C(plan.Processes[in.process].Protocol == "h2c")
+				}
 			}
 		}
 		es.serve(rel.ID)
@@ -480,6 +489,8 @@ func (m *Manager) Settle(ctx context.Context, app, env string) error {
 // it lacks and stopping those beyond its number. It goes on after an instance that
 // cannot start, and returns the first such failure.
 func (m *Manager) ensureEnv(ctx context.Context, es *envState, rel store.Release, build store.Build, plan manifest.Plan) error {
+	// Nothing may have survived to be adopted: after a reboot, or for an environment that was asleep.
+	es.pool.SetSticky(plan.Processes[manifest.Web].Sticky)
 	have := map[string]bool{}
 	var keep, extra, earlier []*instance
 	for _, in := range es.list() {

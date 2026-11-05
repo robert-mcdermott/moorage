@@ -106,6 +106,10 @@ func (f *fakeForge) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	if r.Method == http.MethodGet && strings.TrimPrefix(r.URL.Path, "/api/v3") == "/repos/git/shop" {
+		fmt.Fprint(w, `{}`) // what a token is checked with, when it is given
+		return
+	}
 	f.calls = append(f.calls, r.Method+" "+r.URL.Path)
 	rest, ok := strings.CutPrefix(r.URL.Path, "/repos/git/shop/")
 	switch {
@@ -875,8 +879,8 @@ func TestForgeCannotBeReached(t *testing.T) {
 	f := newFakeForge(t)
 	f.token = "the right one"
 	f.publish(f.commit("first"), "refs/heads/main")
-	e := connectedToForge(t, f, nil, apitypes.ForgeConnect{Token: "the wrong one"})
-	if !strings.Contains(e.conn.LastError, "cannot be read") || strings.Contains(e.conn.LastError, "the wrong one") {
+	e := connectedToForge(t, f, nil, apitypes.ForgeConnect{})
+	if !strings.Contains(e.conn.LastError, "cannot be read") {
 		t.Errorf("%q", e.conn.LastError)
 	}
 	if e.conn.DefaultBranch != "main" {
@@ -1255,5 +1259,34 @@ func TestForgeUnderAPathOfItsOwn(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if e.envs()["pr-8"] {
 		t.Error("it built what was closed")
+	}
+}
+
+// A token that the forge will not take is refused when it is given, and leaves what was there as it was.
+func TestForgeRefusesABadToken(t *testing.T) {
+	f := newFakeForge(t)
+	f.token = "the right one"
+	e := connectedToForge(t, f, nil, apitypes.ForgeConnect{Token: f.token})
+	ctx := context.Background()
+	_, err := e.c.ConnectForge(ctx, "shop", apitypes.ForgeConnect{URL: f.repoURL(), Kind: "github", APIURL: f.srv.URL, Token: "not-the-token"})
+	if err == nil || !strings.Contains(err.Error(), "does not accept this token") {
+		t.Fatalf("a token the forge refuses: %v", err)
+	}
+	conn, err := e.c.Forge(ctx, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !conn.HasToken {
+		t.Error("refusing a new token lost the one that was there")
+	}
+	// Nor does it make a connection, if there was none.
+	if _, err := e.c.CreateApp(ctx, "other", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.c.ConnectForge(ctx, "other", apitypes.ForgeConnect{URL: f.repoURL(), Kind: "github", APIURL: f.srv.URL, Token: "not-the-token"}); err == nil {
+		t.Error("a new connection took a token the forge refuses")
+	}
+	if _, err := e.c.Forge(ctx, "other"); err == nil {
+		t.Error("a refused token left a connection behind")
 	}
 }

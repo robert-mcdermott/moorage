@@ -586,3 +586,56 @@ func TestNewestReleaseIsOlderThanThis(t *testing.T) {
 		t.Error("the binary changed")
 	}
 }
+
+// slowToStop is launchd: told to stop, it goes on running for a moment, and until then, being told to start means nothing.
+type slowToStop struct {
+	fakeService
+	until      time.Time
+	stillThere bool
+}
+
+func (f *slowToStop) Running() bool {
+	if f.up && !f.until.IsZero() && time.Now().After(f.until) {
+		f.up = false
+	}
+	return f.up
+}
+
+func (f *slowToStop) Stop() error {
+	f.calls = append(f.calls, "stop")
+	f.until = time.Now().Add(300 * time.Millisecond)
+	return nil
+}
+
+func (f *slowToStop) Start() error {
+	f.calls = append(f.calls, "start")
+	if f.Running() {
+		f.stillThere = true
+		return nil
+	}
+	f.up, f.until = true, time.Time{}
+	return nil
+}
+
+func TestGoingBackWaitsForTheServerToStop(t *testing.T) {
+	ctx := context.Background()
+	s := newServer(t, 21)
+	o := s.options(Source{Base: aRelease(t, "0.6.1"), Flat: true})
+	if _, err := Upgrade(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	service := &slowToStop{}
+	service.up = true
+	o.Service = service
+	o.Current = "0.6.1"
+	o.Healthy = func(time.Duration) bool { return service.Running() }
+	if _, err := Rollback(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	if service.stillThere {
+		t.Error("it was told to start before it had stopped, which launchd ignores, and then nothing starts it")
+	}
+	if !service.Running() {
+		t.Error("it is not running")
+	}
+}

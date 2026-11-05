@@ -46,6 +46,9 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		who, err = h.Authorize(r, password, app, push)
 	}
 	switch {
+	case errors.Is(err, ErrNoRepository):
+		http.Error(w, "there is no app named "+app, http.StatusNotFound)
+		return
 	case errors.Is(err, ErrForbidden):
 		http.Error(w, "That token may not do this: pushing needs the deploy scope, and a token for one app reaches only that app.", http.StatusForbidden)
 		return

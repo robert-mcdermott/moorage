@@ -94,6 +94,7 @@ A rule says what it wants. Without `--events` it has the first five of these:
 | `instance.crashloop` | A process has exited three times in five minutes |
 | `cron.failed` | A cron job fails |
 | `server.disk_low` | The data volume is 90% full, which only a rule of the whole server hears |
+| `server.certificate_failed` | A certificate [from a CA](tls.md#from-a-public-ca-with-acme) could not be had or renewed, which only a rule of the whole server hears |
 | `backup.failed` | A [backup](backups.md) fails, which only a rule of the whole server hears |
 | `instance.unhealthy` | An instance fails its health check |
 | `deployment.live` | A deployment goes live |
