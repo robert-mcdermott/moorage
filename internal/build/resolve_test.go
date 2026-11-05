@@ -330,3 +330,73 @@ instances = 2
 		}
 	}
 }
+
+// However an app runs, what its manifest says of its environments, jobs and variables counts.
+func TestContainerAppsKeepWhatTheManifestSays(t *testing.T) {
+	const rest = `
+[app]
+strip_prefix = true
+runtime = "RUNTIME"
+SECTION
+
+[environments.staging]
+branch = "staging"
+env = { MODE = "staging" }
+resources = { memory = "256MiB", cpu = 0.5, pids = 50 }
+
+[[cron]]
+name = "nightly"
+schedule = "0 3 * * *"
+command = "./clean"
+
+[vars.API_KEY]
+required = true
+
+[release]
+command = "./migrate"
+`
+	for _, c := range []struct {
+		runtime, section string
+		files            map[string]string
+	}{
+		{"image", "\n[container]\nimage = \"example/a:1\"\n", nil},
+		{"dockerfile", "", map[string]string{"Dockerfile": "FROM x\n"}},
+		{"command", "\n[processes.web]\ncommand = \"./serve\"\n", nil},
+	} {
+		files := map[string]string{moorage: strings.NewReplacer("RUNTIME", c.runtime, "SECTION", c.section).Replace(rest)}
+		for name, content := range c.files {
+			files[name] = content
+		}
+		plan, _, err := Resolve(tree(t, files), "linux")
+		if err != nil {
+			t.Errorf("%s: %v", c.runtime, err)
+			continue
+		}
+		if _, ok := plan.Environments["staging"]; !ok || plan.Environments["staging"].Branch != "staging" {
+			t.Errorf("%s: its environments: %+v", c.runtime, plan.Environments)
+		}
+		if len(plan.Cron) != 1 || plan.Cron[0].Name != "nightly" {
+			t.Errorf("%s: its cron jobs: %+v", c.runtime, plan.Cron)
+		}
+		if v, ok := plan.Vars["API_KEY"]; !ok || !v.Required {
+			t.Errorf("%s: its variables: %+v", c.runtime, plan.Vars)
+		}
+		if plan.Release == nil || plan.Release.Command != "./migrate" {
+			t.Errorf("%s: its release command: %+v", c.runtime, plan.Release)
+		}
+		if !plan.StripPrefix {
+			t.Errorf("%s: strip_prefix", c.runtime)
+		}
+		// An environment's limits reach what is told to the engine.
+		staging := plan.ForEnv("staging", "named")
+		if staging.Env["MODE"] != "staging" {
+			t.Errorf("%s: an environment's variables: %+v", c.runtime, staging.Env)
+		}
+		if staging.Container != nil && (staging.Container.Memory != 256<<20 || staging.Container.CPU != 0.5 || staging.Container.PIDs != 50) {
+			t.Errorf("%s: an environment's limits: %+v", c.runtime, staging.Container)
+		}
+		if plan.Container != nil && plan.Container.Memory != 0 {
+			t.Errorf("%s: an environment's limits reached the plan itself: %+v", c.runtime, plan.Container)
+		}
+	}
+}

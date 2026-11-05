@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Container apps lost part of their manifest.** With `runtime = "image"` or `"dockerfile"`, `[environments]`, `[[cron]]`, `[vars]` and `strip_prefix` were silently ignored: no named environment, no cron job, and no required or generated variable. They now count, and an environment's `resources` reach the engine.
+
 ## 0.8.0 (2026-11-04)
 
 Moorage 0.8.0 can take itself beyond the firewall: it gets certificates from a public CA by itself, and has a preset for a server on the internet, with what two close reviews of it found fixed. It speaks gRPC and keeps sessions sticky. Its connections to GitHub, GitLab, Gitea, OpenTelemetry and syslog have now met the real thing.

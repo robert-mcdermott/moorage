@@ -128,11 +128,29 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 		r.plan.Exclude = b.Exclude
 	}
 	r.plan.Steps = preset
-	m.ApplyEnvironments(&r.plan)
-	r.plan.StripPrefix = m.App.StripPrefix
 	if res := m.Resources; res != nil && r.plan.Container == nil {
 		r.plan.Resources = &manifest.ResourcePlan{Memory: int64(res.Memory), CPU: res.CPU, PIDs: res.PIDs}
 	}
+	r.common()
+
+	if r.plan.Kind == manifest.KindStatic {
+		if len(m.Processes) > 0 {
+			r.note("[processes] is ignored: a static app has nothing to run")
+		}
+		r.plan.Processes = nil
+		r.plan.Release = nil
+	} else if err := r.processes(); err != nil {
+		return manifest.Plan{}, err
+	}
+	r.plan.Defaults()
+	return r.plan, nil
+}
+
+// common is what a manifest says of an app however it runs.
+func (r *resolver) common() {
+	m := r.m
+	m.ApplyEnvironments(&r.plan)
+	r.plan.StripPrefix = m.App.StripPrefix
 	for _, c := range m.Cron {
 		r.plan.Cron = append(r.plan.Cron, manifest.CronPlan{Name: c.Name, Schedule: c.Schedule, Command: c.Command, Timezone: c.Timezone, Timeout: c.Timeout, Overlap: c.Overlap, Environments: c.Environments})
 	}
@@ -146,18 +164,6 @@ func (r *resolver) resolve() (manifest.Plan, error) {
 		rel := *m.Release
 		r.plan.Release = &rel
 	}
-
-	if r.plan.Kind == manifest.KindStatic {
-		if len(m.Processes) > 0 {
-			r.note("[processes] is ignored: a static app has nothing to run")
-		}
-		r.plan.Processes = nil
-		r.plan.Release = nil
-	} else if err := r.processes(); err != nil {
-		return manifest.Plan{}, err
-	}
-	r.plan.Defaults()
-	return r.plan, nil
 }
 
 // containerRuntime resolves an app that runs in a container: from an image of
@@ -217,10 +223,7 @@ func (r *resolver) containerRuntime(runtime string) (manifest.Plan, error) {
 	if len(m.App.Toolchains) > 0 {
 		r.note("app.toolchains is ignored: an image brings its own")
 	}
-	if m.Release != nil && (m.Release.Command != "" || m.Release.OnCreate != "") {
-		rel := *m.Release
-		r.plan.Release = &rel
-	}
+	r.common()
 	if len(m.Processes) > 0 {
 		r.plan.Processes = clone(m.Processes)
 	} else {
