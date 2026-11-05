@@ -95,12 +95,17 @@ type Principal struct {
 	Scopes []string
 	// App, if set, is the only app a token may reach.
 	App string
+	// Envs is EnvsPreviews for a token limited to previews.
+	Envs string
 	// TokenID and SessionID say how they authenticated.
 	TokenID   string
 	SessionID string
 	// CookieValue is the raw session cookie, from which CSRF tokens derive.
 	CookieValue string
 }
+
+// EnvsPreviews limits a token to previews.
+const EnvsPreviews = "previews"
 
 // Local reports whether this is the server's local administrator.
 func (p Principal) Local() bool { return p.UserID == "" }
@@ -302,7 +307,7 @@ func (s *Service) Token(ctx context.Context, token, ip string) (Principal, error
 	if !t.ExpiresAt.IsZero() && s.now().After(t.ExpiresAt) {
 		return Principal{}, ErrUnauthenticated
 	}
-	p := Principal{Name: LocalAdmin, Admin: true, Scopes: t.Scopes, App: t.App, TokenID: t.ID}
+	p := Principal{Name: LocalAdmin, Admin: true, Scopes: t.Scopes, App: t.App, Envs: t.Envs, TokenID: t.ID}
 	if p.Scopes == nil {
 		p.Scopes = []string{}
 	}
@@ -752,6 +757,11 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, next, kee
 
 // CreateToken makes an API token, and returns it with its secret, which is shown once.
 func (s *Service) CreateToken(ctx context.Context, userID, name string, scopes []string, app string, expires time.Time) (store.APIToken, string, error) {
+	return s.CreateLimitedToken(ctx, userID, name, scopes, app, "", expires)
+}
+
+// CreateLimitedToken is CreateToken for a token that may also be limited to previews.
+func (s *Service) CreateLimitedToken(ctx context.Context, userID, name string, scopes []string, app, envs string, expires time.Time) (store.APIToken, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 100 || strings.ContainsAny(name, "/\\\n\r\t") {
 		return store.APIToken{}, "", &FieldError{"name", "A token's name is up to 100 characters, without slashes."}
@@ -762,10 +772,20 @@ func (s *Service) CreateToken(ctx context.Context, userID, name string, scopes [
 	if !expires.IsZero() && !expires.After(s.now()) {
 		return store.APIToken{}, "", &FieldError{"expires_at", "That time has passed."}
 	}
+	switch envs {
+	case "":
+	case EnvsPreviews:
+		// What is beyond a deploy token mostly has no environment to be limited to.
+		if slices.ContainsFunc(scopes, func(c string) bool { return c != ScopeRead && c != ScopeDeploy }) {
+			return store.APIToken{}, "", &FieldError{"envs", "Only a read or deploy token can be limited to previews."}
+		}
+	default:
+		return store.APIToken{}, "", &FieldError{"envs", "A token's environments are all of them, or previews."}
+	}
 	secret := NewToken()
 	t := store.APIToken{
 		ID: ids.New(ids.Token), UserID: userID, Name: name, TokenHash: Hex(secret), Scopes: scopes,
-		App: app, ExpiresAt: expires, CreatedAt: s.now().UTC(),
+		App: app, Envs: envs, ExpiresAt: expires, CreatedAt: s.now().UTC(),
 	}
 	if err := s.DB.CreateToken(ctx, t); err != nil {
 		return store.APIToken{}, "", err

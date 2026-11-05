@@ -392,7 +392,7 @@
     <tr>
       <td class="app-name">{{.Name}}</td>
       <td data-label="Can">{{range $i, $s := .Scopes}}{{if $i}}, {{end}}{{$s}}{{end}}</td>
-      <td data-label="For">{{if .App}}{{.App}}{{else}}Every app{{end}}</td>
+      <td data-label="For">{{if .App}}{{.App}}{{else}}Every app{{end}}{{if .Envs}}, {{.Envs}} only{{end}}</td>
       <td class="muted" data-label="Expires">{{if .ExpiresAt.IsZero}}Never{{else}}{{date .ExpiresAt}}{{end}}</td>
       <td class="muted" data-label="Last used">{{if .LastUsedAt.IsZero}}Never{{else}}<time datetime="{{iso .LastUsedAt}}">{{ago .LastUsedAt}}</time>{{end}}</td>
       <td class="row-end">
@@ -430,6 +430,12 @@
         <option value="">Every app</option>
         {{$choice := .AppChoice}}
         {{range $apps}}<option value="{{.}}"{{if eq . $choice}} selected{{end}}>{{.}} only</option>{{end}}
+      </select>
+    </div>
+    <div class="field"><label for="token-envs">In</label>
+      <select id="token-envs" name="envs">
+        <option value="">Every environment</option>
+        <option value="previews"{{if eq .Envs "previews"}} selected{{end}}>Previews only, for a coding agent</option>
       </select>
     </div>
     <div class="field"><label for="token-expires">Expires</label>

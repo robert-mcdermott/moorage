@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -212,5 +213,145 @@ func TestAnAgentsTokenIsWhatLimitsIt(t *testing.T) {
 		Apps []any `json:"apps"`
 	}](t, s, "list_apps", nil); len(got.Apps) != 1 {
 		t.Errorf("list_apps: %+v", got)
+	}
+}
+
+// TestATokenLimitedToPreviews keeps an agent's token to previews that stand apart from production, in the API and in git.
+func TestATokenLimitedToPreviews(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	admin := apiClient(t, cfg, addrs)
+	api := caller{t, cfg, addrs}
+	ctx := context.Background()
+	deployedSource(t, admin, "shop", appManifest(""))
+	const secretValue = "production-secret-value"
+	if _, err := admin.ChangeVars(ctx, "shop", "production", apitypes.VarsChange{Set: []apitypes.VarSet{
+		{Name: "API_KEY", Value: secretValue, Secret: true},
+		{Name: "PLAIN_SETTING", Value: "plain-value"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// A preview as a push makes it, which takes production's variables.
+	if _, err := testAuth(t, cfg).DB.CreateEnvironment(ctx, "shop", "inherits-it", "preview", "inherits-it"); err != nil {
+		t.Fatal(err)
+	}
+	pushed, _, err := admin.DeploySource(ctx, "shop", "inherits-it", writeSite(t, appManifest("")), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the preview to deploy", func() bool {
+		d, err := admin.Deployment(ctx, pushed.ID)
+		return err == nil && d.Finished()
+	})
+
+	// Only a token that could be limited can be.
+	for _, scope := range []string{"admin", "gate"} {
+		if _, err := admin.CreateToken(ctx, apitypes.NewToken{Name: "x" + scope, Scopes: []string{scope}, Envs: "previews"}); status(err) != http.StatusUnprocessableEntity {
+			t.Errorf("a %s token limited to previews: %v", scope, err)
+		}
+	}
+	if _, err := admin.CreateToken(ctx, apitypes.NewToken{Name: "odd", Scopes: []string{"deploy"}, Envs: "staging"}); status(err) != http.StatusUnprocessableEntity {
+		t.Errorf("a limit that does not exist: %v", err)
+	}
+	made, err := admin.CreateToken(ctx, apitypes.NewToken{Name: "agent", Scopes: []string{"deploy"}, App: "shop", Envs: "previews"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if made.Envs != "previews" {
+		t.Errorf("%+v", made)
+	}
+	agent, err := client.New("http://"+addrs.HTTP.String(), made.Secret, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if me, err := agent.Me(ctx); err != nil || me.Envs != "previews" {
+		t.Errorf("who it is: %+v %v", me, err)
+	}
+
+	// Production is out of reach, for anything with an environment in it.
+	envPath := "/api/v1/apps/shop/envs/production/"
+	for _, try := range []struct{ method, path, body string }{
+		{"GET", envPath + "logs", ""},
+		{"GET", envPath + "vars", ""},
+		{"GET", envPath + "deployments", ""},
+		{"GET", envPath + "files", ""},
+		{"POST", envPath + "restart", ""},
+		{"POST", envPath + "rollback", `{"version":1}`},
+		{"POST", envPath + "runs", `{"command":"true"}`},
+		{"PATCH", envPath + "vars", `{"set":[{"name":"X","value":"y"}]}`},
+		{"POST", envPath + "deployments", ""},
+	} {
+		if code, body := api.do(made.Secret, try.method, try.path, try.body); code != http.StatusForbidden {
+			t.Errorf("%s %s: %d %s", try.method, try.path, code, body)
+		}
+	}
+	// Nor can it read what happened there, or do anything with no environment to be limited by.
+	if list, err := admin.Deployments(ctx, "shop", "production", 1); err != nil {
+		t.Fatal(err)
+	} else if code, body := api.do(made.Secret, "GET", "/api/v1/deployments/"+list[0].ID, ""); code != http.StatusNotFound {
+		t.Errorf("a deployment to production: %d %s", code, body)
+	}
+	for _, try := range []struct{ method, path, body string }{
+		{"PATCH", "/api/v1/apps/shop", `{"name":"other"}`},
+		{"DELETE", "/api/v1/apps/shop", ""},
+		{"POST", "/api/v1/apps/shop/envs", `{"name":"staging"}`},
+	} {
+		if code, body := api.do(made.Secret, try.method, try.path, try.body); code != http.StatusForbidden {
+			t.Errorf("%s %s: %d %s", try.method, try.path, code, body)
+		}
+	}
+
+	// A preview that takes production's secrets would hand them to what it deploys, so it can look at that one and no more.
+	if code, body := api.do(made.Secret, "GET", "/api/v1/apps/shop/envs/inherits-it/deployments", ""); code != http.StatusForbidden && code != http.StatusOK {
+		t.Errorf("reading a preview: %d %s", code, body)
+	}
+	if code, body := api.do(made.Secret, "POST", "/api/v1/apps/shop/envs/inherits-it/restart", ""); code != http.StatusForbidden {
+		t.Errorf("changing one that takes production's secrets: %d %s", code, body)
+	}
+
+	// Deploying to a new name makes a preview of it, with nothing of production's.
+	files := appManifest("")
+	dep, _, err := agent.DeploySource(ctx, "shop", "agent-work", writeSite(t, files), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "that deployment", func() bool {
+		d, err := agent.Deployment(ctx, dep.ID)
+		return err == nil && d.Finished()
+	})
+	if d, err := agent.Deployment(ctx, dep.ID); err != nil || d.Status != apitypes.StatusLive {
+		t.Fatalf("%+v %v", d, err)
+	}
+	env, err := agent.Environment(ctx, "shop", "agent-work")
+	if err != nil || env.Kind != "preview" {
+		t.Errorf("what it made: %+v %v", env, err)
+	}
+	host := "shop--agent-work." + cfg.Domain
+	if _, got := get(t, addrs.HTTP, host, "/env?name=API_KEY"); got == secretValue || strings.Contains(got, secretValue) {
+		t.Errorf("it can read production's secret: %q", got)
+	}
+	if _, got := get(t, addrs.HTTP, host, "/env?name=PLAIN_SETTING"); strings.Contains(got, "plain-value") {
+		t.Errorf("it took a variable of production's: %q", got)
+	}
+	// And a preview that a push made still takes them, as it did.
+	if _, got := get(t, addrs.HTTP, "shop--inherits-it."+cfg.Domain, "/env?name=PLAIN_SETTING"); !strings.Contains(got, "plain-value") {
+		t.Errorf("a preview that a push made: %q", got)
+	}
+	// It can go on working there.
+	if code, body := api.do(made.Secret, "POST", "/api/v1/apps/shop/envs/agent-work/restart", ""); code != http.StatusOK {
+		t.Errorf("restarting its own: %d %s", code, body)
+	}
+
+	// It cannot push, which could go to any branch.
+	req, _ := http.NewRequest(http.MethodGet, "http://"+addrs.HTTP.String()+"/git/shop.git/info/refs?service=git-receive-pack", nil)
+	req.Host = cfg.ConsoleHost
+	req.SetBasicAuth("moor", made.Secret)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("pushing: %d", res.StatusCode)
 	}
 }

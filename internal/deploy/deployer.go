@@ -266,6 +266,19 @@ func (d *Deployer) ensureEnv(ctx context.Context, app, env, kind, branch string)
 	return nil
 }
 
+// EnsurePreviewAlone makes the preview that a token limited to previews deploys to, if it does not exist yet. It takes nothing of production's, as the code
+// such a token deploys could otherwise read production's secrets.
+func (d *Deployer) EnsurePreviewAlone(ctx context.Context, app, env string) error {
+	created, err := d.db.CreatePreviewAlone(ctx, app, env)
+	if err != nil {
+		return err
+	}
+	if created {
+		d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentCreated, App: app, Env: env, Data: map[string]any{"kind": store.KindPreview}})
+	}
+	return nil
+}
+
 // Follow passes a deployment's log lines to fn as they are written, until
 // the deployment ends or ctx is done, and returns the deployment as it
 // ended.

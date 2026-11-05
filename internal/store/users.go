@@ -325,11 +325,13 @@ func (db *DB) DeleteSessionByHash(ctx context.Context, hash string) error {
 type APIToken struct {
 	ID string
 	// UserID is empty for a token of the server's local administrator.
-	UserID     string
-	Name       string
-	TokenHash  string
-	Scopes     []string
-	App        string // the app it is restricted to, if any
+	UserID    string
+	Name      string
+	TokenHash string
+	Scopes    []string
+	App       string // the app it is restricted to, if any
+	// Envs is "previews" for a token limited to them.
+	Envs       string
 	ExpiresAt  time.Time
 	LastUsedAt time.Time
 	CreatedAt  time.Time
@@ -338,7 +340,7 @@ type APIToken struct {
 // ErrTokenNameTaken is returned for a token name its owner already uses.
 var ErrTokenNameTaken = errors.New("you already have a token with that name")
 
-const tokenColumns = `t.id, t.user_id, t.name, t.token_hash, t.scopes, a.name, t.expires_at, t.last_used_at, t.created_at
+const tokenColumns = `t.id, t.user_id, t.name, t.token_hash, t.scopes, a.name, t.envs, t.expires_at, t.last_used_at, t.created_at
 	FROM api_tokens t LEFT JOIN apps a ON a.id = t.app_id`
 
 func scanToken(row interface{ Scan(...any) error }) (APIToken, error) {
@@ -347,7 +349,7 @@ func scanToken(row interface{ Scan(...any) error }) (APIToken, error) {
 	var scopes string
 	var expires, used sql.NullInt64
 	var created int64
-	if err := row.Scan(&t.ID, &user, &t.Name, &t.TokenHash, &scopes, &app, &expires, &used, &created); err != nil {
+	if err := row.Scan(&t.ID, &user, &t.Name, &t.TokenHash, &scopes, &app, &t.Envs, &expires, &used, &created); err != nil {
 		return APIToken{}, err
 	}
 	t.UserID, t.App = user.String, app.String
@@ -391,8 +393,8 @@ func (db *DB) CreateToken(ctx context.Context, t APIToken) error {
 			}
 			appID = id
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO api_tokens (id, user_id, name, token_hash, scopes, app_id, expires_at, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, t.ID, nullString(t.UserID), t.Name, t.TokenHash, string(scopes), appID, nullTime(t.ExpiresAt), t.CreatedAt.UnixMilli())
+		_, err := tx.ExecContext(ctx, `INSERT INTO api_tokens (id, user_id, name, token_hash, scopes, app_id, envs, expires_at, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, t.ID, nullString(t.UserID), t.Name, t.TokenHash, string(scopes), appID, t.Envs, nullTime(t.ExpiresAt), t.CreatedAt.UnixMilli())
 		return err
 	})
 }

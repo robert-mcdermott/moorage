@@ -93,7 +93,11 @@ func ListVars(ctx context.Context, db *store.DB, app, env string) ([]apitypes.Va
 	if err != nil {
 		return nil, err
 	}
-	if kind == store.KindPreview {
+	inherits, err := db.InheritsProduction(ctx, app, env)
+	if err != nil {
+		return nil, err
+	}
+	if inherits {
 		inherited, err := db.Vars(ctx, app, names.Production)
 		if err != nil {
 			return nil, err

@@ -327,6 +327,13 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 			problem(w, http.StatusForbidden, "forbidden", msg)
 			return
 		}
+		if msg, err := s.refusedByEnvs(r, rt, p, app); err != nil {
+			s.internal(w, err)
+			return
+		} else if msg != "" {
+			problem(w, http.StatusForbidden, "forbidden", msg)
+			return
+		}
 		if app != "" {
 			access, err := s.auth.AppAccess(r.Context(), p, app)
 			if err != nil {
@@ -449,6 +456,39 @@ func roleRefused(rt route, access auth.Access) string {
 		}
 	}
 	return ""
+}
+
+// refusedByEnvs keeps a token limited to previews to them. Reading is allowed in any preview, as it says nothing of production. Changing anything is allowed only in a preview
+// that stands apart from production, which is the kind that such a token makes. Deploying to any other would hand production's secrets to the code deployed.
+func (s *Server) refusedByEnvs(r *http.Request, rt route, p auth.Principal, app string) (string, error) {
+	if p.Envs == "" {
+		return "", nil
+	}
+	const limited = "This token is limited to previews."
+	changes := rt.perm == canDeploy || rt.perm == canManage || rt.perm == serverAdmin
+	env := r.PathValue("env")
+	if env == "" {
+		if changes {
+			return limited, nil
+		}
+		return "", nil
+	}
+	if env == names.Production {
+		return limited, nil
+	}
+	e, err := s.db.Environment(r.Context(), app, env)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		// Deploying to a name that is not taken makes a preview of it, and anything else finds nothing there.
+		return "", nil
+	case err != nil:
+		return "", err
+	case e.Kind != store.KindPreview:
+		return limited, nil
+	case changes && e.Inherits:
+		return "This token is limited to previews that take nothing of production's, and this one takes its variables. Deploying to a new name makes one.", nil
+	}
+	return "", nil
 }
 
 // refused says why a caller may not use a route, or "".

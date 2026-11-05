@@ -679,6 +679,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "envs": {
+            "type": "string"
+          },
           "expires_at": {
             "format": "date-time",
             "type": "string"
@@ -1537,6 +1540,9 @@
           "email": {
             "type": "string"
           },
+          "envs": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
@@ -1936,6 +1942,9 @@
       "NewToken": {
         "properties": {
           "app": {
+            "type": "string"
+          },
+          "envs": {
             "type": "string"
           },
           "expires_at": {
@@ -2785,6 +2794,9 @@
           },
           "created_at": {
             "format": "date-time",
+            "type": "string"
+          },
+          "envs": {
             "type": "string"
           },
           "expires_at": {

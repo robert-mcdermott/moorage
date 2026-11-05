@@ -156,16 +156,17 @@ func (db *DB) Config(ctx context.Context, app, env string) ([]ConfigVar, error) 
 }
 
 // config reads what an environment runs with: the app's variables for every environment,
-// then for a preview production's, unless they are for production only, then its own.
+// then for a preview that inherits production's, unless they are for production only, then its own.
 func config(ctx context.Context, q querier, appID, envID string) ([]ConfigVar, error) {
 	var kind string
+	var inherits int
 	var production sql.NullString
-	if err := q.QueryRowContext(ctx, `SELECT e.kind, (SELECT p.id FROM environments p WHERE p.app_id = e.app_id AND p.kind = 'production')
-		FROM environments e WHERE e.id = ?`, envID).Scan(&kind, &production); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT e.kind, e.inherits, (SELECT p.id FROM environments p WHERE p.app_id = e.app_id AND p.kind = 'production')
+		FROM environments e WHERE e.id = ?`, envID).Scan(&kind, &inherits, &production); err != nil {
 		return nil, err
 	}
 	inherited := ""
-	if kind == KindPreview {
+	if kind == KindPreview && inherits != 0 {
 		inherited = production.String
 	}
 	rows, err := q.QueryContext(ctx, `SELECT name, value, value_enc, secret, build, coalesce(env_id, ''), production_only

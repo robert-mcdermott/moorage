@@ -66,6 +66,7 @@ app and whoever can reach it, and an agent should not be trusted further for hav
 			}, transport)
 		},
 	}
+	cmd.AddCommand(newMCPSetupCmd())
 	f := cmd.Flags()
 	f.StringVar(&contextName, "context", agentContext, "the context to use, from moor mcp setup")
 	f.StringVar(&app, "app", "", "the app to use when a tool is not told")
@@ -93,7 +94,8 @@ func agentClient(name string) (*client.Client, error) {
 // agentMayUse refuses a token that is more than an agent should have. An agent with a shell can go around anything else here, so that this is
 // what counts: see spec/14-agents.md.
 func agentMayUse(me apitypes.Me, allowDeploy bool) error {
-	if me.Local || slices.Contains(me.Scopes, auth.ScopeAdmin) || len(me.Scopes) == 0 {
+	// No scopes at all is a session, or the local server's own token. A token made by that one has scopes, like any other.
+	if slices.Contains(me.Scopes, auth.ScopeAdmin) || len(me.Scopes) == 0 {
 		return errors.New("this token can do everything, and an agent should not have one that can: run moor mcp setup, which makes a narrow one")
 	}
 	can := func(scope string) bool { return slices.Contains(me.Scopes, scope) }

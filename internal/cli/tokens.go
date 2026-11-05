@@ -115,6 +115,9 @@ with 'moor tokens create NAME', revoke one with 'moor tokens revoke NAME'.`,
 				if !t.LastUsedAt.IsZero() {
 					used = ago(t.LastUsedAt)
 				}
+				if t.Envs != "" {
+					app += " (" + t.Envs + ")"
+				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Name, strings.Join(t.Scopes, ","), app, expires, used)
 			}
 			return w.Flush()
@@ -131,6 +134,7 @@ func newTokensCreateCmd() *cobra.Command {
 		conn    connection
 		scopes  []string
 		app     string
+		envs    string
 		expires string
 	)
 	cmd := &cobra.Command{
@@ -144,11 +148,15 @@ func newTokensCreateCmd() *cobra.Command {
   gate    only get through the sign-in gates of apps, as you
 
 --app restricts it to one app, and --expires makes it stop working after a
-time, such as 90d.`,
+time, such as 90d.
+
+--envs previews limits a read or deploy token to previews. It can deploy only to
+previews that it makes itself, by deploying to a name that is not taken, and
+those take nothing of production's. It cannot push.`,
 		Example: `  moor tokens create ci --scope deploy --app shop --expires 90d`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := apitypes.NewToken{Name: args[0], Scopes: scopes, App: app}
+			req := apitypes.NewToken{Name: args[0], Scopes: scopes, App: app, Envs: envs}
 			if expires != "" {
 				var d manifest.Duration
 				if err := d.UnmarshalText([]byte(expires)); err != nil {
@@ -173,6 +181,7 @@ time, such as 90d.`,
 	f := cmd.Flags()
 	f.StringSliceVar(&scopes, "scope", []string{"deploy"}, "what it may do: read, deploy, admin, or gate to get through sign-in gates")
 	f.StringVar(&app, "app", "", "restrict it to one app")
+	f.StringVar(&envs, "envs", "", "previews, to limit it to previews")
 	f.StringVar(&expires, "expires", "", "stop working after this long, such as 90d")
 	return cmd
 }

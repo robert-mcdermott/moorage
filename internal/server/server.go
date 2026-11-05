@@ -243,7 +243,8 @@ func allowGit(ctx context.Context, authn *auth.Service, p auth.Principal, app st
 	if !access.See {
 		return gitserver.ErrNoRepository
 	}
-	if push && !access.Deploy {
+	// A push can go to any branch, and to production. Such a token deploys by uploading.
+	if push && (!access.Deploy || p.Envs != "") {
 		return gitserver.ErrForbidden
 	}
 	return nil

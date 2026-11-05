@@ -25,6 +25,7 @@ type accountView struct {
 	Scopes              []string
 	AppChoice           string
 	Expires             string
+	Envs                string
 	// Security is the page of how they sign in.
 	Security securityView
 }
@@ -213,8 +214,9 @@ func (c *Console) createToken(w http.ResponseWriter, r *http.Request, p auth.Pri
 	if d, ok := tokenLifetimes[expiry]; ok {
 		expires = time.Now().Add(d)
 	}
-	view := accountView{FormName: name, Scopes: scopes, AppChoice: app, Expires: expiry}
-	t, secret, err := c.auth.CreateToken(r.Context(), p.UserID, name, scopes, app, expires)
+	envs := r.PostFormValue("envs")
+	view := accountView{FormName: name, Scopes: scopes, AppChoice: app, Expires: expiry, Envs: envs}
+	t, secret, err := c.auth.CreateLimitedToken(r.Context(), p.UserID, name, scopes, app, envs, expires)
 	var field *auth.FieldError
 	switch {
 	case errors.Is(err, store.ErrTokenNameTaken):

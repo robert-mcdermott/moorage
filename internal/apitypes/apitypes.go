@@ -189,9 +189,10 @@ type Me struct {
 	Name  string `json:"name"`
 	Role  string `json:"role"`
 	Local bool   `json:"local,omitempty"`
-	// Scopes and App are the limits of the token in use, if any.
+	// Scopes, App and Envs are the limits of the token in use, if any.
 	Scopes []string `json:"scopes,omitempty"`
 	App    string   `json:"app,omitempty"`
+	Envs   string   `json:"envs,omitempty"`
 }
 
 // LoginRequest signs in with an email address and password.
@@ -258,17 +259,19 @@ type Token struct {
 	Name       string    `json:"name"`
 	Scopes     []string  `json:"scopes"`
 	App        string    `json:"app,omitempty"`
+	Envs       string    `json:"envs,omitempty"`
 	ExpiresAt  time.Time `json:"expires_at,omitzero"`
 	LastUsedAt time.Time `json:"last_used_at,omitzero"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
 // NewToken creates an API token. Scopes are read, deploy, admin and gate; App,
-// if set, restricts it to one app.
+// if set, restricts it to one app, and Envs, if "previews", to previews.
 type NewToken struct {
 	Name      string    `json:"name"`
 	Scopes    []string  `json:"scopes"`
 	App       string    `json:"app,omitempty"`
+	Envs      string    `json:"envs,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }
 

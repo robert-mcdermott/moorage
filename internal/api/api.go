@@ -129,6 +129,11 @@ func (s *Server) deploy(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Send the deploy as multipart/form-data with a plan part and an archive part.")
 		return
 	}
+	if who(r).Envs == auth.EnvsPreviews {
+		if s.environmentFailed(w, s.deployer.EnsurePreviewAlone(r.Context(), app, env)) {
+			return
+		}
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, deploy.MaxUpload)
 	mr, err := r.MultipartReader()
 	if err != nil {

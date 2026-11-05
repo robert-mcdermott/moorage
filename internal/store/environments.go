@@ -26,6 +26,8 @@ type Environment struct {
 	Branch string
 	// Pinned keeps a preview from expiring.
 	Pinned bool
+	// Inherits says that a preview takes production's variables. One made by a token limited to previews does not.
+	Inherits bool
 	// LockedBy, if set, is who stopped deployments to it, and LockedAt when.
 	LockedBy string
 	LockedAt time.Time
@@ -40,20 +42,20 @@ type Environment struct {
 	ReleasedBy string
 }
 
-const environmentColumns = `e.id, a.name, e.name, e.kind, e.branch, e.pinned, e.locked_by, e.locked_at, e.last_active_at, e.asleep_at, e.created_at,
+const environmentColumns = `e.id, a.name, e.name, e.kind, e.branch, e.pinned, e.inherits, e.locked_by, e.locked_at, e.last_active_at, e.asleep_at, e.created_at,
 	r.version, r.created_at, r.created_by
 	FROM environments e JOIN apps a ON a.id = e.app_id LEFT JOIN releases r ON r.id = e.current_release_id`
 
 func scanEnvironment(row interface{ Scan(...any) error }) (Environment, error) {
 	var e Environment
 	var branch, lockedBy, releasedBy sql.NullString
-	var pinned int
+	var pinned, inherits int
 	var lockedAt, lastActive, asleepAt, version, releasedAt sql.NullInt64
 	var created int64
-	if err := row.Scan(&e.ID, &e.App, &e.Name, &e.Kind, &branch, &pinned, &lockedBy, &lockedAt, &lastActive, &asleepAt, &created, &version, &releasedAt, &releasedBy); err != nil {
+	if err := row.Scan(&e.ID, &e.App, &e.Name, &e.Kind, &branch, &pinned, &inherits, &lockedBy, &lockedAt, &lastActive, &asleepAt, &created, &version, &releasedAt, &releasedBy); err != nil {
 		return e, err
 	}
-	e.Branch, e.Pinned, e.LockedBy, e.ReleasedBy = branch.String, pinned != 0, lockedBy.String, releasedBy.String
+	e.Branch, e.Pinned, e.Inherits, e.LockedBy, e.ReleasedBy = branch.String, pinned != 0, inherits != 0, lockedBy.String, releasedBy.String
 	e.CreatedAt, e.Version = time.UnixMilli(created).UTC(), int(version.Int64)
 	if lockedAt.Valid {
 		e.LockedAt = time.UnixMilli(lockedAt.Int64).UTC()
@@ -151,9 +153,29 @@ func (db *DB) EnvKind(ctx context.Context, app, name string) (string, error) {
 	return kind, err
 }
 
+// InheritsProduction says whether an environment takes production's variables, as a preview does unless it was made to stand alone.
+func (db *DB) InheritsProduction(ctx context.Context, app, name string) (bool, error) {
+	var kind string
+	var inherits int
+	err := db.Reader.QueryRowContext(ctx, `SELECT e.kind, e.inherits FROM environments e JOIN apps a ON a.id = e.app_id WHERE a.name = ? AND e.name = ?`, app, name).Scan(&kind, &inherits)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return kind == KindPreview && inherits != 0, err
+}
+
 // CreateEnvironment makes an environment of an app, unless it has one of that name, and
 // reports whether it did.
 func (db *DB) CreateEnvironment(ctx context.Context, app, name, kind, branch string) (bool, error) {
+	return db.createEnvironment(ctx, app, name, kind, branch, true)
+}
+
+// CreatePreviewAlone makes a preview that takes nothing of production's, unless the app has an environment of that name, and reports whether it did.
+func (db *DB) CreatePreviewAlone(ctx context.Context, app, name string) (bool, error) {
+	return db.createEnvironment(ctx, app, name, KindPreview, "", false)
+}
+
+func (db *DB) createEnvironment(ctx context.Context, app, name, kind, branch string, inherits bool) (bool, error) {
 	if err := names.ValidateEnv(name); err != nil {
 		return false, &InvalidNameError{err}
 	}
@@ -178,8 +200,12 @@ func (db *DB) CreateEnvironment(ctx context.Context, app, name, kind, branch str
 		if branch != "" {
 			br = branch
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO environments (id, app_id, name, kind, branch, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			ids.New(ids.Env), appID, name, kind, br, time.Now().UnixMilli())
+		inherit := 0
+		if inherits {
+			inherit = 1
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO environments (id, app_id, name, kind, branch, inherits, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			ids.New(ids.Env), appID, name, kind, br, inherit, time.Now().UnixMilli())
 		created = err == nil
 		return err
 	})
