@@ -5,7 +5,14 @@
   </picture>
 </p>
 
-<p align="center"><strong>Deploy apps to your own server. Get a URL. Watch them run.</strong></p>
+<p align="center"><strong>Push code. Get a URL. Own the platform.</strong></p>
+
+<p align="center">
+  <a href="https://robert-mcdermott.github.io/moorage/">Website</a> ·
+  <a href="docs/getting-started.md">Getting started</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a>
+</p>
 
 Moorage is a self-hosted platform for deploying web apps. It is one program,
 `moor`: install it on a server or your laptop, and deploy an app from its
@@ -50,7 +57,7 @@ binary with its state in SQLite, and everything else is built in.
 - **Lets you in when you need to be.** `moor run -it -- /bin/sh` is a terminal in the current release, on any system. The console
   runs commands too, and shows what is in an app's data directory.
 - **Shows how it is doing, and says when it is not.** Requests, response times, CPU and memory
-  for each environment, kept for a year and ready for Prometheus. A failed deployment, a crash
+  for each environment, charted for up to 30 days and ready for Prometheus. A failed deployment, a crash
   loop or a failed cron job reaches those concerned in the console, and by webhook, Slack, Teams,
   Discord or email: one message and not hundreds, then a word when it recovers. Thresholds say when, and logs and
   metrics can go to syslog or an OpenTelemetry collector as well.
@@ -69,8 +76,8 @@ to it:
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/console-app-dark.png">
-    <img src="docs/assets/console-app-light.png" alt="An app in the web console: its status, address and release; Deploy, Redeploy, Restart and Roll back; its instances with their health; and how many of each process to run." width="800">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.webp">
+    <img src="docs/images/overview-light.webp" alt="An app in the web console: its status, address and release; Deploy, Redeploy, Restart and Roll back; its instances with their health; and how many of each process to run." width="800">
   </picture>
 </p>
 
@@ -78,8 +85,8 @@ Its logs, live, with what matters standing out:
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/console-logs-dark.png">
-    <img src="docs/assets/console-logs-light.png" alt="An app's logs in the web console, following as they are written: filters for the instance, the time and the text, and for output, errors, builds, requests and events; errors in red and warnings in amber." width="800">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logs-dark.webp">
+    <img src="docs/images/logs-light.webp" alt="An app's logs in the web console, following as they are written: filters for the instance, the time and the text, and for output, errors, builds, requests and events; errors in red and warnings in amber." width="800">
   </picture>
 </p>
 

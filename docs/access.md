@@ -17,6 +17,8 @@ can be combined with any of them.
 
 The first of these that says:
 
+![An environment's Domains and access tab: its address, and its gate, which is set to a password](images/access-light.webp "An environment's gate, on its **Domains and access** tab.")
+
 1. **What a maintainer has set**, in the console or with `moor access set`.
 2. **What its manifest asks:** `access` in `[environments.NAME]`, or for previews in `[previews]`. A manifest
    is a deployer's, so it can ask for a gate where the server has none, and it cannot open what the server has

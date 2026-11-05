@@ -67,6 +67,8 @@ provider has no password, and `moor server users invite EMAIL` prints a link to 
 See [accounts](accounts.md#two-factor-sign-in). It applies to signing in with a password, and is up to your
 provider for someone who signs in through one.
 
+![Two-factor sign-in on your account: off, with a button to set it up](images/two-factor-light.webp "Under your account.")
+
 ## Behind a proxy that signs people in
 
 If something in front of Moorage already signs people in, such as an authenticating proxy, it can say who

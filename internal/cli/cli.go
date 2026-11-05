@@ -63,7 +63,7 @@ func mainWith(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "moor",
-		Short: "Moorage: push code, get a URL, watch it run",
+		Short: "Moorage: push code, get a URL, own the platform",
 		Long: `Moorage deploys apps to a server of your own and gives each one a URL.
 The moor binary is both the server and the command line that talks to it.`,
 		Version:       buildinfo.Get().String(),

@@ -50,7 +50,7 @@
 <div data-refresh="apps">
 {{if .Apps}}
 <div class="panel table-scroll" data-apps{{if .Poll}} data-poll{{end}}>
-  <table class="apps">
+  <table class="apps app-list">
     <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Project</th><th scope="col">Requests</th><th scope="col">Release</th><th scope="col">Last deployment</th></tr></thead>
     <tbody>
     {{range .Apps}}

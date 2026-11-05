@@ -6,19 +6,8 @@ how it works inside and where it is going.
 
 ## Start here
 
-- [Installing Moorage](install.md): get `moor`, configure the server, run it
-  as a service, back it up.
-- [Accounts and access](accounts.md): claiming a server, signing in, users,
-  API tokens and SSH keys.
-- [How people sign in](sign-in.md): single sign-on with your identity provider, and
-  signing in through a proxy.
-- [TLS and trusting the server](tls.md): the certificates, and `moor trust`.
-- [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
-- [Backups](backups.md): on demand and on a schedule, to a directory or a bucket, and
-  restoring them
-- [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
-  everything, and logs.
-- [The web console](console.md): the apps, what happened, and getting started.
+- [Getting started](getting-started.md): from nothing to an app with a URL, a preview and a rollback, in ten minutes.
+- [Concepts](concepts.md): apps, environments, releases, gates and roles, on one page.
 - The [examples](../examples/README.md): complete apps, ready to deploy.
 
 ## Deploying apps
@@ -34,27 +23,57 @@ how it works inside and where it is going.
 - [In containers](containers.md): a `Containerfile`, or an image from a registry
 - [Anything else](other.md): your own build, a script, an app that is
   already built
+
+## Running apps
+
+- [The web console](console.md): the apps, what happened, and getting started.
+- [Releases, rollbacks and scaling](releases.md): how a release takes over, what happens when one fails, and going back
 - [Variables and secrets](variables.md)
 - [Previews and environments](previews.md): a place of its own for every branch,
   staging, promoting, locks and sleeping
 - [Cron jobs and one-off commands](cron.md)
 - [Getting into an app](interactive.md): a terminal, a console in the browser, and the data directory
+- [Logs](logs.md): what apps say, followed and searched
 - [Metrics](metrics.md): charts in the console, and for Prometheus
-- [Sending telemetry elsewhere](telemetry.md): logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds
 - [Notifications](notifications.md): told when something goes wrong, in the console,
   by webhook, in chat and by email
-- [How apps are kept apart](isolation.md): a user of its own for each app, limits and a
-  sandbox
 - [Who can reach an app](access.md): passwords, signing in, share links and lists
   of addresses
 - [Your own domains, and paths](domains.md): hostnames of your own, several apps on one
   hostname, and servers with no wildcard DNS
 
+## Running a server
+
+- [Installing Moorage](install.md): get `moor`, configure the server, run it
+  as a service, back it up.
+- [Server configuration](configuration.md): every setting of `server.toml`.
+- [Running a server](administration.md): the first week, what to look at, and what changes as it grows.
+- [TLS and trusting the server](tls.md): the certificates, and `moor trust`.
+- [Behind a TLS proxy](proxy.md): nginx or anything else in front of Moorage.
+- [Accounts and access](accounts.md): claiming a server, signing in, users,
+  API tokens and SSH keys.
+- [How people sign in](sign-in.md): single sign-on with your identity provider, and
+  signing in through a proxy.
+- [How apps are kept apart](isolation.md): a user of its own for each app, limits and a
+  sandbox
+- [Backups](backups.md): on demand and on a schedule, to a directory or a bucket, and
+  restoring them
+- [Sending telemetry elsewhere](telemetry.md): logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds
+- [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
+  everything, and logs.
+
+## How it works
+
+- [Architecture](architecture.md): one process and its small helpers, how a request and a push go, and where everything is kept.
+- [Security](security.md): what Moorage protects, what it does not, and how to report a problem.
+
 ## Reference
 
 - [`moorage.toml`](manifest.md): every setting of the app manifest.
+- [The command line](cli.md): every command and its flags.
 - [The API](api.md): authentication, lists, errors, and the OpenAPI document.
-- The command line: every command has `--help`; the common ones are below.
+
+The commands you will use most:
 
 | Command | What it does |
 |---|---|

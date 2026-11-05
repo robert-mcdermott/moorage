@@ -188,7 +188,7 @@ main { flex: 1; width: 100%; max-width: 68rem; padding: var(--s5) var(--s6) var(
 
 .apps { width: 100%; border-collapse: collapse; }
 .apps th { padding: var(--s3) var(--s4); font-size: .78rem; font-weight: 600; color: var(--muted); text-align: left; border-bottom: 1px solid var(--line); }
-.apps td { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); vertical-align: middle; overflow-wrap: anywhere; }
+.apps td { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); vertical-align: middle; overflow-wrap: break-word; }
 .apps tr:last-child td { border-bottom: 0; }
 .app-name { font-weight: 600; }
 
@@ -307,6 +307,12 @@ main { flex: 1; width: 100%; max-width: 68rem; padding: var(--s5) var(--s6) var(
 .files .file-name { min-width: 12rem; overflow-wrap: anywhere; }
 form.inline { display: inline; }
 .clip { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* In a table, a clipped line takes the room its column has, and does not ask for more. */
+.apps .clip { display: block; width: 0; min-width: 100%; max-width: none; }
+/* The list of apps has the most to fit in, at a laptop's width. */
+.app-list th, .app-list td { padding-inline: var(--s3); }
+.app-list td:last-child { font-size: .88rem; }
+.app-list .spark { width: 72px; }
 .clip-cell { max-width: 26rem; overflow-wrap: anywhere; }
 .table-scroll { overflow-x: auto; }
 a.plain { text-decoration: none; }

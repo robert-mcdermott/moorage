@@ -3,6 +3,8 @@
 Variables configure an app without changing its code. They are set on the
 server and override the `[env]` of `moorage.toml`.
 
+![The Variables tab: each variable with its value or dots for a secret, where it comes from, and buttons to reveal, change or remove it](images/variables-light.webp "An app's **Variables** tab says where each one comes from.")
+
 ```bash
 moor env set LOG_LEVEL=debug FEATURE_X=on
 ```

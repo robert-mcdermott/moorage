@@ -1130,16 +1130,44 @@ directory, supervises it, and serves it on its own hostname.
      server's own, and apps that run as the server's account can reach all that it can, which is now said plainly. A connection to
      a real forge, collector or syslog server has yet to be tried: the fakes are all that any of this has met.
 
+## The website (between 0.7.0 and 0.8.0)
+
+A product site and full documentation, so that people can find Moorage and try it.
+
+- Done: `docs/site/build.mjs` makes the site from the guides in `docs`, with a home page, a menu, a search, both themes, an
+  API reference from the OpenAPI document, and a check of every link, which CI runs. `docs/capture/capture.mjs` takes the
+  screenshots from a real server, and `docs/capture/diagrams.mjs` draws the diagrams. New guides: getting started,
+  concepts, releases, logs, server configuration, running a server, architecture and security, and a reference of every
+  command that a test keeps current. It is published from the `gh-pages` branch, at
+  <https://robert-mcdermott.github.io/moorage/>.
+- Found by it: following the guide on a clean server worked as written. Taking the pictures showed the console's tables
+  breaking words in the middle at a laptop's width, which is fixed. The site says plainly what has not been proven, which is
+  what wave 8 begins with.
+
 ## 0.8.0: beyond the firewall (planned)
 
 ### Wave 8
 
-1. **ACME.** Internal ACME servers and public CAs; HTTP-01, TLS-ALPN-01 and
+1. **The real services.** The code for forges and telemetry has so far met
+   only stand-ins written for its tests. Connect a throwaway repository on
+   GitHub, with a token limited to it, and go through a deploy from a push, a
+   preview from a pull request, the checks and comments it reports, and the
+   approval of a commit from someone else. Then try a webhook from a server that
+   GitHub can reach, and, as far as they can be had, GitLab, Gitea, an OTLP
+   collector and a syslog server. Fix what they find, and correct the documents
+   where they were wrong.
+   - Done when: a push and a pull request on a real GitHub repository deploy and
+     report back, and the documents and the changelog say which services have
+     been tried and which have not.
+   - Needs the owner: the repository and the token are theirs to make, and
+     fetching and deploying from a real repository on their machine is theirs
+     to allow.
+2. **ACME.** Internal ACME servers and public CAs; HTTP-01, TLS-ALPN-01 and
    DNS-01 wildcard certificates; the `public` preset.
-2. **Exposure hardening.** An external penetration test of every public
+3. **Exposure hardening.** An external penetration test of every public
    surface, and its fixes.
-3. **Protocols.** Cleartext HTTP/2 backends (gRPC); sticky sessions.
-4. **Release 0.8.0.**
+4. **Protocols.** Cleartext HTTP/2 backends (gRPC); sticky sessions.
+5. **Release 0.8.0.**
 
 ## 0.9.0: services (planned)
 

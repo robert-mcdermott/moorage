@@ -6,6 +6,8 @@ running while it is made. Logs and caches are left out, and so are toolchains, w
 as the apps that need them start. Restored on a machine with no way out, those apps need a mirror, under
 `[toolchains]` in `server.toml`.
 
+![Settings, Backups: the schedule, what has been backed up, and where they go](images/backups-light.webp "**Settings → Backups**.")
+
 ```bash
 moor server backup --to /mnt/backups
 ```

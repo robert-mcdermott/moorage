@@ -4,3 +4,6 @@
 /moor
 /moor.exe
 /dist/
+
+# The built website (node docs/site/build.mjs)
+/site/

@@ -67,6 +67,8 @@ An app's Console tab, for those who can deploy to it, runs one command at a time
 by itself: nothing carries over from one to the next, so a `cd` is forgotten, and it cannot ask you anything, as what it
 reads is empty. For those things, there is a terminal.
 
+![The Console tab: a box to run a command in the current release, and the earlier commands with how each went](images/console-tab-light.webp "An app's **Console** tab.")
+
 The up and down arrows go back through what has been run. What a command says is kept with its run, with secrets taken out, as
 it is for `moor run`.
 
@@ -75,6 +77,8 @@ it is for `moor run`.
 Each environment has a [data directory](variables.md) of its own, which is where its app keeps what it means to keep. An app's
 Files tab shows what is in it, with a preview of short text files, and can download, upload, make directories and
 remove. So can the command line:
+
+![The Files tab: the files and folders in the data directory, with sizes, and forms to upload a file or make a folder](images/files-light.webp "An app's **Files** tab.")
 
 ```bash
 moor files

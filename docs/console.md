@@ -4,7 +4,7 @@ The console is at the server's console hostname: `https://moorage.apps.example.c
 or `http://moorage.localhost:8080` on your own computer. Sign in with your account;
 `moor server status` shows the link that creates the first one.
 
-Everything in it is also available from `moor` or [the API](api.md).
+Nearly everything in it is also available from `moor` or [the API](api.md).
 
 ## Getting started
 
@@ -18,6 +18,8 @@ first deployment, and says when it is live.
 Every app: how it stands, its address, its release and its last deployment, changing as
 they do. **New app** asks for a name and a project, and says how to deploy it. Filter the list by
 typing part of a name. Each has a little line of its requests over the last hour.
+
+![The list of apps: each one's status, address, project, requests, release and last deployment](images/apps-light.webp "Every app, changing as they do.")
 
 | Status | |
 |---|---|
@@ -39,6 +41,8 @@ it keeps serving.
 Its page says what it serves and who deployed it, lists its instances with their health,
 restarts and last exit, and shows its latest deployments and activity. Instances and
 deployments change as they do. From here:
+
+![An app's page: its status, address and release, buttons to deploy, redeploy, restart, sleep and roll back, the last hour at a glance, and its instances](images/app-light.webp "An app's page.")
 
 | | | |
 |---|---|---|
@@ -70,23 +74,15 @@ moor apps rename shop store
 moor apps delete shop --keep-data
 ```
 
-### Scaling
-
-New instances start beside those running, and take traffic once they are healthy. Those
-beyond the number finish their requests and stop. If a new instance cannot start, the app
-goes back to how it was, and says why. The number stays, over the manifest's `instances`,
-through restarts and the releases to come, and the page says what the manifest would have
-had; `0` turns a process off.
-
-```bash
-moor scale web=3 worker=1
-```
+**Scale** on an app's page says how many instances of each process run. See [Scaling](releases.md#scaling).
 
 ## Environments and previews
 
 An app's **Environments** tab lists [where it runs](previews.md): each with its status, address and
 release. From here you make an environment or a preview of a branch, **Promote** what one runs to
 production, **Lock** one against deployments, **Pin** a preview and **Remove** or **Destroy** what you no longer need.
+
+![The Previews page: a preview of a branch, with its status, address, when it was last used and when it expires](images/previews-light.webp "Previews, in the sidebar: those of every app you can see.")
 
 **Previews** in the sidebar has those of every app you can see, with when each was last used and
 when it expires.
@@ -112,6 +108,8 @@ deployers make and revoke **share links**, each shown only when it is made.
 
 Its page shows how it is going, as it goes:
 
+![A deployment's page: its five stages with how long each took, then the log](images/deployment-light.webp "A deployment, with its stages and log.")
+
 - **Stages:** prepare, toolchains, build, release and rollout, with how long each took,
   and those it did not need. A rollback needs no more than a rollout.
 - **The log,** as it is written, with what went wrong if it failed.
@@ -130,37 +128,16 @@ moor releases diff v3 v4
 
 ## Logs
 
-An app's **Logs** page shows what it says, as it says it: the output of every instance,
-merged by time.
-
-- **Instance:** all of them, one process or one instance.
-- **When:** the last 15 minutes up to the last 7 days, or between two moments.
-- **Search:** the lines with this text, whatever its case, marked where it is.
-- **Output, Errors, Moorage:** standard output, standard error, and Moorage's notes of
-  starts, exits and restarts. **Builds** adds the logs of its deployments, **Requests** its
-  access log, and **Events** what happened to it.
-- **Only problems:** errors, warnings, standard error, and requests that failed.
-
-A line that is a JSON object reads as its message and fields, coloured by its `level`; hold
-the pointer over it for the line itself. A line of plain text that names a level, as
-`ERROR:` or `level=warn`, is coloured too.
-
-**Pause** stops the lines moving, and **Resume** brings what came meanwhile. Scrolling up
-holds the view where it is, and **Newest lines** comes back. **Older lines** goes further
-back, and **Download** gives you all of what is shown, up to 200,000 lines, as a file.
-
-```bash
-moor logs -f --app shop --source stderr,build --since 1h --grep timeout
-```
-
-The logs of an instance that has stopped are kept for 14 days. Those of one running are
-kept until they rotate, at 10 MiB, five files back.
+An app's **Logs** tab shows what it says, as it says it: the output of every instance, merged by time. You can narrow it down
+by instance, time, text and source, and pause, go further back or download it. See [Logs](logs.md).
 
 ## Variables
 
 An app's **Variables** page lists what it runs with, and where each comes from: this
 environment, every environment, or the `[env]` of its `moorage.toml`, which a variable set
 here overrides. A secret is sealed when it is set, and is never shown again.
+
+![Editing variables as text: NAME=value lines, with secrets as dots, and a button that says what would change](images/variables-edit-light.webp "**Edit as text**, for pasting a `.env` or changing many at once.")
 
 **Add a variable** or **Change** one, and the change is released at once, as a new release
 that runs without downtime; or **Save without releasing**, and the page says what is waiting
@@ -199,6 +176,8 @@ moor password
 
 For administrators.
 
+![The Server tab of Settings: its addresses, what it listens on, TLS, notifications and who may reach what, as server.toml says](images/settings-light.webp "**Settings → Server**: what `server.toml` says.")
+
 - **Server:** what `server.toml` says. The server needs these before it can open its
   database, so they change in that file, and with a restart.
 - **Users:** add someone, and send them the link it makes: the server sends no email. Change
@@ -209,6 +188,7 @@ For administrators.
   back up now.
 - **Notifications:** [channels](notifications.md#channels), each with when it last sent something and
   why it failed if it did, a way to send it a test, and the rules that say what goes to it.
+- **Telemetry:** [sinks](telemetry.md) that logs and metrics go on to, each with when it last sent something.
 - **Audit log:** [who did what](accounts.md#who-did-what), to search and to download.
 - **System:** what the server runs, and what [`moor server doctor`](troubleshooting.md) finds,
   with how to fix it.
@@ -222,6 +202,8 @@ project's page has the rules that send its news to a channel as well, for its ma
 ## Activity
 
 What happened, newest first, as it happens:
+
+![The Activity page: what happened, newest first, with deployments, a failed one marked in red](images/activity-light.webp "What happened, as it happens.")
 
 | | |
 |---|---|
@@ -249,6 +231,8 @@ them as server-sent events.
 
 Press `⌘K` (`Ctrl+K` elsewhere), or `/`, to find an app, a page or an action by typing
 a few of its letters. Arrow keys choose, and `Enter` goes.
+
+![The search box over the list of apps, with pages of the app tasks listed for what was typed](images/palette-light.webp "Type a few letters to go anywhere.")
 
 ## Themes
 

@@ -62,6 +62,8 @@ With Moorage's own CA, add `--ca-cert ca.crt`; the context remembers it.
 An admin creates accounts, and sends each person a one-time link to choose a
 password. Moorage does not send email itself.
 
+![Settings, Users: each person's role, two-factor state and status, and a form to add someone](images/users-light.webp "**Settings → Users**.")
+
 ```bash
 moor server users create ada@example.com --name "Ada Lovelace"
 ```
@@ -91,6 +93,8 @@ app. What a *member* may do depends on [their role in each project](#projects-an
 ## Projects and roles
 
 Apps belong to projects, and people have roles in projects:
+
+![A project's page: its role for everyone else, its apps and members, and forms to add someone](images/project-light.webp "A project's page.")
 
 | | Viewer | Deployer | Maintainer | Admin |
 |---|:-:|:-:|:-:|:-:|
@@ -137,6 +141,8 @@ Every change through the API or the console, every sign-in, every push and every
 revealed is kept for a year, with who, from where, what to, and how it went. Nothing of
 what was sent goes in the record. Administrators read it under **Settings**, **Audit log**:
 
+![The audit log: when, who, what, to what, how it went and from where](images/audit-light.webp "**Settings → Audit log**.")
+
 ```bash
 moor audit --actor ana@example.com -n 20
 ```
@@ -157,6 +163,8 @@ and SSH keys are separate from it, and signing in from `moor login` goes through
 
 Tokens are for scripts, CI, and git over HTTPS. A token can do what its scope
 allows and its owner may do.
+
+![Your API tokens: each with what it can do, for which apps and until when, and a form to make one](images/tokens-light.webp "Your **API tokens**, under your account.")
 
 ```bash
 moor tokens create ci --scope deploy --app shop --expires 90d
@@ -180,6 +188,8 @@ once. Scripts pass a token with `MOOR_TOKEN` (and `MOOR_SERVER`), or `--token`.
 `moor keys add` registers your public key on your account, so that your pushes
 over SSH are yours ([Deploying with git push](git.md)). A key belongs to one
 account.
+
+![Your SSH keys, with the command that adds yours, and a form to add one by hand](images/ssh-keys-light.webp "Your **SSH keys**, under your account.")
 
 ## The server's local admin token
 

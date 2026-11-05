@@ -61,6 +61,9 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+      - name: The website builds, with no broken links
+        if: runner.os == 'Linux'
+        run: node docs/site/build.mjs "$RUNNER_TEMP/site"
       - name: Vet
         run: go vet ./...
       - name: Test
