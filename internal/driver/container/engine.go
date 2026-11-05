@@ -17,7 +17,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
+
+// waitForDescendants is how long a command's output is waited for once it has ended or been told to. What it left running holds
+// the pipe, and could for as long as it likes, which must not hold up going away.
+const waitForDescendants = 2 * time.Second
 
 // ErrNoEngine is returned when neither Podman nor Docker is installed.
 var ErrNoEngine = errors.New("this server has no container engine: install Podman or Docker, or set engine under [containers] in server.toml")
@@ -106,10 +111,11 @@ func IsNotFound(err error) bool {
 func (e *Engine) output(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, e.Bin, args...)
 	cmd.Env = append(os.Environ(), env...)
+	cmd.WaitDelay = waitForDescendants
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	if err != nil {
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return out, &EngineError{Args: args, Stderr: strings.TrimSpace(stderr.String()), Err: err}
 	}
 	return out, nil
@@ -119,8 +125,9 @@ func (e *Engine) output(ctx context.Context, env []string, args ...string) ([]by
 func (e *Engine) stream(ctx context.Context, env []string, stdout, stderr io.Writer, args ...string) error {
 	cmd := exec.CommandContext(ctx, e.Bin, args...)
 	cmd.Env = append(os.Environ(), env...)
+	cmd.WaitDelay = waitForDescendants
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return &EngineError{Args: args, Err: err}
 	}
 	return nil

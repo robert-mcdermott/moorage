@@ -699,3 +699,37 @@ func TestStats(t *testing.T) {
 		t.Errorf("what it is using: %+v", stats)
 	}
 }
+
+// An engine's command that has left something running must not hold up going away: what it left has the pipe that its
+// output comes through, and could keep that for as long as it likes.
+func TestWhatACommandLeavesBehindHoldsNothingUp(t *testing.T) {
+	d, calls := fakeEngine(t)
+	s := testSpec(t, "./server")
+	s.ID = "ins_01ABCDEFGHJK"
+	if _, err := d.Start(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	// The fake's wait is a shell that starts a sleep: wait until it has.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		data, _ := os.ReadFile(calls)
+		if strings.Contains(string(data), "wait\n") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("it never waited: %s", data)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.Shutdown()
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("going away is held up by what a command left running")
+	}
+}
