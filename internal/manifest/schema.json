@@ -261,7 +261,13 @@
         "required": ["type"],
         "properties": {
           "type": { "enum": ["postgres", "s3"] },
-          "version": { "type": "string" }
+          "version": { "type": "string", "description": "postgres: 15 to 19. The default, 18, is recorded when the service is made, and does not move by itself." },
+          "image": { "type": "string", "description": "Another image, such as pgvector/pgvector:pg18, which is the way to get extensions. It needs a tag other than latest." },
+          "env": { "type": "string", "description": "Another name for the variable that gives the app its address, needed for a second of one type." },
+          "memory": { "$ref": "#/$defs/size" },
+          "previews": { "enum": ["own", "none"], "description": "Whether a preview has one of its own." },
+          "seed": { "enum": ["production"], "description": "What a preview starts with, if not empty." },
+          "sanitize": { "type": "string", "description": "A script run on a seeded copy, before any app connects." }
         }
       }
     }

@@ -160,6 +160,12 @@ func (r *resolver) common() {
 		}
 		r.plan.Vars[name] = manifest.VarPlan{Description: v.Description, Required: v.Required, Secret: v.Secret, Generate: v.Generate}
 	}
+	for name, s := range m.Services {
+		if r.plan.Services == nil {
+			r.plan.Services = map[string]manifest.ServicePlan{}
+		}
+		r.plan.Services[name] = s.Plan()
+	}
 	if m.Release != nil && (m.Release.Command != "" || m.Release.OnCreate != "") {
 		rel := *m.Release
 		r.plan.Release = &rel

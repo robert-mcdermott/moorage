@@ -236,7 +236,7 @@ anything = { goes = true }
 		t.Errorf("processes: %+v", m.Processes)
 	}
 	warnings := strings.Join(Lint(m), "\n")
-	for _, want := range []string{"[[routes]]", "[services]"} {
+	for _, want := range []string{"[[routes]]"} {
 		if !strings.Contains(warnings, want) {
 			t.Errorf("no warning about %s:\n%s", want, warnings)
 		}
@@ -354,5 +354,69 @@ func TestProtocolAndSticky(t *testing.T) {
 		case c.says != "" && (err == nil || !strings.Contains(err.Error(), c.says)):
 			t.Errorf("%s %+v: %v, and not %q", c.name, c.proc, err, c.says)
 		}
+	}
+}
+
+func TestServices(t *testing.T) {
+	good := `[app]
+runtime = "command"
+
+[processes.web]
+command = "./serve"
+
+[services.db]
+type = "postgres"
+
+[services.analytics]
+type = "postgres"
+version = "16"
+env = "ANALYTICS_DATABASE_URL"
+memory = "512MiB"
+previews = "none"
+
+[services.vectors]
+type = "postgres"
+image = "pgvector/pgvector:pg18"
+env = "VECTORS_URL"
+`
+	m, err := Parse([]byte(good), "moorage.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Services["db"].Plan(); got.Version != DefaultPostgres || got.Env != "DATABASE_URL" || got.Previews != "own" || got.Type != ServicePostgres {
+		t.Errorf("the default: %+v", got)
+	}
+	if got := m.Services["analytics"].Plan(); got.Version != "16" || got.Env != "ANALYTICS_DATABASE_URL" || got.Memory != 512<<20 || got.Previews != "none" {
+		t.Errorf("one that says: %+v", got)
+	}
+	if got := m.Services["vectors"].Plan(); got.Version != "" || got.Image != "pgvector/pgvector:pg18" {
+		t.Errorf("another image: %+v", got)
+	}
+
+	for name, try := range map[string]struct{ table, want string }{
+		"a type":            {"[services.db]\ntype = \"mysql\"\n", "must be postgres or s3"},
+		"a version":         {"[services.db]\ntype = \"postgres\"\nversion = \"9\"\n", "must be one of"},
+		"a name":            {"[services.DB_1]\ntype = \"postgres\"\n", "a service's name"},
+		"two of a type":     {"[services.a]\ntype = \"postgres\"\n\n[services.b]\ntype = \"postgres\"\n", "would both set DATABASE_URL"},
+		"latest":            {"[services.db]\ntype = \"postgres\"\nimage = \"postgres:latest\"\n", "latest would change"},
+		"no tag":            {"[services.db]\ntype = \"postgres\"\nimage = \"example.com:5000/postgres\"\n", "needs a tag"},
+		"a variable":        {"[services.db]\ntype = \"postgres\"\nenv = \"not-a-name\"\n", "not a valid variable name"},
+		"previews":          {"[services.db]\ntype = \"postgres\"\npreviews = \"shared\"\n", "must be own or none"},
+		"a seed":            {"[services.db]\ntype = \"postgres\"\nseed = \"staging\"\n", "must be production"},
+		"sanitize, no seed": {"[services.db]\ntype = \"postgres\"\nsanitize = \"a.sql\"\n", "there is no seed"},
+		"sanitize, outside": {"[services.db]\ntype = \"postgres\"\nseed = \"production\"\nsanitize = \"../a.sql\"\n", "a path in the app"},
+		"s3 version":        {"[services.files]\ntype = \"s3\"\nversion = \"1\"\n", "no version"},
+		"s3 image":          {"[services.files]\ntype = \"s3\"\nimage = \"a/b:1\"\n", "cannot replace"},
+	} {
+		_, err := Parse([]byte("[app]\nruntime = \"command\"\n\n[processes.web]\ncommand = \"./serve\"\n\n"+try.table), "moorage.toml")
+		if err == nil || !strings.Contains(err.Error(), try.want) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if got := imageTag("localhost:5000/a/b:1.2"); got != "1.2" {
+		t.Error(got)
+	}
+	if got := imageTag("a/b@sha256:abc"); got != "sha256:abc" {
+		t.Error(got)
 	}
 }
