@@ -123,7 +123,7 @@ moor deploy --env staging
 git push -o env=staging moorage my-branch
 ```
 
-Unlike a preview, a named environment inherits nothing of production's: it has the variables set
+Unlike most previews, a named environment inherits nothing of production's: it has the variables set
 for every environment (`moor env set --all-envs`), and its own. It has its own data directory,
 and it stays until it is removed, which takes a maintainer:
 

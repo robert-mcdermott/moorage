@@ -277,6 +277,38 @@ provisional until the corresponding Phase 0 spike reports back.
 - **Consequences:** a little more code, full control over the settings that
   matter, one dependency fewer.
 
+### D19 — The container engine is optional, and provably so
+
+- **Context:** most apps need no engine, and the promise of no Docker to set up is part of what Moorage is. Services will need one, for those who use them.
+- **Decision:** one answer to whether this server can run containers: absent, not answering or ready, from a probe that asks the daemon and has a hard time limit. It is asked at start and again
+  when something wants it. An app with no services or containers is never affected, and a test proves it. What needs an engine and has none is refused before any build, with what to do.
+- **Alternatives:** probing only at start, which would need a restart after starting Docker Desktop; a native PostgreSQL with no engine, which has limited platform coverage and unconfirmed signatures.
+- **Consequences:** a daemon that is down is a state, and no longer looks like instances having stopped.
+
+### D20 — Services are one instance for each environment
+
+- **Context:** services are for development, previews and demos on one machine. [Backing services](13-services.md) has the design.
+- **Decision:** each environment has its own, with a generated password and a named volume, and its address is given as a secret at start and not captured in a release. A preview starts empty.
+  A variable set on an environment itself beats its service, and what a preview inherits does not. PostgreSQL and S3 first.
+- **Alternatives:** a service shared by apps or environments, where every user of each could reach all of its data; bind mounts, which are slow and fragile on macOS and Windows and
+  awkward for backups; seeding previews from production by default, which is how customer data leaks.
+- **Consequences:** previews add up, so the console shows the total, and sleep stops them. Production use is allowed, and labelled as one container with no replica.
+
+### D21 — Versity Gateway for S3
+
+- **Context:** a single-node S3 server for each environment. MinIO's repository is archived.
+- **Decision:** Versity Gateway on its POSIX backend with `--sidecar`, subject to a CI test, with SeaweedFS as the fallback. The comparison is in [Backing services](13-services.md#the-s3-server).
+- **Consequences:** plain files make dumps and seeding simple. Apps that depend on versioning, lifecycle rules or object ACLs need something else. The choice is cheap to undo, as the manifest
+  names only `s3`.
+
+### D22 — `moor mcp` on the official SDK
+
+- **Context:** a small MCP server for coding agents. [Coding agents](14-agents.md) has the design.
+- **Decision:** `github.com/modelcontextprotocol/go-sdk`, behind one internal package. Stdio only. Its licence is Apache-2.0 for new contributions and MIT for existing code, and it is a Tier 1 SDK, which commits it to following
+  the protocol. Measured, it adds 1.64 MB to a 28.34 MB binary, and compiles with cgo off for every target.
+- **Alternatives:** by hand, which saves that and takes on two eras of the protocol, cancellation and following each new revision; `mark3labs/mcp-go`, a community project with more dependencies in its server package.
+- **Consequences:** one more module to keep current. The token, and not the tool list, is the boundary, so that tokens gain a limit to previews.
+
 ## Open questions
 
 These change scope or defaults and are best answered by the project owner.
@@ -290,7 +322,7 @@ These change scope or defaults and are best answered by the project owner.
 | Q5 | Is single sign-on (OIDC with the corporate identity provider) needed at launch? | Phase 3; local accounts before that. An internal-only rollout makes corporate sign-in more attractive early. |
 | Q6 | Where is source code hosted (GitHub, GitLab, Gitea, other)? Should pull-request previews with status checks come earlier than Phase 3? | Push-based previews in Phase 2, forge integration in Phase 3, which is `moor forge`. Trust is the forge's word on who may push: a pull request from a fork or a stranger is built only when a maintainer approves that commit |
 | Q7 | How important is Windows as a *server* (vs. developer laptop) platform? | Server support completes in Phase 3 |
-| Q8 | How important are managed databases for previews? | Phase 4; apps bring their own or use SQLite in the data directory until then |
+| Q8 | How important are managed databases for previews? | **Resolved:** PostgreSQL and S3 in 0.10.0 (D20); until then apps bring their own or use SQLite in the data directory until then |
 | Q9 | Which toolchains matter after Go, Python and Node? | Bun and Deno in Phase 1–2; Java, Rust, Ruby, PHP, .NET in Phase 4 |
 | Q10 | Licence and distribution model (open source? which licence? release signing identity?) | Open source under the Apache License 2.0, decided 2026-11-04. No release signing key, also decided 2026-11-04: an upgrade checks a release against its checksum over HTTPS, as the installer does, and releases carry an attestation from the workflow that built them. A key can be added in any later release, and upgrades are then verified from that release on |
 | Q11 | The Phase 3 web terminal needs a terminal emulator in the browser — a large piece of code. Vendor one pinned third-party file (an exception to "no third-party browser code"), or ship a simpler in-house line-mode console (send a command, stream its output)? | Line-mode console, decided in wave 7: it runs one command at a time and is written here, with terminals left to `moor run -it`. A terminal emulator in the browser can come later, over the same WebSocket, if someone asks for it, with a way of proving that the page is ours |

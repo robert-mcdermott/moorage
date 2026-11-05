@@ -212,6 +212,8 @@ type Options struct {
 	CronTick time.Duration
 	// GateRecheck, if set, overrides how often gates look again at whom they let in (tests).
 	GateRecheck time.Duration
+	// EngineKept, if set, overrides how long an answer about the container engine stands (tests).
+	EngineKept time.Duration
 	// Resolver, if set, looks up what domains point to, instead of the system's (tests).
 	Resolver deploy.DomainResolver
 	// EnvironmentSweep, if set, overrides how often environments are looked at, to see which
@@ -243,7 +245,8 @@ func allowGit(ctx context.Context, authn *auth.Service, p auth.Principal, app st
 	if !access.See {
 		return gitserver.ErrNoRepository
 	}
-	if push && !access.Deploy {
+	// A repository holds every branch of an app, and a push can go to any of them. A token limited to previews deploys by uploading.
+	if p.Envs != "" || push && !access.Deploy {
 		return gitserver.ErrForbidden
 	}
 	return nil
@@ -376,7 +379,9 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	for _, note := range isolation.Notes {
 		log.Warn("isolation: " + note)
 	}
-	engine, containers := findContainers(cfg, db, keyring, log)
+	containers := containerSource(ctx, cfg, db, keyring, opts.EngineKept, log)
+	// Once at start, off the main path, so that a hung daemon delays nothing. Only what needs an engine asks again.
+	go containers.Status(ctx)
 	bus := events.New(db, log)
 	defer bus.Close()
 	go bus.Prune(ctx, 24*time.Hour)
@@ -419,7 +424,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
 		DataDir: cfg.DataDir,
-		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engine: engine},
+		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engines: containers},
 		Runtime: runtime,
 		Reload: func(ctx context.Context) error {
 			err := router.Reload(ctx)
@@ -766,37 +771,61 @@ func listenError(addr string, err error) error {
 	return errors.New(msg)
 }
 
-// findContainers finds the container engine, if the server has one. Without one
-// apps that need containers cannot be deployed, and everything else goes on.
-func findContainers(cfg config.Config, db *store.DB, keyring *secrets.Keyring, log *slog.Logger) (*container.Engine, *container.Driver) {
-	engine, err := container.Find(cfg.Containers.Engine)
-	if errors.Is(err, container.ErrNoEngine) {
-		log.Info("no container engine: apps can run natively, not in containers")
-		return nil, nil
-	}
-	if err != nil {
-		log.Warn("apps cannot run in containers", "err", err)
-		return nil, nil
-	}
-	engine.TmpDir = filepath.Join(cfg.DataDir, "tmp")
-	engine.Auth = func(ctx context.Context) ([]byte, error) {
-		registries, err := db.Registries(ctx)
-		if err != nil {
-			return nil, err
-		}
-		creds := make([]container.Credential, 0, len(registries))
-		for _, r := range registries {
-			password, err := keyring.OpenRegistry(r.Host, r.Sealed)
-			if err != nil {
-				return nil, err
+// containerSource is where this server gets its container engine from, when something wants one. Without one, apps that need
+// containers cannot be deployed, and everything else goes on.
+func containerSource(ctx context.Context, cfg config.Config, db *store.DB, keyring *secrets.Keyring, kept time.Duration, log *slog.Logger) *container.Source {
+	prefer := recordedEngine(ctx, db, log)
+	return container.NewSource(container.SourceOptions{
+		Setting: cfg.Containers.Engine, Prefer: prefer, Kept: kept, Log: log,
+		Prepare: func(engine *container.Engine) {
+			engine.TmpDir = filepath.Join(cfg.DataDir, "tmp")
+			engine.Auth = func(ctx context.Context) ([]byte, error) {
+				registries, err := db.Registries(ctx)
+				if err != nil {
+					return nil, err
+				}
+				creds := make([]container.Credential, 0, len(registries))
+				for _, r := range registries {
+					password, err := keyring.OpenRegistry(r.Host, r.Sealed)
+					if err != nil {
+						return nil, err
+					}
+					creds = append(creds, container.Credential{Host: r.Host, Username: r.Username, Password: password})
+				}
+				return container.AuthFile(creds), nil
 			}
-			creds = append(creds, container.Credential{Host: r.Host, Username: r.Username, Password: password})
-		}
-		return container.AuthFile(creds), nil
-	}
-	log.Info("apps can run in containers", "engine", engine.Kind, "path", engine.Bin)
-	return engine, container.New(engine, ContainerLabel(cfg), log)
+		},
+		NewDriver: func(engine *container.Engine) *container.Driver {
+			return container.New(engine, ContainerLabel(cfg), log)
+		},
+		Pin: func(bin string) {
+			if err := db.PutSetting(context.WithoutCancel(ctx), settingContainerEngine, bin, "moorage"); err != nil {
+				log.Warn("record which container engine this server uses", "err", err)
+			}
+		},
+	})
 }
+
+// recordedEngine is the engine that what is here was made with. It counts only while something still needs it, as an image is in the store of the engine that made
+// it. Otherwise the server is free to take whichever answers.
+func recordedEngine(ctx context.Context, db *store.DB, log *slog.Logger) string {
+	wanted, err := deploy.RunsInContainers(ctx, db)
+	if err != nil {
+		log.Warn("read what runs in containers", "err", err)
+		return ""
+	}
+	if !wanted {
+		return ""
+	}
+	var prefer string
+	if _, err := db.Setting(ctx, settingContainerEngine, &prefer); err != nil {
+		log.Warn("read which container engine this server used", "err", err)
+	}
+	return prefer
+}
+
+// settingContainerEngine records the engine that a server's containers run under, as they stay with it.
+const settingContainerEngine = "container_engine"
 
 // ContainerLabel tells this server's containers from any other's on the same
 // engine: each manages only its own.

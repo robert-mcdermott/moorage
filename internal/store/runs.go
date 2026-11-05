@@ -187,3 +187,22 @@ func (db *DB) PruneRuns(ctx context.Context, app, env, job string, keep, keepSki
 	})
 	return gone, err
 }
+
+// LogIDs lists the deployments and runs of an environment, which is what the logs kept for an app are named by.
+func (db *DB) LogIDs(ctx context.Context, app, env string) (map[string]bool, error) {
+	rows, err := db.Reader.QueryContext(ctx, `SELECT d.id FROM deployments d JOIN environments e ON e.id = d.env_id JOIN apps a ON a.id = e.app_id WHERE a.name = ? AND e.name = ?
+		UNION ALL SELECT r.id FROM runs r JOIN environments e ON e.id = r.env_id JOIN apps a ON a.id = e.app_id WHERE a.name = ? AND e.name = ?`, app, env, app, env)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}

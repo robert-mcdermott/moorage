@@ -59,6 +59,10 @@ type Options struct {
 	CACert string
 	// Timeouts adds the check of long silences to PublicURL's, which takes a while.
 	Timeouts bool
+	// WantsEngine, if set, says whether anything here runs in a container, which decides how much an engine that is missing matters.
+	WantsEngine func(context.Context) bool
+	// Engine, if set, is how the server itself sees its engine, which it may be keeping to because of what runs under it.
+	Engine func(context.Context) container.Status
 	// InstancePorts lists the instances' ports on this machine, for a running server.
 	InstancePorts func(context.Context) ([]int, error)
 
@@ -502,29 +506,40 @@ func checkCertFiles(o Options) []Check {
 
 func checkContainers(ctx context.Context, o Options) Check {
 	name := "containers"
-	engine, err := container.Find(o.Config.Containers.Engine)
-	if errors.Is(err, container.ErrNoEngine) {
-		return Check{Name: name, Status: Info, Detail: "no engine: apps run natively, not in containers", Fix: "install Podman or Docker, for apps with a Containerfile or an image"}
+	var st container.Status
+	if o.Engine != nil {
+		st = o.Engine(ctx)
+	} else {
+		st = container.Probe(ctx, o.Config.Containers.Engine)
 	}
-	if err != nil {
-		return Check{Name: name, Status: Fail, Detail: err.Error(), Fix: "see [containers] in " + o.Config.Path}
-	}
-	checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	version, err := engine.Check(checkCtx)
-	if err != nil {
-		fix := "start it, and see that this user may use it"
-		if engine.Kind == "podman" && (o.GOOS == "darwin" || o.GOOS == "windows") {
-			fix = "podman machine start"
-		}
+	wanted := o.WantsEngine != nil && o.WantsEngine(ctx)
+	named := o.Config.Containers.Engine != "" && o.Config.Containers.Engine != "auto"
+	switch st.State {
+	case container.Ready:
+		return Check{Name: name, Status: OK, Detail: st.Version + ", answering"}
+	case container.NotAnswering:
 		// One found by chance matters only to apps in containers, if there are any.
-		status := Warn
-		if setting := o.Config.Containers.Engine; setting != "" && setting != "auto" {
+		status := Info
+		switch {
+		case named:
 			status = Fail
+		case wanted || o.WantsEngine == nil:
+			status = Warn
 		}
-		return Check{Name: name, Status: status, Detail: fmt.Sprintf("%s does not answer, so apps in containers cannot run: %v", engine.Bin, err), Fix: fix}
+		// Not everything that asks knows what runs here.
+		effect := "which matters only to apps in containers"
+		if wanted || named {
+			effect = "so apps in containers cannot run"
+		}
+		return Check{Name: name, Status: status, Detail: fmt.Sprintf("%s is not answering, %s: %s", st.Kind, effect, st.Reason), Fix: st.Advice()}
 	}
-	return Check{Name: name, Status: OK, Detail: version + ", answering"}
+	switch {
+	case named:
+		return Check{Name: name, Status: Fail, Detail: st.Reason, Fix: "see [containers] in " + o.Config.Path}
+	case wanted:
+		return Check{Name: name, Status: Warn, Detail: "no engine, and apps here run in containers", Fix: st.Advice()}
+	}
+	return Check{Name: name, Status: Info, Detail: "no engine: apps run natively, not in containers", Fix: "install Podman or Docker if you want them. Nothing else needs one"}
 }
 
 func checkData(o Options) []Check {

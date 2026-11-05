@@ -11,6 +11,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -289,6 +290,11 @@ func (s *Server) appInfo(w http.ResponseWriter, r *http.Request) {
 	if s.projectFailed(w, err) {
 		return
 	}
+	// What production holds is not for a token limited to previews, even how much of it there is.
+	if who(r).Envs != "" {
+		writeJSON(w, http.StatusOK, apitypes.AppInfo{App: apitypes.App{Name: app, URL: s.appURL(app), Project: project.Name}})
+		return
+	}
 	usage := s.deployer.Usage(app)
 	writeJSON(w, http.StatusOK, apitypes.AppInfo{
 		App:    apitypes.App{Name: app, URL: s.appURL(app), Project: project.Name},
@@ -363,6 +369,8 @@ func (s *Server) lifecycleFailed(w http.ResponseWriter, err error) bool {
 			Title: "Starting it again failed", Status: http.StatusUnprocessableEntity, Code: "restart_failed",
 			Detail: "It has its new name, and it could not start under it: " + rollout.Message, Output: rollout.Output,
 		})
+	case errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
+		problem(w, http.StatusConflict, "no_container_engine", sentenceOf(err))
 	case errors.Is(err, store.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found", sentenceOf(err))
 	default:

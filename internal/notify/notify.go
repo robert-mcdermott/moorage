@@ -52,6 +52,7 @@ var RuleEvents = []RuleEvent{
 	{events.ThresholdCrossed, "A threshold is crossed", true},
 	{events.BackupFailed, "A backup fails", true},
 	{events.CertificateFailed, "A certificate cannot be had", true},
+	{events.EngineDown, "The container engine stops answering", true},
 	{events.InstanceUnhealthy, "An instance is unhealthy", false},
 	{events.DeploymentLive, "A deployment goes live", false},
 }
@@ -338,6 +339,14 @@ func (s *Service) consider(e store.Event) (alerts []string, recovered []recovery
 			delete(s.failing, certificateKey+name)
 			recovered = append(recovered, recovery{kind: events.CertificateFailed, summary: events.Summary(e)})
 		}
+	case events.EngineDown:
+		s.failing[engineKey] = true
+		alerts = append(alerts, events.EngineDown)
+	case events.EngineOK:
+		if s.failing[engineKey] {
+			delete(s.failing, engineKey)
+			recovered = append(recovered, recovery{kind: events.EngineDown, summary: events.Summary(e)})
+		}
 	case events.BackupDone:
 		if s.failing[backupKey] {
 			delete(s.failing, backupKey)
@@ -365,6 +374,7 @@ const (
 	diskKey        = "disk"
 	backupKey      = "backup"
 	certificateKey = "certificate/"
+	engineKey      = "engine"
 	thresholdKey   = "threshold/"
 )
 
@@ -717,7 +727,7 @@ func (s *Service) Test(ctx context.Context, channel, by string) (store.Notificat
 }
 
 // toldInConsole are the alerts people are told of in the console, whatever the rules say.
-var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow, events.BackupFailed, events.CertificateFailed}
+var toldInConsole = []string{events.DeploymentFailed, CrashLoop, events.CronFailed, events.DiskLow, events.BackupFailed, events.CertificateFailed, events.EngineDown}
 
 // tellPeople puts an alert in the console of those it concerns: a project's maintainers, whoever
 // pushed a deployment that failed and, for all of it, the server's administrators.

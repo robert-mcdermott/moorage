@@ -87,7 +87,7 @@
 {{$csrf := .CSRF}}
 {{range .EnvRows}}
 <section class="panel panel-pad env-banner">
-  <p>{{if eq .Kind "preview"}}A preview of the branch <code>{{.Branch}}</code>, with production's variables and its own data. {{if .Pinned}}It is pinned, and stays until it is destroyed.{{else}}It goes {{untilText .Expires}} if nothing uses it until then.{{end}}{{else}}An environment with its own variables and data{{with .Branch}}: pushes to <code>{{.}}</code> deploy here{{end}}.{{end}}</p>
+  <p>{{if .StandsAlone}}A preview made by a coding agent's token, with its own data and nothing of production's. {{else if eq .Kind "preview"}}A preview of the branch <code>{{.Branch}}</code>, with production's variables and its own data. {{if .Pinned}}It is pinned, and stays until it is destroyed.{{else}}It goes {{untilText .Expires}} if nothing uses it until then.{{end}}{{else}}An environment with its own variables and data{{with .Branch}}: pushes to <code>{{.}}</code> deploy here{{end}}.{{end}}</p>
   <div class="env-actions">{{template "env-actions" (dict "Row" . "CSRF" $csrf "From" "app")}}</div>
 </section>
 {{end}}
@@ -460,7 +460,7 @@
       <div class="actions"><button class="quiet" type="submit">Deploy the image</button></div>
     </form>
     {{else}}
-    <p class="muted">This server has no container engine. <a href="/welcome">Getting started</a> says more, and <code>moor server doctor</code> says what it found.</p>
+    <p class="muted">{{.App.EngineProblem}} Nothing else on this server needs one. <a href="/welcome">Getting started</a> says more, and <code>moor server doctor</code> what it found.</p>
     {{end}}
   </section>
 </div>

@@ -154,10 +154,26 @@ Under `[containers]` in `server.toml`:
 engine = "auto"
 ```
 
-`auto` is Podman if it is installed, or else Docker. Otherwise, name a binary. The
+`auto` is whichever of Podman and Docker is answering, or else the first one found. Otherwise, name a binary. The
 engine runs as the server's user, with its usual settings: `CONTAINER_HOST` and
-`DOCKER_HOST` in the server's environment are honoured. The server looks for it as
-it starts, and says what it found in its log.
+`DOCKER_HOST` in the server's environment are honoured.
+
+## The engine
+
+**Only an app that runs in a container needs one.** The server asks as it starts, without waiting for the answer, and says what it found in its log. A server with apps in containers waits a few seconds for it, and what it cannot find out in that time waits for the engine. After that it asks when something needs the engine, such as deploying one of those apps, and when someone looks at how the server stands, keeping the answer for half a minute. An app that does not run in a container never causes it to ask.
+
+| It finds | Means | What happens |
+|---|---|---|
+| Absent | No program to run | The server and every other app carry on. Deploying what needs an engine says to install one |
+| Not answering | A program with no daemon or machine behind it, such as Docker Desktop not started or `podman machine` stopped | The same, and it says to start it |
+| Ready | It answered | Apps can run in containers |
+
+So you can start Docker Desktop an hour later, or install Podman, with no restart. A daemon that goes down does not make Moorage think that what it was running has stopped: once it
+answers, the same containers carry on. While it is down, deploying, restarting, scaling, rolling back, putting such an app to sleep or deleting it says why it cannot, and changes nothing. If it stops answering while apps need it, `server.engine_down` says so, to [the rules that ask](notifications.md). A container that could not be stopped is stopped once the engine answers.
+
+Once an image has been built or fetched under an engine, the server stays with that one while anything here needs it, even if another is answering, as the image is in that engine's store. Until then, it takes whichever answers.
+
+`moor server doctor` and the [API](api.md) say how it stands too.
 
 ## Good to know
 

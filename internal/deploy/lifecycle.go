@@ -96,6 +96,11 @@ func (e *InvalidNameError) Error() string { return e.Err.Error() }
 // quiesce takes an app's environments out of service, once no deployment is under way, and
 // returns with their release locks held.
 func (d *Deployer) quiesce(ctx context.Context, app string) (release func(), err error) {
+	if d.opts.Runtime != nil {
+		if err := d.opts.Runtime.EngineBlocks(ctx, app, ""); err != nil {
+			return nil, err
+		}
+	}
 	envs, err := d.db.Environments(ctx, app)
 	if err != nil {
 		return nil, err
@@ -155,9 +160,9 @@ func (d *Deployer) DeleteApp(ctx context.Context, app, by string, keepData bool)
 			d.log.Warn("reload the routes after deleting an app", "app", app, "err", err)
 		}
 	}
-	if engine := d.opts.Builder; engine != nil && engine.Engine != nil {
+	if b := d.opts.Builder; b != nil && b.Engines.Engine() != nil {
 		for _, image := range builds {
-			if err := engine.Engine.RemoveImage(ctx, image); err != nil {
+			if err := b.Engines.Engine().RemoveImage(ctx, image); err != nil {
 				d.log.Warn("remove an image of a deleted app", "app", app, "image", image, "err", err)
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/store"
@@ -84,6 +85,13 @@ func (d *Deployer) Sleep(ctx context.Context, app, env, by string) error {
 	}
 	d.asleep.Store(sleepKey(app, env), true)
 	if err := d.opts.Runtime.Settle(ctx, app, env); err != nil {
+		// Nothing has stopped, and it should not stop by itself an hour from now, when the engine is back and no one remembers asking.
+		if errors.Is(err, container.ErrNotAnswering) || errors.Is(err, container.ErrNoEngine) {
+			d.asleep.Delete(sleepKey(app, env))
+			if undo := d.db.SetAsleep(context.WithoutCancel(ctx), app, env, false); undo != nil {
+				d.log.Error("wake an environment that could not go to sleep", "app", app, "env", env, "err", undo)
+			}
+		}
 		return err
 	}
 	d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentSlept, App: app, Env: env, Actor: by})

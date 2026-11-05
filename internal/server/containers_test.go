@@ -19,6 +19,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"net/http"
 )
 
 const boxImage = "docker.io/library/busybox:1.37"
@@ -624,5 +625,166 @@ func TestRegistryCredentials(t *testing.T) {
 	err = Run(ctx, cfg, log, testOptions(func(Addrs) {}))
 	if err == nil || !strings.Contains(err.Error(), "master key") {
 		t.Errorf("without the master key: %v", err)
+	}
+}
+
+// wrappedEngine is the real engine behind a script that can pretend that its daemon is down, and writes down what it was asked.
+func wrappedEngine(t *testing.T, e *container.Engine) (bin, down, calls string) {
+	t.Helper()
+	dir := t.TempDir()
+	bin, down, calls = filepath.Join(dir, e.Kind), filepath.Join(dir, "down"), filepath.Join(dir, "calls")
+	script := `#!/bin/sh
+echo "$1" >> "` + calls + `"
+if [ "$1" != "--version" ] && [ -e "` + down + `" ]; then
+  echo "Cannot connect to the daemon" >&2
+  exit 125
+fi
+exec "` + e.Bin + `" "$@"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, down, calls
+}
+
+// A daemon that is down says nothing of what it was running, so its instances are not recorded as stopped, and nothing is started to take their place.
+func TestContainerEngineDownAtStart(t *testing.T) {
+	e := containerEngine(t)
+	bin, down, calls := wrappedEngine(t, e)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	t.Cleanup(func() { removeContainers(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	host := "boxed." + cfg.Domain
+	d, log := deploySource(t, c, "boxed", boxedApp("first", ""))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	before := instances(t, c, "boxed")
+	if len(before) != 1 {
+		t.Fatalf("%+v", before)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(down, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// From here on, this is what counts of what it is asked.
+	os.Remove(calls)
+	addrs, stop = start(t, cfg)
+	t.Cleanup(func() { stop() })
+	c = apiClient(t, cfg, addrs)
+	authn := testAuth(t, cfg)
+	lives, err := authn.DB.LiveInstances(ctx)
+	if err != nil || len(lives) != 1 || lives[0].ID != before[0].ID {
+		t.Errorf("its record: %+v %v", lives, err)
+	}
+	info, err := c.ServerInfo(ctx)
+	if err != nil || info.Containers.State != "not answering" || !strings.Contains(info.Containers.Problem, "start it") {
+		t.Errorf("what the server says: %+v %v", info.Containers, err)
+	}
+	waitUntil(t, "an event saying so", func() bool {
+		list, err := c.Events(ctx, "", "", 100)
+		if err != nil {
+			return false
+		}
+		for _, e := range list {
+			if e.Type == "server.engine_down" {
+				return true
+			}
+		}
+		return false
+	})
+	// Nothing is started to fail every few seconds.
+	time.Sleep(2 * time.Second)
+	if data, _ := os.ReadFile(calls); strings.Contains(string(data), "run") {
+		t.Errorf("it tried to start another:\n%s", data)
+	}
+	// A deployment of something in a container says what to do.
+	failed, _ := deploySource(t, c, "boxed", boxedApp("second", ""))
+	if failed.Status != "failed" || !strings.Contains(failed.Error, "not answering") {
+		t.Errorf("deploying: %+v", failed)
+	}
+
+	// Nor can it stop what it cannot reach, and it does not record that it has: going to sleep or restarting says why, and leaves things as they were.
+	if _, err := c.SleepEnvironment(ctx, "boxed", "production"); status(err) != http.StatusConflict || !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("going to sleep: %v", err)
+	}
+	if env, err := c.Environment(ctx, "boxed", "production"); err != nil || env.Asleep {
+		t.Errorf("it went to sleep: %+v %v", env, err)
+	}
+	if _, err := c.Restart(ctx, "boxed", "production"); err == nil || !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("restarting: %v", err)
+	}
+	if lives, err := authn.DB.LiveInstances(ctx); err != nil || len(lives) != 1 || lives[0].ID != before[0].ID {
+		t.Errorf("its record, after those: %+v %v", lives, err)
+	}
+
+	// What would lose the record of a container waits too, and so does a static site that would take over from it.
+	if err := c.DeleteApp(ctx, "boxed", false); status(err) != http.StatusConflict {
+		t.Errorf("deleting it: %v", err)
+	}
+	site, _ := deploySource(t, c, "boxed", map[string]string{"index.html": "a site", "moorage.toml": "[app]\nruntime = \"static\"\n"})
+	if site.Status != "failed" || !strings.Contains(site.Error, "not answering") {
+		t.Errorf("a static site over it: %+v", site)
+	}
+
+	// With the daemon back, it finds the same container, and needs no restart.
+	if err := os.Remove(down); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the app to be served", func() bool {
+		res, body := get(t, addrs.HTTP, host, "/index.html")
+		return res.StatusCode == http.StatusOK && body == "first"
+	})
+	if after := instances(t, c, "boxed"); len(after) != 1 || after[0].ID != before[0].ID {
+		t.Errorf("before %+v, after %+v", before, after)
+	}
+	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+before[0].ID).Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		t.Errorf("the container: %q %v", out, err)
+	}
+}
+
+// Someone who restarts an app as the engine comes back, before the server has looked, gets one instance and not two.
+func TestContainerRestartAsTheEngineComesBack(t *testing.T) {
+	e := containerEngine(t)
+	bin, down, _ := wrappedEngine(t, e)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	t.Cleanup(func() { removeContainers(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	d, log := deploySource(t, c, "boxed", boxedApp("first", ""))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	before := instances(t, c, "boxed")
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(down, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	addrs = startWith(t, cfg, func(o *Options) { o.Tick = time.Hour; o.EngineKept = time.Millisecond })
+	c = apiClient(t, cfg, addrs)
+	if err := os.Remove(down); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Restart(ctx, "boxed", "production"); err != nil {
+		t.Fatal(err)
+	}
+	after := instances(t, c, "boxed")
+	if len(after) != len(before) || after[0].ID == before[0].ID {
+		t.Errorf("before %+v, after %+v", before, after)
+	}
+	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+before[0].ID).Output()
+	if err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Errorf("the one it replaced is still running: %q %v", out, err)
 	}
 }

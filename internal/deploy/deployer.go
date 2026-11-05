@@ -34,6 +34,8 @@ type Runtime interface {
 	// new instances are ready and before they take the traffic.
 	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, commit func() error) error
 	Retire(app, env string)
+	// EngineBlocks says why what runs in an environment, or with none in any of an app's, could not be stopped now.
+	EngineBlocks(ctx context.Context, app, env string) error
 	Forget(app string)
 	ForgetEnv(app, env string)
 	Restart(ctx context.Context, app, env, process string) error
@@ -103,11 +105,13 @@ type Deployer struct {
 	queues map[string]*queue      // by app/env
 	locks  map[string]*sync.Mutex // the release phase of an environment
 
-	started  time.Time
-	runs     runBook
-	asleep   sync.Map // of app/env, as long as a request should wait for it
-	wakingMu sync.Mutex
-	waking   map[string]chan struct{} // by app/env: closes when it has woken
+	started time.Time
+	runs    runBook
+	asleep  sync.Map // of app/env, as long as a request should wait for it
+	// previewsMu is held while counting an app's previews and making one for a token limited to previews.
+	previewsMu sync.Mutex
+	wakingMu   sync.Mutex
+	waking     map[string]chan struct{} // by app/env: closes when it has woken
 }
 
 type queue struct {
@@ -225,7 +229,7 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 		os.RemoveAll(dir)
 		return store.Deployment{}, false, &InvalidUploadError{err}
 	}
-	_, created, err := d.db.EnsureApp(ctx, app)
+	_, created, err := ensureApp(ctx, d.db, app)
 	if err != nil {
 		os.RemoveAll(dir)
 		return store.Deployment{}, false, err
@@ -250,6 +254,9 @@ func (d *Deployer) SubmitSource(ctx context.Context, app, env, by string, src So
 
 // ensureEnv makes an environment that a deployment names, if it does not exist yet.
 func (d *Deployer) ensureEnv(ctx context.Context, app, env, kind, branch string) error {
+	if forStandAlone(ctx) {
+		return d.ensurePreviewAlone(ctx, app, env)
+	}
 	if env == names.Production {
 		return nil
 	}
@@ -262,6 +269,88 @@ func (d *Deployer) ensureEnv(ctx context.Context, app, env, kind, branch string)
 	}
 	if created {
 		d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentCreated, App: app, Env: env, Data: map[string]any{"kind": kind, "branch": branch}})
+	}
+	return nil
+}
+
+// AgentPreviewPrefix starts the name of each preview that a token limited to previews makes, so that it cannot take a name that a manifest will come to want.
+const AgentPreviewPrefix = "agent-"
+
+type standAloneKey struct{}
+
+// ForStandAlone says that whatever this makes is for a token limited to previews. An upload can take as long as its sender likes, and much can change while it does, so
+// that what it may make is decided when it has finished, and this is how that is known then.
+func ForStandAlone(ctx context.Context) context.Context {
+	return context.WithValue(ctx, standAloneKey{}, true)
+}
+
+func forStandAlone(ctx context.Context) bool {
+	_, ok := ctx.Value(standAloneKey{}).(bool)
+	return ok
+}
+
+// ensureApp makes an app that a deployment names, if it does not exist yet, which a token limited to previews does not get to do.
+func ensureApp(ctx context.Context, db *store.DB, app string) (string, bool, error) {
+	if forStandAlone(ctx) {
+		if _, err := db.AppProject(ctx, app); err != nil {
+			return "", false, err
+		}
+		id, _, err := db.EnsureApp(ctx, app)
+		return id, false, err
+	}
+	return db.EnsureApp(ctx, app)
+}
+
+// CheckPreviewAlone says why a token limited to previews could not deploy to this name, before anything is uploaded. It makes nothing: that comes when the upload has finished.
+func (d *Deployer) CheckPreviewAlone(ctx context.Context, app, env string) error {
+	d.previewsMu.Lock()
+	defer d.previewsMu.Unlock()
+	_, err := d.previewAloneRoom(ctx, app, env)
+	return err
+}
+
+// previewAloneRoom says whether an environment of this name is already fit, and if it does not exist, that there is room for it. It takes previewsMu being held.
+func (d *Deployer) previewAloneRoom(ctx context.Context, app, env string) (exists bool, err error) {
+	envs, err := d.db.Environments(ctx, app)
+	if err != nil {
+		return false, err
+	}
+	if len(envs) == 0 {
+		return false, fmt.Errorf("no app %q: %w", app, store.ErrNotFound)
+	}
+	previews := 0
+	for _, e := range envs {
+		if e.Name == env {
+			if e.Kind != store.KindPreview || e.Inherits {
+				return true, &NotPreviewableError{env + " of " + app + " is not a preview that stands apart from production"}
+			}
+			return true, nil
+		}
+		if e.Kind == store.KindPreview {
+			previews++
+		}
+	}
+	if previews >= MaxPreviews {
+		return false, &NotPreviewableError{fmt.Sprintf("%s has %d previews, which is as many as an app may have: destroy one", app, previews)}
+	}
+	return false, nil
+}
+
+// ensurePreviewAlone makes the preview that a token limited to previews deploys to, if it does not exist yet. It takes nothing of production's, as the code that
+// such a token deploys could otherwise read production's secrets.
+func (d *Deployer) ensurePreviewAlone(ctx context.Context, app, env string) error {
+	d.previewsMu.Lock()
+	defer d.previewsMu.Unlock()
+	exists, err := d.previewAloneRoom(ctx, app, env)
+	if err != nil || exists {
+		return err
+	}
+	created, err := d.db.CreatePreviewAlone(ctx, app, env)
+	if err != nil {
+		return err
+	}
+	if created {
+		d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentCreated, App: app, Env: env, Data: map[string]any{"kind": store.KindPreview}})
 	}
 	return nil
 }
@@ -499,7 +588,7 @@ func (d *Deployer) run(dep store.Deployment) {
 	d.finish(dep, store.Live, "", nil)
 	d.emit(ctx, events.DeploymentLive, dep, map[string]any{"version": rel.Version, "url": d.opts.URL(dep.App, dep.Env)})
 	d.log.Info("deployed", "app", dep.App, "env", dep.Env, "release", rel.Version, "build", b.ID, "deployment", dep.ID)
-	d.collect(dep.App, res.Plan.Deploy.KeepReleases)
+	d.collect(dep.App, d.releasesToKeep(ctx, dep.App, dep.Env, res.Plan))
 }
 
 // releaseError reports a failed release command.
@@ -559,6 +648,12 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	defer lock.Unlock()
 	defer d.release(ctx, dep.App, dep.Env)()
 
+	// A static site takes over from what ran before, which has to be able to stop.
+	if plan.Kind == manifest.KindStatic && d.opts.Runtime != nil {
+		if err := d.opts.Runtime.EngineBlocks(ctx, dep.App, dep.Env); err != nil {
+			return store.Release{}, err
+		}
+	}
 	_, _, prevErr := d.db.CurrentRelease(ctx, dep.App, dep.Env)
 	firstRelease := errors.Is(prevErr, store.ErrNotFound)
 	rel, err := d.db.CreateReleaseWith(ctx, dep.App, dep.Env, b.ID, reason, dep.CreatedBy, cfg)
@@ -616,6 +711,11 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 func (d *Deployer) declareEnvironments(ctx context.Context, app string, plan manifest.Plan, log io.Writer) {
 	for name, e := range plan.Environments {
 		if name == names.Production || name == "preview" {
+			continue
+		}
+		// The name was taken by a token limited to previews. Such a preview is not fit to become this, and it goes in its time.
+		if existing, err := d.db.Environment(ctx, app, name); err == nil && existing.Kind == store.KindPreview && !existing.Inherits {
+			build.Marker(log, "             the environment %s is not made: a coding agent's preview has that name, and moor environments destroy removes it", name)
 			continue
 		}
 		err := d.ensureEnv(ctx, app, name, store.KindNamed, e.Branch)
@@ -709,8 +809,25 @@ func (d *Deployer) Publish(ctx context.Context, req PublishRequest) (store.Relea
 	} else {
 		d.emit(ctx, events.ReleaseCreated, dep, map[string]any{"version": rel.Version, "reason": req.Reason, "url": d.opts.URL(app, env)})
 	}
-	d.collect(app, plan.Deploy.KeepReleases)
+	d.collect(app, d.releasesToKeep(ctx, app, env, plan))
 	return rel, dep, nil
+}
+
+// releasesToKeep says how many releases of each environment to keep. Production's manifest decides that, as another environment's is whatever its branch says, and
+// should not be able to take away production's way back.
+func (d *Deployer) releasesToKeep(ctx context.Context, app, env string, plan manifest.Plan) int {
+	if env == names.Production {
+		return plan.Deploy.KeepReleases
+	}
+	if _, b, err := d.db.CurrentRelease(ctx, app, names.Production); err == nil {
+		var production manifest.Plan
+		if json.Unmarshal(b.Plan, &production) == nil {
+			production.Defaults()
+			return production.Deploy.KeepReleases
+		}
+	}
+	// With nothing of production's to go by, the usual number.
+	return 0
 }
 
 // collect removes the builds of app that are kept for no release (beyond
@@ -729,7 +846,7 @@ func (d *Deployer) collect(app string, keep int) {
 	for _, b := range builds {
 		if b.ArtifactKind == "image" {
 			// Another app may use the same image: it is pulled again if so.
-			if engine := d.opts.Builder.Engine; engine != nil {
+			if engine := d.opts.Builder.Engines.Engine(); engine != nil {
 				if err := engine.RemoveImage(ctx, b.ArtifactRef); err != nil {
 					d.log.Warn("remove an old image", "app", app, "build", b.ID, "image", b.ArtifactRef, "err", err)
 				}

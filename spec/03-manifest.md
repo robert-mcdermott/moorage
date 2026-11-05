@@ -434,13 +434,13 @@ data, until it is removed.
 ### `[services.<name>]` *(planned — Phase 4)*
 
 Declares a backing service provisioned by Moorage (via the container engine)
-and linked to the app.
+and linked to the app. [Backing services](13-services.md) has the design.
 
 ```toml
 [services.db]
-type = "postgres"     # postgres | mysql | redis | valkey | s3
-version = "17"
-# injects DATABASE_URL (or REDIS_URL, S3_* …); previews get their own instance
+type = "postgres"     # postgres | s3
+version = "18"
+# injects DATABASE_URL (or S3_* …); previews get their own instance
 ```
 
 ## Runtime detection

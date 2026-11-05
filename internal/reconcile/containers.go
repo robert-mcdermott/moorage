@@ -19,10 +19,13 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
-// What store.Instance.Driver says.
+// DriverContainer is what store.Instance.Driver says of an instance in a container.
+const DriverContainer = "container"
+
+// What else it says.
 const (
 	driverNative    = "native"
-	driverContainer = "container"
+	driverContainer = DriverContainer
 )
 
 // containerEnv is the environment of a container: [env], the release's
@@ -98,8 +101,9 @@ func (m *Manager) baseContainerSpec(app, env string, in *instance, plan manifest
 // adoptContainer takes over a container a previous server left, with the values
 // of its secrets, to go on removing them from what it prints.
 func (m *Manager) adoptContainer(ctx context.Context, li store.LiveInstance, plan manifest.Plan, in *instance) (st shim.State, err error) {
-	if m.opts.Containers == nil {
-		return st, container.ErrNoEngine
+	d, err := m.containerDriver(ctx)
+	if err != nil {
+		return st, err
 	}
 	if plan.Container == nil {
 		return st, fmt.Errorf("the plan of build %s has no container", li.Build.ID)
@@ -114,14 +118,17 @@ func (m *Manager) adoptContainer(ctx context.Context, li store.LiveInstance, pla
 		// It is still better adopted, than stopped for this.
 		m.log.Warn("cannot read a container's secrets; they may appear in its log", "app", li.App, "instance", li.ID, "err", err)
 	}
-	return m.opts.Containers.Adopt(ctx, spec)
+	asking, cancel := context.WithTimeout(ctx, adoptLimit)
+	defer cancel()
+	return d.Adopt(asking, spec)
 }
 
 // runContainerOnce runs a command once in a container of the release's image:
 // the release command of a deployment.
 func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, process, command string, timeout time.Duration, log io.Writer, session *oneoff.Session) error {
-	if m.opts.Containers == nil {
-		return container.ErrNoEngine
+	d, err := m.containerDriver(ctx)
+	if err != nil {
+		return err
 	}
 	vars, secrets, err := m.containerEnv(ctx, app, env, rel, build, plan)
 	if err != nil {
@@ -143,13 +150,13 @@ func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel sto
 		User: c.User, Memory: c.Memory, CPU: c.CPU, PIDs: c.PIDs,
 	}
 	if session != nil {
-		return m.opts.Containers.RunSession(ctx, spec, timeout, session)
+		return d.RunSession(ctx, spec, timeout, session)
 	}
 	out := logs.NewWriter(log, logs.Stdout).Redact(values...)
 	errw := logs.NewWriter(log, logs.Stderr).Redact(values...)
 	defer out.Flush()
 	defer errw.Flush()
-	return m.opts.Containers.RunOnce(ctx, spec, timeout, out, errw)
+	return d.RunOnce(ctx, spec, timeout, out, errw)
 }
 
 // ExecSession runs a command in a container that is running, with someone at the other end of it.
@@ -157,7 +164,11 @@ func (m *Manager) ExecSession(ctx context.Context, app, env, instance, command s
 	if err := m.CanExec(app, env, instance); err != nil {
 		return err
 	}
-	return m.opts.Containers.ExecSession(ctx, instance, command, timeout, session)
+	d, err := m.containerDriver(ctx)
+	if err != nil {
+		return err
+	}
+	return d.ExecSession(ctx, instance, command, timeout, session)
 }
 
 // CanExec says why a command cannot run in an instance, if it cannot.
@@ -166,7 +177,7 @@ func (m *Manager) CanExec(app, env, instance string) error {
 		if in.id != instance {
 			continue
 		}
-		if !in.container || m.opts.Containers == nil {
+		if !in.container || m.opts.Containers.Driver() == nil {
 			return &NotContainerError{instance}
 		}
 		return nil

@@ -1,7 +1,7 @@
     <section class="hero">
       <div class="container">
         <div class="hero-text">
-          <a class="eyebrow" href="{{github}}/releases"><span class="pill">v{{version}}</span> Certificates from a public CA, gRPC, and sticky sessions</a>
+          <a class="eyebrow" href="{{github}}/releases"><span class="pill">v{{version}}</span> Coding agents, with a narrow token and <code>moor mcp</code></a>
           <h1>Push code. Get a URL. <span class="accent">Own the platform.</span></h1>
           <p class="lede">One binary turns your laptop or a server into your own app platform. Every branch gets a live address to try out or show off. Releases roll out with no downtime and roll back in a second, and scaling takes one command.</p>
           <div class="btn-row">
@@ -216,8 +216,8 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
           <div class="card"><h3><a href="docs/tls.html">HTTPS by itself</a></h3><p>Certificates from Let's Encrypt, any other ACME server, your company's CA or files of your own, for each hostname or a wildcard for them all.</p></div>
           <div class="card"><h3><a href="docs/other.html#grpc">gRPC and sticky sessions</a></h3><p>Streams both ways through the same address and rollouts as anything else, and a cookie to keep a browser with one instance.</p></div>
           <div class="card"><h3><a href="docs/telemetry.html">Telemetry where you look</a></h3><p>What apps say and do stays here, and can go to syslog, an OpenTelemetry collector or any HTTP endpoint as well.</p></div>
-          <div class="card"><h3><a href="docs/cli.html">A command line for everything</a></h3><p>Nearly everything in the console has a command, and lists take <code>--json</code> for your scripts.</p></div>
-          <div class="card"><h3><a href="docs/api.html">A REST API</a></h3><p>Versioned, documented with OpenAPI, and the same one the command line uses, with a permission declared for every route.</p></div>
+          <div class="card"><h3><a href="docs/agents.html">Coding agents</a></h3><p><code>moor mcp</code> lets Claude Code, Codex, Kiro and others deploy a preview and read how it went, with a narrow token and no way to run a command.</p></div>
+          <div class="card"><h3><a href="docs/cli.html">A command line, and an API</a></h3><p>Nearly everything in the console has a command, and lists take <code>--json</code>. The <a href="docs/api.html">REST API</a> beneath it is documented with OpenAPI.</p></div>
           <div class="card"><h3><a href="docs/console.html">A console that works on a phone</a></h3><p>And without scripts: every page is plain HTML that gets better with them, in light and dark, under a strict Content-Security-Policy.</p></div>
         </div>
       </div>
@@ -268,7 +268,7 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
         <div class="questions">
           <div>
             <h3>Where does my app's database go?</h3>
-            <p>Moorage does not run databases for you yet: that is planned for 0.9.0. Today, an app can keep SQLite in its <a href="docs/interactive.html#the-data-directory">data directory</a>, which survives deploys and goes in <a href="docs/backups.html#apps-with-databases">backups</a>, or reach any database you already run through a <a href="docs/variables.html">variable</a> such as <code>DATABASE_URL</code>.</p>
+            <p>Moorage does not run databases for you yet: that is planned for 0.10.0. Today, an app can keep SQLite in its <a href="docs/interactive.html#the-data-directory">data directory</a>, which survives deploys and goes in <a href="docs/backups.html#apps-with-databases">backups</a>, or reach any database you already run through a <a href="docs/variables.html">variable</a> such as <code>DATABASE_URL</code>.</p>
           </div>
           <div>
             <h3>Can I run production on it?</h3>

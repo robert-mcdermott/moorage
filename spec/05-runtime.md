@@ -332,6 +332,35 @@ it), so the console reports the protection that is actually in effect.
   world-writable, because the user in an image is whoever the image says; the
   directories above it keep out the server's other users.
 
+## The engine
+
+A container engine is optional ([D19](12-decisions.md#d19--the-container-engine-is-optional-and-provably-so)). There is one answer to whether this server can run containers, and everything asks it:
+
+| State | Means | Example |
+|---|---|---|
+| `absent` | No program to run | A laptop with neither installed |
+| `not answering` | A program, and no daemon or machine behind it | Docker Desktop not started, `podman machine` stopped |
+| `ready` | It answered, with its kind and version | |
+
+The probe lists what the daemon is running, which takes the daemon and not just the program, and is killed after three seconds, which counts as `not answering`. It runs once at start, off the main path so that a hung
+daemon cannot delay anything, and again when something wants the answer, keeping it for 30 seconds. So starting Docker Desktop an hour later, or installing Podman, needs no restart. Nothing polls when nothing wants it.
+
+What can ask: the first look as a server starts, what needs an engine (deploying, restarting or looking after an environment with a container in its plan or among its instances), and what shows how the server stands, which is answered at once with what was last found and refreshed behind the scenes. A server with instances in containers waits for the engine for up to 5 seconds as it starts, and up to 15 for what they are doing; what it did not get to is `pending`, and is taken over once the engine answers, with the environment's rollout lock, so that nothing starts in its place.
+
+`auto` prefers one that is `ready` to the first found. **What is made under an engine stays with it,** as an image is in the store of the engine that made it: the engine is recorded when something is built, fetched or started under it, not when it answers, and the record counts only while something here needs it, so that one found by chance holds nothing.
+
+**An engine that does not answer stops nothing.** A rollout, scaling, going to sleep or deleting fails with the engine's own problem before it stops anything, if the environment's plan or any instance needs the engine. With the engine back, what was waiting is found first, under the environment's lock, so that none of these starts another beside it. A container that could not be stopped stays on the record, is no longer served, and is stopped once the engine answers. The driver remembers what this process launched, so that a one-off command, which has no record of an instance, is not taken for something left behind. Every command that stops or removes a container is bounded, as an environment's lock is held while it runs.
+
+| Where | With no usable engine |
+|---|---|
+| Server start | One informational line, and no warning |
+| An app without services or containers | Nothing is probed and nothing differs |
+| Deploying what needs an engine | An image is refused at once. Anything else fails as soon as it is known to need one, before it builds, saying why and what to do. What is running goes on running |
+| The console | Says it is unavailable and how to make it available |
+| The API | A capability on the server's information: its state for anyone signed in, and the reason for administrators |
+| `moor server doctor` | Informational if nothing wants an engine. A warning if something does |
+| An engine that goes away later | Records are kept, and an event says so. Native apps go on, and a daemon that is down never marks anything stopped |
+
 ## Platform notes
 
 **Windows.** Native apps run under the service's account, `NT SERVICE\Moorage`. Each shim owns a windowless console and creates its app in a new

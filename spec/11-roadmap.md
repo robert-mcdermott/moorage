@@ -31,7 +31,7 @@ designed in, *(Phase N)*. Phases map onto waves like this:
 | 1 — First deploy (MVP) | 1–3 | 0.1.0–0.3.0 |
 | 2 — Team preview platform | 4–5 | 0.4.0–0.5.0 |
 | 3 — Operations and hardening | 6–8 | 0.6.0–0.8.0 |
-| 4 — Services and ecosystem | 9–10 | 0.9.0–0.10.0 |
+| 4 — Services and ecosystem | 9–11 | 0.9.0–0.11.0 |
 | 5 — Beyond one node | Parking lot | — |
 
 ## 0.1.0: first deploy (released 2026-11-03)
@@ -165,6 +165,8 @@ directory, supervises it, and serves it on its own hostname.
        (with the race detector), `go vet` for Linux and Windows, the six
        builds, and the real binary.
    - Found by slice 3:
+   - Found by the final review: blocking routes one at a time left a dozen ways to production's things, such as promoting to a free name, a run's log by its ID, cloning, and build logs of every environment. Limited tokens are now deny by default, and reach only stand-alone previews named `agent-`. Variables set for every environment also reached those previews, and a preview's manifest could lower how many of production's releases are kept.
+   - Found by reviewing those fixes: an upload is long enough for its preview to be deleted under it, and what it then made was a named environment, as what it may make was decided before the upload and not after. It is now decided when it finishes.
      - A shim's physical footprint is 6.2 MB on macOS (12.6 MB resident,
        counting shared executable pages), above the 5 MB target. Linux
        figures come from CI; one shim per environment is the fallback if the
@@ -1190,30 +1192,52 @@ A product site and full documentation, so that people can find Moorage and try i
      gRPC client: an answer, a status other than OK, and a stream.
 5. **Release 0.8.0.**
 
-## 0.9.0: services (planned)
+## 0.9.0: agents, and an optional engine (released 2026-11-05)
 
 ### Wave 9
 
-1. **Managed services.** PostgreSQL, MySQL, Redis/Valkey and S3-compatible
-   storage through the container engine, linked to apps with injected URLs.
-2. **Services for previews.** Per-preview instances seeded from snapshots;
-   service backups.
-3. **Multi-container apps.** Apps described by a compose file, routed by
-   service.
-4. **Release 0.9.0.**
+The research and the choices behind waves 9 and 10 are in [Backing services](13-services.md) and [Coding agents](14-agents.md).
 
-## 0.10.0: ecosystem (planned)
+1. **Container apps lose nothing.** `[environments]`, `[[cron]]` and `[vars]` were silently dropped for `runtime = "image"` and `"dockerfile"`.
+   - Done (slice 1): what a manifest says of an app however it runs has one place, and an environment's resources reach the engine.
+2. **`moor mcp`.** A small MCP server over stdio: ten tools, read-only unless told otherwise, with the same API client as the command line.
+   - Done (slice 2): on the official SDK, which adds 1.64 MB. Answers have no schemas, which halves what a client sends its model on every turn, to 5.6 KB.
+3. **Narrow tokens.** `moor mcp` refuses an admin token and does not fall back on the stored one. `moor mcp setup` makes one and sets up a client. A token can be limited to previews.
+   - Done (slice 3): enforced in the API's guard, by git and on `/metrics`.
+   - Found by slice 3: previews inherit production's variables, so that a token limited to previews could read production's secrets by deploying code that printed them. It now changes only previews of its own, which inherit nothing. An
+     app's environments still share a user on Linux, so that this limits what a token can ask for, and not what its code can do. The guide says so, and that a real wall takes an app of its own.
+4. **Telling agents how.** `moor agent init`, an Agent Skill, a guide covering each client, and the website.
+   - Found by the final review: `moor mcp` could upload from a home directory, and read what a link in the tree pointed at; server text reached agents without being cleaned, and what draws nothing got through what was. `moor mcp setup` could replace a signed-in context, or leave an agent with no token. All fixed.
+   - Done (slice 4): `moor agent init` writes `.agents/skills`, which Codex, Gemini CLI, VS Code and Cursor read, `.claude/skills`, which Claude Code does, and `.kiro/skills`, which Kiro's IDE and CLI do. A test checks every command the instructions teach, as it does the documentation's.
+5. **The engine.** Absent, not answering or ready, asked again when something wants the answer, and shown everywhere. An app that needs none is never affected, and a daemon that is down no longer marks anything stopped.
+   - Done (slice 5): one `container.Source`, and a test that an app with no containers causes nothing to be asked of it. A wrapper around the real engine tests a daemon that is down at start, in CI.
+   - Found by the final review: a probe held the lock that answered what had last been found, so that one hung daemon held up reads; a one-off command could be stopped as unknown; an instance could be recorded as stopped when it had not been; and an `--version` that failed once replaced the driver and lost what it tracked. All fixed, with a stand-in engine used to try what real ones will not do on demand.
+   - Found by CI on those fixes: keeping to an engine only once a container had started let a server change engines in the middle of a deployment, as an image is in the store of the engine that made it. Building or fetching now claims it.
+   - Found by reviewing those fixes: an engine with no socket says "no such file or directory", which was taken for a container that had gone; restarting as the engine came back started a second instance beside one still waiting to be found; and deleting with the engine down left a container running with no record. All fixed.
+6. **Release 0.9.0.**
+
+## 0.10.0: services (planned)
 
 ### Wave 10
 
-1. **Native-in-container isolation** for native builds.
-2. **Templates and app metrics.** One-click starter apps; scraping an
+1. **A first test, in CI.** The images under rootless Podman and Docker, and Versity Gateway against SeaweedFS with real S3 clients.
+2. **PostgreSQL from end to end.** Manifest, table, container, address, deploy order, sleep, console, command line, doctor and logs.
+3. **S3,** as the rest of the same design.
+4. **Previews.** Their own, empty, sleeping and removed, and then opt-in seeding.
+5. **Backups and upgrades.**
+6. **Release 0.10.0.**
+
+## 0.11.0: ecosystem (planned)
+
+### Wave 11
+
+1. **Compose, as an import.** `moor import compose` reads a file once and writes a `moorage.toml`, with known database images becoming services, and refuses by name what cannot be expressed.
+2. **Native-in-container isolation** for native builds.
+3. **Templates and app metrics.** One-click starter apps; scraping an
    app-provided metrics endpoint into custom charts.
-3. **Extension hooks and `moor mcp`.** A small, versioned set of lifecycle
-   hooks; a safe subset of the API as Model Context Protocol tools, scoped by
-   a token.
-4. **More toolchains.** Java, Rust, Ruby, PHP, .NET.
-5. **Release 0.10.0.**
+4. **Extension hooks.** A small, versioned set of lifecycle hooks.
+5. **More toolchains.** Java, Rust, Ruby, PHP, .NET.
+6. **Release 0.11.0.**
 
 ## Toward 1.0
 
@@ -1249,6 +1273,10 @@ slice before code is built on a failed assumption.
   console for all of them. The driver and reconciler boundaries are designed
   so this can be added without changing the API or the manifest. Waits for a
   single-node 1.0 and a real need.
+- **MySQL and MariaDB as services.** PostgreSQL and S3 are enough for now. If they come, they are types of their own, and one is never an alias of the other. MySQL's `latest` is an
+  innovation release, and `mysql_native_password` went in 9.0.
+- **Redis and Valkey as services.** No use for them yet. If they come, `redis` runs Redis and `valkey` runs Valkey, with no substitution, as Valkey cannot load data files from Redis 7.4
+  onward. Both would give `REDIS_URL`, and a password goes in a mounted ACL file, as neither image has a variable for it.
 
 ## Ideas (unscheduled)
 

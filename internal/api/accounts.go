@@ -173,7 +173,7 @@ func (s *Server) deviceToken(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := who(r)
-	doc := apitypes.Me{Name: p.Name, Role: store.RoleAdmin, Local: p.Local(), Scopes: p.Scopes, App: p.App}
+	doc := apitypes.Me{Name: p.Name, Role: store.RoleAdmin, Local: p.Local(), Scopes: p.Scopes, App: p.App, Envs: p.Envs}
 	if !p.Local() {
 		u, err := s.db.UserByID(r.Context(), p.UserID)
 		if err != nil {
@@ -222,7 +222,7 @@ func (s *Server) endSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func tokenDoc(t store.APIToken) apitypes.Token {
-	return apitypes.Token{ID: t.ID, Name: t.Name, Scopes: t.Scopes, App: t.App, ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, CreatedAt: t.CreatedAt}
+	return apitypes.Token{ID: t.ID, Name: t.Name, Scopes: t.Scopes, App: t.App, Envs: t.Envs, ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, CreatedAt: t.CreatedAt}
 }
 
 func (s *Server) tokens(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +243,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	t, secret, err := s.auth.CreateToken(r.Context(), who(r).UserID, req.Name, req.Scopes, req.App, req.ExpiresAt)
+	t, secret, err := s.auth.CreateLimitedToken(r.Context(), who(r).UserID, req.Name, req.Scopes, req.App, req.Envs, req.ExpiresAt)
 	if err != nil {
 		s.failed(w, err)
 		return

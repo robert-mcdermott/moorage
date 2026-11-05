@@ -135,7 +135,15 @@ func TestRead(t *testing.T) {
 	f.write(f.instance("web.1.ins_a.log"), "1 O one", "3 E three", "5 M restarted", `7 O {"level":"error","msg":"seven"}`)
 	f.write(f.instance("web.2.ins_b.log"), "2 O two", "4 O four")
 	f.write(f.instance("worker.1.ins_c.log"), "6 O six")
+	if _, _, err := f.r.DB.EnsureApp(ctx, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.r.DB.CreateDeployment(ctx, store.Deployment{ID: "dep_1", App: "shop", Env: "production", SourceType: "source-upload", Status: store.Live, CreatedAt: f.base}); err != nil {
+		t.Fatal(err)
+	}
 	f.write(deploy.LogPath(f.r.DataDir, "shop", "dep_1"), "8 M ▸ build", "9 O built")
+	// These are kept together for an app: this one is of another environment.
+	f.write(deploy.LogPath(f.r.DataDir, "shop", "dep_2"), "8 O elsewhere")
 	access := filepath.Join(f.r.DataDir, "logs", "router", "shop", "production.log")
 	if err := os.MkdirAll(filepath.Dir(access), 0o755); err != nil {
 		t.Fatal(err)

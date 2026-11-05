@@ -88,12 +88,12 @@ func Prometheus(db *store.DB, authn *auth.Service, m *metrics.Store) http.Handle
 		}
 		envs := make([]metrics.PromEnv, 0, len(list))
 		for _, e := range list {
-			if visible(e.App) && (p.App == "" || p.App == e.App) {
+			if visible(e.App) && (p.App == "" || p.App == e.App) && (p.Envs == "" || standsAlone(e)) {
 				envs = append(envs, metrics.PromEnv{App: e.App, Env: e.Name, EnvID: e.ID})
 			}
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		m.WriteProm(w, envs, p.Admin && p.App == "")
+		m.WriteProm(w, envs, p.Admin && p.App == "" && p.Envs == "")
 	})
 }

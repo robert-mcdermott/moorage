@@ -249,6 +249,20 @@ func (p Plan) ForEnv(name, kind string) Plan {
 			merged.PIDs = over.Resources.PIDs
 		}
 		p.Resources = &merged
+		// A container's limits are the engine's, and are kept with the rest of what it is told.
+		if p.Container != nil {
+			c := *p.Container
+			if over.Resources.Memory > 0 {
+				c.Memory = over.Resources.Memory
+			}
+			if over.Resources.CPU > 0 {
+				c.CPU = over.Resources.CPU
+			}
+			if over.Resources.PIDs > 0 {
+				c.PIDs = over.Resources.PIDs
+			}
+			p.Container = &c
+		}
 	}
 	return p.WithFormation(over.Instances)
 }

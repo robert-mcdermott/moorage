@@ -9,8 +9,10 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"strings"
 )
 
 // permission is what a route requires of its caller. Authorisation is enforced
@@ -80,6 +82,9 @@ type route struct {
 	query map[string]string
 	// oneApp says that what it answers keeps to the one app that a token may be limited to. Others are refused to such a token.
 	oneApp bool
+	// previews says that a token limited to previews may use it, for an environment that stands apart from production. Anything not marked
+	// is refused to such a token, so that a route added later is not open to it by accident.
+	previews bool
 }
 
 var pageQuery = map[string]string{
@@ -95,7 +100,7 @@ func (s *Server) routes() []route {
 		// Signing in.
 		{method: "POST", path: "/auth/login", perm: public, handler: s.login, summary: "Sign in with an email address and password, starting a session",
 			request: apitypes.LoginRequest{}, response: apitypes.LoginResult{}},
-		{method: "POST", path: "/auth/logout", perm: signedIn, handler: s.logout, status: http.StatusNoContent,
+		{method: "POST", path: "/auth/logout", previews: true, perm: signedIn, handler: s.logout, status: http.StatusNoContent,
 			summary: "End the session, or revoke the token, in use"},
 		{method: "POST", path: "/auth/device", perm: public, handler: s.deviceStart, summary: "Begin a CLI's sign-in, to approve in a browser",
 			request: apitypes.DeviceRequest{}, response: apitypes.DeviceAuthorization{}},
@@ -103,7 +108,7 @@ func (s *Server) routes() []route {
 			request: apitypes.DeviceTokenRequest{}, response: apitypes.DeviceToken{}},
 
 		// The caller.
-		{method: "GET", path: "/me", perm: signedIn, handler: s.me, summary: "Who the caller is", response: apitypes.Me{}},
+		{method: "GET", path: "/me", previews: true, perm: signedIn, handler: s.me, summary: "Who the caller is", response: apitypes.Me{}},
 		{method: "POST", path: "/me/password", perm: canManage, handler: s.changePassword, status: http.StatusNoContent,
 			summary: "Change your password, which ends your other sessions", request: apitypes.PasswordChange{}},
 		{method: "DELETE", path: "/me/sessions", perm: canManage, handler: s.endOtherSessions, status: http.StatusNoContent, summary: "End your sessions but the one in use"},
@@ -181,45 +186,45 @@ func (s *Server) routes() []route {
 
 		// The server and its apps.
 		{method: "GET", path: "/server/doctor", perm: serverAdmin, handler: s.serverDoctor, summary: "Check the server and what it depends on, as moor server doctor does", response: []apitypes.Check{}},
-		{method: "GET", path: "/server", perm: signedIn, handler: s.serverInfo, summary: "The server's version and the prefixes of the apps' git remotes", response: apitypes.ServerInfo{}},
+		{method: "GET", path: "/server", previews: true, perm: signedIn, handler: s.serverInfo, summary: "The server's version and the prefixes of the apps' git remotes", response: apitypes.ServerInfo{}},
 		{method: "POST", path: "/apps", perm: canDeploy, handler: s.createApp, status: http.StatusCreated, summary: "Create an app in a project; deploying also creates one, in the default project", request: apitypes.NewApp{}, response: apitypes.App{}},
-		{method: "GET", path: "/apps/{app}", perm: canRead, handler: s.appInfo, summary: "An app, its project, and how much room it takes", response: apitypes.AppInfo{}},
+		{method: "GET", path: "/apps/{app}", previews: true, perm: canRead, handler: s.appInfo, summary: "An app, its project, and how much room it takes", response: apitypes.AppInfo{}},
 		{method: "PATCH", path: "/apps/{app}", perm: canManage, handler: s.changeApp, summary: "Move an app to another project, or rename it, which restarts it", request: apitypes.AppChange{}, response: apitypes.App{}},
 		{method: "DELETE", path: "/apps/{app}", perm: canManage, handler: s.deleteApp, status: http.StatusNoContent, summary: "Delete an app and everything of it; keep_data=true keeps its data directory",
 			query: map[string]string{"keep_data": "true keeps its data directory."}},
-		{method: "GET", path: "/apps", oneApp: true, perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},
-		{method: "POST", path: "/apps/{app}/envs/{env}/deployments", perm: canDeploy, handler: s.deploy, status: http.StatusCreated, multipart: true,
+		{method: "GET", path: "/apps", previews: true, oneApp: true, perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},
+		{method: "POST", path: "/apps/{app}/envs/{env}/deployments", previews: true, perm: canDeploy, handler: s.deploy, status: http.StatusCreated, multipart: true,
 			summary: "Deploy uploaded files, creating the app if it does not exist", response: apitypes.Deployment{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/deployments", perm: canRead, handler: s.deployments, summary: "List an environment's deployments, newest first",
+		{method: "GET", path: "/apps/{app}/envs/{env}/deployments", previews: true, perm: canRead, handler: s.deployments, summary: "List an environment's deployments, newest first",
 			response: apitypes.Page[apitypes.Deployment]{}, query: pageQuery},
-		{method: "GET", path: "/deployments/{id}", oneApp: true, perm: canRead, handler: s.deployment, summary: "Get a deployment", response: apitypes.Deployment{}},
-		{method: "GET", path: "/deployments/{id}/log", oneApp: true, perm: canReadLogs, handler: s.deploymentLog, summary: "Stream a deployment's log", stream: apitypes.LogLine{},
+		{method: "GET", path: "/deployments/{id}", previews: true, oneApp: true, perm: canRead, handler: s.deployment, summary: "Get a deployment", response: apitypes.Deployment{}},
+		{method: "GET", path: "/deployments/{id}/log", previews: true, oneApp: true, perm: canReadLogs, handler: s.deploymentLog, summary: "Stream a deployment's log", stream: apitypes.LogLine{},
 			query: map[string]string{"follow": "true keeps the stream open until the deployment ends.", "skip": "Leave out this many of the first lines."}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/releases", perm: canRead, handler: s.releases, summary: "List an environment's releases, newest first",
+		{method: "GET", path: "/apps/{app}/envs/{env}/releases", previews: true, perm: canRead, handler: s.releases, summary: "List an environment's releases, newest first",
 			response: apitypes.Page[apitypes.Release]{}, query: pageQuery},
-		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}", perm: canRead, handler: s.release, summary: "A release, and, for those who can deploy, its manifest", response: apitypes.ReleaseDetail{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}/diff/{other}", perm: canRead, handler: s.releaseDiff,
+		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}", previews: true, perm: canRead, handler: s.release, summary: "A release, and, for those who can deploy, its manifest", response: apitypes.ReleaseDetail{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}/diff/{other}", previews: true, perm: canRead, handler: s.releaseDiff,
 			summary: "What changed from one release to another; of variables, their names only, and all but whether the build changed is for those who can deploy", response: apitypes.ReleaseDiff{}},
-		{method: "POST", path: "/apps/{app}/envs/{env}/rollback", perm: canDeploy, handler: s.rollback, summary: "Serve an earlier release again",
+		{method: "POST", path: "/apps/{app}/envs/{env}/rollback", previews: true, perm: canDeploy, handler: s.rollback, summary: "Serve an earlier release again",
 			request: apitypes.RollbackRequest{}, response: apitypes.Deployment{}},
-		{method: "POST", path: "/apps/{app}/envs/{env}/redeploy", perm: canDeploy, handler: s.redeploy, status: http.StatusAccepted,
+		{method: "POST", path: "/apps/{app}/envs/{env}/redeploy", previews: true, perm: canDeploy, handler: s.redeploy, status: http.StatusAccepted,
 			summary: "Build what the current release was built from again, and roll it out", response: apitypes.Deployment{}},
-		{method: "GET", path: "/apps/{app}/envs", perm: canRead, handler: s.environments, summary: "List an app's environments", response: []apitypes.Environment{}},
+		{method: "GET", path: "/apps/{app}/envs", previews: true, perm: canRead, handler: s.environments, summary: "List an app's environments", response: []apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs", perm: canDeploy, handler: s.createEnvironment, status: http.StatusCreated, summary: "Make a named environment", request: apitypes.NewEnvironment{}, response: apitypes.Environment{}},
-		{method: "DELETE", path: "/apps/{app}/envs/{env}", perm: canDeploy, handler: s.deleteEnvironment, status: http.StatusNoContent, summary: "Remove an environment that is not production, and everything of it: a preview takes a deployer, and a named environment a maintainer"},
+		{method: "DELETE", path: "/apps/{app}/envs/{env}", previews: true, perm: canDeploy, handler: s.deleteEnvironment, status: http.StatusNoContent, summary: "Remove an environment that is not production, and everything of it: a preview takes a deployer, and a named environment a maintainer"},
 		{method: "POST", path: "/apps/{app}/envs/{env}/promote", perm: canDeploy, handler: s.promote, summary: "Release the build another environment runs", request: apitypes.Promotion{}, response: apitypes.Deployment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/lock", perm: canDeploy, handler: s.lock, summary: "Stop deployments to an environment", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/unlock", perm: canDeploy, handler: s.unlock, summary: "Let deployments to an environment go on", response: apitypes.Environment{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/metrics", perm: canRead, handler: s.environmentMetrics, summary: "What an environment did over a range (range= live, 1h, 24h, 7d or 30d): requests, response times, CPU and memory, with its deployments", response: apitypes.Metrics{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/cron", perm: canRead, handler: s.cronJobs, summary: "List an environment's cron jobs, with when each next runs and how the last one went", response: []apitypes.CronJob{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/metrics", previews: true, perm: canRead, handler: s.environmentMetrics, summary: "What an environment did over a range (range= live, 1h, 24h, 7d or 30d): requests, response times, CPU and memory, with its deployments", response: apitypes.Metrics{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/cron", previews: true, perm: canRead, handler: s.cronJobs, summary: "List an environment's cron jobs, with when each next runs and how the last one went", response: []apitypes.CronJob{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/cron/{job}/run", perm: canDeploy, handler: s.runCronJob, status: http.StatusAccepted, summary: "Run a cron job now", response: apitypes.Run{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/runs", perm: canRead, handler: s.runs, summary: "List an environment's runs, newest first; job= is those of a cron job", response: []apitypes.Run{}},
-		{method: "POST", path: "/apps/{app}/envs/{env}/runs", perm: canDeploy, handler: s.startRun, status: http.StatusAccepted, summary: "Run a command in the current release, with its variables and data", request: apitypes.NewRun{}, response: apitypes.Run{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/files", perm: canDeploy, handler: s.dataFiles, summary: "List a directory within an environment's data directory", query: map[string]string{"path": "Where, from the top of it."}, response: apitypes.DataListing{}},
-		{method: "DELETE", path: "/apps/{app}/envs/{env}/files", perm: canDeploy, handler: s.removeData, status: http.StatusNoContent, summary: "Remove something from a data directory", query: map[string]string{"path": "What.", "recursive": "true takes a directory with all that is in it."}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/files/content", perm: canDeploy, handler: s.dataFileContent, summary: "Read a file in a data directory", query: map[string]string{"path": "Which."}},
-		{method: "PUT", path: "/apps/{app}/envs/{env}/files/content", perm: canDeploy, handler: s.putDataFile, status: http.StatusCreated, summary: "Write a file in a data directory, up to 1 GB: it appears all at once", query: map[string]string{"path": "Where.", "replace": "true takes the place of what is there."}, response: apitypes.DataFile{}},
-		{method: "POST", path: "/apps/{app}/envs/{env}/files/directory", perm: canDeploy, handler: s.makeDataDir, status: http.StatusCreated, summary: "Make a directory in a data directory", query: map[string]string{"path": "Where."}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/runs", previews: true, perm: canRead, handler: s.runs, summary: "List an environment's runs, newest first; job= is those of a cron job", response: []apitypes.Run{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/runs", previews: true, perm: canDeploy, handler: s.startRun, status: http.StatusAccepted, summary: "Run a command in the current release, with its variables and data", request: apitypes.NewRun{}, response: apitypes.Run{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/files", previews: true, perm: canDeploy, handler: s.dataFiles, summary: "List a directory within an environment's data directory", query: map[string]string{"path": "Where, from the top of it."}, response: apitypes.DataListing{}},
+		{method: "DELETE", path: "/apps/{app}/envs/{env}/files", previews: true, perm: canDeploy, handler: s.removeData, status: http.StatusNoContent, summary: "Remove something from a data directory", query: map[string]string{"path": "What.", "recursive": "true takes a directory with all that is in it."}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/files/content", previews: true, perm: canDeploy, handler: s.dataFileContent, summary: "Read a file in a data directory", query: map[string]string{"path": "Which."}},
+		{method: "PUT", path: "/apps/{app}/envs/{env}/files/content", previews: true, perm: canDeploy, handler: s.putDataFile, status: http.StatusCreated, summary: "Write a file in a data directory, up to 1 GB: it appears all at once", query: map[string]string{"path": "Where.", "replace": "true takes the place of what is there."}, response: apitypes.DataFile{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/files/directory", previews: true, perm: canDeploy, handler: s.makeDataDir, status: http.StatusCreated, summary: "Make a directory in a data directory", query: map[string]string{"path": "Where."}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/thresholds", perm: canRead, handler: s.thresholds, summary: "List when someone is told about how an environment is doing", response: []apitypes.Threshold{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/thresholds", perm: canManage, handler: s.addThreshold, status: http.StatusCreated, summary: "Say when to tell someone about how an environment is doing", request: apitypes.NewThreshold{}, response: apitypes.Threshold{}},
 		{method: "DELETE", path: "/apps/{app}/envs/{env}/thresholds/{id}", perm: canManage, handler: s.removeThreshold, status: http.StatusNoContent, summary: "Remove a threshold"},
@@ -227,11 +232,11 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/server/telemetry", perm: serverAdmin, handler: s.setTelemetrySink, summary: "Add somewhere to send what apps say and do, or change the one of that name", request: apitypes.NewTelemetrySink{}, response: apitypes.TelemetrySink{}},
 		{method: "DELETE", path: "/server/telemetry/{name}", perm: serverAdmin, handler: s.removeTelemetrySink, status: http.StatusNoContent, summary: "Stop sending to a sink"},
 		{method: "POST", path: "/server/telemetry/{name}/test", perm: serverAdmin, handler: s.testTelemetrySink, status: http.StatusNoContent, summary: "Send something to a sink now, and say how that went"},
-		{method: "GET", path: "/apps/{app}/envs/{env}/terminal", perm: canDeploy, handler: s.terminal, socket: true, summary: "Run a command with someone at the other end of it, as moor run -it does. It becomes a WebSocket, with what is typed and shown in binary messages, and TerminalMessage in text ones. This takes a token, and not a session",
+		{method: "GET", path: "/apps/{app}/envs/{env}/terminal", previews: true, perm: canDeploy, handler: s.terminal, socket: true, summary: "Run a command with someone at the other end of it, as moor run -it does. It becomes a WebSocket, with what is typed and shown in binary messages, and TerminalMessage in text ones. This takes a token, and not a session",
 			query: map[string]string{"command": "What to run.", "instance": "A running container to run it in, rather than a new one-off instance.", "timeout": "How long it may take, such as 10m.", "tty": "1 gives it a terminal. Otherwise it has pipes.", "rows": "How tall the terminal is.", "cols": "How wide the terminal is.", "term": "The kind of terminal it is."}},
-		{method: "GET", path: "/apps/{app}/runs/{id}", perm: canRead, handler: s.run, summary: "How a run went", response: apitypes.Run{}},
-		{method: "POST", path: "/apps/{app}/runs/{id}/stop", perm: canDeploy, handler: s.stopRun, summary: "Stop a run that is going on", response: apitypes.Run{}},
-		{method: "GET", path: "/apps/{app}/runs/{id}/log", perm: canReadLogs, handler: s.runLog, summary: "What a run says, as NDJSON; follow=true stays open until it ends", stream: apitypes.LogLine{}},
+		{method: "GET", path: "/apps/{app}/runs/{id}", previews: true, perm: canRead, handler: s.run, summary: "How a run went", response: apitypes.Run{}},
+		{method: "POST", path: "/apps/{app}/runs/{id}/stop", previews: true, perm: canDeploy, handler: s.stopRun, summary: "Stop a run that is going on", response: apitypes.Run{}},
+		{method: "GET", path: "/apps/{app}/runs/{id}/log", previews: true, perm: canReadLogs, handler: s.runLog, summary: "What a run says, as NDJSON; follow=true stays open until it ends", stream: apitypes.LogLine{}},
 		{method: "GET", path: "/apps/{app}/forge", perm: canRead, handler: s.getForge, summary: "Say where an app's code is kept, on a forge", response: apitypes.ForgeConnection{}},
 		{method: "PUT", path: "/apps/{app}/forge", perm: canManage, handler: s.connectForge, summary: "Connect an app to a repository on a forge: the answer alone has the secret that its webhook signs with", request: apitypes.ForgeConnect{}, response: apitypes.ForgeConnection{}},
 		{method: "DELETE", path: "/apps/{app}/forge", perm: canManage, handler: s.disconnectForge, status: http.StatusNoContent, summary: "Let go of an app's repository: what it deployed stays"},
@@ -248,20 +253,20 @@ func (s *Server) routes() []route {
 		{method: "GET", path: "/apps/{app}/envs/{env}/share-links", perm: canDeploy, handler: s.shareLinks, summary: "List an environment's share links", response: []apitypes.ShareLink{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/share-links", perm: canDeploy, handler: s.createShareLink, status: http.StatusCreated, summary: "Make a link that lets someone reach an environment: the answer alone has its address", request: apitypes.NewShareLink{}, response: apitypes.ShareLink{}},
 		{method: "DELETE", path: "/apps/{app}/envs/{env}/share-links/{id}", perm: canDeploy, handler: s.revokeShareLink, status: http.StatusNoContent, summary: "End a share link, and within a minute everyone it let in"},
-		{method: "POST", path: "/apps/{app}/envs/{env}/sleep", perm: canDeploy, handler: s.sleep, summary: "Stop an environment's instances until a request wakes it", response: apitypes.Environment{}},
-		{method: "POST", path: "/apps/{app}/envs/{env}/wake", perm: canDeploy, handler: s.wake, summary: "Start an environment that is asleep, and answer when it is ready", response: apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/sleep", previews: true, perm: canDeploy, handler: s.sleep, summary: "Stop an environment's instances until a request wakes it", response: apitypes.Environment{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/wake", previews: true, perm: canDeploy, handler: s.wake, summary: "Start an environment that is asleep, and answer when it is ready", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/previews", perm: canDeploy, handler: s.createPreview, status: http.StatusAccepted, summary: "Deploy a preview of a branch that was pushed", request: apitypes.NewPreview{}, response: apitypes.Deployment{}},
 		{method: "GET", path: "/previews", oneApp: true, perm: canRead, handler: s.previews, summary: "List the previews you can see, of every app", response: []apitypes.Environment{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}", perm: canRead, handler: s.environment, summary: "How an environment stands: its release, formation and instances", response: apitypes.Environment{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}", previews: true, perm: canRead, handler: s.environment, summary: "How an environment stands: its release, formation and instances", response: apitypes.Environment{}},
 		{method: "PATCH", path: "/apps/{app}/envs/{env}", perm: canDeploy, handler: s.changeEnvironment, summary: "Scale an environment: how many instances of which process run",
 			request: apitypes.EnvironmentChange{}, response: apitypes.Environment{}},
-		{method: "POST", path: "/apps/{app}/envs/{env}/restart", perm: canDeploy, handler: s.restart, summary: "Replace an environment's instances", response: []apitypes.Instance{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/instances", perm: canRead, handler: s.instances, summary: "List an environment's instances", response: []apitypes.Instance{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/vars", perm: canDeploy, handler: s.vars, summary: "List an environment's variables; a secret's value is never shown", response: []apitypes.Var{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/restart", previews: true, perm: canDeploy, handler: s.restart, summary: "Replace an environment's instances", response: []apitypes.Instance{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/instances", previews: true, perm: canRead, handler: s.instances, summary: "List an environment's instances", response: []apitypes.Instance{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/vars", previews: true, perm: canDeploy, handler: s.vars, summary: "List an environment's variables; a secret's value is never shown", response: []apitypes.Var{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/vars/{name}/reveal", perm: canManage, handler: s.revealVar, summary: "Read a secret's value, which is recorded", response: apitypes.RevealedVar{}},
 		{method: "PATCH", path: "/apps/{app}/envs/{env}/vars", perm: canManage, handler: s.changeVars, summary: "Set and unset variables, released at once unless no_restart is set",
 			request: apitypes.VarsChange{}, response: apitypes.VarsResult{}},
-		{method: "GET", path: "/apps/{app}/envs/{env}/logs", perm: canReadLogs, handler: s.logs, summary: "Stream an environment's logs", stream: apitypes.LogLine{},
+		{method: "GET", path: "/apps/{app}/envs/{env}/logs", previews: true, perm: canReadLogs, handler: s.logs, summary: "Stream an environment's logs", stream: apitypes.LogLine{},
 			query: map[string]string{
 				"follow":   "true keeps the stream open.",
 				"tail":     "How many of the latest lines to start with.",
@@ -343,6 +348,14 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 				return
 			}
 		}
+		// After whether the app can be seen, so that this does not say that it is there.
+		if msg, err := s.refusedByEnvs(r, rt, p, app); err != nil {
+			s.internal(w, err)
+			return
+		} else if msg != "" {
+			problem(w, http.StatusForbidden, "forbidden", msg)
+			return
+		}
 		ctx := context.WithValue(r.Context(), principalKey{}, p)
 		if rt.stream != nil || rt.sse != nil || rt.socket {
 			// What stays open must end when whoever opened it may no longer see it.
@@ -387,6 +400,10 @@ func (s *Server) stillAllowed(ctx context.Context, r *http.Request, rt route, ap
 		return true
 	}
 	if refused(rt, p, app) != "" {
+		return false
+	}
+	// A preview can go, and another with its name be something else.
+	if msg, err := s.refusedByEnvs(r, rt, p, app); err == nil && msg != "" {
 		return false
 	}
 	if app == "" {
@@ -449,6 +466,48 @@ func roleRefused(rt route, access auth.Access) string {
 		}
 	}
 	return ""
+}
+
+// refusedByEnvs keeps a token limited to previews to the previews that stand apart from production, which are the ones such a token makes. It can do nothing else:
+// a route has to say that it is fit for one, and the routes with no environment in their address keep to these by themselves.
+func (s *Server) refusedByEnvs(r *http.Request, rt route, p auth.Principal, app string) (string, error) {
+	if p.Envs == "" || rt.perm == public {
+		return "", nil
+	}
+	const limited = "This token is limited to previews that it has made, whose names start with " + deploy.AgentPreviewPrefix + "."
+	if !rt.previews {
+		return limited, nil
+	}
+	env := r.PathValue("env")
+	if env == "" {
+		return "", nil
+	}
+	e, err := s.db.Environment(r.Context(), app, env)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		// Deploying to a name that is free makes a preview of it, if it is one that nothing else will want.
+		if r.Method == http.MethodPost && strings.HasSuffix(rt.path, "/deployments") && strings.HasPrefix(env, deploy.AgentPreviewPrefix) {
+			return "", nil
+		}
+		return limited, nil
+	case err != nil:
+		return "", err
+	case !standsAlone(e):
+		return limited, nil
+	}
+	return "", nil
+}
+
+// standsAlone says that an environment is a preview that takes nothing of production's.
+func standsAlone(e store.Environment) bool { return e.Kind == store.KindPreview && !e.Inherits }
+
+// outOfBounds says that a token limited to previews may not see this environment, for what has none in its address.
+func (s *Server) outOfBounds(r *http.Request, app, env string) bool {
+	if who(r).Envs == "" {
+		return false
+	}
+	e, err := s.db.Environment(r.Context(), app, env)
+	return err != nil || !standsAlone(e)
 }
 
 // refused says why a caller may not use a route, or "".

@@ -190,3 +190,12 @@ func TestSummaries(t *testing.T) {
 		t.Error("a change of variables speaks of values")
 	}
 }
+
+func TestWhatIsSaidOfAnEngine(t *testing.T) {
+	if got := Summary(store.Event{Type: EngineOK}); got != "The container engine is answering again" {
+		t.Error(got)
+	}
+	if got := Summary(store.Event{Type: EngineOK, Data: map[string]any{"not_needed": true}}); got != "Nothing here needs the container engine any more" {
+		t.Error(got)
+	}
+}

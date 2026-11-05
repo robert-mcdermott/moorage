@@ -11,6 +11,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -83,12 +84,14 @@ func bareURL(address string) string {
 // environmentRow is a line of a list of environments.
 type environmentRow struct {
 	App, Name, Kind, Branch, URL string
-	Version                      int
-	ReleasedAt                   time.Time
-	Pinned                       bool
-	LockedBy                     string
-	Active, Expires              time.Time
-	Status                       status
+	// StandsAlone says that a preview takes nothing of production's, as one a coding agent made does.
+	StandsAlone     bool
+	Version         int
+	ReleasedAt      time.Time
+	Pinned          bool
+	LockedBy        string
+	Active, Expires time.Time
+	Status          status
 	// Asleep says that its instances are stopped until a request wakes it.
 	Asleep bool
 	// Gate says who may reach it, unless that is anyone.
@@ -99,7 +102,7 @@ type environmentRow struct {
 
 func (c *Console) environmentRow(r *http.Request, e store.Environment, access auth.Access) environmentRow {
 	row := environmentRow{
-		App: e.App, Name: e.Name, Kind: e.Kind, Branch: e.Branch, URL: c.cfg.EnvURL(e.App, e.Name), Version: e.Version, ReleasedAt: e.ReleasedAt,
+		App: e.App, Name: e.Name, Kind: e.Kind, Branch: e.Branch, StandsAlone: e.Kind == store.KindPreview && !e.Inherits, URL: c.cfg.EnvURL(e.App, e.Name), Version: e.Version, ReleasedAt: e.ReleasedAt,
 		Pinned: e.Pinned, LockedBy: e.LockedBy, CanAct: access.Deploy, CanRemove: access.Manage || access.Deploy && e.Kind == store.KindPreview,
 		Status: status{"Not deployed", ""},
 	}
@@ -226,6 +229,8 @@ func (c *Console) environmentFailed(w http.ResponseWriter, r *http.Request, p au
 	)
 	switch {
 	case errors.As(err, &production), errors.As(err, &busy), errors.As(err, &locked), errors.As(err, &preview):
+		c.showEnvironments(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
+	case errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
 		c.showEnvironments(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
 	case errors.As(err, &invalid):
 		c.showEnvironments(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: sentence(err.Error())})

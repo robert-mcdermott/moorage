@@ -29,6 +29,10 @@ type clientContext struct {
 	Token  string `toml:"token"`
 	CACert string `toml:"ca_cert,omitempty"`
 	User   string `toml:"user,omitempty"`
+	// Agent says that moor mcp setup made this, for a coding agent. It is not what anything else should come to use by accident.
+	Agent bool `toml:"agent,omitempty"`
+	// TokenName is the name of the token that moor mcp setup made for it, which is what it replaces when it is run again here.
+	TokenName string `toml:"token_name,omitempty"`
 }
 
 // clientConfigPath is $MOOR_CONFIG, or moor's place for it on this platform.
@@ -93,7 +97,7 @@ func (c *clientConfig) forServer(serverURL string) *clientContext {
 		return ctx
 	}
 	for _, name := range c.names() {
-		if ctx := c.Contexts[name]; ctx.Server == serverURL {
+		if ctx := c.Contexts[name]; ctx.Server == serverURL && !ctx.Agent {
 			return &ctx
 		}
 	}

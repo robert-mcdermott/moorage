@@ -447,3 +447,57 @@ func TestReadingChangesNothing(t *testing.T) {
 		}
 	}
 }
+
+// TestWhatATokenLimitedToPreviewsMayUse holds the routes open to such a token to this list. A route that is added should be refused to it,
+// and one that is added here should be looked at: it has to keep to previews that stand alone.
+func TestWhatATokenLimitedToPreviewsMayUse(t *testing.T) {
+	f := newFixture(t)
+	want := map[string]bool{
+		"GET /apps":                                                  true,
+		"GET /apps/{app}":                                            true,
+		"GET /apps/{app}/envs":                                       true,
+		"DELETE /apps/{app}/envs/{env}":                              true,
+		"GET /apps/{app}/envs/{env}":                                 true,
+		"GET /apps/{app}/envs/{env}/cron":                            true,
+		"GET /apps/{app}/envs/{env}/deployments":                     true,
+		"POST /apps/{app}/envs/{env}/deployments":                    true,
+		"DELETE /apps/{app}/envs/{env}/files":                        true,
+		"GET /apps/{app}/envs/{env}/files":                           true,
+		"GET /apps/{app}/envs/{env}/files/content":                   true,
+		"PUT /apps/{app}/envs/{env}/files/content":                   true,
+		"POST /apps/{app}/envs/{env}/files/directory":                true,
+		"GET /apps/{app}/envs/{env}/instances":                       true,
+		"GET /apps/{app}/envs/{env}/logs":                            true,
+		"GET /apps/{app}/envs/{env}/metrics":                         true,
+		"POST /apps/{app}/envs/{env}/redeploy":                       true,
+		"GET /apps/{app}/envs/{env}/releases":                        true,
+		"GET /apps/{app}/envs/{env}/releases/{version}":              true,
+		"GET /apps/{app}/envs/{env}/releases/{version}/diff/{other}": true,
+		"POST /apps/{app}/envs/{env}/restart":                        true,
+		"POST /apps/{app}/envs/{env}/rollback":                       true,
+		"GET /apps/{app}/envs/{env}/runs":                            true,
+		"POST /apps/{app}/envs/{env}/runs":                           true,
+		"POST /apps/{app}/envs/{env}/sleep":                          true,
+		"GET /apps/{app}/envs/{env}/terminal":                        true,
+		"GET /apps/{app}/envs/{env}/vars":                            true,
+		"POST /apps/{app}/envs/{env}/wake":                           true,
+		"GET /apps/{app}/runs/{id}":                                  true,
+		"GET /apps/{app}/runs/{id}/log":                              true,
+		"POST /apps/{app}/runs/{id}/stop":                            true,
+		"POST /auth/logout":                                          true,
+		"GET /deployments/{id}":                                      true,
+		"GET /deployments/{id}/log":                                  true,
+		"GET /me":                                                    true,
+		"GET /server":                                                true,
+	}
+	for _, rt := range f.s.routes() {
+		key := rt.method + " " + rt.path
+		if rt.previews != want[key] {
+			t.Errorf("%s: open to a token limited to previews is %v", key, rt.previews)
+		}
+		delete(want, key)
+	}
+	for key := range want {
+		t.Errorf("%s is not a route", key)
+	}
+}

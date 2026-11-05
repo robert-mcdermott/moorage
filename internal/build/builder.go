@@ -33,9 +33,9 @@ type Builder struct {
 	// added to its environment.
 	Shell    []string
 	ShellEnv []string
-	// Engine builds and fetches images; without one, apps that run in
+	// Engines builds and fetches images; without one, apps that run in
 	// containers cannot be built.
-	Engine *container.Engine
+	Engines *container.Source
 }
 
 // Job is one build.
@@ -222,9 +222,10 @@ func siteRoot(buildDir, root string) (string, error) {
 // by a tag is pinned to its digest, so that restarts and rollbacks run this
 // image and no other.
 func (b *Builder) buildImage(ctx context.Context, job Job, plan manifest.Plan, appDir string) (Result, error) {
-	if b.Engine == nil {
-		return Result{}, &Error{Msg: container.ErrNoEngine.Error(), Err: container.ErrNoEngine}
+	if st := b.Engines.Status(ctx); !st.Ready() {
+		return Result{}, &Error{Msg: st.Problem(), Err: st.Err()}
 	}
+	engine := b.Engines.Claim()
 	c := *plan.Container
 	timeout := plan.BuildTimeout.Std()
 	buildCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -245,9 +246,9 @@ func (b *Builder) buildImage(ctx context.Context, job Job, plan manifest.Plan, a
 	var image string
 	if c.From != "" {
 		Marker(job.Log, "▸ pull       %s", c.From)
-		if err := b.Engine.Pull(buildCtx, c.From, out, errw); err != nil {
+		if err := engine.Pull(buildCtx, c.From, out, errw); err != nil {
 			// An image on this server only, which no registry has.
-			if _, inspectErr := b.Engine.InspectImage(ctx, c.From); inspectErr != nil {
+			if _, inspectErr := engine.InspectImage(ctx, c.From); inspectErr != nil {
 				return failed(fmt.Sprintf("could not pull %s; a private registry needs its credentials on the server (moor registry login)", c.From), err)
 			}
 			out.Flush()
@@ -257,8 +258,8 @@ func (b *Builder) buildImage(ctx context.Context, job Job, plan manifest.Plan, a
 		image = c.From
 	} else {
 		image = ImageTag(job.App, job.BuildID)
-		Marker(job.Log, "▸ build      %s build -f %s %s", b.Engine.Kind, c.File, c.Context)
-		err := b.Engine.Build(buildCtx, container.BuildSpec{
+		Marker(job.Log, "▸ build      %s build -f %s %s", engine.Kind, c.File, c.Context)
+		err := engine.Build(buildCtx, container.BuildSpec{
 			Dir: appDir, File: c.File, Context: c.Context, Target: c.Target, Tag: image,
 			Labels: map[string]string{"io.moorage.managed": "true", "io.moorage.app": job.App, "io.moorage.build": job.BuildID},
 			Args:   c.Args, Vars: job.Vars,
@@ -269,7 +270,7 @@ func (b *Builder) buildImage(ctx context.Context, job Job, plan manifest.Plan, a
 	}
 	out.Flush()
 	errw.Flush()
-	info, err := b.Engine.InspectImage(ctx, image)
+	info, err := engine.InspectImage(ctx, image)
 	if err != nil {
 		return Result{}, &Error{Msg: fmt.Sprintf("the engine cannot find the image %s: %v", image, err), Err: err}
 	}

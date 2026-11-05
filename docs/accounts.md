@@ -183,7 +183,8 @@ The secret is printed to standard output, this once. Moorage keeps only its hash
 | `admin` | Also change variables; manage its owner's tokens, keys and sessions; for an admin, manage users |
 
 `--app` restricts a token to one app: it sees and reaches nothing else, and
-cannot manage credentials. `--expires` ends it after a time. `moor tokens` lists
+cannot manage credentials. `--envs previews` limits a `read` or `deploy` token to previews, for a
+[coding agent](agents.md#letting-it-deploy). `--expires` ends it after a time. `moor tokens` lists
 yours with when each was last used, and `moor tokens revoke NAME` ends one at
 once. Scripts pass a token with `MOOR_TOKEN` (and `MOOR_SERVER`), or `--token`.
 

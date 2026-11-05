@@ -154,6 +154,18 @@ type NewSSHKey struct {
 type ServerInfo struct {
 	Version string  `json:"version"`
 	Git     GitInfo `json:"git"`
+	// Containers says whether this server can run containers. It takes an engine that only what runs in one needs.
+	Containers ContainerEngine `json:"containers"`
+}
+
+// ContainerEngine is how a server's container engine stands: absent, not answering, or ready.
+type ContainerEngine struct {
+	State   string `json:"state"`
+	Kind    string `json:"kind,omitempty"`
+	Version string `json:"version,omitempty"`
+	// Problem says what is wrong and what to do about it, and Reason what the engine itself said, which is for administrators.
+	Problem string `json:"problem,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // GitInfo gives the prefixes of the apps' git remotes: an app's remote is
@@ -189,9 +201,10 @@ type Me struct {
 	Name  string `json:"name"`
 	Role  string `json:"role"`
 	Local bool   `json:"local,omitempty"`
-	// Scopes and App are the limits of the token in use, if any.
+	// Scopes, App and Envs are the limits of the token in use, if any.
 	Scopes []string `json:"scopes,omitempty"`
 	App    string   `json:"app,omitempty"`
+	Envs   string   `json:"envs,omitempty"`
 }
 
 // LoginRequest signs in with an email address and password.
@@ -258,17 +271,19 @@ type Token struct {
 	Name       string    `json:"name"`
 	Scopes     []string  `json:"scopes"`
 	App        string    `json:"app,omitempty"`
+	Envs       string    `json:"envs,omitempty"`
 	ExpiresAt  time.Time `json:"expires_at,omitzero"`
 	LastUsedAt time.Time `json:"last_used_at,omitzero"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
 // NewToken creates an API token. Scopes are read, deploy, admin and gate; App,
-// if set, restricts it to one app.
+// if set, restricts it to one app, and Envs, if "previews", to previews.
 type NewToken struct {
 	Name      string    `json:"name"`
 	Scopes    []string  `json:"scopes"`
 	App       string    `json:"app,omitempty"`
+	Envs      string    `json:"envs,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }
 
@@ -587,6 +602,8 @@ type Environment struct {
 	// Kind is production, named or preview, and Branch what deploys to it, if a branch does.
 	Kind   string `json:"kind,omitempty"`
 	Branch string `json:"branch,omitempty"`
+	// StandsAlone says that a preview takes nothing of production's, as one made by a token limited to previews does.
+	StandsAlone bool `json:"stands_alone,omitempty"`
 	// Pinned keeps a preview from expiring, and ExpiresAt says when it will otherwise.
 	Pinned    bool      `json:"pinned,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`

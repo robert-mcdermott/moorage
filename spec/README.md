@@ -20,6 +20,8 @@ them. To install and use Moorage, read the
 | 10 | [Data model](10-data-model.md) | SQLite schema, identifiers, files on disk, sizing |
 | 11 | [Roadmap](11-roadmap.md) | Waves, slices and releases; spikes; risks; engineering practices |
 | 12 | [Decisions and open questions](12-decisions.md) | Key design decisions with alternatives, and questions still open |
+| 13 | [Backing services](13-services.md) | PostgreSQL and S3 for each environment: what runs, how it is reached, previews and backups |
+| 14 | [Coding agents](14-agents.md) | `moor mcp`, what it may do, and what makes that safe |
 
 ## Reading order
 

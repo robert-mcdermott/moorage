@@ -105,7 +105,9 @@ func (s *Server) lookupDeployment(w http.ResponseWriter, r *http.Request) (store
 		s.internal(w, err)
 		return d, false
 	}
-	if !access.See {
+	// A token limited to previews sees nothing of what else there is.
+	seen := access.See && !s.outOfBounds(r, d.App, d.Env)
+	if !seen {
 		problem(w, http.StatusNotFound, "not_found", "There is no deployment "+id+".")
 		return d, false
 	}
