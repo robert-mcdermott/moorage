@@ -279,6 +279,13 @@ func TestStopLeavesAnotherServersService(t *testing.T) {
 	if runsServer(m, "/tmp/trying-it-out/server.toml") {
 		t.Error("a server of another configuration would stop the service")
 	}
+	if !runsAnother(m, "/tmp/trying-it-out/server.toml") || runsAnother(m, "/etc/moorage/server.toml") {
+		t.Error("whether it certainly runs another")
+	}
+	// One that this user cannot read may well be this one.
+	if runsAnother(fakeManager{file: filepath.Join(t.TempDir(), "none")}, "/etc/moorage/server.toml") {
+		t.Error("what cannot be read")
+	}
 	if runsServer(fakeManager{file: filepath.Join(t.TempDir(), "none")}, "/etc/moorage/server.toml") {
 		t.Error("no unit, no service")
 	}

@@ -797,7 +797,11 @@ func isGateCookie(name string) bool {
 }
 
 // removeGateCookies keeps a gate's cookies from the app behind it, and leaves the rest as they were.
-func removeGateCookies(h http.Header) {
+func removeGateCookies(h http.Header) { removeCookies(h, isGateCookie) }
+
+// removeCookies takes out those it is told to, working on the text of the header: parsing it would lose what the parser
+// does not care for, and apps do set cookies that it does not.
+func removeCookies(h http.Header, drop func(name string) bool) {
 	lines := h.Values("Cookie")
 	if len(lines) == 0 {
 		return
@@ -808,7 +812,7 @@ func removeGateCookies(h http.Header) {
 		var parts []string
 		for _, part := range strings.Split(line, ";") {
 			name, _, _ := strings.Cut(strings.TrimSpace(part), "=")
-			if isGateCookie(name) {
+			if drop(name) {
 				found = true
 				continue
 			}

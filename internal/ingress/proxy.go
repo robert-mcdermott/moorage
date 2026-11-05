@@ -89,9 +89,10 @@ func NewPool(app, env string, trusted []netip.Prefix, log *slog.Logger) *Pool {
 	cleartext.Protocols = new(http.Protocols)
 	cleartext.Protocols.SetUnencryptedHTTP2(true)
 	p.proxy = &httputil.ReverseProxy{
-		Rewrite:      p.rewrite,
-		Transport:    &retryTransport{pool: p, base: transport, h2c: cleartext},
-		ErrorHandler: p.proxyError,
+		Rewrite:        p.rewrite,
+		Transport:      &retryTransport{pool: p, base: transport, h2c: cleartext},
+		ModifyResponse: addStickyCookie,
+		ErrorHandler:   p.proxyError,
 		ErrorLog:     slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 	}
 	return p
@@ -151,28 +152,44 @@ func (p *Pool) stickyValue(b *Backend) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// sticking chooses the instance that the cookie names, if it is there and can take a request, or else any.
-func (p *Pool) sticking(w http.ResponseWriter, r *http.Request) *Backend {
+// stickyCookieKey is the cookie a response is to set, for a browser that has just been given an instance.
+type stickyCookieKey struct{}
+
+// addStickyCookie sets it on the app's response, and so not on what comes before: a proxy clears the headers it was given after a 1xx.
+func addStickyCookie(res *http.Response) error {
+	if res.Request == nil {
+		return nil
+	}
+	if c, ok := res.Request.Context().Value(stickyCookieKey{}).(*http.Cookie); ok {
+		res.Header.Add("Set-Cookie", c.String())
+	}
+	return nil
+}
+
+// sticking chooses the instance that the cookie names, if it is there and can take a request, or else any, and then
+// says what to tell the browser.
+func (p *Pool) sticking(r *http.Request) (*Backend, *http.Cookie) {
 	name := p.stickyName()
 	if c, err := r.Cookie(name); err == nil {
 		now := time.Now().UnixNano()
 		for _, b := range *p.backends.Load() {
 			if b.usable(now) && p.stickyValue(b) == c.Value {
-				return b
+				return b, nil
 			}
 		}
 	}
 	b := p.pick(nil)
-	if b != nil {
-		http.SetCookie(w, &http.Cookie{Name: name, Value: p.stickyValue(b), Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
+	if b == nil {
+		return nil, nil
 	}
-	return b
+	return b, &http.Cookie{Name: name, Value: p.stickyValue(b), Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode}
 }
 
 func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var b *Backend
+	var cookie *http.Cookie
 	if p.sticky.Load() {
-		b = p.sticking(w, r)
+		b, cookie = p.sticking(r)
 	} else {
 		b = p.pick(nil)
 	}
@@ -184,7 +201,11 @@ func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b.inflight.Add(1)
 	defer b.inflight.Add(-1)
 	setInstance(r, b.ID)
-	p.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), backendKey{}, b)))
+	ctx := context.WithValue(r.Context(), backendKey{}, b)
+	if cookie != nil {
+		ctx = context.WithValue(ctx, stickyCookieKey{}, cookie)
+	}
+	p.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
 func (p *Pool) rewrite(pr *httputil.ProxyRequest) {
@@ -200,13 +221,7 @@ func (p *Pool) rewrite(pr *httputil.ProxyRequest) {
 
 // withoutCookie takes a cookie of Moorage's out of what an app hears.
 func withoutCookie(r *http.Request, name string) {
-	cookies := r.Cookies()
-	r.Header.Del("Cookie")
-	for _, c := range cookies {
-		if c.Name != name {
-			r.AddCookie(c)
-		}
-	}
+	removeCookies(r.Header, func(n string) bool { return n == name })
 }
 
 func (p *Pool) proxyError(w http.ResponseWriter, r *http.Request, err error) {

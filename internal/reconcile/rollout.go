@@ -72,7 +72,6 @@ func (m *Manager) rollout(ctx context.Context, es *envState, rel store.Release, 
 		return err
 	}
 	plan = plan.ForEnv(env, kind).WithFormation(formation)
-	es.pool.SetSticky(plan.Processes[manifest.Web].Sticky)
 
 	var old, others []*instance
 	for _, in := range es.list() {
@@ -129,7 +128,9 @@ func (m *Manager) rollout(ctx context.Context, es *envState, rel store.Release, 
 		m.watch(es, in)
 	}
 	// Exactly the new instances take the traffic, and any left running: a restart rolls out
-	// the release already running, so its old instances share the release.
+	// the release already running, so its old instances share the release. Whether a browser stays with one goes with
+	// the traffic, as a release that fails changes nothing about the one that goes on serving.
+	es.pool.SetSticky(plan.Processes[manifest.Web].Sticky)
 	es.servePool(append(others, fresh...))
 	m.retire(es, old, plan.Deploy.Drain.Std())
 	return nil

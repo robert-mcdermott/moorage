@@ -567,9 +567,10 @@ func ParseTrusted(s string) (netip.Prefix, error) {
 }
 
 // ReleaseURL is the address of one release of a static site. With path routing there is none: apps
-// have no hostnames of their own.
+// have no hostnames of their own. Nor is there with a certificate from a CA for each hostname: anyone could spend a week's limit on
+// them by visiting them, so that those take a wildcard.
 func (c Config) ReleaseURL(app, env string, version int) string {
-	if c.Routing == "path" {
+	if c.Routing == "path" || c.TLS.Mode == "acme" && !c.WildcardCertificate() {
 		return ""
 	}
 	return c.PublicURL(names.PermalinkLabel(app, env, version) + "." + c.Domain)

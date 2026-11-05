@@ -300,8 +300,9 @@ func (o Options) anyLocal(addrs []string) bool {
 	return false
 }
 
-// checkACME says how a server's certificates from a CA stand. A certificate has a third of its life left when it is renewed, so
-// that one with less than two weeks to go has been failing for a while.
+// checkACME says how a server's certificates from a CA stand. A wildcard is renewed when it has a third of its life left, so that one
+// with less than two weeks to go has been failing for a while. Those for each hostname are renewed when next wanted, and stay on disk once they
+// are not: an old one says nothing, and the event that a certificate could not be got is what says that something is wrong.
 func checkACME(o Options) []Check {
 	cfg := o.Config
 	directory := cfg.TLS.ACME.Directory
@@ -316,11 +317,25 @@ func checkACME(o Options) []Check {
 	case len(found) == 0:
 		checks = append(checks, Check{Name: "tls", Status: Info, Detail: "no certificate yet from " + directory + ": each is asked for when it is first wanted"})
 	default:
-		next := found[0]
-		c := Check{Name: "tls", Status: OK, Detail: fmt.Sprintf("%d certificates from %s; the next to expire is for %s, on %s", len(found), directory, strings.Join(next.Names, ", "), next.NotAfter.Format("2 Jan 2006"))}
-		if time.Until(next.NotAfter) < 14*24*time.Hour {
-			c.Status = Warn
-			c.Fix = "it should have been renewed by now: the server's log says why it has not"
+		c := Check{Name: "tls", Status: OK, Detail: fmt.Sprintf("%d certificates from %s", len(found), directory)}
+		now := time.Now()
+		if i := slices.IndexFunc(found, func(f ingress.CertificateOnDisk) bool { return f.NotAfter.After(now) }); i >= 0 {
+			c.Detail += fmt.Sprintf("; the next to expire is for %s, on %s", strings.Join(found[i].Names, ", "), found[i].NotAfter.Format("2 Jan 2006"))
+		}
+		if cfg.WildcardCertificate() {
+			wildcard := "*." + cfg.Domain
+			var newest time.Time
+			for _, f := range found {
+				if slices.Contains(f.Names, wildcard) && f.NotAfter.After(newest) {
+					newest = f.NotAfter
+				}
+			}
+			switch {
+			case newest.IsZero():
+				c.Status, c.Fix = Warn, "there is no certificate for "+wildcard+" yet: the server's log says why"
+			case time.Until(newest) < 14*24*time.Hour:
+				c.Status, c.Fix = Warn, "the certificate for "+wildcard+" expires on "+newest.Format("2 Jan 2006")+", and should have been renewed by now: the server's log says why it has not"
+			}
 		}
 		checks = append(checks, c)
 	}

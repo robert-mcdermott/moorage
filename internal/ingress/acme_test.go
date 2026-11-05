@@ -45,7 +45,7 @@ func TestAllowIssuing(t *testing.T) {
 		"empty.apps.example.com":         true, // an app with nothing deployed yet has a page to say so
 		"made-up.apps.example.com":       false,
 		"shop--nothing.apps.example.com": false,
-		"v3--shop.apps.example.com":      false,
+		"shop--production--v3.apps.example.com": false,
 		"apps.example.com":               false,
 		"a.b.apps.example.com":           false,
 		"example.org":                    false,

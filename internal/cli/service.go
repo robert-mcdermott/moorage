@@ -135,6 +135,12 @@ func runsServer(m service.Manager, configFile string) bool {
 	return err == nil && strings.Contains(string(unit), configFile)
 }
 
+// runsAnother says that it certainly does not: one that cannot be read may be this one.
+func runsAnother(m service.Manager, configFile string) bool {
+	unit, err := m.Definition()
+	return err == nil && !strings.Contains(string(unit), configFile)
+}
+
 // stopForeground stops a server that is not running under the service manager,
 // such as one started with moor server run. The data directory's lock says
 // whether one runs, and holds its process ID. It reports whether it stopped one.
@@ -381,7 +387,7 @@ func newServerStatusCmd() *cobra.Command {
 			switch {
 			case !st.Installed:
 				fmt.Fprintf(out, "Service:  not installed (moor server install)\n")
-			case !runsServer(t.manager, t.path):
+			case runsAnother(t.manager, t.path):
 				// The service on this machine may be for another server: what it is doing says nothing about this one.
 				fmt.Fprintf(out, "Service:  none for this configuration (the one here runs another: %s)\n", t.manager.File())
 			default:

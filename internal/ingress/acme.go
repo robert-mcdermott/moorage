@@ -216,7 +216,8 @@ func (s *commandSolver) run(ctx context.Context, action string, c acme.Challenge
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, s.command, action, c.DNS01TXTRecordName(), c.DNS01KeyAuthorization())
-	if out, err := cmd.CombinedOutput(); err != nil {
+	cmd.WaitDelay = 2 * time.Second // what it left running holds its output, and issuing is not to wait for that
+	if out, err := cmd.CombinedOutput(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		if len(out) > 400 {
 			out = out[:400]
 		}
@@ -234,12 +235,28 @@ func (m *ACME) Start(ctx context.Context) error {
 	return nil
 }
 
+// While a certificate is issued for a first visit, a handshake waits for it. The server's limit on a handshake is meant for what a client
+// does, so that it applies again once the certificate has come.
+const (
+	waitForIssuing = 3 * time.Minute
+	afterIssuing   = 10 * time.Second
+)
+
+// patiently lets a handshake wait for what get does, and leaves it no longer than usual after that.
+func patiently(hello *tls.ClientHelloInfo, get func(*tls.ClientHelloInfo) (*tls.Certificate, error)) (*tls.Certificate, error) {
+	if hello.Conn != nil {
+		hello.Conn.SetDeadline(time.Now().Add(waitForIssuing))
+		defer func() { hello.Conn.SetDeadline(time.Now().Add(afterIssuing)) }()
+	}
+	return get(hello)
+}
+
 // GetCertificate chooses the certificate for a handshake, and gets one if it is allowed and there is none.
 func (m *ACME) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	if m.wildcard != nil && m.covered(hello.ServerName) && !slices.Contains(hello.SupportedProtos, "acme-tls/1") {
 		return m.wildcard.GetCertificate(hello)
 	}
-	return m.perHost.GetCertificate(hello)
+	return patiently(hello, m.perHost.GetCertificate)
 }
 
 // covered says whether the domain's wildcard is good for a hostname: one label under it, and no more.

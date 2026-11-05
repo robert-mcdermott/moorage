@@ -64,6 +64,10 @@ https://docs--production--v12.apps.example.com
 
 `moor releases` lists them, and the **view** link in an app's **Deployments** goes to them.
 
+This takes a certificate for those addresses. A server that [gets one for each hostname from a CA](tls.md#from-a-public-ca-with-acme) does not ask for them,
+since anyone could then spend the CA's limit for your domain by visiting them, so that it does not offer them either. A
+[wildcard](tls.md#from-a-public-ca-with-acme) covers them. The other ways of getting a certificate do too.
+
 ```bash
 moor releases --app docs
 ```

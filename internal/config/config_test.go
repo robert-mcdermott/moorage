@@ -538,3 +538,19 @@ func TestHSTSWantsTLS(t *testing.T) {
 		t.Errorf("%s", data)
 	}
 }
+
+// A static release's address takes a certificate for that address.
+func TestReleaseURL(t *testing.T) {
+	c := Config{Domain: "apps.example.com", Routing: "host", Listen: Listen{HTTP: ":80", HTTPS: ":443"}, TLS: TLS{Mode: "internal"}, Proxy: Proxy{ExternalScheme: "https"}}
+	if got := c.ReleaseURL("docs", "production", 3); got != "https://docs--production--v3.apps.example.com" {
+		t.Errorf("internal: %q", got)
+	}
+	c.TLS.Mode = "acme"
+	if got := c.ReleaseURL("docs", "production", 3); got != "" {
+		t.Errorf("a certificate for each hostname: %q", got)
+	}
+	c.TLS.ACME.DNS.Provider = "command"
+	if got := c.ReleaseURL("docs", "production", 3); got != "https://docs--production--v3.apps.example.com" {
+		t.Errorf("a wildcard: %q", got)
+	}
+}

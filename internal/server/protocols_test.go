@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/driver/native"
 	"github.com/robert-mcdermott/moorage/internal/testroles"
+	"path/filepath"
 )
 
 func protocolManifest(more string) map[string]string {
@@ -195,4 +198,139 @@ func TestStickySessions(t *testing.T) {
 		now, res := ask("/instance", cookie)
 		return now != instance && cookieOf(res) != nil
 	})
+}
+
+func stickyCookie(res *http.Response) *http.Cookie {
+	for _, c := range res.Cookies() {
+		if strings.HasPrefix(c.Name, "moorage_sticky_") {
+			return c
+		}
+	}
+	return nil
+}
+
+// A computer that restarts: nothing of the apps survives.
+func TestStickyAfterAReboot(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	deployedSource(t, c, "sticky", protocolManifest("sticky = true\ninstances = 2\n"))
+	res, _ := get(t, addrs.HTTP, "sticky.localhost", "/instance")
+	if stickyCookie(res) == nil {
+		t.Fatal("no cookie before the restart")
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	d := native.New(filepath.Join(cfg.DataDir, "run", "shims"), nil, nil)
+	for _, id := range d.List() {
+		if err := d.Stop(id, 10*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addrs, _ = start(t, cfg)
+	c = apiClient(t, cfg, addrs)
+	seen := map[string]bool{}
+	waitUntil(t, "both instances", func() bool {
+		res, body := get(t, addrs.HTTP, "sticky.localhost", "/instance")
+		if res.StatusCode == 200 {
+			seen[body] = true
+		}
+		return len(seen) == 2
+	})
+	res, _ = get(t, addrs.HTTP, "sticky.localhost", "/instance")
+	if stickyCookie(res) == nil {
+		t.Error("sticky = true, and after a reboot no cookie is set")
+	}
+}
+
+// Asleep at a restart, and woken by a request.
+func TestStickyAsleepAcrossARestart(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	deployedSource(t, c, "sticky", protocolManifest("sticky = true\n"))
+	if _, err := c.SleepEnvironment(context.Background(), "sticky", "production"); err != nil {
+		t.Fatal(err)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	addrs, _ = start(t, cfg)
+	res, _ := get(t, addrs.HTTP, "sticky.localhost", "/instance")
+	if stickyCookie(res) == nil {
+		t.Error("sticky = true, woken after a restart, and no cookie is set")
+	}
+}
+
+// A deployment that fails leaves what is running as it was.
+func TestAFailedDeployLeavesStickinessAlone(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	deployedSource(t, c, "sticky", protocolManifest("sticky = true\n"))
+	res, _ := get(t, addrs.HTTP, "sticky.localhost", "/instance")
+	if stickyCookie(res) == nil {
+		t.Fatal("no cookie at first")
+	}
+	files := protocolManifest("sticky = false\n")
+	files["moorage.toml"] += "\n[env]\nTESTAPP_FAIL = \"1\"\n"
+	d, _ := deploySource(t, c, "sticky", files)
+	if d.Status == apitypes.StatusLive {
+		t.Fatal("it was to fail")
+	}
+	res, _ = get(t, addrs.HTTP, "sticky.localhost", "/instance")
+	if stickyCookie(res) == nil {
+		t.Error("the release still running has lost its stickiness to a deployment that failed")
+	}
+}
+
+// A gRPC server, and beside it a process of plain HTTP with a port of its own, through a restart of the server.
+func TestAdoptedProcessesKeepTheirOwnProtocol(t *testing.T) {
+	cfg := testConfig(t)
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	files := map[string]string{"moorage.toml": `[app]
+runtime = "command"
+
+[processes.web]
+command = ` + tomlString("TESTAPP_H2C=1 "+testroles.AppCommand()) + `
+protocol = "h2c"
+health = { path = "/health", interval = "100ms", startup = "30s", threshold = 2 }
+
+[processes.admin]
+command = ` + tomlString(testroles.AppCommand()) + `
+expose = true
+health = { path = "/health", interval = "100ms", startup = "30s", threshold = 2 }
+
+[deploy]
+drain = "1s"
+`}
+	deployedSource(t, c, "mixed", files)
+	time.Sleep(1500 * time.Millisecond)
+	before, err := c.Events(context.Background(), "mixed", "production", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unhealthy := func(list []apitypes.Event) (n int) {
+		for _, e := range list {
+			if e.Type == "instance.unhealthy" {
+				n++
+			}
+		}
+		return n
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	addrs, _ = start(t, cfg)
+	c = apiClient(t, cfg, addrs)
+	time.Sleep(4 * time.Second)
+	after, err := c.Events(context.Background(), "mixed", "production", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unhealthy(after) > unhealthy(before) {
+		t.Errorf("the process that speaks HTTP/1.1 went unhealthy after the server restarted")
+	}
 }
