@@ -1,7 +1,9 @@
 name: CI
 
-# A branch gets CI from its pull request, and main and release branches from pushes, so that one
-# commit does not run it all twice. A draft pull request is enough for work under way.
+# A branch gets CI from its pull request, and main and release branches from pushes. What has passed is not
+# tested again: the job at the end keeps a note of the tree that passed, a later run with the same tree finds it, and only
+# what has not run on it runs (.github/scripts/ci-changes.sh). So merging a pull request that is up to date with main runs
+# only the slower jobs that it did not touch, and tagging that commit does not test it again. A run by hand runs everything.
 on:
   push:
     branches: [main, 'release-*']
@@ -18,11 +20,20 @@ permissions:
 
 jobs:
   changes:
-    # Which of the slower jobs on real systems a pull request needs: those whose files it touches.
-    # Everywhere else, they all run.
+    # What this run needs to do. Everything below waits on this.
     name: What changed
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To read the notes that earlier runs have left.
+      actions: read
     outputs:
+      tree: ${{ steps.look.outputs.tree }}
+      tested: ${{ steps.look.outputs.tested }}
+      code: ${{ steps.look.outputs.code }}
+      docs: ${{ steps.look.outputs.docs }}
+      record: ${{ steps.look.outputs.record }}
+      note: ${{ steps.look.outputs.note }}
       installer: ${{ steps.look.outputs.installer }}
       trust: ${{ steps.look.outputs.trust }}
       service: ${{ steps.look.outputs.service }}
@@ -34,13 +45,41 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: It decides as it should
+        run: .github/scripts/ci-changes-check.sh
       - id: look
         env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        # With bash named, a failure in the script fails this, rather than saying nothing and having nothing run. Jobs run unless told not to.
+        shell: bash
         run: .github/scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+
+  docs:
+    # For a change only to the documentation: what reads it, and the website.
+    name: Documentation
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: The website builds, with no broken links
+        run: node docs/site/build.mjs "$RUNNER_TEMP/site"
+      - name: What the tests read of it
+        run: |
+          go test ./internal/docs ./internal/brand
+          go test ./internal/cli -run 'TestDocumented|TestCommandReference'
+          go test ./internal/api -run 'TestOpenAPIDocument'
 
   test:
     name: Test (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -48,10 +87,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # Linux has the newest stable Go, which releases are built with, and the race detector. The others have
+      # the oldest that go.mod allows. Between them, they test both.
       - uses: actions/setup-go@v5
+        if: runner.os == 'Linux'
         with:
-          # CI tests the minimum Go version in go.mod; releases are built with
-          # the newest stable Go.
+          go-version: stable
+      - uses: actions/setup-go@v5
+        if: runner.os != 'Linux'
+        with:
           go-version-file: go.mod
       - name: Formatting
         if: runner.os == 'Linux'
@@ -68,6 +112,7 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Test
+        if: runner.os != 'Linux'
         run: go test -timeout 15m ./...
       - name: Test with the race detector
         if: runner.os == 'Linux'
@@ -77,6 +122,8 @@ jobs:
     # Builds and deploys every sample app of testdata/apps from source, with
     # toolchains downloaded and verified on each run.
     name: Sample apps (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -96,6 +143,8 @@ jobs:
     # Deploys every app of examples/ with the moor binary, from the app's
     # directory, and checks its pages and its API.
     name: Examples (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -113,6 +162,8 @@ jobs:
     # Runs apps in containers with each engine: the driver on its own, then
     # deploys through a whole server. Hosted Ubuntu runners have both engines.
     name: Containers (${{ matrix.engine }})
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -139,7 +190,7 @@ jobs:
     # rule on macOS. The runner is thrown away afterwards.
     name: Trust (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.trust == 'true'
+    if: needs.changes.outputs.trust != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -159,6 +210,8 @@ jobs:
   proxy:
     # Runs a server behind a real nginx, with the configuration moor writes.
     name: Behind nginx
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -173,6 +226,8 @@ jobs:
   console:
     # Tries the web console in real browsers, against a real server with a real app.
     name: Console (${{ matrix.browser }})
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -200,7 +255,7 @@ jobs:
     # published release, with this code.
     name: Upgrade (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.upgrade == 'true'
+    if: needs.changes.outputs.upgrade != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -218,7 +273,7 @@ jobs:
     # Runs install.sh for real, piped into a shell, against the published releases.
     name: Install (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.installer == 'true'
+    if: needs.changes.outputs.installer != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -240,7 +295,7 @@ jobs:
     # and PowerShell, on x64 and on Windows 11 for ARM.
     name: Install (${{ matrix.os }}, ${{ matrix.shell }})
     needs: changes
-    if: needs.changes.outputs.installer == 'true'
+    if: needs.changes.outputs.installer != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -260,7 +315,7 @@ jobs:
     # it all back, from a directory and from a bucket on a real S3-compatible server.
     name: Restore drill
     needs: changes
-    if: needs.changes.outputs.backup == 'true'
+    if: needs.changes.outputs.backup != 'false'
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: drillaccess
@@ -289,7 +344,7 @@ jobs:
     # collector and a syslog server, each reading what it sends with its own parser, and an ACME server and a DNS server.
     name: Real services
     needs: changes
-    if: needs.changes.outputs.real == 'true'
+    if: needs.changes.outputs.real != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -306,7 +361,7 @@ jobs:
     # apart: their users, their limits and their sandbox (spike S7).
     name: Isolation
     needs: changes
-    if: needs.changes.outputs.isolation == 'true'
+    if: needs.changes.outputs.isolation != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -325,7 +380,7 @@ jobs:
     # with an app under load, and checks the app kept running (spike S2).
     name: Service (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.service == 'true'
+    if: needs.changes.outputs.service != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -343,7 +398,7 @@ jobs:
     # The same on Windows, where a service is another kind of thing.
     name: Service (windows-latest)
     needs: changes
-    if: needs.changes.outputs.service == 'true'
+    if: needs.changes.outputs.service != 'false'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -356,6 +411,8 @@ jobs:
 
   build:
     name: Build all targets without cgo
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -374,6 +431,8 @@ jobs:
 
   vulncheck:
     name: Known vulnerabilities
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -381,3 +440,22 @@ jobs:
         with:
           go-version: stable
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  passed:
+    # Keeps a note that this tree has passed, and with what, so that no later run tests it again. It lasts two weeks, and is only ever a reason to do less.
+    name: All passed
+    needs: [changes, docs, test, samples, examples, containers, trust, proxy, console, upgrade, install-unix, install-windows, backup, real-services, isolation, service, service-windows, build, vulncheck]
+    if: ${{ !cancelled() && needs.changes.outputs.note == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write the note
+        env:
+          TREE: ${{ needs.changes.outputs.tree }}
+          RECORD: ${{ needs.changes.outputs.record }}
+        run: printf 'tree %s passed run %s with %s\n' "$TREE" "$GITHUB_RUN_ID" "$RECORD" > ci-passed.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-passed-${{ needs.changes.outputs.tree }}-${{ needs.changes.outputs.record }}
+          path: ci-passed.txt
+          retention-days: 14
+          overwrite: true

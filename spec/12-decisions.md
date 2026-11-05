@@ -309,6 +309,13 @@ provisional until the corresponding Phase 0 spike reports back.
 - **Alternatives:** by hand, which saves that and takes on two eras of the protocol, cancellation and following each new revision; `mark3labs/mcp-go`, a community project with more dependencies in its server package.
 - **Consequences:** one more module to keep current. The token, and not the tool list, is the boundary, so that tokens gain a limit to previews.
 
+### D23 — CI does not test the same code twice
+
+- **Context:** a pull request ran all of CI, merging it ran all of it again on the same tree, and tagging that commit ran the tests a third time: 31, 31 and 10 minutes for code that had not changed.
+- **Decision:** the last job of a run that passes keeps a note of the tree that passed, as an artifact named for it, with which of the slower jobs ran. A later run with the same tree finds it, and runs only what has not run. A change only to the documentation runs only what reads it. Linux tests the newest Go with the race detector, which is also what the release's tests were for, rather than running the tests twice, and the others test the oldest Go that `go.mod` allows.
+- **Alternatives:** path filters alone, which would still run everything on merge; a cache keyed by the tree, which a pull request's run cannot share with main's; requiring pull requests to be merged without a run on main, which would lose the check when main has moved on, as the tree then differs and it runs in full.
+- **Consequences:** a mistake in deciding would look like tests passing, so the script has a test of its own, it falls back on running more, and a note from a fork's pull request does not count. What a tree needs from its environment can change in the two weeks that a note lasts, such as a runner's image: a run by hand runs everything.
+
 ## Open questions
 
 These change scope or defaults and are best answered by the project owner.
