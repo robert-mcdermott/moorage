@@ -648,7 +648,7 @@ exec "` + e.Bin + `" "$@"
 }
 
 // A daemon that is down says nothing of what it was running, so its instances are not recorded as stopped, and nothing is started to take their place.
-func TestAnEngineThatIsDownAtStart(t *testing.T) {
+func TestContainerEngineDownAtStart(t *testing.T) {
 	e := containerEngine(t)
 	bin, down, calls := wrappedEngine(t, e)
 	cfg := testConfig(t)

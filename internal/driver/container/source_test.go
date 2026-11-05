@@ -34,10 +34,11 @@ const (
 func TestProbe(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/bin"+string(os.PathListSeparator)+"/usr/bin")
+	// Nothing else, so that an engine this machine has is not the one found. What the scripts run is built into a shell.
+	t.Setenv("PATH", dir)
 
 	st := Probe(ctx, "auto")
-	if _, onPath := lookEngines(); !onPath && (st.State != Absent || st.Ready() || !strings.Contains(st.Problem(), "Nothing else needs one")) {
+	if st.State != Absent || st.Ready() || !strings.Contains(st.Problem(), "Nothing else needs one") {
 		t.Errorf("none: %+v", st)
 	}
 	if st := Probe(ctx, "no-such-engine"); st.State != Absent || !strings.Contains(st.Reason, "no-such-engine") {
@@ -64,18 +65,6 @@ func TestProbe(t *testing.T) {
 	}
 }
 
-// lookEngines says whether this machine has an engine of its own that the path used here could find.
-func lookEngines() (string, bool) {
-	for _, d := range []string{"/bin", "/usr/bin"} {
-		for _, n := range []string{"podman", "docker"} {
-			if _, err := os.Stat(filepath.Join(d, n)); err == nil {
-				return filepath.Join(d, n), true
-			}
-		}
-	}
-	return "", false
-}
-
 // A daemon can hang with its socket open, and nothing here should wait for it.
 func TestProbeOfAnEngineThatHangs(t *testing.T) {
 	dir := t.TempDir()
@@ -98,10 +87,7 @@ func TestSource(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/bin"+string(os.PathListSeparator)+"/usr/bin")
-	if _, onPath := lookEngines(); onPath {
-		t.Skip("this machine has an engine of its own on the path that this needs to be empty")
-	}
+	t.Setenv("PATH", dir)
 	var pinned []string
 	drivers := 0
 	s := NewSource(SourceOptions{
