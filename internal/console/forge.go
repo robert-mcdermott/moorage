@@ -51,6 +51,10 @@ func (c *Console) forgeData(r *http.Request, app string, d *data) error {
 	if err != nil {
 		return err
 	}
+	// What went wrong can say where the server looked, and is for those who can do something about it.
+	if !d.Access.Deploy {
+		conn.LastError = ""
+	}
 	view.Connected, view.Conn, view.HookURL, view.HasToken = true, conn, c.hookURL(conn.HookID), len(conn.SealedToken) > 0
 	pulls, err := c.db.ForgePulls(r.Context(), conn.AppID)
 	if err != nil {

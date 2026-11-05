@@ -16,6 +16,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
+	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/names"
@@ -385,7 +386,7 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 	}
 	d.Crumbs = []crumb{{"Apps", "/"}}
 	d.Tab = "overview"
-	view, err := c.appView(r.Context(), app, envOf(r))
+	view, err := c.appView(r.Context(), app, envOf(r), d.Access)
 	if err != nil {
 		c.internal(w, err)
 		return
@@ -409,7 +410,7 @@ func (c *Console) showApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 // recentDeployments is how many the app's page shows.
 const recentDeployments = 5
 
-func (c *Console) appView(ctx context.Context, app, env string) (appView, error) {
+func (c *Console) appView(ctx context.Context, app, env string, access auth.Access) (appView, error) {
 	view := appView{Name: app, URL: c.cfg.EnvURL(app, env), Engine: c.hasEngine()}
 	deps, err := c.db.Deployments(ctx, app, env, recentDeployments+1)
 	if err != nil {
@@ -491,6 +492,9 @@ func (c *Console) appView(ctx context.Context, app, env string) (appView, error)
 		return view, err
 	}
 	for _, e := range list {
+		if !access.Deploy {
+			e = events.WithoutVariables(e)
+		}
 		view.Events = append(view.Events, eventRowOf(e))
 	}
 	return view, nil
@@ -1032,6 +1036,10 @@ func (c *Console) moveApp(w http.ResponseWriter, r *http.Request, p auth.Princip
 	access, err := c.auth.ProjectAccess(r.Context(), p, project)
 	if err != nil {
 		c.internal(w, err)
+		return
+	}
+	if !access.See {
+		c.showAppSettings(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "There is no such project."})
 		return
 	}
 	if !access.Manage {

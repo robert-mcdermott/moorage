@@ -240,7 +240,10 @@ func allowGit(ctx context.Context, authn *auth.Service, p auth.Principal, app st
 	if err != nil {
 		return err
 	}
-	if push && !access.Deploy || !push && !access.See {
+	if !access.See {
+		return gitserver.ErrNoRepository
+	}
+	if push && !access.Deploy {
 		return gitserver.ErrForbidden
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/auth"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -77,6 +78,8 @@ type route struct {
 	multipart bool
 	// query lists the query parameters, with what each one does.
 	query map[string]string
+	// oneApp says that what it answers keeps to the one app that a token may be limited to. Others are refused to such a token.
+	oneApp bool
 }
 
 var pageQuery = map[string]string{
@@ -139,14 +142,14 @@ func (s *Server) routes() []route {
 			}},
 
 		// Container registries.
-		{method: "GET", path: "/notifications", perm: canRead, handler: s.inbox, summary: "What you have been told, newest first", response: apitypes.Inbox{}},
-		{method: "POST", path: "/notifications/read", perm: canRead, handler: s.readInbox, status: http.StatusNoContent, summary: "Mark all you have been told as read"},
-		{method: "GET", path: "/notifications/channels", perm: canRead, handler: s.channels, summary: "List where notifications can go; where each one goes is for administrators", response: []apitypes.NotificationChannel{}},
+		{method: "GET", path: "/notifications", oneApp: true, perm: canRead, handler: s.inbox, summary: "What you have been told, newest first", response: apitypes.Inbox{}},
+		{method: "POST", path: "/notifications/read", perm: canDeploy, handler: s.readInbox, status: http.StatusNoContent, summary: "Mark all you have been told as read"},
+		{method: "GET", path: "/notifications/channels", oneApp: true, perm: canRead, handler: s.channels, summary: "List where notifications can go; where each one goes is for administrators", response: []apitypes.NotificationChannel{}},
 		{method: "POST", path: "/notifications/channels", perm: serverAdmin, handler: s.createChannel, status: http.StatusCreated, summary: "Add a channel; the answer has what signs a webhook, which is not shown again",
 			request: apitypes.NewNotificationChannel{}, response: apitypes.CreatedChannel{}},
 		{method: "DELETE", path: "/notifications/channels/{channel}", perm: serverAdmin, handler: s.deleteChannel, status: http.StatusNoContent, summary: "Remove a channel, and the rules that use it"},
 		{method: "POST", path: "/notifications/channels/{channel}/test", perm: serverAdmin, handler: s.testChannel, summary: "Send a channel a test, and say how it went", response: apitypes.NotificationChannel{}},
-		{method: "GET", path: "/notifications/rules", perm: canRead, handler: s.rules, summary: "List the rules you can see", response: []apitypes.NotificationRule{}},
+		{method: "GET", path: "/notifications/rules", oneApp: true, perm: canRead, handler: s.rules, summary: "List the rules you can see", response: []apitypes.NotificationRule{}},
 		{method: "POST", path: "/notifications/rules", perm: canManage, handler: s.createRule, status: http.StatusCreated, summary: "Add a rule: of the whole server, which takes an admin, or of a project or an app, which takes a maintainer of it",
 			request: apitypes.NewNotificationRule{}, response: apitypes.NotificationRule{}},
 		{method: "DELETE", path: "/notifications/rules/{rule}", perm: canManage, handler: s.deleteRule, status: http.StatusNoContent, summary: "Remove a rule"},
@@ -165,12 +168,12 @@ func (s *Server) routes() []route {
 		{method: "DELETE", path: "/registries/{host}", perm: serverAdmin, handler: s.deleteRegistry, status: http.StatusNoContent, summary: "Forget the credentials of a container registry"},
 
 		// What happens.
-		{method: "GET", path: "/events", perm: canRead, handler: s.listEvents, summary: "List what happened, newest first",
+		{method: "GET", path: "/events", oneApp: true, perm: canRead, handler: s.listEvents, summary: "List what happened, newest first",
 			response: apitypes.Page[apitypes.Event]{}, query: map[string]string{
 				"limit": pageQuery["limit"], "cursor": pageQuery["cursor"],
 				"app": "Only what happened to this app.", "env": "Only what happened to this environment.",
 			}},
-		{method: "GET", path: "/events/stream", perm: canRead, handler: s.streamEvents, summary: "Follow what happens, as server-sent events", sse: apitypes.Event{},
+		{method: "GET", path: "/events/stream", oneApp: true, perm: canRead, handler: s.streamEvents, summary: "Follow what happens, as server-sent events", sse: apitypes.Event{},
 			query: map[string]string{
 				"app": "Only what happens to this app.", "env": "Only what happens to this environment.",
 				"after": "Start after this event's ID, as the Last-Event-ID header also does.",
@@ -184,19 +187,19 @@ func (s *Server) routes() []route {
 		{method: "PATCH", path: "/apps/{app}", perm: canManage, handler: s.changeApp, summary: "Move an app to another project, or rename it, which restarts it", request: apitypes.AppChange{}, response: apitypes.App{}},
 		{method: "DELETE", path: "/apps/{app}", perm: canManage, handler: s.deleteApp, status: http.StatusNoContent, summary: "Delete an app and everything of it; keep_data=true keeps its data directory",
 			query: map[string]string{"keep_data": "true keeps its data directory."}},
-		{method: "GET", path: "/apps", perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},
+		{method: "GET", path: "/apps", oneApp: true, perm: canRead, handler: s.listApps, summary: "List the apps", response: apitypes.Page[apitypes.App]{}, query: pageQuery},
 		{method: "POST", path: "/apps/{app}/envs/{env}/deployments", perm: canDeploy, handler: s.deploy, status: http.StatusCreated, multipart: true,
 			summary: "Deploy uploaded files, creating the app if it does not exist", response: apitypes.Deployment{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/deployments", perm: canRead, handler: s.deployments, summary: "List an environment's deployments, newest first",
 			response: apitypes.Page[apitypes.Deployment]{}, query: pageQuery},
-		{method: "GET", path: "/deployments/{id}", perm: canRead, handler: s.deployment, summary: "Get a deployment", response: apitypes.Deployment{}},
-		{method: "GET", path: "/deployments/{id}/log", perm: canReadLogs, handler: s.deploymentLog, summary: "Stream a deployment's log", stream: apitypes.LogLine{},
+		{method: "GET", path: "/deployments/{id}", oneApp: true, perm: canRead, handler: s.deployment, summary: "Get a deployment", response: apitypes.Deployment{}},
+		{method: "GET", path: "/deployments/{id}/log", oneApp: true, perm: canReadLogs, handler: s.deploymentLog, summary: "Stream a deployment's log", stream: apitypes.LogLine{},
 			query: map[string]string{"follow": "true keeps the stream open until the deployment ends.", "skip": "Leave out this many of the first lines."}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/releases", perm: canRead, handler: s.releases, summary: "List an environment's releases, newest first",
 			response: apitypes.Page[apitypes.Release]{}, query: pageQuery},
-		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}", perm: canRead, handler: s.release, summary: "A release, with what it runs", response: apitypes.ReleaseDetail{}},
+		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}", perm: canRead, handler: s.release, summary: "A release, and, for those who can deploy, its manifest", response: apitypes.ReleaseDetail{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}/releases/{version}/diff/{other}", perm: canRead, handler: s.releaseDiff,
-			summary: "What changed from one release to another; of variables, their names only", response: apitypes.ReleaseDiff{}},
+			summary: "What changed from one release to another; of variables, their names only, and all but whether the build changed is for those who can deploy", response: apitypes.ReleaseDiff{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/rollback", perm: canDeploy, handler: s.rollback, summary: "Serve an earlier release again",
 			request: apitypes.RollbackRequest{}, response: apitypes.Deployment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/redeploy", perm: canDeploy, handler: s.redeploy, status: http.StatusAccepted,
@@ -248,7 +251,7 @@ func (s *Server) routes() []route {
 		{method: "POST", path: "/apps/{app}/envs/{env}/sleep", perm: canDeploy, handler: s.sleep, summary: "Stop an environment's instances until a request wakes it", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/wake", perm: canDeploy, handler: s.wake, summary: "Start an environment that is asleep, and answer when it is ready", response: apitypes.Environment{}},
 		{method: "POST", path: "/apps/{app}/previews", perm: canDeploy, handler: s.createPreview, status: http.StatusAccepted, summary: "Deploy a preview of a branch that was pushed", request: apitypes.NewPreview{}, response: apitypes.Deployment{}},
-		{method: "GET", path: "/previews", perm: canRead, handler: s.previews, summary: "List the previews you can see, of every app", response: []apitypes.Environment{}},
+		{method: "GET", path: "/previews", oneApp: true, perm: canRead, handler: s.previews, summary: "List the previews you can see, of every app", response: []apitypes.Environment{}},
 		{method: "GET", path: "/apps/{app}/envs/{env}", perm: canRead, handler: s.environment, summary: "How an environment stands: its release, formation and instances", response: apitypes.Environment{}},
 		{method: "PATCH", path: "/apps/{app}/envs/{env}", perm: canDeploy, handler: s.changeEnvironment, summary: "Scale an environment: how many instances of which process run",
 			request: apitypes.EnvironmentChange{}, response: apitypes.Environment{}},
@@ -330,9 +333,9 @@ func (s *Server) guard(rt route) http.HandlerFunc {
 				s.internal(w, err)
 				return
 			}
-			if !access.See {
-				// Nothing says whether it exists.
-				problem(w, http.StatusNotFound, "not_found", "There is no app "+app+" that you can see.")
+			// Nothing says whether it exists: an app someone may not see gets the answer that one that is not there gets.
+			if !access.See || access.NoApp && !mutating && names.ValidateApp(app) == nil {
+				problem(w, http.StatusNotFound, "not_found", sentenceOf(fmt.Errorf("no app %q: %w", app, store.ErrNotFound)))
 				return
 			}
 			if msg := roleRefused(rt, access); msg != "" {
@@ -454,6 +457,9 @@ func refused(rt route, p auth.Principal, app string) string {
 	case canRead, canReadLogs:
 		if !p.Can(auth.ScopeRead) {
 			return "This token's scope does not allow reading."
+		}
+		if p.App != "" && app == "" && !rt.oneApp {
+			return "A token restricted to an app cannot do this."
 		}
 	case canDeploy:
 		if !p.Can(auth.ScopeDeploy) {

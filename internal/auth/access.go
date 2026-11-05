@@ -22,6 +22,8 @@ type Access struct {
 	Manage bool
 	// Project is the project it is in.
 	Project store.Project
+	// NoApp says that the app does not exist, and this is what deploying would make of it.
+	NoApp bool
 }
 
 // RoleAdmin is what Access calls a server's administrator.
@@ -72,20 +74,24 @@ func (s *Service) AppAccess(ctx context.Context, p Principal, app string) (Acces
 		return Access{}, nil
 	}
 	project, err := s.DB.AppProject(ctx, app)
-	if errors.Is(err, store.ErrNotFound) {
+	missing := errors.Is(err, store.ErrNotFound)
+	if missing {
 		project, err = s.DB.ProjectByName(ctx, store.DefaultProject)
 	}
 	if err != nil {
 		return Access{}, err
 	}
-	return s.ProjectAccess(ctx, p, project)
+	access, err := s.ProjectAccess(ctx, p, project)
+	access.NoApp = missing
+	return access, err
 }
 
 // Visible returns what tells which apps someone may see, for lists and feeds: one call
-// reads what many questions need. An event about no app is for everyone.
+// reads what many questions need. What is about no app is the server's own business, such as
+// where its backups go, and is for its administrators.
 func (s *Service) Visible(ctx context.Context, p Principal) (func(app string) bool, error) {
 	if p.Local() || p.Admin {
-		return func(app string) bool { return p.CanApp(app) || app == "" }, nil
+		return p.CanApp, nil
 	}
 	projects, err := s.DB.VisibleProjects(ctx, p.UserID)
 	if err != nil {
@@ -96,14 +102,33 @@ func (s *Service) Visible(ctx context.Context, p Principal) (func(app string) bo
 		return nil, err
 	}
 	return func(app string) bool {
-		if app == "" {
-			return true
-		}
-		if !p.CanApp(app) {
+		if app == "" || !p.CanApp(app) {
 			return false
 		}
 		_, ok := projects[apps[app]]
 		return ok
+	}, nil
+}
+
+// Deployable returns what tells which apps someone may deploy, and so see the variables of, for feeds.
+func (s *Service) Deployable(ctx context.Context, p Principal) (func(app string) bool, error) {
+	if !p.Can(ScopeDeploy) {
+		return func(string) bool { return false }, nil
+	}
+	if p.Local() || p.Admin {
+		return p.CanApp, nil
+	}
+	projects, err := s.DB.VisibleProjects(ctx, p.UserID)
+	if err != nil {
+		return nil, err
+	}
+	apps, err := s.DB.AppProjectIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return func(app string) bool {
+		role := projects[apps[app]]
+		return p.CanApp(app) && (role == store.RoleDeployer || role == store.RoleMaintainer)
 	}, nil
 }
 

@@ -1172,6 +1172,13 @@ A product site and full documentation, so that people can find Moorage and try i
    - Not tried: Let's Encrypt itself, which takes a server the internet can reach, and Cloudflare, which takes an account.
 3. **Exposure hardening.** An external penetration test of every public
    surface, and its fixes.
+   - Done (slice 3), short of that test: two close reviews, of what faces the internet and of what a low-privilege account reaches, each against a real server. An open
+     redirect on static sites, a way to pass an identity to apps that fold header names, a cursor that named hidden apps, a viewer reading what a failed
+     deployment printed and what a manifest set, and a token for one app reading its project, are all fixed, with tests that fail without the fixes. `tls.hsts`, on with the
+     `public` preset, and dotfiles kept back on static sites, came of the same reviews. **The outside test has not happened:** it takes someone engaged to do it, and until then
+     [Security](../docs/security.md) says so.
+   - Found by slice 3: a failure's message goes to more people than a command does, so that it no longer quotes one. App names being hostnames, "cannot tell that it exists" could not be
+     kept as it was written, and the documents now say where it stops.
 4. **Protocols.** Cleartext HTTP/2 backends (gRPC); sticky sessions.
    - Done (slice 4): `protocol = "h2c"` on a `web` process, for backends that speak only cleartext HTTP/2: to them, for their health checks, and from
      clients on the plain listener. `sticky = true`, by a cookie of Moorage's that the app does not hear. The drill calls a real gRPC server with a real

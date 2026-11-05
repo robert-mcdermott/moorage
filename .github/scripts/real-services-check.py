@@ -679,9 +679,11 @@ def try_acme():
     shutil.copy(work / "pebble-certs" / "pebble.minica.pem", work / "pebble.minica.pem")
     (work / "pebble.minica.pem").chmod(0o644)
     subprocess.run(["sudo", "sh", "-c", f"echo '127.0.0.1 moorage.{ACME_DOMAIN}' >> /etc/hosts"], check=True)
-    subprocess.Popen([str(bin_dir / "pebble-challtestsrv"), "-defaultIPv4", "127.0.0.1", "-defaultIPv6", "", "-management", "127.0.0.1:8055", "-dns01", "127.0.0.1:8053", "-doh", "", "-http01", "", "-https01", "", "-tlsalpn01", ""],
+    answering = subprocess.Popen([str(bin_dir / "pebble-challtestsrv"), "-defaultIPv4", "127.0.0.1", "-defaultIPv6", "", "-management", "127.0.0.1:8055", "-dnsserver", "127.0.0.1:8053", "-doh", "", "-http01", "", "-https01", "", "-tlsalpn01", ""],
                      stdout=open(work / "chall.log", "ab"), stderr=subprocess.STDOUT)
     time.sleep(1)
+    if answering.poll() is not None:
+        raise SystemExit("the challenge server did not start:\n" + (work / "chall.log").read_text()[-2000:])
     start_pebble()
     site = work / "acme-site"
     site.mkdir()
@@ -793,7 +795,7 @@ finally:
             server.kill()
     if failures:
         print("\n=== the server's log\n" + (work / "server.log").read_text(errors="replace")[-6000:])
-        for extra in sorted(work.glob("*/server.log")) + [work / "pebble.log"]:
+        for extra in sorted(work.glob("*/server.log")) + [work / "pebble.log", work / "chall.log"]:
             if extra.exists():
                 print(f"\n=== {extra}\n" + extra.read_text(errors="replace")[-2500:])
         for c in ("gitea", "gitlab", "otel", "syslog", "bind"):

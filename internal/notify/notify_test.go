@@ -834,3 +834,22 @@ func TestMailSubjectIsEncoded(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// An IPv6 address can stand for an IPv4 one, and is judged as that one.
+func TestAddressesThatStandForOthers(t *testing.T) {
+	control := guardedDialer(nil).Control
+	for _, address := range []string{
+		"127.0.0.1:80", "[::1]:80", "[::ffff:127.0.0.1]:80",
+		"[::7f00:1]:80", "[64:ff9b::7f00:1]:80", "[64:ff9b:1::7f00:1]:80", "[2002:7f00:1::]:80",
+		"[::a9fe:a9fe]:80", "[64:ff9b::a9fe:a9fe]:80", "[2002:a9fe:a9fe::]:80",
+	} {
+		if err := control("tcp", address, nil); err == nil {
+			t.Errorf("%s is allowed", address)
+		}
+	}
+	for _, address := range []string{"8.8.8.8:80", "[2606:4700:4700::1111]:80", "[64:ff9b::808:808]:80", "[2002:808:808::]:80"} {
+		if err := control("tcp", address, nil); err != nil {
+			t.Errorf("%s: %v", address, err)
+		}
+	}
+}

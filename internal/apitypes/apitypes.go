@@ -779,13 +779,13 @@ type EnvironmentChange struct {
 // ReleaseDetail is a release, with what it runs.
 type ReleaseDetail struct {
 	Release
-	// Manifest says in plain words what the release does; Plan is the same as data.
+	// Manifest says in plain words what the release does; Plan is the same as data. They are for those who can deploy.
 	Manifest string          `json:"manifest"`
 	Plan     json.RawMessage `json:"plan"`
 }
 
 // ReleaseDiff says what changed from one release to another. Of the variables it says
-// which ones, never their values.
+// which ones, never their values. Those who cannot deploy see only whether the build changed.
 type ReleaseDiff struct {
 	From         int        `json:"from"`
 	To           int        `json:"to"`

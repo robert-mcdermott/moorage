@@ -91,8 +91,12 @@ hosting needs VM-level isolation and is out of scope.
 
 Apps belong to exactly one **project**. Small installations can use the default project,
 in which everyone is a maintainer until an administrator says otherwise. A project can give
-everyone who is not a member a role, or none, in which case they cannot tell that its apps
-exist: the API answers 404, and lists and feeds leave them out. Token scopes narrow what a
+everyone who is not a member a role, or none, in which case they see nothing of it: the API, the
+console and git answer as they would for what is not there, and lists and feeds leave it out. An app's
+name is a hostname, shared by the whole server, so that taking a name that is taken says so, and an
+address answers anyone who can reach it. What the server does on its own account, such as a backup,
+is for administrators. A token limited to one app is refused what has no app in it, but for what keeps to
+that app by itself. Token scopes narrow what a
 token can do, whatever its owner's role: `read` the first two rows below, `deploy` up to the
 fourth, and `admin` the rest.
 
@@ -105,7 +109,12 @@ fourth, and `admin` the rest.
 | Manage variables and secrets, domains, gates, resource limits, members; delete apps | | | ✓ | ✓ |
 | Server settings, users, all projects, audit log | | | | ✓ |
 
-¹ Configurable per project, because logs can contain sensitive data.
+¹ Configurable per project, because logs can contain sensitive data. That takes in what a failed
+deployment printed and the commands that people have run.
+
+Those without deploy access do not see a release's manifest, as that can set variables, or
+which variables changed. Messages about a failed command say how it ended and not what it was, since
+more people read those than can read the command.
 
 `auth.Service.AppAccess` is the one place that says what someone may do with an app. The
 API's routes each declare the permission they need, in one table, and a test enumerates
@@ -160,7 +169,8 @@ what its answer does not allow. Git asks it for every push and clone, over SSH a
   mirrors) refuse loopback, link-local and metadata addresses unless an admin
   allows specific ranges. Notifications check the address as they connect, so that
   a name cannot resolve to one thing and then another, follow no redirects, say
-  nothing of an address in their errors, and take `[notifications] allow`.
+  what they tried only to those who can change where they go, and take `[notifications] allow`. An IPv6 address that
+  stands for an IPv4 one is judged as that one.
 
 ## App isolation
 

@@ -247,6 +247,14 @@ func thresholdWords(metric string) (name, unit string) {
 	return metric, ""
 }
 
+// WithoutVariables leaves out which variables changed, which takes being able to deploy an app to know.
+func WithoutVariables(e store.Event) store.Event {
+	if e.Type == ConfigChanged {
+		e.Data = nil
+	}
+	return e
+}
+
 // Summary says in a few words what happened, without saying where: a timeline
 // shows the app beside it.
 func Summary(e store.Event) string {
@@ -297,6 +305,9 @@ func Summary(e store.Event) string {
 		return processName(e) + " was lost, and is being replaced"
 	case ConfigChanged:
 		changed := append(append([]string{}, names(e, "set")...), names(e, "unset")...)
+		if len(changed) == 0 {
+			return "Variables changed" + by
+		}
 		return "Variables changed" + by + ": " + strings.Join(changed, ", ")
 	case ScaleChanged:
 		return "Scaled to " + text(e, "formation") + by

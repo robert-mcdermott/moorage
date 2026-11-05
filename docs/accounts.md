@@ -100,11 +100,14 @@ Apps belong to projects, and people have roles in projects:
 |---|:-:|:-:|:-:|:-:|
 | See the app, its status and its deployments | ✓ | ✓ | ✓ | ✓ |
 | Read its logs | ✓ | ✓ | ✓ | ✓ |
-| Deploy, restart, roll back and scale; see its variables, but not secrets | | ✓ | ✓ | ✓ |
+| Deploy, restart, roll back and scale; see its variables and its manifest, but not secrets | | ✓ | ✓ | ✓ |
 | Change its variables, reveal secrets, move it; manage the project's members | | | ✓ | ✓ |
 | Make projects, manage users and the server; read the audit log | | | | ✓ |
 
-Someone with no role in a project cannot tell its apps exist.
+Someone with no role in a project sees nothing of it. Its apps are in no list or feed, and the API, the console and `git` answer as
+they would for an app that is not there. It has two limits. An app's name is shared with the whole server, since it is a hostname,
+so that someone who tries to take a name finds out that it is taken. And an app's address answers whoever can reach the server, if
+only to say that there is a gate there.
 
 Every server starts with one project, `default`, in which everyone is a maintainer: nothing
 changes until you say so. So a team that trusts each other needs do nothing. To keep an
@@ -128,7 +131,8 @@ moor apps move shop --project payments
 
 `moor projects set NAME --everyone viewer` gives everyone else a role, and `--everyone none`
 takes it away, which you can do to `default` too. `--viewers-see-logs=false` keeps logs from
-viewers, because logs can hold what they should not see. A first deployment makes its app
+viewers, because logs can hold what they should not see. That goes for what a failed deployment printed and the commands that
+people have run, too. A first deployment makes its app
 in `default`, which takes a role there.
 
 A token can do no more than its owner, and its scope can narrow that further: a token with

@@ -282,7 +282,7 @@ func TestTerminalIsForThoseWhoMay(t *testing.T) {
 	owner := signIn(t, cfg, addrs)
 	ctx := context.Background()
 
-	if _, err := c.Terminal(ctx, "nothing", "production", client.TerminalOptions{Command: "true"}); status(err) != http.StatusConflict {
+	if _, err := c.Terminal(ctx, "nothing", "production", client.TerminalOptions{Command: "true"}); status(err) != http.StatusNotFound {
 		t.Errorf("an app that is not there: %v", err)
 	}
 	if _, err := c.CreateApp(ctx, "empty", ""); err != nil {

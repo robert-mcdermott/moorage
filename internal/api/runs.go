@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/auth"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
@@ -23,6 +24,14 @@ func runDoc(r store.Run) apitypes.Run {
 		doc.ExitCode = &code
 	}
 	return doc
+}
+
+// runDocFor leaves out a command from those kept from its logs: what someone typed can say as much as what it wrote.
+func runDocFor(access auth.Access, r store.Run) apitypes.Run {
+	if !access.Logs {
+		r.Command, r.Error = "", ""
+	}
+	return runDoc(r)
 }
 
 func (s *Server) runFailed(w http.ResponseWriter, err error) bool {
@@ -45,15 +54,23 @@ func (s *Server) cronJobs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	access, err := s.auth.AppAccess(r.Context(), who(r), app)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	jobs, err := s.deployer.CronJobs(r.Context(), app, env)
 	if s.runFailed(w, err) {
 		return
 	}
 	docs := make([]apitypes.CronJob, 0, len(jobs))
 	for _, j := range jobs {
+		if !access.Logs {
+			j.Command = ""
+		}
 		doc := apitypes.CronJob{Name: j.Name, Schedule: j.Schedule, Command: j.Command, Timezone: j.Timezone, Overlap: j.Overlap, Timeout: j.Limit().String(), Next: j.Next}
 		if j.Last != nil {
-			last := runDoc(*j.Last)
+			last := runDocFor(access, *j.Last)
 			doc.Last = &last
 		}
 		docs = append(docs, doc)
@@ -78,13 +95,18 @@ func (s *Server) runs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	access, err := s.auth.AppAccess(r.Context(), who(r), app)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	list, err := s.db.Runs(r.Context(), app, env, r.URL.Query().Get("job"), 100)
 	if s.runFailed(w, err) {
 		return
 	}
 	docs := make([]apitypes.Run, 0, len(list))
 	for _, run := range list {
-		docs = append(docs, runDoc(run))
+		docs = append(docs, runDocFor(access, run))
 	}
 	writeJSON(w, http.StatusOK, docs)
 }
@@ -115,11 +137,16 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) run(w http.ResponseWriter, r *http.Request) {
+	access, err := s.auth.AppAccess(r.Context(), who(r), r.PathValue("app"))
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	run, err := s.db.Run(r.Context(), r.PathValue("app"), r.PathValue("id"))
 	if s.runFailed(w, err) {
 		return
 	}
-	writeJSON(w, http.StatusOK, runDoc(run))
+	writeJSON(w, http.StatusOK, runDocFor(access, run))
 }
 
 func (s *Server) stopRun(w http.ResponseWriter, r *http.Request) {

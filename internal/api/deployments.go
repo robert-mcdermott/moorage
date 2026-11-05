@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"context"
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/ids"
@@ -53,6 +54,11 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 		}
 		created, id = time.UnixMilli(ms), rest
 	}
+	access, err := s.auth.AppAccess(r.Context(), who(r), app)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
 	deps, err := s.db.DeploymentsBefore(r.Context(), app, env, created, id, limit+1)
 	if errors.Is(err, store.ErrNotFound) {
 		problem(w, http.StatusNotFound, "not_found", err.Error())
@@ -68,6 +74,10 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 			last := deps[i-1]
 			page.NextCursor = encodeCursor(strconv.FormatInt(last.CreatedAt.UnixMilli(), 10) + "/" + last.ID)
 			break
+		}
+		// What its release command said is a log, and may be kept from viewers.
+		if !access.Logs {
+			d.Output = nil
 		}
 		page.Items = append(page.Items, s.deploymentDoc(d))
 	}
@@ -98,6 +108,9 @@ func (s *Server) lookupDeployment(w http.ResponseWriter, r *http.Request) (store
 	if !access.See {
 		problem(w, http.StatusNotFound, "not_found", "There is no deployment "+id+".")
 		return d, false
+	}
+	if !access.Logs {
+		d.Output = nil
 	}
 	return d, true
 }
@@ -155,7 +168,11 @@ func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	_, err = s.deployer.Follow(r.Context(), d.ID, func(l logs.Line) error {
+	// What stays open must end when whoever opened it may no longer read it. The route names no app to look at again, and this does.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	go s.watchAccess(ctx, cancel, r.Clone(ctx), route{perm: canReadLogs}, d.App)
+	_, err = s.deployer.Follow(ctx, d.ID, func(l logs.Line) error {
 		if err := write(l); err != nil {
 			return err
 		}
@@ -164,7 +181,7 @@ func (s *Server) deploymentLog(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-	if err != nil && r.Context().Err() == nil {
+	if err != nil && ctx.Err() == nil {
 		s.log.Error("follow a deployment log", "deployment", d.ID, "err", err)
 	}
 }

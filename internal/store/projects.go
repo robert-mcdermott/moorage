@@ -365,8 +365,9 @@ func (db *DB) MoveApp(ctx context.Context, app, project string) error {
 	})
 }
 
-// DeleteApp removes an app, and with it its environments, variables, releases, builds and
-// deployments. Events and the audit log keep what happened, by name.
+// DeleteApp removes an app, and with it its environments, variables, releases, builds,
+// deployments and events: what can be seen of an app goes by its name, and another app may take that name, in a project with
+// other people in it. The audit log, which only administrators read, keeps what happened.
 func (db *DB) DeleteApp(ctx context.Context, name string) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
 		var id string
@@ -380,6 +381,9 @@ func (db *DB) DeleteApp(ctx context.Context, name string) error {
 		// The environment names its release, which names its environment: that way round
 		// is the one a cascade cannot do.
 		if _, err := tx.ExecContext(ctx, `UPDATE environments SET current_release_id = NULL WHERE app_id = ?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE app = ?`, name); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM apps WHERE id = ?`, id)

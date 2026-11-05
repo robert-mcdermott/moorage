@@ -16,11 +16,20 @@
 
 ### Changed
 
+- **Viewers see what the table of roles says, and no more.** A release's manifest and which variables changed, in the API, the console and the activity feed, are for those who can deploy. `--viewers-see-logs=false` now also keeps back what a failed deployment printed and the commands that people ran.
+- **A token limited to one app is limited to it.** It is refused projects and their members, as it should have been. A token that can only read can no longer mark notifications as read.
+- **What a project hides looks like what is not there.** The API, the console and `git` give the same answer for an app or a project someone has no role in as for one that does not exist, and reading a missing app now always answers 404, where a few routes gave an empty list or a 409. [Accounts](docs/accounts.md#projects-and-roles) says where that stops.
+- **What the server does on its own account is for administrators:** backups, certificates, disk space and starting up are no longer in everyone's activity.
+- **Deleting an app deletes its events,** so that whoever takes its name, perhaps in another project, does not inherit them. The audit log keeps what happened.
+- **A failed build or release command says how it ended and not what it was,** as more people read that than can read the command. The log still says.
 - **A static site no longer serves files and directories whose names start with a dot,** such as a `.env` or `.git` left in the directory, except `.well-known`. `dotfiles = true` under `[static]` serves them as before.
 - **`moor forge connect` checks a token with the forge,** and refuses one that it does not accept, or that cannot see the repository, and says so, leaving what was there as it was. Before, a bad token was taken, and found out from the first pull request. A forge that cannot answer at that moment is no reason to refuse.
 
 ### Fixed
 
+- **The list of apps could name those you cannot see.** Its cursor came from the next app, whoever's it was, so that going through the list one at a time read off every name on the server. Pages now end at what you can see, and do not come up short.
+- **An open log could outlast a role.** Following a deployment's log now ends within a minute of losing the right to read it, as other streams do.
+- **The address guard took some IPv6 addresses at face value.** `::7f00:1`, `64:ff9b::7f00:1` and `2002:7f00:1::` all stand for `127.0.0.1` on some networks, and are now judged as that.
 - **An open redirect on static sites.** A path with a backslash in it, such as `/%5Cevil.example//`, was redirected to `/\evil.example/`, which browsers read as another site. A link on your domain could send someone anywhere. Such a path is now not found, as is one with a control character.
 - **A way to pass an identity to some apps.** A client could send `X.Moorage.User`, which an app served through CGI or the like reads as `X-Moorage-User`, the header Moorage uses to say who signed in. Every spelling of the platform's headers is now removed: underscores already were, and dots and the rest now are.
 - Renaming an app on Windows waits longer for a virus scanner to finish with its builds: six seconds was sometimes too few.

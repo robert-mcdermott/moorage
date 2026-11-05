@@ -63,7 +63,11 @@ func runStatus(s string) status {
 	return status{sentence(s), ""}
 }
 
-func runRowOf(r store.Run) runRow {
+// runRowOf leaves out a command from those kept from its logs: what someone typed can say as much as what it wrote.
+func runRowOf(r store.Run, access auth.Access) runRow {
+	if !access.Logs {
+		r.Command, r.Error = "", ""
+	}
 	row := runRow{ID: r.ID, Job: r.Job, Command: r.Command, By: r.CreatedBy, Status: runStatus(r.Status), At: r.StartedAt}
 	if !r.FinishedAt.IsZero() && r.Status != store.RunSkipped {
 		row.Took = r.FinishedAt.Sub(r.StartedAt).Round(100 * time.Millisecond).String()
@@ -101,9 +105,12 @@ func (c *Console) showCron(w http.ResponseWriter, r *http.Request, p auth.Princi
 			return
 		}
 		for _, j := range jobs {
+			if !d.Access.Logs {
+				j.Command = ""
+			}
 			row := cronRow{Name: j.Name, Schedule: j.Schedule, Command: j.Command, Timezone: j.Timezone, Next: j.Next}
 			if j.Last != nil {
-				last := runRowOf(*j.Last)
+				last := runRowOf(*j.Last, d.Access)
 				row.Last = &last
 			}
 			view.Jobs = append(view.Jobs, row)
@@ -115,7 +122,7 @@ func (c *Console) showCron(w http.ResponseWriter, r *http.Request, p auth.Princi
 		return
 	}
 	for _, run := range runs {
-		view.Runs = append(view.Runs, runRowOf(run))
+		view.Runs = append(view.Runs, runRowOf(run, d.Access))
 		d.Poll = d.Poll || !run.Finished()
 	}
 	d.Cron = view
@@ -155,7 +162,10 @@ func (c *Console) runPage(w http.ResponseWriter, r *http.Request) {
 		d.Tab = "console"
 	}
 	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, run.Env)}
-	view := &runView{runRow: runRowOf(run), Version: run.Version, Error: run.Error, Running: !run.Finished()}
+	view := &runView{runRow: runRowOf(run, d.Access), Version: run.Version, Error: run.Error, Running: !run.Finished()}
+	if !d.Access.Logs {
+		view.Error = ""
+	}
 	if run.HasExit {
 		view.Exit = fmt.Sprintf("exit status %d", run.ExitCode)
 	}
