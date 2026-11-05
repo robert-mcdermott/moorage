@@ -135,6 +135,8 @@ type TLS struct {
 	Certificates []Certificate `toml:"certificates"`
 	// ACME says where certificates come from with "acme".
 	ACME ACME `toml:"acme"`
+	// HSTS tells browsers to use nothing but HTTPS here from now on, for each hostname that says so.
+	HSTS bool `toml:"hsts"`
 }
 
 // LetsEncrypt is the directory that ACME certificates come from, unless one is named.
@@ -504,6 +506,9 @@ func (c Config) Validate() error {
 		add("tls.ca_cert and tls.ca_key apply only to tls.mode \"internal\"")
 	}
 	c.validateACME(add)
+	if c.TLS.HSTS && c.TLS.Mode == "off" {
+		add("tls.hsts needs Moorage to terminate TLS: behind a proxy, the proxy sends it")
+	}
 	if c.TLS.Mode == "files" && len(c.TLS.Certificates) == 0 {
 		add("tls.mode \"files\" needs at least one [[tls.certificates]] entry with cert and key")
 	}

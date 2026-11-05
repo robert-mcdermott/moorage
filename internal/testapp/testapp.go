@@ -136,7 +136,7 @@ func handler() http.Handler {
 	})
 	mux.HandleFunc("/path", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, r.URL.Path) })
 	mux.HandleFunc("/headers", func(w http.ResponseWriter, r *http.Request) {
-		for _, h := range []string{"Cookie", "Authorization", "X-Moorage-User", "X-Moorage-User-Email", "X-Moorage-User-Name", "X-Moorage-Proxy-Token", "X_moorage_user", "X-Real-Ip", "X-Forwarded-Prefix", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Request-Id"} {
+		for _, h := range []string{"Cookie", "Authorization", "X-Moorage-User", "X-Moorage-User-Email", "X-Moorage-User-Name", "X-Moorage-Proxy-Token", "X_moorage_user", "X.moorage.user", "X.real.ip", "X-Real-Ip", "X-Forwarded-Prefix", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Request-Id"} {
 			fmt.Fprintf(w, "%s: %s\n", h, r.Header.Get(h))
 		}
 		fmt.Fprintf(w, "Host: %s\n", r.Host)

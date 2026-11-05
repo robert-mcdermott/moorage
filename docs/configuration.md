@@ -51,6 +51,7 @@ sudo moor server init --preset public --domain apps.example.com --email ops@exam
 | `listen.https` | | `:443` | | `:443` |
 | `listen.ssh` | `127.0.0.1:2222` | `:2222` | `:2222` | `:2222` |
 | `tls.mode` | `off` | `internal` | `off` | `acme` |
+| `tls.hsts` | | | | `true` |
 | `access.named`, `access.preview` | `public`, `login` | `public`, `login` | `public`, `login` | `login`, `login` |
 | `proxy.trusted` | | | `127.0.0.1`, `::1` | |
 | `proxy.external_scheme` | `http` | `https` | `https` | `https` |
@@ -112,6 +113,7 @@ See [TLS and trusting the server](tls.md).
 |---|---|---|
 | `mode` | `"internal"` with `listen.https`, otherwise `"off"` | `internal`: certificates from Moorage's own CA, or from an intermediate of yours. `files`: certificates you provide. `acme`: certificates from a public CA or an internal ACME server. `off`: plain HTTP, such as behind a proxy. |
 | `ca_cert`, `ca_key` | | With `internal`, an intermediate CA issued by your company's, so that its certificates are already trusted. Without them, Moorage makes its own root. |
+| `hsts` | `false` | Tells browsers to use nothing but HTTPS for each hostname here: see [Staying on HTTPS](tls.md#staying-on-https). |
 
 `[[tls.certificates]]`, once for each, with `mode = "files"`:
 

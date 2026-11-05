@@ -619,7 +619,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		if acmeCerts != nil {
 			httpHandler = acmeCerts.HTTPChallenges(httpHandler)
 		}
-		httpsSrv := newHTTPServer(router, errorLog)
+		var tlsHandler http.Handler = router
+		if cfg.TLS.HSTS {
+			tlsHandler = ingress.HSTS(router)
+		}
+		httpsSrv := newHTTPServer(tlsHandler, errorLog)
 		httpsSrv.TLSConfig = tlsConfig
 		servers = append(servers, httpsSrv)
 		go func() { served <- httpsSrv.ServeTLS(httpsLn, "", "") }()

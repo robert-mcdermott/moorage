@@ -225,6 +225,7 @@ without a `start` script).
 | `not_found` | `"404.html"`, when there is one | The page served, with status 404, for paths that are not files. |
 | `trailing_slash` | `"auto"` | `auto` (directories end in a slash, pages do not), `always` or `never`. |
 | `listing` | `false` | Lists the files of directories without an `index.html`. |
+| `dotfiles` | `false` | Serves files and directories whose names start with a dot. `.well-known` is served either way. |
 
 `[[static.headers]]` adds headers to the paths that match `for`:
 

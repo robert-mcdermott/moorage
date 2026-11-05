@@ -100,5 +100,8 @@ immutable, HTML is revalidated, and pre-compressed `.br` and `.gz` files are
 served to browsers that accept them. `listing = true` lists directories, for
 file shares.
 
+Files and directories whose names start with a dot are as good as absent, since `.env` and `.git` are far more
+often left behind than meant to be served. `.well-known` is the exception, and `dotfiles = true` serves the others.
+
 A complete site: the [Handbook example](../examples/static-site), with clean
 URLs, a 404 page, headers and redirects.

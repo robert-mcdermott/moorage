@@ -498,6 +498,9 @@ func TestPublicPreset(t *testing.T) {
 	if c.Access.Production != "public" || c.Access.Named != "login" || c.Access.Preview != "login" {
 		t.Errorf("what is not production is not behind a sign-in: %+v", c.Access)
 	}
+	if !c.TLS.HSTS {
+		t.Errorf("a server on the internet does not ask browsers to stay on HTTPS: %+v", c.TLS)
+	}
 	// What it writes is what it means.
 	data, err := Render(c, "public")
 	if err != nil {
@@ -511,7 +514,27 @@ func TestPublicPreset(t *testing.T) {
 	if err := back.Validate(); err != nil {
 		t.Fatalf("%v\n%s", err, data)
 	}
-	if back.TLS.ACME.Email != "ops@example.com" || !back.TLS.ACME.AgreeTerms || back.Access.Named != "login" {
+	if back.TLS.ACME.Email != "ops@example.com" || !back.TLS.ACME.AgreeTerms || back.Access.Named != "login" || !back.TLS.HSTS {
 		t.Errorf("%+v\n%s", back, data)
+	}
+}
+
+func TestHSTSWantsTLS(t *testing.T) {
+	c, err := Preset("local", PresetOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.TLS.HSTS = true
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "tls.hsts") {
+		t.Errorf("with TLS off: %v", err)
+	}
+	// The others do not ask for it, and do not write it.
+	c.TLS.HSTS = false
+	data, err := Render(c, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "hsts") {
+		t.Errorf("%s", data)
 	}
 }

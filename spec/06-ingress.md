@@ -151,7 +151,8 @@ behind your own TLS proxy. ACME arrives with internet-facing support.
   notifications.
 - HTTP→HTTPS redirects are on whenever Moorage terminates TLS (behind a proxy,
   the proxy does this). HSTS is off by default (internal domains are often
-  shared with other services) and can be enabled.
+  shared with other services), on with the `public` preset, and can be enabled. It covers
+  only the hostname that answers, and an app's own header wins.
 
 ## Access gates
 

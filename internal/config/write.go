@@ -81,7 +81,7 @@ func Preset(name string, o PresetOptions) (Config, error) {
 		c = Config{
 			Domain: o.Domain,
 			Listen: Listen{HTTP: ":80", HTTPS: ":443", SSH: ":2222"},
-			TLS:    TLS{Mode: "acme", ACME: ACME{Email: o.Email, AgreeTerms: o.AgreeTerms, Directory: o.Directory}},
+			TLS:    TLS{Mode: "acme", HSTS: true, ACME: ACME{Email: o.Email, AgreeTerms: o.AgreeTerms, Directory: o.Directory}},
 			Proxy:  Proxy{ExternalScheme: "https"},
 			// What is not production is work in progress: strangers get a sign-in, and not the work.
 			Access: Access{Production: "public", Named: "login", Preview: "login"},
@@ -240,6 +240,10 @@ dns   = {{q .Listen.DNS}}   # answers for the domain on loopback (moor server re
 #   "off"       plain HTTP, for example behind a TLS-terminating proxy such
 #               as nginx (also set [proxy] below).
 mode = {{q .TLS.Mode}}
+{{- if .TLS.HSTS}}
+# Tells browsers to use nothing but HTTPS for each hostname here, for a year after they last saw it.
+hsts = true
+{{- end}}
 {{- if .TLS.CACert}}
 ca_cert = {{q .TLS.CACert}}
 ca_key  = {{q .TLS.CAKey}}

@@ -268,18 +268,24 @@ func isDialError(err error) bool {
 	return errors.As(err, &op) && op.Op == "dial"
 }
 
-// setForwarded sets the X-Forwarded-* family on a proxied request. Headers
-// a client sent are kept only when it is a trusted proxy; anything else
-// could be forged. X-Moorage-* headers from clients are always removed.
-// platformHeader says whether a client's header is one that only Moorage may send, as an app would
-// read it: some ways of serving apps take an underscore for a dash, and would hear X_Moorage_User
-// as X-Moorage-User.
+// platformHeader says whether a client's header is one that only Moorage may send, as an app would read it: some ways of serving
+// apps, CGI among them, make one name of X-Moorage-User, X_Moorage_User and X.Moorage.User, so that anything but a letter or a digit counts
+// as a dash here.
 func platformHeader(name string) bool {
-	norm := strings.ToLower(strings.ReplaceAll(name, "_", "-"))
+	norm := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + 'a' - 'A'
+		}
+		return '-'
+	}, name)
 	if strings.HasPrefix(norm, "x-moorage-") {
 		return true
 	}
-	if !strings.Contains(name, "_") {
+	// As they are spelled, these are looked after where they are read.
+	if norm == strings.ToLower(name) {
 		return false
 	}
 	switch norm {
@@ -289,6 +295,9 @@ func platformHeader(name string) bool {
 	return false
 }
 
+// setForwarded sets the X-Forwarded-* family on a proxied request. Headers
+// a client sent are kept only when it is a trusted proxy; anything else
+// could be forged. X-Moorage-* headers from clients are always removed.
 func setForwarded(pr *httputil.ProxyRequest, trusted []netip.Prefix) {
 	in, out := pr.In, pr.Out
 	client := remoteIP(in.RemoteAddr)

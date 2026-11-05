@@ -69,6 +69,7 @@
         "not_found": { "description": "Page served with status 404; defaults to 404.html when present.", "type": "string" },
         "trailing_slash": { "description": "How trailing slashes are handled.", "enum": ["auto", "always", "never"], "default": "auto" },
         "listing": { "description": "Generate directory listings.", "type": "boolean", "default": false },
+        "dotfiles": { "description": "Serve files and directories whose names start with a dot; .well-known is served either way.", "type": "boolean", "default": false },
         "headers": {
           "description": "Response headers for paths matching a pattern.",
           "type": "array",

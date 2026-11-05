@@ -23,7 +23,10 @@ type Static struct {
 	// "always" or "never".
 	TrailingSlash string `toml:"trailing_slash" json:"trailing_slash,omitempty"`
 	// Listing generates directory listings.
-	Listing   bool         `toml:"listing" json:"listing,omitempty"`
+	Listing bool `toml:"listing" json:"listing,omitempty"`
+	// Dotfiles serves files and directories whose names start with a dot, which are otherwise as good as absent.
+	// .well-known is served either way.
+	Dotfiles  bool         `toml:"dotfiles" json:"dotfiles,omitempty"`
 	Headers   []HeaderRule `toml:"headers" json:"headers,omitempty"`
 	Redirects []Redirect   `toml:"redirects" json:"redirects,omitempty"`
 }

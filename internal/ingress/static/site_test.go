@@ -341,3 +341,70 @@ func TestGlobMatch(t *testing.T) {
 		}
 	}
 }
+
+// A browser reads a backslash as a slash and leaves out tabs and newlines, so that a redirect to any of these would be a
+// redirect to another site.
+func TestNoRedirectOffTheSite(t *testing.T) {
+	s := site(t, basic, manifest.Static{})
+	for _, target := range []string{"/%5Cevil.example//", "/%5C%5Cevil.example/", "/a/..%5Cevil.example//", "/%09/evil.example//", "/%0A/evil.example//", "/%7F/evil.example//"} {
+		res := get(s, target)
+		if res.code != http.StatusNotFound || res.header.Get("Location") != "" {
+			t.Errorf("%s: %d, to %q", target, res.code, res.header.Get("Location"))
+		}
+	}
+	// What the clean path is stays on the site.
+	if res := get(s, "//evil.example//"); res.code != http.StatusMovedPermanently || res.header.Get("Location") != "/evil.example/" {
+		t.Errorf("two slashes: %d, to %q", res.code, res.header.Get("Location"))
+	}
+}
+
+func TestDotfiles(t *testing.T) {
+	files := map[string]string{
+		"index.html":                 "home",
+		"pages/about.html":           "about",
+		".env":                       "SECRET=1",
+		".git/config":                "[core]",
+		"assets/.DS_Store":           "junk",
+		".well-known/security.txt":   "Contact: ops@example.com",
+		".well-known/.not-for-you":   "hidden",
+		"shelf/.hidden":              "hidden",
+		"shelf/.drawer/note.txt":     "hidden",
+		"shelf/visible.txt":          "shown",
+		"shelf/.well-known/here.txt": "shown",
+	}
+	rules := manifest.Static{Listing: true, Redirects: []manifest.Redirect{
+		{From: "/.old", To: "/pages/about", Status: 301},
+		{From: "/p/:name", To: "/:name", Status: 200},
+	}}
+	s := site(t, files, rules)
+	for _, target := range []string{"/.env", "/.git/config", "/.git/", "/assets/.DS_Store", "/.well-known/.not-for-you", "/shelf/.hidden", "/shelf/.drawer/note.txt", "/p/.env"} {
+		if res := get(s, target); res.code != http.StatusNotFound || strings.Contains(res.body, "SECRET") {
+			t.Errorf("%s: %d %q", target, res.code, res.body)
+		}
+	}
+	if res := get(s, "/.well-known/security.txt"); res.code != http.StatusOK {
+		t.Errorf(".well-known is meant to be found: %d", res.code)
+	}
+	if res := get(s, "/shelf/visible.txt"); res.code != http.StatusOK {
+		t.Errorf("an ordinary file: %d", res.code)
+	}
+	if res := get(s, "/.old"); res.code != http.StatusMovedPermanently {
+		t.Errorf("a rule the site wrote still applies: %d", res.code)
+	}
+	listed := get(s, "/shelf/").body
+	if strings.Contains(listed, ".hidden") || strings.Contains(listed, ".drawer") || !strings.Contains(listed, "visible.txt") || !strings.Contains(listed, ".well-known") {
+		t.Errorf("the listing: %s", listed)
+	}
+
+	// A site can say that it means them.
+	rules.Dotfiles = true
+	s = site(t, files, rules)
+	for target, want := range map[string]string{"/.env": "SECRET=1", "/assets/.DS_Store": "junk", "/p/.env": "SECRET=1"} {
+		if res := get(s, target); res.code != http.StatusOK || res.body != want {
+			t.Errorf("%s with dotfiles: %d %q", target, res.code, res.body)
+		}
+	}
+	if listed := get(s, "/shelf/").body; !strings.Contains(listed, ".hidden") {
+		t.Errorf("the listing with dotfiles: %s", listed)
+	}
+}

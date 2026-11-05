@@ -301,7 +301,7 @@ func TestGatesAgainstClients(t *testing.T) {
 	// What is only Moorage's cannot be said to the app, however it is spelled, and it is told
 	// what shows that the request came through here.
 	setGate(t, c, "shop", "production", apitypes.AccessChange{Mode: "public", Allow: new([]string{})})
-	_, heard := send(map[string]string{"X_Moorage_User": "boss", "X-Moorage-User": "boss", "X_Real_IP": "9.9.9.9", "X-Moorage-Proxy-Token": "made-up"}, "/headers")
+	_, heard := send(map[string]string{"X_Moorage_User": "boss", "X.Moorage.User": "boss", "X-Moorage-User": "boss", "X_Real_IP": "9.9.9.9", "X.Real.IP": "9.9.9.9", "X-Moorage-Proxy-Token": "made-up"}, "/headers")
 	if strings.Contains(heard, "boss") || strings.Contains(heard, "9.9.9.9") || strings.Contains(heard, "made-up") {
 		t.Errorf("what a client told the app: %s", heard)
 	}

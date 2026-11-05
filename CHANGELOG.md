@@ -6,6 +6,7 @@
 
 - **Certificates from a CA.** `tls.mode = "acme"` gets certificates from Let's Encrypt, any other CA, or an internal ACME server: for each hostname the first time it is wanted, by HTTP-01 or TLS-ALPN-01, or one for the whole domain by DNS-01, through Cloudflare, RFC 2136 or a program of your own. Only what the server serves gets one, so that nobody can use up a CA's limits by making up names. They are renewed by themselves, and a certificate that cannot be had reaches those concerned. See [TLS and trusting the server](docs/tls.md#from-a-public-ca-with-acme).
 - **The `public` preset,** `moor server init --preset public`, for a server on the internet: certificates from a CA, and everything but production behind a sign-in.
+- **`hsts` under `[tls]`** tells browsers to use nothing but HTTPS for each hostname, and the `public` preset turns it on. See [Staying on HTTPS](docs/tls.md#staying-on-https).
 - **gRPC.** `protocol = "h2c"` on a `web` process runs a server that speaks only cleartext HTTP/2. Streams work both ways, trailers come through, and clients can reach it with TLS or, on the plain listener, without. See [gRPC](docs/other.md#grpc).
 - **Sticky sessions.** `sticky = true` on a `web` process keeps a browser with the instance it first reached, by a cookie that the app does not hear. See [Scaling](docs/releases.md#scaling).
 - **A website,** at <https://robert-mcdermott.github.io/moorage/>: what Moorage is, and all of its documentation, in both themes, with a search. `node docs/site/build.mjs` makes it from the guides in `docs`, so that the two say the same, and fails on a broken link, which CI now checks. See [the website's README](docs/site/README.md).
@@ -15,10 +16,13 @@
 
 ### Changed
 
+- **A static site no longer serves files and directories whose names start with a dot,** such as a `.env` or `.git` left in the directory, except `.well-known`. `dotfiles = true` under `[static]` serves them as before.
 - **`moor forge connect` checks a token with the forge,** and refuses one that it does not accept, or that cannot see the repository, and says so, leaving what was there as it was. Before, a bad token was taken, and found out from the first pull request. A forge that cannot answer at that moment is no reason to refuse.
 
 ### Fixed
 
+- **An open redirect on static sites.** A path with a backslash in it, such as `/%5Cevil.example//`, was redirected to `/\evil.example/`, which browsers read as another site. A link on your domain could send someone anywhere. Such a path is now not found, as is one with a control character.
+- **A way to pass an identity to some apps.** A client could send `X.Moorage.User`, which an app served through CGI or the like reads as `X-Moorage-User`, the header Moorage uses to say who signed in. Every spelling of the platform's headers is now removed: underscores already were, and dots and the rest now are.
 - Renaming an app on Windows waits longer for a virus scanner to finish with its builds: six seconds was sometimes too few.
 - **`moor run` and `moor exec` keep your words as you gave them.** `moor run -- sh -c "echo a; echo b"` ran as `sh -c echo a; echo b`, and an argument with a space in it, like `moor run -- python -c "print('hi')"`, came apart. Several words are now quoted, and one word is still a command line for the server's shell: `moor run -- 'echo a && echo b'`.
 - Going back from an upgrade on macOS could leave the server stopped, when it took longer to stop than launchd took to be told to start it, which it then ignores. `moor server stop` now waits for it too, so that `moor server start` straight afterwards works.

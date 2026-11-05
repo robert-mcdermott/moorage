@@ -174,3 +174,20 @@ Port 80 and port 443 are what a CA checks, on the hostname itself. With only one
 port forward, or with `listen.http` and `listen.https` on other ports, what the CA reaches on 80 and 443 has to arrive there.
 
 The account and the certificates are kept in `certs/acme` in the data directory. [Backups](backups.md) hold them, with their private keys sealed.
+
+## Staying on HTTPS
+
+Moorage redirects plain HTTP to HTTPS whenever it handles TLS. A browser that was sent somewhere by a plain link still
+asks over HTTP first, though, where someone on the same network can get in the way. `hsts` tells browsers not to ask:
+
+```toml
+[tls]
+hsts = true
+```
+
+Each hostname then answers with `Strict-Transport-Security: max-age=31536000`. For a year from the last time it saw that, a browser
+goes straight to HTTPS for that hostname, and will not let anyone click past a certificate problem there. So turn it on for a server
+that means to stay on HTTPS with certificates that browsers trust. The `public` preset does, and the others leave it off.
+
+It says nothing about subdomains, so that it cannot affect anything else under your domain. An app that sends this header itself is
+left to say what it likes, which is how one asks for `includeSubDomains` or `preload`. Behind a proxy, it is the proxy's to send.
