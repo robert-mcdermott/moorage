@@ -37,19 +37,19 @@ func TestAllowIssuing(t *testing.T) {
 		apps:     map[string]bool{"shop": true, "empty": true},
 	})
 	for name, want := range map[string]bool{
-		"moorage.apps.example.com":       true,
-		"shop.apps.example.com":          true,
-		"shop--staging.apps.example.com": true,
-		"portal.example.org":             true,
-		"www.example.org":                true,
-		"empty.apps.example.com":         true, // an app with nothing deployed yet has a page to say so
-		"made-up.apps.example.com":       false,
-		"shop--nothing.apps.example.com": false,
+		"moorage.apps.example.com":              true,
+		"shop.apps.example.com":                 true,
+		"shop--staging.apps.example.com":        true,
+		"portal.example.org":                    true,
+		"www.example.org":                       true,
+		"empty.apps.example.com":                true, // an app with nothing deployed yet has a page to say so
+		"made-up.apps.example.com":              false,
+		"shop--nothing.apps.example.com":        false,
 		"shop--production--v3.apps.example.com": false,
-		"apps.example.com":               false,
-		"a.b.apps.example.com":           false,
-		"example.org":                    false,
-		"evil.example.net":               false,
+		"apps.example.com":                      false,
+		"a.b.apps.example.com":                  false,
+		"example.org":                           false,
+		"evil.example.net":                      false,
 	} {
 		if got := rt.AllowIssuing(name); got != want {
 			t.Errorf("%s: %v", name, got)

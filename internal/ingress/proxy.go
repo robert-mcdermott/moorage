@@ -93,7 +93,7 @@ func NewPool(app, env string, trusted []netip.Prefix, log *slog.Logger) *Pool {
 		Transport:      &retryTransport{pool: p, base: transport, h2c: cleartext},
 		ModifyResponse: addStickyCookie,
 		ErrorHandler:   p.proxyError,
-		ErrorLog:     slog.NewLogLogger(log.Handler(), slog.LevelDebug),
+		ErrorLog:       slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 	}
 	return p
 }
