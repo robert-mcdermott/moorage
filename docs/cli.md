@@ -66,6 +66,26 @@ moor access set public|password|login|share|default
 | `--env string` | `production` | environment |
 | `--password` |  | set the password too, for when the manifest asks for the gate |
 
+## `moor agent`
+
+Tell coding agents how to use Moorage
+
+### `moor agent init`
+
+Add instructions for coding agents to the repository in DIR (default: the current directory): a section of AGENTS.md, and an Agent Skill in .agents/skills and .claude/skills. They teach an agent to deploy and look at this app with moor or moor mcp, and what to be careful of. They hold no token, so they can be committed. Running this again brings them up to date, and leaves the rest of AGENTS.md as it was.
+
+```text
+moor agent init [DIR]
+```
+
+```text
+moor agent init --app shop
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | the app; moorage.toml's name if left out |
+
 ## `moor alerts`
 
 List an environment's thresholds. Past one for as long as it says, a notification goes to whoever a rule sends "A threshold is crossed" to, and another when it comes right.
@@ -1050,6 +1070,37 @@ moor mcp --allow-deploy --app shop
 | `--allow-deploy` |  | offer deploying, rolling back and restarting; the token has to allow them too |
 | `--app string` |  | the app to use when a tool is not told |
 | `--context string` | `agent` | the context to use, from moor mcp setup |
+
+### `moor mcp setup`
+
+Make a narrow, expiring token for a coding agent, keep it in a context of its own, and tell its client how to run moor mcp. The token stays in moor's own file, which only you can read, and goes in no client's configuration or repository.
+
+By default the token can only read. With --deploy it can also deploy, roll back and restart, in previews that take nothing of production's: --envs all lets it reach every environment, production included.
+
+Running this again replaces the token. With --client, it runs that client's own command where it has one, or says what to put where. Without, it lists them all.
+
+The clients are: antigravity, claude-code, claude-desktop, cline, codex, cursor, devin, gemini, goose, jetbrains, junie, vscode, zed.
+
+Code an agent deploys runs on your server. On Linux, an app's environments share a user, so a preview's code can read production's data. To keep what an agent makes from production altogether, give it an app of its own with --app.
+
+```text
+moor mcp setup
+```
+
+```text
+moor mcp setup --client claude-code --app shop
+moor mcp setup --client codex --app shop-dev --deploy
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | limit the token to one app |
+| `--client string` |  | the client to set up |
+| `--context string` | `agent` | the context to keep it in |
+| `--deploy` |  | let it deploy, roll back and restart |
+| `--envs string` |  | previews or all; with --deploy, previews unless told otherwise |
+| `--expires string` | `90d` | how long the token lasts |
+| `--print` |  | say what to do, and run nothing of the client's |
 
 ## `moor metrics`
 
@@ -2146,6 +2197,8 @@ Create an API token. Its scope is what it may do, up to what you may do:
 
 --app restricts it to one app, and --expires makes it stop working after a time, such as 90d.
 
+--envs previews limits a read or deploy token to previews. It can deploy only to previews that it makes itself, by deploying to a name that is not taken, and those take nothing of production's. It cannot push.
+
 ```text
 moor tokens create NAME
 ```
@@ -2157,6 +2210,7 @@ moor tokens create ci --scope deploy --app shop --expires 90d
 | Flag | Default | What it does |
 |---|---|---|
 | `--app string` |  | restrict it to one app |
+| `--envs string` |  | previews, to limit it to previews |
 | `--expires string` |  | stop working after this long, such as 90d |
 | `--scope strings` | `[deploy]` | what it may do: read, deploy, admin, or gate to get through sign-in gates |
 

@@ -73,7 +73,8 @@ app and made to expire. They are never accepted in a query string. See [Accounts
 - Requests that change something from a browser need a token bound to the session, and a same-origin request.
 - A permission is declared for each route of the API, in one table, and a test goes through all of them for each kind of caller.
 - A project can hide its apps from those with no role in it, who get the answer that an app that is not there gets. [Accounts](accounts.md#projects-and-roles) says where that stops.
-- A token limited to one app reaches that app, and nothing of its project or of the others.
+- A token limited to one app reaches that app, and nothing of its project or of the others. One limited to previews reaches those, and changes only those that take nothing of production's.
+- [`moor mcp`](agents.md) gives coding agents little: nothing that runs a command, reads a secret or deletes anything. It refuses a token that can do everything. [What this does not do](agents.md#what-this-does-not-do) is worth reading.
 - `moor server doctor` and the System page warn of plain HTTP with no proxy in front, as credentials would travel unencrypted.
 
 ## Facing the internet

@@ -1197,9 +1197,15 @@ A product site and full documentation, so that people can find Moorage and try i
 The research and the choices behind waves 9 and 10 are in [Backing services](13-services.md) and [Coding agents](14-agents.md).
 
 1. **Container apps lose nothing.** `[environments]`, `[[cron]]` and `[vars]` were silently dropped for `runtime = "image"` and `"dockerfile"`.
+   - Done (slice 1): what a manifest says of an app however it runs has one place, and an environment's resources reach the engine.
 2. **`moor mcp`.** A small MCP server over stdio: ten tools, read-only unless told otherwise, with the same API client as the command line.
+   - Done (slice 2): on the official SDK, which adds 1.64 MB. Answers have no schemas, which halves what a client sends its model on every turn, to 5.6 KB.
 3. **Narrow tokens.** `moor mcp` refuses an admin token and does not fall back on the stored one. `moor mcp setup` makes one and sets up a client. A token can be limited to previews.
+   - Done (slice 3): enforced in the API's guard, by git and on `/metrics`.
+   - Found by slice 3: previews inherit production's variables, so that a token limited to previews could read production's secrets by deploying code that printed them. It now changes only previews of its own, which inherit nothing. An
+     app's environments still share a user on Linux, so that this limits what a token can ask for, and not what its code can do. The guide says so, and that a real wall takes an app of its own.
 4. **Telling agents how.** `moor agent init`, an Agent Skill, a guide covering each client, and the website.
+   - Done (slice 4): `moor agent init` writes `.agents/skills`, which Codex, Gemini CLI, VS Code and Cursor read, and `.claude/skills`, which Claude Code does. A test checks every command the instructions teach, as it does the documentation's.
 5. **The engine.** Absent, not answering or ready, asked again when something wants the answer, and shown everywhere. An app that needs none is never affected, and a daemon that is down no longer marks anything stopped.
 6. **Release 0.9.0.**
 

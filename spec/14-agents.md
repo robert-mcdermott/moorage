@@ -40,7 +40,12 @@ has been beaten by adaptive ones, so it is hygiene and not a defence. Anyone who
 - `moor mcp` refuses an admin token, and does not fall back on what `moor login` stored, which is admin and never expires.
 - `moor mcp setup` makes a narrow, expiring token and keeps it in a `moor` context, a file only you can read, and sets up the client. The token never goes in a client's config or the repository.
 - **A token can be limited to previews,** with `--envs previews`. A `deploy` token can run commands and read an app's files, and deploying is itself running code, so there is little point in a
-  scope between `read` and `deploy`. What does help is an agent that can deploy a branch and look at it, and cannot touch production even with a shell. The API enforces it.
+  scope between `read` and `deploy`. What does help is an agent that can deploy a branch and look at it, and cannot ask the API for anything of production's, even with a shell. The API enforces it.
+- **Such a token changes only previews that take nothing of production's.** Previews normally inherit production's variables, which would hand its secrets to the code deployed, so that deploying to a new name makes a
+  preview that stands alone (`environments.inherits`), and any other is read-only to it. It cannot push, as a push can go to any branch.
+
+**What this limit is not.** It limits what a token can ask for. The code an agent deploys runs on the server, and on Linux an app's environments share a user, so that a preview's code can read production's data, and with no
+isolation it can read what the server can. To keep what an agent makes from production altogether, it needs an app of its own, on a server where apps are kept apart. The documents say so plainly.
 
 ## Telling agents how
 

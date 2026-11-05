@@ -23,7 +23,7 @@ var (
 func TestDocumentedCommands(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var files []string
-	for _, pattern := range []string{"README.md", "docs/*.md", "examples/*.md", "examples/*/README.md"} {
+	for _, pattern := range []string{"README.md", "docs/*.md", "examples/*.md", "examples/*/README.md", "internal/cli/agentfiles/*.md"} {
 		found, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern)))
 		if err != nil {
 			t.Fatal(err)

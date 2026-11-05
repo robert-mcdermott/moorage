@@ -4,7 +4,10 @@
 
 ### Added
 
-- **`moor mcp`,** a small Model Context Protocol server for coding agents, on standard input and output. It reads apps, deployments, releases and logs, and checks a local manifest. With `--allow-deploy`, it can deploy, roll back and restart. Nothing in it runs commands, reads files or secrets, or deletes anything. It refuses a token that can do everything, and does not fall back on what `moor login` stored.
+- **`moor mcp`,** a small Model Context Protocol server for coding agents, on standard input and output. It reads apps, deployments, releases and logs, and checks a local manifest. With `--allow-deploy`, it can deploy, roll back and restart. Nothing in it runs commands, reads files or secrets, or deletes anything. It refuses a token that can do everything, and does not fall back on what `moor login` stored. See [Coding agents](docs/agents.md).
+- **`moor mcp setup`** makes a narrow, expiring token, keeps it in a context of its own, and tells a client of the server: Claude Code, Codex, VS Code, Gemini CLI, Cursor and others.
+- **`moor agent init`** adds a section of `AGENTS.md` and an Agent Skill to a repository, which teach an agent to use Moorage, and what to be careful of.
+- **A token can be limited to previews,** with `moor tokens create --envs previews` or in the console. It can deploy only to previews that it makes, which take nothing of production's, and cannot ask for anything of production's. It limits what a token can ask for, and not what the code it deploys can do: [Coding agents](docs/agents.md#what-this-does-not-do) says where that stops.
 
 ### Fixed
 

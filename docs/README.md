@@ -59,6 +59,7 @@ how it works inside and where it is going.
 - [Backups](backups.md): on demand and on a schedule, to a directory or a bucket, and
   restoring them
 - [Sending telemetry elsewhere](telemetry.md): logs to syslog, OTLP or HTTP, metrics over OTLP, and thresholds
+- [Coding agents](agents.md): `moor mcp`, connecting Claude Code, Codex and others, and what limits them
 - [When something is wrong](troubleshooting.md): `moor server doctor`, stopping
   everything, and logs.
 
