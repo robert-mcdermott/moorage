@@ -1,5 +1,9 @@
 # Deploying from a forge
 
+> **Tested against stand-ins so far.** This has run against test servers written to follow each forge's published API, and not yet against
+> GitHub, GitLab or Gitea themselves. Trying it against them is [the next thing on the roadmap](../spec/11-roadmap.md). If you try it first,
+> please [say how it goes](https://github.com/robert-mcdermott/moorage/issues).
+
 Connect an app to a repository on GitHub, GitLab or Gitea, and what happens there deploys here:
 
 - A push to the default branch deploys to production.
@@ -15,6 +19,8 @@ takes its place, so it is simplest to choose one or the other for each app.
 ## Connecting a repository
 
 Make the app, and connect it, from its folder or with `--app`:
+
+![An app's Settings: its project and name, and a form to connect a repository by its address, its kind and a token](images/app-settings-light.webp "An app's **Settings** connects a repository, as well as `moor forge connect` does.")
 
 ```bash
 moor apps create shop

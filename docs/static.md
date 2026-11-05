@@ -17,6 +17,8 @@ the previous one back in a moment.
 On an app's **Deploy** page, drop a folder on the box at the top, or choose one. It goes up and is
 live a moment later, with nothing to install, and a new app that way is made for it as well.
 
+![The Deploy tab of an app: a place to drop a folder for a static site, and the commands for the other ways to deploy](images/app-deploy-light.webp "An app's **Deploy** tab.")
+
 What is in one folder is taken to be the site, so that `site/index.html` is the front page. `.git`,
 `.env`, `.env.*` and the clutter that operating systems leave are left out, since whoever drops a
 folder does not see what is hidden in it, and the deployment's log says what was. A `moorage.toml`

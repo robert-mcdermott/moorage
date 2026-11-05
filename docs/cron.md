@@ -7,6 +7,8 @@ data directory as its processes, for as long as the command takes.
 
 Declare them in `moorage.toml`, and they run from the next deployment:
 
+![The Cron tab: a job with its schedule, when it next runs and how it last went, a box to run a command, and earlier runs](images/cron-light.webp "An app's **Cron** tab.")
+
 ```toml
 [[cron]]
 name = "nightly-cleanup"

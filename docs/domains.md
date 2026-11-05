@@ -4,6 +4,8 @@ An environment is at its own hostname under the server's domain, such as
 `shop.apps.example.com`. It can also be at a hostname of your own, or a path on one, so that
 several apps can share a hostname.
 
+![An app's Domains and access tab: a domain that does not point here yet, with the DNS record it needs](images/domains-light.webp "A hostname of your own, and what it needs.")
+
 ```bash
 moor domains add portal.example.com --app shop
 ```

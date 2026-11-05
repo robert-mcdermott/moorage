@@ -9,6 +9,8 @@ and not hundreds, and then a word when it has recovered.
 **Notifications** in the sidebar has what you have been told, and how many you have not read.
 Nothing has to be set up. You are told:
 
+![The Notifications page: a failed deployment with why it failed](images/inbox-light.webp "**Notifications**, in the sidebar.")
+
 - when a **deployment of yours fails**, whatever your role;
 - when a deployment fails, an **app keeps crashing** or a **cron job fails** in a project you
   maintain, which includes a project whose **Everyone else** is maintainers;
@@ -32,6 +34,8 @@ sign in, is not an account, and has nothing to read.
 
 A channel is somewhere word can go. Adding one takes an administrator, in **Settings →
 Notifications** or with `moor notifications channels add`.
+
+![Settings, Notifications: a channel with when it last sent something, and the rules that send events to it](images/settings-notifications-light.webp "**Settings → Notifications**: its channels and rules.")
 
 | Kind | What it sends |
 |---|---|

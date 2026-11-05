@@ -1,7 +1,7 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. It runs on Linux, macOS and Windows, on amd64 and arm64.
+to it. It runs on Linux, macOS and Windows, on amd64 and arm64. [How big a machine](#how-big-a-machine) says what it needs.
 
 ## 1. Get `moor`
 
@@ -243,6 +243,8 @@ moor server run
 `moor server init` printed a one-time setup link (`moor server status` shows it
 again). Open it and create the first account, the server's administrator. On
 your own computer you can skip this: the command line needs no account there.
+
+![The page that claims a new server: an email address, a name and a password](images/setup-light.webp "Claiming a server creates its first account.")
 
 ## 5. Deploy
 

@@ -4,6 +4,8 @@ Moorage keeps what your apps have been doing, with nothing else to run. An app's
 charts, for each environment; **The last hour** on its page has it at a glance; and the list of
 apps has each one's requests.
 
+![The Metrics tab: charts of requests a minute, response time, CPU and memory, with a line marking a release](images/metrics-light.webp "An app's **Metrics** tab.")
+
 | Chart | What it is |
 |---|---|
 | **Requests a minute** | All requests, and those the app or Moorage failed (5xx). |

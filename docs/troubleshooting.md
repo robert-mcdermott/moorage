@@ -6,6 +6,8 @@
 moor server doctor
 ```
 
+![The System page: all is well, what the server runs, and each check with how to fix it](images/system-light.webp "**Settings → System**: the same checks, in the console.")
+
 It checks a server on this machine, running or not, and says how to fix what it
 finds. Run it with `sudo` if the server runs as root, so that it can read the
 server's files.

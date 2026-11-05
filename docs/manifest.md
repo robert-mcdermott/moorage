@@ -134,7 +134,7 @@ An entry is a command (`worker = "python -m tasks.worker"`) or a table:
 | Key | Default | Description |
 |---|---|---|
 | `command` | the runtime's, for `web` | What to run. |
-| `instances` | `1` | How many instances run (0 to 20; `0` turns the process off). Requests are spread over the healthy ones. [`moor scale`](console.md#scaling) overrides it, on the server. |
+| `instances` | `1` | How many instances run (0 to 20; `0` turns the process off). Requests are spread over the healthy ones. [`moor scale`](releases.md#scaling) overrides it, on the server. |
 | `expose` | `true` for `web` | The process listens on `$PORT` (and `$HOST`). |
 | `health` | a TCP check of `$PORT` | See below. |
 | `stop_signal` | `"TERM"` | The signal that asks the process to stop: `TERM`, `INT`, `QUIT`, `HUP`, `USR1` or `USR2`. |

@@ -100,6 +100,8 @@ enabled = false
 Declare one, and pushes to its branch deploy to it. Deploying the manifest that declares it makes
 it, and a first push of its branch does too:
 
+![An app's Environments tab: production, staging behind a password, and a preview, with their addresses and releases, and forms to make more](images/environments-light.webp "An app's **Environments** tab.")
+
 ```toml
 [environments.staging]
 branch = "develop"

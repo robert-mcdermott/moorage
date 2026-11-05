@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A website,** at <https://robert-mcdermott.github.io/moorage/>: what Moorage is, and all of its documentation, in both themes, with a search. `node docs/site/build.mjs` makes it from the guides in `docs`, so that the two say the same, and fails on a broken link, which CI now checks. See [the website's README](docs/site/README.md).
+- **Screenshots in the guides,** all taken from a real server by `node docs/capture/capture.mjs`, which starts one, deploys the examples, and makes some requests.
+- **New guides:** [Getting started](docs/getting-started.md), [Concepts](docs/concepts.md), [Releases, rollbacks and scaling](docs/releases.md), [Logs](docs/logs.md), [Server configuration](docs/configuration.md), [Running a server](docs/administration.md), [Architecture](docs/architecture.md) and [Security](docs/security.md).
+- **[A reference of every command](docs/cli.md),** made from the commands themselves, and an [API reference](https://robert-mcdermott.github.io/moorage/docs/api-reference.html) on the website, made from the OpenAPI document. A test keeps the first the same as the commands.
+
+### Fixed
+
+- The console's tables no longer break a name, an address or an email in the middle of a word when a window is narrow: the list of apps at a laptop's width, say.
+
 ## 0.7.0 (2026-11-04)
 
 Moorage 0.7.0 brings the server to Windows, connects it to where your code is kept, and lets you into what it runs. A push or a pull request on GitHub, GitLab or Gitea can deploy by itself, with a preview for each pull request. `moor run -it` is a terminal in an app, and the console can run commands and show its data directory. Logs and metrics can go to where your team already looks, and thresholds say when to be told.

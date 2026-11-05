@@ -9,7 +9,7 @@ tells you what is in effect: on an app's page in the console, in **Settings → 
 
 | Level | What it does | Where |
 |---|---|---|
-| `none` | Every app runs as the same user as the server, and can read what the others can. | Everywhere |
+| `none` | Every app runs as the same user as the server, and can read what the others can, and what the server can: its database and master key. | Everywhere |
 | `user` | Each app runs as an operating system user of its own, and its builds as another. | Linux, with the server running as root |
 | `sandbox` | As `user`, and each app can only read its own build, toolchains and system files, can only write to its own data and temporary directories, and can only listen on its own port. | Linux 5.13 or newer, with the server running as root |
 
