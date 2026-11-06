@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Upgrades a server from the last published release to this code, in a directory
-# of its own, as a user would: the new binary takes over the old one's data
-# directory, and adopts the app it left running.
+# Upgrades a server from a published release to this code, in a directory of its
+# own, as a user would: the new binary takes over the old one's data directory,
+# and adopts the app it left running.
 #
 #   .github/scripts/upgrade-check.sh
 #
-# MOORAGE_UPGRADE_PORT is the server's port (18090). It changes nothing outside
-# its directory, and needs the network to download the release.
+# MOORAGE_UPGRADE_FROM is the release to start from, such as v0.7.0 (the latest),
+# as someone may well skip a few. MOORAGE_UPGRADE_PORT is the server's port (18090).
+# It changes nothing outside its directory, and needs the network to download the release.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -19,6 +20,9 @@ old=$work/moor-old
 case "$(uname -s)" in Darwin) os=darwin ;; *) os=linux ;; esac
 case "$(uname -m)" in arm64 | aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
 base=https://github.com/robert-mcdermott/moorage/releases/latest/download
+if [ -n "${MOORAGE_UPGRADE_FROM:-}" ]; then
+  base=https://github.com/robert-mcdermott/moorage/releases/download/$MOORAGE_UPGRADE_FROM
+fi
 curl -fsSL -o "$old" "$base/moor-$os-$arch"
 curl -fsSL -o "$work/SHA256SUMS" "$base/SHA256SUMS"
 want=$(awk -v f="moor-$os-$arch" '$2 == f { print $1 }' "$work/SHA256SUMS")
@@ -72,7 +76,7 @@ check() { # description, condition
 body() { curl -sS -H "Host: $1.localhost" "http://127.0.0.1:$port$2" || true; }
 ps_field() { "$new" ps --app svc --json | jq -r ".[0].$1"; }
 
-echo "--- with the last release"
+echo "--- with ${MOORAGE_UPGRADE_FROM:-the last release}"
 start "$old"
 "$old" deploy "$root/testdata/apps/binary" --app svc
 "$old" deploy --static "$root/examples/static-site/public" --app site
@@ -112,4 +116,4 @@ if [ "$failures" != 0 ]; then
   exit 1
 fi
 status=0
-echo "the upgrade from the last release works"
+echo "the upgrade from ${MOORAGE_UPGRADE_FROM:-the last release} works"

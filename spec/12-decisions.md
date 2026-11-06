@@ -316,6 +316,13 @@ provisional until the corresponding Phase 0 spike reports back.
 - **Alternatives:** path filters alone, which would still run everything on merge; a cache keyed by the tree, which a pull request's run cannot share with main's; requiring pull requests to be merged without a run on main, which would lose the check when main has moved on, as the tree then differs and it runs in full.
 - **Consequences:** a mistake in deciding would look like tests passing, so the script has a test of its own, it falls back on running more, and a note from a fork's pull request does not count. What a tree needs from its environment can change in the two weeks that a note lasts, such as a runner's image: a run by hand runs everything.
 
+### D24 — The server's tests run in parts
+
+- **Context:** the tests of `internal/server` start real servers, one test after another. They took 19 minutes of the 22 of the tests on Linux under the race detector, and 10 of 11 on macOS, and each round of fixing something waited for that.
+- **Decision:** they have a job of their own, with parts side by side on separate machines: four on Linux, and two each on macOS and Windows, which bring each to about six minutes, like the other jobs. `test-part.sh` deals the tests out in turn, so that each is in exactly one part, including those not written yet, and fails if a part has nothing in it. `ci-changes-check.sh` fails if the matrix leaves out a part.
+- **Alternatives:** `t.Parallel()`, which most of these tests cannot use, as they change the environment and share what is in a process, and which would trade time for flaky failures; running the race detector less often, which would lose what it finds, and it has found real races; a table of how long each test takes, to split them more evenly, which would need looking after.
+- **Consequences:** each part can only find what it does alone, so that a test can no longer depend on one that ran before it in another part. More machines run at once, and the free limit on them can make a short job queue.
+
 ## Open questions
 
 These change scope or defaults and are best answered by the project owner.

@@ -326,6 +326,12 @@ and a backup leaves it out. See [backups](backups.md) for a schedule, buckets an
 From 0.6.0, a server upgrades itself. To get to 0.6.0 from an earlier version, [run the installer](#with-the-installer)
 once, and restart the server.
 
+Before you do:
+
+- **Read what will be different.** The [changelog](../CHANGELOG.md) has a list of things to know under each release. Read the list of each one that you are crossing, and you need not stop at any of them: CI upgrades from the last release and from 0.6.0, with apps running.
+- **Start the server, if it has stopped.** `moor server status` says. An upgrade only goes back by itself if the server was running, as there is otherwise nothing to restart: it replaces the binary, and nothing is watching when you start it.
+- **Make [a backup](backups.md), if what it holds matters.** An upgrade keeps a copy of the database, for going back, and no more than that.
+
 ```bash
 moor server upgrade --check
 ```
@@ -333,6 +339,8 @@ moor server upgrade --check
 ```bash
 sudo moor server upgrade
 ```
+
+Leave out the `sudo` if you installed the service without it, as the service is then your own. Use the `moor` that the service runs: `moor server upgrade` says so if this is another.
 
 That downloads the newest release and checks it against the checksum published with it. It then keeps a copy of the database and of the binary, puts the new binary in place, and
 restarts the server. Running apps keep running, and the new server takes them over. **If the server does not

@@ -111,12 +111,49 @@ jobs:
         run: node docs/site/build.mjs "$RUNNER_TEMP/site"
       - name: Vet
         run: go vet ./...
+      # All but the server's tests, which have a job of their own, below.
       - name: Test
         if: runner.os != 'Linux'
-        run: go test -timeout 15m ./...
+        shell: bash
+        run: go test -timeout 15m $(go list ./... | grep -v '/internal/server$')
       - name: Test with the race detector
         if: runner.os == 'Linux'
-        run: go test -race -timeout 30m ./...
+        run: go test -race -timeout 15m $(go list ./... | grep -v '/internal/server$')
+
+  test-server:
+    # The server's tests start real servers, one test after another, and took 19 minutes of 22 under the race detector, and 10 of 11
+    # without. So that they are not what everything waits for, each operating system runs them in parts, side by side. Each part is
+    # also its own process, as it is on a machine of its own. ci-changes-check.sh holds this list to having every part of each.
+    name: Server tests (${{ matrix.os }}, ${{ matrix.part }} of ${{ matrix.parts }})
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, part: 1, parts: 4, flags: -race }
+          - { os: ubuntu-latest, part: 2, parts: 4, flags: -race }
+          - { os: ubuntu-latest, part: 3, parts: 4, flags: -race }
+          - { os: ubuntu-latest, part: 4, parts: 4, flags: -race }
+          - { os: macos-latest, part: 1, parts: 2, flags: '' }
+          - { os: macos-latest, part: 2, parts: 2, flags: '' }
+          - { os: windows-latest, part: 1, parts: 2, flags: '' }
+          - { os: windows-latest, part: 2, parts: 2, flags: '' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # As for the other tests: Linux has the newest stable Go, and the others the oldest that go.mod allows.
+      - uses: actions/setup-go@v5
+        if: runner.os == 'Linux'
+        with:
+          go-version: stable
+      - uses: actions/setup-go@v5
+        if: runner.os != 'Linux'
+        with:
+          go-version-file: go.mod
+      - name: Test this part
+        shell: bash
+        run: .github/scripts/test-part.sh ${{ matrix.part }} ${{ matrix.parts }} ${{ matrix.flags }}
 
   samples:
     # Builds and deploys every sample app of testdata/apps from source, with
@@ -267,6 +304,11 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Upgrade from the last release
+        run: .github/scripts/upgrade-check.sh
+      # Someone may well skip a few. This is the first that could upgrade itself.
+      - name: Upgrade from the oldest
+        env:
+          MOORAGE_UPGRADE_FROM: v0.6.0
         run: .github/scripts/upgrade-check.sh
 
   install-unix:
@@ -444,7 +486,7 @@ jobs:
   passed:
     # Keeps a note that this tree has passed, and with what, so that no later run tests it again. It lasts two weeks, and is only ever a reason to do less.
     name: All passed
-    needs: [changes, docs, test, samples, examples, containers, trust, proxy, console, upgrade, install-unix, install-windows, backup, real-services, isolation, service, service-windows, build, vulncheck]
+    needs: [changes, docs, test, test-server, samples, examples, containers, trust, proxy, console, upgrade, install-unix, install-windows, backup, real-services, isolation, service, service-windows, build, vulncheck]
     if: ${{ !cancelled() && needs.changes.outputs.note == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
     steps:

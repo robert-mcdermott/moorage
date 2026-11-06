@@ -109,4 +109,27 @@ expect "a new branch" code=true trust=true service=true record=all
 if [ "$failed" = 0 ]; then
 	echo "ci-changes.sh decides as it should"
 fi
+
+# Each operating system runs every part of the server's tests: those of a part left out would never run, and nothing would say so.
+whole=$(sed -n 's/^ *- { os: \([^,]*\), part: \([0-9]*\), parts: \([0-9]*\),.*/\1 \2 \3/p' "$(dirname "$script")/../workflows/ci.yml" | awk '
+	{
+		if (($1 in want) && want[$1] != $3) { bad = 1 }
+		want[$1] = $3
+		seen[$1 " " $2] = 1
+	}
+	END {
+		for (os in want) {
+			oses++
+			for (part = 1; part <= want[os]; part++) {
+				if (!((os " " part) in seen)) { bad = 1 }
+			}
+		}
+		print (oses == 3 && !bad) ? "yes" : "no"
+	}')
+if [ "$whole" = yes ]; then
+	echo "the server's tests run in whole on each operating system"
+else
+	echo "FAIL  the matrix of test-server in ci.yml leaves out a part of the server's tests, or an operating system"
+	failed=1
+fi
 exit "$failed"
