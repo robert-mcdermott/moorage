@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -201,6 +202,9 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 	if plan.Kind != manifest.KindProcess {
 		return store.Run{}, &NotRunnableError{req.App + " is a static site, with nothing to run a command with"}
 	}
+	if _, moving := d.upgrading.Load(sleepKey(req.App, req.Env)); moving {
+		return store.Run{}, &NotRunnableError{"a service of " + req.Env + " of " + req.App + " is moving to another version, and what is written meanwhile would be lost"}
+	}
 	plan.Defaults()
 	if req.Trigger == "" {
 		req.Trigger = "manual"
@@ -226,10 +230,22 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 		defer cancel()
 		defer close(active.done)
 		defer d.runs.remove(run.ID, LogPath(d.opts.DataDir, req.App, run.ID))
+		// Now that it can be seen, what is about to move a service either finds it and stops it, or is found here.
+		if _, moving := d.upgrading.Load(sleepKey(req.App, req.Env)); moving {
+			d.finishRun(run, errors.New("a service of this environment is moving to another version, and what is written meanwhile would be lost"), runCtx)
+			return
+		}
 		process := "run"
 		if req.Job != "" {
 			process = "cron-" + req.Job
 		}
+		// In an environment that is asleep, what it needs starts for it, and stops after. Awake, nothing stops it under the command.
+		done, err := d.holdServicesForRun(runCtx, req.App, req.Env, plan)
+		if err != nil {
+			d.finishRun(run, fmt.Errorf("start what it needs: %w", err), runCtx)
+			return
+		}
+		defer done()
 		logFile, err := logs.Open(LogPath(d.opts.DataDir, req.App, run.ID), RunLogSize, 1)
 		if err == nil {
 			defer logFile.Close()
@@ -592,6 +608,8 @@ func (d *Deployer) prepareVars(ctx context.Context, app, env string, plan manife
 		cfg, onServer := set[name]
 		_, inRepo := inManifest[name]
 		switch {
+		case v.Required && !onServer && !inRepo && givenByService(plan, name):
+			// What it is given at start.
 		case v.Required && !onServer && !inRepo:
 			missing = append(missing, name)
 		case v.Secret && (onServer && !cfg.Secret || !onServer && inRepo):
@@ -640,4 +658,14 @@ func generateValue(kind string) (string, error) {
 		return fmt.Sprintf("%x-%x-%x-%x-%x", raw[:4], raw[4:6], raw[6:8], raw[8:10], raw[10:]), nil
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// givenByService says that a variable is one of those that a service gives an app.
+func givenByService(plan manifest.Plan, name string) bool {
+	for _, s := range plan.Services {
+		if slices.Contains(s.Variables(), name) {
+			return true
+		}
+	}
+	return false
 }

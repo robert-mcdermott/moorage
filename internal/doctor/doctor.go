@@ -63,6 +63,8 @@ type Options struct {
 	WantsEngine func(context.Context) bool
 	// Engine, if set, is how the server itself sees its engine, which it may be keeping to because of what runs under it.
 	Engine func(context.Context) container.Status
+	// Services, if set, says how many services there are and what is wrong with them.
+	Services func(context.Context) (int, []string)
 	// InstancePorts lists the instances' ports on this machine, for a running server.
 	InstancePorts func(context.Context) ([]int, error)
 
@@ -109,6 +111,11 @@ func Run(ctx context.Context, o Options) []Check {
 	checks = append(checks, checkDNS(ctx, o)...)
 	checks = append(checks, checkTLS(ctx, o, running)...)
 	checks = append(checks, checkContainers(ctx, o))
+	if o.Services != nil {
+		if count, problems := o.Services(ctx); count > 0 {
+			checks = append(checks, checkServices(count, problems))
+		}
+	}
 	checks = append(checks, checkData(o)...)
 	checks = append(checks, checkDisk(o))
 	if c, ok := checkClock(ctx, o); ok {
@@ -502,6 +509,13 @@ func checkCertFiles(o Options) []Check {
 		}
 	}
 	return checks
+}
+
+func checkServices(count int, problems []string) Check {
+	if len(problems) > 0 {
+		return Check{Name: "services", Status: Warn, Detail: strings.Join(problems, "; "), Fix: "moor services --app APP says how each stands, and moor services logs what it said"}
+	}
+	return Check{Name: "services", Status: OK, Detail: fmt.Sprintf("%d, as they should be", count)}
 }
 
 func checkContainers(ctx context.Context, o Options) Check {

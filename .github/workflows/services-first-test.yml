@@ -1,0 +1,42 @@
+# Do the images that services would run do what spec/13-services.md says of them, under each engine? This
+# settles what wave 10 builds on, and tells of what changes slowly, so that it runs only when asked, or when it changes itself.
+name: Services, first test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/scripts/services-check.py
+      - .github/workflows/services-first-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: Images under ${{ matrix.engine }}
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [podman, docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: A real S3 client
+        run: pip install --quiet boto3
+      - name: What this machine has
+        run: |
+          ${{ matrix.engine }} version
+          aws --version
+          free -m
+      - name: Try them
+        run: python .github/scripts/services-check.py ${{ matrix.engine }} results-${{ matrix.engine }}.json
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: services-${{ matrix.engine }}
+          path: results-${{ matrix.engine }}.json

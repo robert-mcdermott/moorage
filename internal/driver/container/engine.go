@@ -114,6 +114,13 @@ func IsNotFound(err error) bool {
 	return strings.Contains(msg, "no such") || strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "not known")
 }
 
+// isNoSuchVolume reports whether the engine said in as many words that there is no such volume. It is narrower than IsNotFound on purpose: an engine can say "not found" of its runtime,
+// or of a context, and taking that for a lost volume would have what the volume holds replaced by its last dump.
+func isNoSuchVolume(err error) bool {
+	var ee *EngineError
+	return errors.As(err, &ee) && strings.Contains(strings.ToLower(ee.Stderr), "no such volume")
+}
+
 // output runs a command and returns what it writes to standard output.
 func (e *Engine) output(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, e.Bin, args...)
@@ -256,6 +263,8 @@ type ImageInfo struct {
 	Size        int64    `json:"Size"`
 	Config      struct {
 		ExposedPorts map[string]any `json:"ExposedPorts"`
+		Env          []string       `json:"Env"`
+		Volumes      map[string]any `json:"Volumes"`
 	} `json:"Config"`
 }
 
@@ -325,4 +334,16 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// combined runs a command and returns what it writes to standard output and standard error, in the order that it wrote them.
+func (e *Engine) combined(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, e.Bin, args...)
+	cmd.Env = os.Environ()
+	cmd.WaitDelay = waitForDescendants
+	out, err := cmd.CombinedOutput()
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
+		return string(out), &EngineError{Args: args, Stderr: string(out), Err: err}
+	}
+	return string(out), nil
 }

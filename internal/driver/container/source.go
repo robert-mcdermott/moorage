@@ -29,11 +29,25 @@ const (
 	Unknown State = "unknown"
 )
 
+// probeLimit is how long an engine has to answer. A daemon can hang with its socket open, and nothing here should wait for it for long. Rootless Podman on a machine that has
+// just started can take several seconds to answer for the first time, and saying that it is not answering would fail what someone has just asked for. What only wants to show
+// how things stand, or looks after what is running, uses Known, and so does not wait for this.
+const defaultProbeLimit = 15 * time.Second
+
+// probeLimit is held so that a look at an engine that is under way, behind the scenes, can read it as it changes. Only tests change it, to try engines that hang without waiting so long.
+var probeLimit = func() *atomic.Int64 {
+	limit := new(atomic.Int64)
+	limit.Store(int64(defaultProbeLimit))
+	return limit
+}()
+
+func probeTimeout() time.Duration { return time.Duration(probeLimit.Load()) }
+
 const (
-	// probeLimit is how long an engine has to answer. A daemon can hang with its socket open, and nothing here should wait for it.
-	probeLimit = 3 * time.Second
 	// statusKept is how long an answer stands, so that asking often costs nothing.
 	statusKept = 30 * time.Second
+	// notReadyKept is how long a no stands, as someone who has just started Docker Desktop should not have to wait to be believed.
+	notReadyKept = 5 * time.Second
 	// firstAnswerWait is how long what only wants to know waits for the first answer there is, which an engine that answers gives in far less.
 	firstAnswerWait = time.Second
 )
@@ -98,7 +112,7 @@ func ask(ctx context.Context, bin string) Status {
 		st.Kind = "podman"
 	}
 	run := func(args ...string) ([]byte, error) {
-		ctx, cancel := context.WithTimeout(ctx, probeLimit)
+		ctx, cancel := context.WithTimeout(ctx, probeTimeout())
 		defer cancel()
 		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.WaitDelay = waitForDescendants
@@ -268,7 +282,7 @@ func (s *Source) Known() Status {
 	if s.refreshing.CompareAndSwap(false, true) {
 		go func() {
 			defer s.refreshing.Store(false)
-			ctx, cancel := context.WithTimeout(context.Background(), 4*probeLimit)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*probeTimeout())
 			defer cancel()
 			s.Status(ctx)
 		}()
@@ -286,7 +300,11 @@ func (s *Source) Known() Status {
 func (s *Source) last() (Status, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.status, !s.checked.IsZero() && time.Since(s.checked) < s.o.Kept
+	kept := s.o.Kept
+	if !s.status.Ready() {
+		kept = min(kept, notReadyKept)
+	}
+	return s.status, !s.checked.IsZero() && time.Since(s.checked) < kept
 }
 
 func (s *Source) orUnknown() Status {

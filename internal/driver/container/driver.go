@@ -36,10 +36,14 @@ const (
 	labelRelease  = "io.moorage.release"
 	labelProcess  = "io.moorage.process"
 	labelInstance = "io.moorage.instance"
+	labelService  = "io.moorage.service"
+	labelPrivate  = "io.moorage.private"
 )
 
 // Spec describes a container to run.
 type Spec struct {
+	// Network is what it reaches its environment's services on, if it has any.
+	Network               string
 	ID, App, Env, Process string
 	Index                 int
 	Release               string // "v8"
@@ -201,6 +205,9 @@ func imageArgs(s Spec) []string {
 // and the environment that carries the secrets.
 func (d *Driver) runArgs(s Spec) (args, env []string, err error) {
 	args = []string{"--init", "--security-opt", "no-new-privileges"}
+	if s.Network != "" {
+		args = append(args, "--network", s.Network)
+	}
 	for _, k := range sortedKeys(s.Vars) {
 		args = append(args, "-e", k+"="+s.Vars[k])
 	}
@@ -352,7 +359,8 @@ type state struct {
 }
 
 func (d *Driver) inspect(ctx context.Context, name string) (state, error) {
-	out, err := d.engine.output(ctx, nil, "inspect", "--format", "{{json .State}}", name)
+	// Of a container and nothing else: Podman takes a name for anything that it starts, and so would find a volume whose name began with this.
+	out, err := d.engine.output(ctx, nil, "container", "inspect", "--format", "{{json .State}}", name)
 	if err != nil {
 		return state{}, err
 	}
@@ -880,6 +888,19 @@ func (d *Driver) Stats(ctx context.Context) (map[string]Usage, error) {
 	return parseStats(string(out), byName), nil
 }
 
+// ServiceStats asks the engine what services are using, by ID, given their names. It asks of all that are running and leaves out the rest, as asking by name fails for all of them if
+// one has gone.
+func (d *Driver) ServiceStats(ctx context.Context, byName map[string]string) (map[string]Usage, error) {
+	if len(byName) == 0 {
+		return nil, nil
+	}
+	out, err := d.engine.output(ctx, nil, "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}")
+	if err != nil {
+		return nil, err
+	}
+	return parseStats(string(out), byName), nil
+}
+
 // parseStats reads what the engine says of its containers, a line each: name, CPU and memory, as
 // 0.12% and 12.5MiB / 7.6GiB.
 func parseStats(text string, byName map[string]string) map[string]Usage {
@@ -932,7 +953,7 @@ func (d *Driver) List() []string {
 	if len(ids) == 0 {
 		return nil
 	}
-	args := append([]string{"inspect", "--format", `{{index .Config.Labels "` + labelInstance + `"}}`}, ids...)
+	args := append([]string{"container", "inspect", "--format", `{{index .Config.Labels "` + labelInstance + `"}}`}, ids...)
 	out, err = d.engine.output(ctx, nil, args...)
 	if err != nil && !IsNotFound(err) { // one may have gone since; the rest are listed
 		d.log.Warn("listing containers", "err", err)

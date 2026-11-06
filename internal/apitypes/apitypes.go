@@ -1205,3 +1205,44 @@ type Threshold struct {
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// Service is something that an app declares under [services], and Moorage runs for it. Its address and password are not here: an app is given them as it starts.
+type Service struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Version string `json:"version,omitempty"`
+	Image   string `json:"image"`
+	// Variable is what gives an app its address.
+	Variable string `json:"variable"`
+	// Port is its port on the loopback address, for an app that does not run in a container.
+	Port int `json:"port"`
+	// State is what it should be doing, running or stopped, and Running what the engine says it is. Unknown says that the engine could not be asked.
+	State   string `json:"state"`
+	Running bool   `json:"running"`
+	Unknown bool   `json:"unknown,omitempty"`
+	// MemoryBytes is what it was last seen to use, if it is running and has been looked at.
+	MemoryBytes uint64 `json:"memory_bytes,omitempty"`
+	// OldVolume says that it kept what it held before its last upgrade or restore, until someone says that that was good.
+	OldVolume string `json:"old_volume,omitempty"`
+	// Unused says that the current release's manifest does not name it. It stays, with what it holds, until someone removes it.
+	Unused    bool      `json:"unused,omitempty"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ServiceLog is the newest of what a service has said.
+type ServiceLog struct {
+	Log string `json:"log"`
+}
+
+// ServiceUpgrade asks for a newer major version of a service.
+type ServiceUpgrade struct {
+	Version string `json:"version"`
+	// Image names the image that holds it, for a service that does not run the official one.
+	Image string `json:"image,omitempty"`
+}
+
+// ServiceChange says what a change to a service did, in the words of what it did.
+type ServiceChange struct {
+	Log string `json:"log"`
+}

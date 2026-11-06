@@ -431,7 +431,7 @@ data, until it is removed.
 | `sleep_after` | Idle sleep for this environment (`"off"` to disable). |
 | `access` | Default access gate. |
 
-### `[services.<name>]` *(planned — Phase 4)*
+### `[services.<name>]`
 
 Declares a backing service provisioned by Moorage (via the container engine)
 and linked to the app. [Backing services](13-services.md) has the design.

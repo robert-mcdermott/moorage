@@ -208,6 +208,23 @@ func CheckRestoredDatabase(ctx context.Context, path string, minUID uint32) erro
 			return nil
 		}
 	}
+	if err := each("services", `SELECT name FROM services`, func(name string) error {
+		if strings.ContainsAny(name, `/\.`) || name == "" {
+			return fmt.Errorf("a service %q", name)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	// What a service runs as comes from here, and an image is a program to run.
+	if err := each("services", `SELECT image FROM services`, func(image string) error {
+		if image == "" || strings.HasPrefix(image, "-") || strings.ContainsAny(image, " \t\r\n") {
+			return fmt.Errorf("a service's image %q", image)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	if err := each("apps", `SELECT name FROM apps`, func(name string) error {
 		if strings.Contains(name, "/") {
 			return fmt.Errorf("an app %q", name)

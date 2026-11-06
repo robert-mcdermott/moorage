@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/backup"
 	"github.com/robert-mcdermott/moorage/internal/client"
 	"github.com/robert-mcdermott/moorage/internal/config"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
@@ -787,4 +791,712 @@ func TestContainerRestartAsTheEngineComesBack(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(out)) != "" {
 		t.Errorf("the one it replaced is still running: %q %v", out, err)
 	}
+}
+
+// A database that an app declares, from end to end, on a real engine: made before the release, connected, and there after what happens to an app.
+func TestContainerServicePostgres(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+
+	files := appManifest("\n[services.db]\ntype = \"postgres\"\n\n[release]\ncommand = 'test -n \"$DATABASE_URL\"'\n")
+	d, log := deploySource(t, c, "shop", files)
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	if !strings.Contains(log, "PostgreSQL 18 is ready") {
+		t.Errorf("the log says nothing of it:\n%s", log)
+	}
+	db := testAuth(t, cfg).DB
+	rec, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := "shop." + cfg.Domain
+	_, address := get(t, addrs.HTTP, host, "/env?name=DATABASE_URL")
+	if !strings.HasPrefix(address, "postgres://app:") || !strings.Contains(address, fmt.Sprintf("@127.0.0.1:%d/app", rec.Port)) {
+		t.Fatalf("the address: %q", address)
+	}
+	psql := func(env, query string) string {
+		t.Helper()
+		rec, err := db.Service(ctx, "shop", env, "db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(rec.ID), "psql", "-U", "app", "-d", "app", "-At", "-c", query).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v: %s", query, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	psql("production", "create table kept (value text); insert into kept values ('production')")
+
+	// The address is given when an instance starts, and is kept out of what a release records.
+	rels, err := c.Releases(ctx, "shop", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := strings.TrimPrefix(strings.SplitN(address, "@", 2)[0], "postgres://app:")
+	if data, _ := json.Marshal(rels); strings.Contains(string(data), password) {
+		t.Errorf("a release holds its password: %s", data)
+	}
+
+	// Deploying again keeps it.
+	again, log := deploySource(t, c, "shop", appManifest("# again\n\n[services.db]\ntype = \"postgres\"\n"))
+	if again.Status != "live" {
+		t.Fatalf("%+v\n%s", again, log)
+	}
+	if got := psql("production", "select value from kept"); got != "production" {
+		t.Errorf("after deploying again: %q", got)
+	}
+
+	// A preview has its own, which starts empty, and never production's by what it inherits.
+	if _, err := db.CreateEnvironment(ctx, "shop", "topic", "preview", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ChangeVars(ctx, "shop", "production", apitypes.VarsChange{Set: []apitypes.VarSet{{Name: "DATABASE_URL", Value: "postgres://production.example.com/real"}}}); err != nil {
+		t.Fatal(err)
+	}
+	preview, _, err := c.DeploySource(ctx, "shop", "topic", writeSite(t, appManifest("\n[services.db]\ntype = \"postgres\"\n")), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the preview", func() bool {
+		d, err := c.Deployment(ctx, preview.ID)
+		return err == nil && d.Finished()
+	})
+	previewHost := "shop--topic." + cfg.Domain
+	_, inPreview := get(t, addrs.HTTP, previewHost, "/env?name=DATABASE_URL")
+	if !strings.HasPrefix(inPreview, "postgres://app:") || strings.Contains(inPreview, "production.example.com") {
+		t.Errorf("in the preview: %q", inPreview)
+	}
+	if got := psql("topic", "select count(*) from pg_tables where tablename = 'kept'"); got != "0" {
+		t.Errorf("a preview that should be empty: %q", got)
+	}
+	// Production's own variable wins there, which is how it uses a real database.
+	if _, got := get(t, addrs.HTTP, host, "/env?name=DATABASE_URL"); !strings.Contains(got, "production.example.com") {
+		t.Errorf("production's own: %q", got)
+	}
+
+	// Sleep stops it and keeps what it holds, and waking starts it first.
+	previewRec, err := db.Service(ctx, "shop", "topic", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	psql("topic", "create table mine (value text); insert into mine values ('preview')")
+	if _, err := c.SleepEnvironment(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	running := func(id string) string {
+		out, _ := exec.Command(e.Bin, "ps", "-q", "--filter", "name="+container.ServiceName(id)).Output()
+		return strings.TrimSpace(string(out))
+	}
+	if running(previewRec.ID) != "" {
+		t.Error("its service is running while it sleeps")
+	}
+	if _, err := c.WakeEnvironment(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if got := psql("topic", "select value from mine"); got != "preview" {
+		t.Errorf("after waking: %q", got)
+	}
+
+	// One that stops by itself is started again, on the same data.
+	if out, err := exec.Command(e.Bin, "stop", "-t", "10", container.ServiceName(rec.ID)).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	waitUntil(t, "the service to be started again", func() bool { return running(rec.ID) != "" })
+	waitUntil(t, "what it holds", func() bool {
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(rec.ID), "psql", "-U", "app", "-d", "app", "-At", "-c", "select value from kept").CombinedOutput()
+		return err == nil && strings.TrimSpace(string(out)) == "production"
+	})
+
+	// It outlasts the server, and a new server goes on with it.
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if running(rec.ID) == "" {
+		t.Error("it stopped with the server")
+	}
+	addrs, _ = start(t, cfg)
+	c = apiClient(t, cfg, addrs)
+	if got := psql("production", "select value from kept"); got != "production" {
+		t.Errorf("after a new server: %q", got)
+	}
+
+	// A preview's deletion takes its service and what it holds. A line going from a manifest does not.
+	if err := c.DeleteEnvironment(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", previewRec.Volume).CombinedOutput(); err == nil {
+		t.Errorf("its volume is still there: %s", out)
+	}
+	if running(previewRec.ID) != "" {
+		t.Error("its service is still running")
+	}
+	gone, log := deploySource(t, c, "shop", appManifest("# no services\n"))
+	if gone.Status != "live" {
+		t.Fatalf("%+v\n%s", gone, log)
+	}
+	if got := psql("production", "select value from kept"); got != "production" {
+		t.Errorf("after a release that does not name it: %q", got)
+	}
+	// Deleting the app takes it.
+	if err := c.DeleteApp(ctx, "shop", false); err != nil {
+		t.Fatal(err)
+	}
+	if running(rec.ID) != "" {
+		t.Error("the service of a deleted app is still running")
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err == nil {
+		t.Errorf("the volume of a deleted app: %s", out)
+	}
+}
+
+// An app in a container reaches its service by name, on its environment's network.
+func TestContainerServiceReachedByName(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	files := boxedApp("first", "")
+	files["moorage.toml"] += "\n[services.db]\ntype = \"postgres\"\n"
+	d, log := deploySource(t, c, "boxed", files)
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	rec, err := testAuth(t, cfg).DB.Service(ctx, "boxed", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := instances(t, c, "boxed")
+	if len(list) != 1 {
+		t.Fatalf("%+v", list)
+	}
+	out, err := exec.Command(e.Bin, "ps", "-q", "--filter", "label=io.moorage.instance="+list[0].ID).Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		t.Fatalf("the app's container: %q %v", out, err)
+	}
+	id := strings.TrimSpace(string(out))
+	said, err := exec.Command(e.Bin, "exec", id, "sh", "-c", "echo \"$DATABASE_URL\"").CombinedOutput()
+	if err != nil || !strings.Contains(string(said), "@"+container.ServiceName(rec.ID)+":5432/app") {
+		t.Errorf("its address: %q %v", said, err)
+	}
+	// Over the network, with the image's own tools, by that name.
+	if out, err := exec.Command(e.Bin, "run", "--rm", "--network", container.ServiceNetwork(rec.EnvID), rec.Image, "pg_isready", "-h", container.ServiceName(rec.ID), "-U", "app").CombinedOutput(); err != nil {
+		t.Errorf("by name: %v: %s", err, out)
+	}
+}
+
+// An object store that an app declares, on a real engine, with what the app is given.
+func TestContainerServiceS3(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	d, log := deploySource(t, c, "shop", appManifest("\n[services.files]\ntype = \"s3\"\n"))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	host := "shop." + cfg.Domain
+	given := func(name string) string {
+		t.Helper()
+		_, got := get(t, addrs.HTTP, host, "/env?name="+name)
+		return got
+	}
+	endpoint, bucket, access, secret, region := given("S3_ENDPOINT"), given("S3_BUCKET"), given("S3_ACCESS_KEY_ID"), given("S3_SECRET_ACCESS_KEY"), given("S3_REGION")
+	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") || bucket != "app" || access == "" || len(secret) < 24 || region == "" {
+		t.Fatalf("%q %q %q %q", endpoint, bucket, access, region)
+	}
+	if given("AWS_SECRET_ACCESS_KEY") != secret || given("AWS_ENDPOINT_URL") != endpoint {
+		t.Errorf("the names that clients look for: %q", given("AWS_ENDPOINT_URL"))
+	}
+	object := func(method, key string, body []byte) (int, []byte) {
+		t.Helper()
+		req, err := http.NewRequest(method, endpoint+"/"+bucket+"/"+key, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		backup.Sign(req, body, access, secret, region, time.Now())
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		data, _ := io.ReadAll(res.Body)
+		return res.StatusCode, data
+	}
+	if code, data := object(http.MethodPut, "hello.txt", []byte("hello")); code != http.StatusOK {
+		t.Fatalf("putting: %d %s", code, data)
+	}
+	if code, data := object(http.MethodGet, "hello.txt", nil); code != http.StatusOK || string(data) != "hello" {
+		t.Errorf("getting: %d %s", code, data)
+	}
+	// It takes the key: anyone else on the machine can reach the port, and not what is behind it.
+	res, err := http.Get(endpoint + "/" + bucket + "/hello.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("with no key: %d", res.StatusCode)
+	}
+
+	rec, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "files")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What it holds is plain files, which is what makes a dump a tar.
+	out, err := exec.Command(e.Bin, "exec", container.ServiceName(rec.ID), "cat", "/data/s3/app/hello.txt").CombinedOutput()
+	if err != nil || string(out) != "hello" {
+		t.Errorf("on disk: %q %v", out, err)
+	}
+
+	// It outlasts the server and a new container.
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(e.Bin, "rm", "-f", container.ServiceName(rec.ID)).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	addrs, _ = start(t, cfg)
+	c = apiClient(t, cfg, addrs)
+	waitUntil(t, "it to be started again, with what it held", func() bool {
+		req, _ := http.NewRequest(http.MethodGet, endpoint+"/"+bucket+"/hello.txt", nil)
+		backup.Sign(req, nil, access, secret, region, time.Now())
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return false
+		}
+		defer res.Body.Close()
+		data, _ := io.ReadAll(res.Body)
+		return res.StatusCode == http.StatusOK && string(data) == "hello"
+	})
+
+	// A backup holds a tar of it, whole by what an image's own tar writes, and going back to that loses what came since, and keeps what it holds with its metadata.
+	started, err := c.StartBackup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the backup", func() bool {
+		list, err := c.Backups(ctx)
+		if err != nil {
+			return false
+		}
+		for _, b := range list.Items {
+			if b.ID == started.ID {
+				return b.Status != "running"
+			}
+		}
+		return false
+	})
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "data", "shop", ".services", "production", "files.tar")); err != nil {
+		t.Fatalf("its dump: %v", err)
+	}
+	if code, data := object(http.MethodPut, "later.txt", []byte("later")); code != http.StatusOK {
+		t.Fatalf("putting: %d %s", code, data)
+	}
+	if err := c.RestoreService(ctx, "shop", "production", "files"); err != nil {
+		t.Fatal(err)
+	}
+	if code, data := object(http.MethodGet, "hello.txt", nil); code != http.StatusOK || string(data) != "hello" {
+		t.Errorf("what it held: %d %s", code, data)
+	}
+	if code, _ := object(http.MethodGet, "later.txt", nil); code != http.StatusNotFound {
+		t.Errorf("what came since: %d", code)
+	}
+
+	// Both of its volumes go with it.
+	if err := c.RemoveService(ctx, "shop", "production", "files"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{rec.Volume, container.ServiceMetadataVolume(rec.ID)} {
+		if out, err := exec.Command(e.Bin, "volume", "inspect", name).CombinedOutput(); err == nil {
+			t.Errorf("%s is still there: %s", name, out)
+		}
+	}
+}
+
+// What a service holds goes into a backup, comes back on a fresh volume, can seed a preview, and moves to a newer version, on a real engine.
+func TestContainerServiceData(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, stop := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	db := testAuth(t, cfg).DB
+
+	declared := "\n[services.db]\ntype = \"postgres\"\nversion = \"17\"\n"
+	d, log := deploySource(t, c, "shop", appManifest(declared))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	rec, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	psqlIn := func(id, query string) (string, error) {
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(id), "psql", "-U", "app", "-d", "app", "-At", "-c", query).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	psql := func(id, query string) string {
+		t.Helper()
+		got, err := psqlIn(id, query)
+		if err != nil {
+			t.Fatalf("%s: %v: %s", query, err, got)
+		}
+		return got
+	}
+	psql(rec.ID, "create table people (name text, email text); insert into people values ('Ada', 'ada@example.com')")
+	// What the filter of a dump leaves out, as whole lines in rows and in the body of a function, and text that looks like the start of rows, in a database that comes before this one.
+	psql(rec.ID, "create table lines (line text); insert into lines values ('CREATE ROLE app;'), ('CREATE DATABASE app WITH TEMPLATE = template0;')")
+	psql(rec.ID, "create function note() returns text language sql as $$ select 'a\nCREATE ROLE app;\nb' $$")
+	psql(rec.ID, "create database other")
+	psql(rec.ID, "create database aaa")
+	psqlIn2 := func(id, database, query string) string {
+		t.Helper()
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(id), "psql", "-U", "app", "-d", database, "-At", "-c", query).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v: %s", query, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	psqlIn2(rec.ID, "aaa", "create function note() returns text language sql as $$ select 'a\nCOPY x FROM stdin;\nb' $$")
+
+	// A backup dumps it into the data directory, and so holds it.
+	backUp := func() {
+		t.Helper()
+		started, err := c.StartBackup(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitUntil(t, "the backup", func() bool {
+			list, err := c.Backups(ctx)
+			if err != nil {
+				return false
+			}
+			for _, b := range list.Items {
+				if b.ID == started.ID {
+					return b.Status != "running"
+				}
+			}
+			return false
+		})
+	}
+	backUp()
+	dump := filepath.Join(cfg.DataDir, "data", "shop", ".services", "production", "db.sql")
+	data, err := os.ReadFile(dump)
+	if err != nil || !strings.Contains(string(data), "ada@example.com") {
+		t.Fatalf("its dump: %v\n%s", err, data)
+	}
+
+	// One that is asleep is dumped too, where no app can reach it, and goes on sleeping.
+	psql(rec.ID, "insert into people values ('Asleep', 'asleep@example.com')")
+	if _, err := c.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	backUp()
+	if data, err := os.ReadFile(dump); err != nil || !strings.Contains(string(data), "asleep@example.com") {
+		t.Errorf("its dump, asleep: %v\n%s", err, data)
+	}
+	if out, _ := exec.Command(e.Bin, "ps", "-q", "--filter", "name="+container.ServiceName(rec.ID)).Output(); strings.TrimSpace(string(out)) != "" {
+		t.Errorf("a dump left it running: %s", out)
+	}
+	if _, err := c.WakeEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+
+	// With its volume gone, as on a new machine after a restore, it comes back with what it held.
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(e.Bin, "rm", "-f", container.ServiceName(rec.ID)).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "rm", "-f", rec.Volume).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	addrs, stop = start(t, cfg)
+	t.Cleanup(func() { stop() })
+	c = apiClient(t, cfg, addrs)
+	db = testAuth(t, cfg).DB
+	// Until it is said to be running, it is having its dump put back, where no app can reach it.
+	waitUntil(t, "what it held to come back", func() bool {
+		list, err := c.Services(ctx, "shop", "production")
+		return err == nil && len(list) == 1 && list[0].Running
+	})
+	waitUntil(t, "it to answer, with what it held", func() bool {
+		got, err := psqlIn(rec.ID, "select email from people where name = 'Ada'")
+		return err == nil && got == "ada@example.com"
+	})
+	if got := psql(rec.ID, "select count(*) from pg_database where datname = 'other'"); got != "1" {
+		t.Errorf("its other database: %q", got)
+	}
+	if got := psql(rec.ID, "select count(*) from lines"); got != "2" {
+		t.Errorf("rows that look like what is left out: %q", got)
+	}
+	if got := psql(rec.ID, "select note()"); !strings.Contains(got, "CREATE ROLE app;") {
+		t.Errorf("a function with a line that looks like what is left out: %q", got)
+	}
+	if got := psqlIn2(rec.ID, "aaa", "select note()"); !strings.Contains(got, "COPY x FROM stdin;") {
+		t.Errorf("a function with a line that looks like the start of rows: %q", got)
+	}
+
+	// A preview behind a gate is seeded from that dump, and sanitized before anything connects.
+	seeded := appManifest("# a preview\n\n[environments.preview]\naccess = \"login\"\n\n[services.db]\ntype = \"postgres\"\nversion = \"17\"\nseed = \"production\"\nsanitize = \"sanitize.sql\"\n")
+	seeded["sanitize.sql"] = "update people set email = 'nobody@example.com';\n"
+	if _, err := db.CreateEnvironment(ctx, "shop", "topic", "preview", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	dep, _, err := c.DeploySource(ctx, "shop", "topic", writeSite(t, seeded), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the preview", func() bool {
+		d, err := c.Deployment(ctx, dep.ID)
+		return err == nil && d.Finished()
+	})
+	if d, err := c.Deployment(ctx, dep.ID); err != nil || d.Status != "live" {
+		t.Fatalf("%+v %v", d, err)
+	}
+	preview, err := db.Service(ctx, "shop", "topic", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := psql(preview.ID, "select distinct email from people"); got != "nobody@example.com" {
+		t.Errorf("in the preview: %q", got)
+	}
+	// As an app would reach it: over the network with its own password, which is not the one in the dump.
+	previewHost := "shop--topic." + cfg.Domain
+	_, previewAddress := get(t, addrs.HTTP, previewHost, "/env?name=DATABASE_URL")
+	previewPassword := strings.TrimPrefix(strings.SplitN(previewAddress, "@", 2)[0], "postgres://app:")
+	if previewPassword == "" {
+		t.Fatalf("its address: %q", previewAddress)
+	}
+	byPassword := exec.Command(e.Bin, "exec", "-e", "PGPASSWORD="+previewPassword, container.ServiceName(preview.ID), "psql", "-h", "127.0.0.1", "-U", "app", "-d", "app", "-At", "-c", "select 1")
+	if out, err := byPassword.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "1" {
+		t.Errorf("with its own password: %v: %s", err, out)
+	}
+
+	// An upgrade moves what it holds to the newer version, with the app stopped for that, and keeps the old volume until told.
+	said, err := c.UpgradeService(ctx, "shop", "production", "db", "18", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(said, "4 rows in 2 tables, of databases aaa, app, other, postgres") {
+		t.Errorf("what it said: %q", said)
+	}
+	first, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not happy with that, it goes back, on the older image and where that keeps what it holds, with what it held, and can then move again.
+	if err := c.BackService(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if got := psql(rec.ID, "show server_version_num"); !strings.HasPrefix(got, "17") {
+		t.Errorf("its version, after going back: %q", got)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
+		t.Errorf("what it holds, after going back: %q", got)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", first.Volume).CombinedOutput(); err == nil {
+		t.Errorf("what it held since: %s", out)
+	}
+	if said, err = c.UpgradeService(ctx, "shop", "production", "db", "18", ""); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != "18" || after.OldVolume != rec.Volume || after.Volume == rec.Volume {
+		t.Errorf("%+v", after)
+	}
+	if got := psql(rec.ID, "show server_version_num"); !strings.HasPrefix(got, "18") {
+		t.Errorf("its version: %q", got)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
+		t.Errorf("what it holds: %q", got)
+	}
+	if got := psql(rec.ID, "select count(*) from pg_database where datname = 'other'"); got != "1" {
+		t.Errorf("its other database: %q", got)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err != nil {
+		t.Errorf("its old volume: %v: %s", err, out)
+	}
+	// The app came back, on the same address.
+	waitUntil(t, "the app to come back", func() bool {
+		res, _ := get(t, addrs.HTTP, "shop."+cfg.Domain, "/health")
+		return res.StatusCode == http.StatusOK
+	})
+	// A manifest that still says the older version is told so.
+	refused, log := deploySource(t, c, "shop", appManifest("# still 17\n"+declared))
+	if refused.Status != "failed" || !strings.Contains(refused.Error, "holds data of PostgreSQL 18") {
+		t.Errorf("%+v\n%s", refused, log)
+	}
+	if d, log := deploySource(t, c, "shop", appManifest("# now 18\n\n[services.db]\ntype = \"postgres\"\nversion = \"18\"\n")); d.Status != "live" {
+		t.Errorf("%+v\n%s", d, log)
+	}
+	if err := c.FinishServiceUpgrade(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err == nil {
+		t.Errorf("its old volume is still there: %s", out)
+	}
+
+	// Going back to its dump loses what came since, and keeps what it held until told. One that will not do changes nothing.
+	psql(rec.ID, "insert into people (name, email) values ('Later', 'later@example.com')")
+	whole, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dump, whole[:len(whole)/2], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RestoreService(ctx, "shop", "production", "db"); err == nil || !strings.Contains(err.Error(), "not whole") {
+		t.Errorf("a dump cut short: %v", err)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Later'"); got != "later@example.com" {
+		t.Errorf("after a dump that would not do: %q", got)
+	}
+	if err := os.WriteFile(dump, whole, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RestoreService(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if got := psql(rec.ID, "select count(*) from people where name = 'Later'"); got != "0" {
+		t.Errorf("what came since: %q", got)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
+		t.Errorf("what it held: %q", got)
+	}
+	restored, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.OldVolume != after.Volume || restored.Volume == after.Volume {
+		t.Errorf("%+v", restored)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", after.Volume).CombinedOutput(); err != nil {
+		t.Errorf("what it held before: %v: %s", err, out)
+	}
+	waitUntil(t, "the app to come back after that", func() bool {
+		res, _ := get(t, addrs.HTTP, "shop."+cfg.Domain, "/health")
+		return res.StatusCode == http.StatusOK
+	})
+	// Not happy with that, it goes back.
+	if err := c.BackService(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Later'"); got != "later@example.com" {
+		t.Errorf("after going back: %q", got)
+	}
+	back, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Volume != after.Volume || back.OldVolume != "" {
+		t.Errorf("%+v", back)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", restored.Volume).CombinedOutput(); err == nil {
+		t.Errorf("what it held since: %s", out)
+	}
+	if err := c.BackService(ctx, "shop", "production", "db"); err == nil || !strings.Contains(err.Error(), "nothing from before") {
+		t.Errorf("going back again: %v", err)
+	}
+}
+
+// removeServices leaves no container, volume or network of a test's server behind.
+func removeServices(t *testing.T, e *container.Engine, cfg config.Config) {
+	t.Helper()
+	label := "label=io.moorage.server=" + ContainerLabel(cfg)
+	out, _ := exec.Command(e.Bin, "ps", "-aq", "--filter", label).Output()
+	for _, id := range strings.Fields(string(out)) {
+		exec.Command(e.Bin, "rm", "-f", id).Run()
+	}
+	out, _ = exec.Command(e.Bin, "volume", "ls", "-q", "--filter", label).Output()
+	for _, name := range strings.Fields(string(out)) {
+		exec.Command(e.Bin, "volume", "rm", "-f", name).Run()
+	}
+	out, _ = exec.Command(e.Bin, "network", "ls", "-q", "--filter", label).Output()
+	for _, name := range strings.Fields(string(out)) {
+		exec.Command(e.Bin, "network", "rm", name).Run()
+	}
+}
+
+// A command in an environment that is asleep starts what it needs and stops it after, and sleeping leaves what a command or a process still needs.
+func TestContainerServiceAndCommands(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	d, log := deploySource(t, c, "shop", appManifest("\n[services.db]\ntype = \"postgres\"\n"))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	rec, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := func() bool {
+		out, _ := exec.Command(e.Bin, "ps", "-q", "--filter", "name="+container.ServiceName(rec.ID)).Output()
+		return strings.TrimSpace(string(out)) != ""
+	}
+	if _, err := c.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	if running() {
+		t.Fatal("it is running while its environment sleeps")
+	}
+	run, err := c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sleep 8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "it to start for the command", running)
+	waitUntil(t, "the command", func() bool {
+		r, err := c.Run(ctx, "shop", run.ID)
+		return err == nil && r.Status != "running" && r.Status != "queued" && r.Status != "starting"
+	})
+	waitUntil(t, "it to stop again", func() bool { return !running() })
+	waitUntil(t, "it to be on record as stopped", func() bool {
+		got, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "db")
+		return err == nil && got.State == "stopped"
+	})
+	// Going to sleep leaves it for a command that is still going.
+	if _, err := c.WakeEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	run, err = c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sleep 6"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if _, err := c.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	if !running() {
+		t.Error("it stopped under a command")
+	}
+	waitUntil(t, "the command", func() bool {
+		r, err := c.Run(ctx, "shop", run.ID)
+		return err == nil && r.Status != "running" && r.Status != "queued" && r.Status != "starting"
+	})
+	waitUntil(t, "it to stop after the command", func() bool { return !running() })
 }

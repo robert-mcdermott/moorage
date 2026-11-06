@@ -88,7 +88,7 @@ func (db *DB) LiveInstances(ctx context.Context) ([]LiveInstance, error) {
 
 // LivePorts returns the ports reserved by live instances.
 func (db *DB) LivePorts(ctx context.Context) (map[int]bool, error) {
-	rows, err := db.Reader.QueryContext(ctx, `SELECT port FROM instances WHERE stopped_at IS NULL AND port IS NOT NULL`)
+	rows, err := db.Reader.QueryContext(ctx, `SELECT port FROM instances WHERE stopped_at IS NULL AND port IS NOT NULL UNION SELECT port FROM services`)
 	if err != nil {
 		return nil, err
 	}

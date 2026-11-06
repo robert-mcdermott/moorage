@@ -3,7 +3,7 @@
 `moorage.toml`, at the top of an app's directory, says how Moorage builds
 and runs the app. It is optional: without it, Moorage detects the kind of
 app (see [Detection](#detection)), and `moor manifest explain` shows what it
-detected. This page describes the manifest as Moorage 0.9.0 implements it;
+detected. This page describes the manifest as Moorage 0.10.0 implements it;
 the [design](../spec/03-manifest.md) describes what later releases add.
 
 ```bash
@@ -293,6 +293,22 @@ applies to every preview.
 | `secret` | `false` | A deployment fails if it is set, and not as a secret. |
 | `generate` | | `secret` or `uuid`: a value is made once for each environment, and kept as a secret. |
 
+## `[services.NAME]`
+
+A database or an object store for each environment, which Moorage runs and connects the app to. It takes [a container engine](containers.md#the-engine), for those who use it and nobody else. [Services](services.md) says it all.
+
+```toml
+[services.db]
+type = "postgres"             # postgres or s3
+version = "18"                # postgres: 15 to 19. What is made stays at what it was made with
+# image = "pgvector/pgvector:pg18"   # postgres: another image, with a tag other than latest
+# env = "ANALYTICS_DATABASE_URL"     # another name for what it gives, needed for a second of one type
+# memory = "512MiB"
+# previews = "own"            # or "none"
+# seed = "production"         # a preview starts with a copy of production's latest dump, behind a gate
+# sanitize = "scripts/sanitize.sql"  # with seed: what removes what should not be copied, or "none"
+```
+
 ## `[env]`
 
 Variables for the app, at build and run time, such as `LOG_LEVEL = "info"`.
@@ -346,7 +362,7 @@ and `moor manifest validate` warns that they have no effect yet:
 |---|---|
 | `app.root` | a later release |
 | `[storage]` outside a container | a later release; `$MOORAGE_DATA_DIR` is always there |
-| `[[routes]]`, `[services]` | later releases |
+| `[[routes]]` | later releases |
 | `previews.data` | a later release |
 | `runtime = "bun"` or `"deno"`, `[bun]`, `[deno]` | a later release |
 | `[static]` beside `[processes]` | with `[[routes]]`; until then the processes serve the app |

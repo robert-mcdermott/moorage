@@ -101,6 +101,9 @@ func (d *Deployer) quiesce(ctx context.Context, app string) (release func(), err
 			return nil, err
 		}
 	}
+	if err := d.opts.Services.Blocks(ctx, app, ""); err != nil {
+		return nil, err
+	}
 	envs, err := d.db.Environments(ctx, app)
 	if err != nil {
 		return nil, err
@@ -150,6 +153,9 @@ func (d *Deployer) DeleteApp(ctx context.Context, app, by string, keepData bool)
 	defer done()
 	builds, err := d.db.AppImages(ctx, app)
 	if err != nil {
+		return err
+	}
+	if err := d.opts.Services.RemoveApp(ctx, app, keepData); err != nil {
 		return err
 	}
 	if err := d.db.DeleteApp(ctx, app); err != nil {

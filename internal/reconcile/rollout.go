@@ -19,6 +19,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/shim"
@@ -256,6 +257,38 @@ func (m *Manager) Retire(app, env string) {
 	m.retire(es, es.list(), 0)
 }
 
+// Offline stops an environment's instances, does something, and starts them again however it went. It holds the environment's rollout lock, so that nothing starts them in the meantime.
+func (m *Manager) Offline(ctx context.Context, app, env string, do func() error) error {
+	es := m.env(app, env)
+	es.rollout.Lock()
+	defer es.rollout.Unlock()
+	es.pool.Set(nil)
+	// They finish what they have in hand, as for any rollout.
+	drain := time.Duration(0)
+	if _, b, err := m.db.CurrentRelease(ctx, app, env); err == nil {
+		if plan, err := readPlan(b); err == nil {
+			drain = plan.Deploy.Drain.Std()
+		}
+	}
+	m.retire(es, es.list(), drain)
+	err := do()
+	routes, routesErr := m.db.Routes(ctx)
+	if routesErr != nil {
+		return errors.Join(err, routesErr)
+	}
+	for _, r := range routes {
+		if r.App != app || r.Env != env {
+			continue
+		}
+		plan, planErr := readPlan(r.Build)
+		if planErr != nil || plan.Kind != manifest.KindProcess {
+			return errors.Join(err, planErr)
+		}
+		return errors.Join(err, m.ensureRoute(ctx, es, r, plan))
+	}
+	return err
+}
+
 // Forget lets go of what the manager holds for an app that has been retired: its files
 // are moving or going, and the name may come back as another app.
 func (m *Manager) Forget(app string) {
@@ -434,6 +467,9 @@ func (m *Manager) appEnv(ctx context.Context, app, env string, rel store.Release
 	if err := m.addConfig(ctx, rel.AppID, rel.Config, vars, secrets); err != nil {
 		return nil, nil, err
 	}
+	if _, err := m.addServices(ctx, app, env, plan, rel.Config, vars, secrets, false); err != nil {
+		return nil, nil, err
+	}
 	var path []string
 	for _, t := range plan.Toolchains {
 		if t.Version == "system" || m.opts.ToolchainBins == nil {
@@ -479,6 +515,69 @@ func (m *Manager) addConfig(ctx context.Context, appID string, cfg []store.Confi
 		secrets[v.Name] = value
 	}
 	return nil
+}
+
+// addServices gives an app the addresses of its environment's services, and says which network they are on, for an app in a container. From weakest to strongest:
+// variables for all environments and what a preview inherits, then the address of this environment's own service, then a variable set on this environment itself. So that a
+// preview never ends up on production's database by inheritance, what it would inherit of that name goes, even if it has no service of its own.
+func (m *Manager) addServices(ctx context.Context, app, env string, plan manifest.Plan, cfg []store.ConfigVar, vars, secrets map[string]string, inContainer bool) (string, error) {
+	if m.opts.Services == nil {
+		return "", nil
+	}
+	envID, err := m.db.EnvID(ctx, app, env)
+	if err != nil {
+		return "", err
+	}
+	scopes := map[string]string{}
+	for _, v := range cfg {
+		// In the order of what overrides what, so that the last is what it has.
+		scopes[v.Name] = v.Scope
+	}
+	// What this environment does not name can still be production's, and what it inherits of that is not to be used: a branch from before a service was added, say, or a rollback to a release of then.
+	if env != names.Production {
+		if _, b, err := m.db.CurrentRelease(ctx, app, names.Production); err == nil {
+			if production, err := readPlan(b); err == nil {
+				for _, s := range production.Services {
+					for _, variable := range s.Variables() {
+						if scope, set := scopes[variable]; set && scope != "" && scope != envID {
+							delete(vars, variable)
+							delete(secrets, variable)
+						}
+					}
+				}
+			}
+		}
+	}
+	if len(plan.Services) == 0 {
+		return "", nil
+	}
+	secret, plain, network, err := m.opts.Services.Addresses(ctx, app, env, plan, inContainer)
+	if err != nil {
+		return "", err
+	}
+	for _, s := range plan.Services {
+		// Its own address set on this environment says that it goes elsewhere, for all of what goes with it.
+		if scope, set := scopes[s.AddressVariable()]; set && scope == envID {
+			continue
+		}
+		for _, name := range s.Variables() {
+			scope, set := scopes[name]
+			if set && scope == envID {
+				continue
+			}
+			if value, ok := secret[name]; ok {
+				delete(vars, name)
+				secrets[name] = value
+			} else if value, ok := plain[name]; ok {
+				delete(secrets, name)
+				vars[name] = value
+			} else if set && scope != "" {
+				delete(vars, name)
+				delete(secrets, name)
+			}
+		}
+	}
+	return network, nil
 }
 
 // addMoorage adds the variables Moorage sets, which nothing overrides.
@@ -777,6 +876,11 @@ func (m *Manager) retire(es *envState, ins []*instance, drain time.Duration) {
 // allocPort picks a free port at random in the configured range, skipping
 // ports reserved by live instances and checking it can be bound.
 func (m *Manager) allocPort(ctx context.Context) (int, error) {
+	return m.AllocPort(ctx)
+}
+
+// AllocPort picks a free port for something that is about to record it, such as a service, and ReleasePort says that it has.
+func (m *Manager) AllocPort(ctx context.Context) (int, error) {
 	live, err := m.db.LivePorts(ctx)
 	if err != nil {
 		return 0, err
@@ -799,6 +903,9 @@ func (m *Manager) allocPort(ctx context.Context) (int, error) {
 	}
 	return 0, errors.New("no free port in the instance port range")
 }
+
+// ReleasePort says that a port from AllocPort has been recorded.
+func (m *Manager) ReleasePort(port int) { m.release(port) }
 
 func (m *Manager) release(port int) {
 	if port == 0 {

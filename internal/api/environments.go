@@ -1,13 +1,17 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/reconcile"
+	"github.com/robert-mcdermott/moorage/internal/services"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -215,4 +219,138 @@ func (s *Server) createPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, s.deploymentDoc(dep))
+}
+
+func (s *Server) services(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.deployer.ServiceList(r.Context(), app, env)
+	if s.environmentFailed(w, err) {
+		return
+	}
+	docs := make([]apitypes.Service, 0, len(rows))
+	for _, row := range rows {
+		docs = append(docs, apitypes.Service{
+			Name: row.Name, Type: row.Type, Version: row.Version, Image: row.Image, Variable: row.EnvVar, Port: row.Port, State: row.State,
+			Running: row.Running, Unknown: row.Unknown, MemoryBytes: row.Memory, Unused: row.Unused, OldVolume: row.OldVolume, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, docs)
+}
+
+func (s *Server) serviceLogs(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	tail := 100
+	if n, err := strconv.Atoi(r.URL.Query().Get("tail")); err == nil && n > 0 {
+		tail = min(n, 5000)
+	}
+	text, err := s.deployer.ServiceLogs(r.Context(), app, env, r.PathValue("name"), tail)
+	if s.environmentFailed(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, apitypes.ServiceLog{Log: text})
+}
+
+func (s *Server) removeService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.environmentFailed(w, s.deployer.RemoveService(lasting(r), app, env, r.PathValue("name"), who(r).Name)) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) updateService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	var log bytes.Buffer
+	digest, err := s.deployer.UpdateService(lasting(r), app, env, r.PathValue("name"), &log)
+	if s.serviceFailed(w, err) {
+		return
+	}
+	said := "It was up to date.\n"
+	if digest != "" {
+		said = "It now runs " + digest + ".\n"
+	}
+	writeJSON(w, http.StatusOK, apitypes.ServiceChange{Log: said})
+}
+
+func (s *Server) upgradeService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	var req apitypes.ServiceUpgrade
+	if !decode(w, r, &req) {
+		return
+	}
+	var log bytes.Buffer
+	if s.serviceFailed(w, s.deployer.UpgradeService(lasting(r), app, env, r.PathValue("name"), req.Version, req.Image, &log)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, apitypes.ServiceChange{Log: log.String()})
+}
+
+func (s *Server) backService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.serviceFailed(w, s.deployer.BackService(lasting(r), app, env, r.PathValue("name"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) finishServiceUpgrade(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.serviceFailed(w, s.deployer.FinishServiceUpgrade(lasting(r), app, env, r.PathValue("name"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) restoreService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.serviceFailed(w, s.deployer.RestoreService(lasting(r), app, env, r.PathValue("name"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) serviceFailed(w http.ResponseWriter, err error) bool {
+	var major *services.MajorChangeError
+	var locked *deploy.LockedError
+	var busy *deploy.AppBusyError
+	var rollout *reconcile.RolloutError
+	switch {
+	case errors.As(err, &major):
+		problem(w, http.StatusConflict, "conflict", sentenceOf(err))
+		return true
+	case errors.As(err, &rollout):
+		problem(w, http.StatusUnprocessableEntity, "app_did_not_start", "The app did not start again after that: "+sentenceOf(err))
+		return true
+	case err == nil, errors.As(err, &locked), errors.As(err, &busy), errors.Is(err, context.Canceled), errors.Is(err, store.ErrNotFound),
+		errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
+		return s.environmentFailed(w, err)
+	}
+	// Who may ask for these may know why one went wrong, in the words of the engine or of PostgreSQL, which they would otherwise have to find in the server's log.
+	s.log.Error("a service could not do what was asked", "err", err)
+	problem(w, http.StatusInternalServerError, "service_failed", sentenceOf(err))
+	return true
 }

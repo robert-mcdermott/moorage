@@ -92,6 +92,13 @@ func RunsInContainers(ctx context.Context, db *store.DB) (bool, error) {
 			return true, nil
 		}
 	}
+	services, err := db.AllServices(ctx)
+	if err != nil {
+		return false, err
+	}
+	if len(services) > 0 {
+		return true, nil
+	}
 	routes, err := db.Routes(ctx)
 	if err != nil {
 		return false, err

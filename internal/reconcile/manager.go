@@ -66,8 +66,16 @@ type Options struct {
 	Containers *container.Source
 	// Events hears of instances that exit, sicken and recover.
 	Events *events.Bus
+	// Services connects an app to what it declares under [services].
+	Services Services
 	// Isolation says how apps are kept from one another.
 	Isolation *isolate.Policy
+}
+
+// Services gives the addresses of an environment's services, for an instance as it starts.
+type Services interface {
+	Addresses(ctx context.Context, app, env string, plan manifest.Plan, inContainer bool) (secret, plain map[string]string, network string, err error)
+	Any(ctx context.Context) bool
 }
 
 // runner is what the manager asks of a driver about an instance it runs.
@@ -569,6 +577,9 @@ func (m *Manager) noteEngineNotNeeded(ctx context.Context) {
 
 // noteEngine says, once, when what apps here need has stopped answering, and when it comes back.
 func (m *Manager) noteEngine(ctx context.Context, st container.Status) {
+	if st.State == container.Unknown {
+		return // it has yet to say
+	}
 	down := !st.Ready()
 	if down == m.engineDown {
 		return
@@ -672,7 +683,8 @@ func (m *Manager) ensure(ctx context.Context) {
 		// is, and nothing is started to fail every few seconds.
 		if m.needsEngine(es, plan) {
 			wanted = true
-			st := m.opts.Containers.Status(ctx)
+			// As last found, as a daemon that hangs should not hold up looking after every other app. It is asked again behind the scenes.
+			st := m.opts.Containers.Known()
 			m.noteEngine(ctx, st)
 			if !st.Ready() {
 				continue
@@ -690,6 +702,10 @@ func (m *Manager) ensure(ctx context.Context) {
 			m.log.Error("cannot start an instance", "app", r.App, "env", r.Env, "err", err)
 		}
 		es.rollout.Unlock()
+	}
+	if !wanted && m.opts.Services != nil && m.opts.Services.Any(ctx) {
+		wanted = true
+		m.noteEngine(ctx, m.opts.Containers.Known())
 	}
 	if !wanted {
 		m.noteEngineNotNeeded(ctx)

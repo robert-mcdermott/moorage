@@ -1,8 +1,7 @@
-# 13. Backing services *(Phase 4)*
+# 13. Backing services
 
 Services are a database or object store that an app declares in its manifest, and Moorage runs and connects for it.
-They arrive in 0.10.0. This document is the design that release builds. The [optional engine](05-runtime.md#the-engine)
-they depend on comes first, in 0.9.0.
+They arrived in 0.10.0. The [optional engine](05-runtime.md#the-engine) that they depend on came first, in 0.9.0.
 
 ## The manifest
 
@@ -42,26 +41,40 @@ in its own append-only volume files with a metadata store beside them, and is bu
 |---|---|---|
 | Data on disk | A bucket is a directory, and an object is a file | Volume files and a metadata store, readable only through SeaweedFS |
 | What runs | One gateway | Master, volume, filer, S3, WebDAV, admin UI and a maintenance worker |
-| Image | About 35 MB | About 270 MB |
+| Image, unpacked | 80 MB | 780 MB |
+| Memory at rest, and after the test below | 9 MB, and 21 to 30 MB | 66 MB, and about 300 MB |
+| Ready after starting | Under 0.1 second | About 4 seconds |
 | Everyday S3: put, get, multipart, presigned URLs, CORS, bucket policies | Yes | Yes |
-| Versioning | Marked experimental | Yes |
-| Lifecycle rules | Not in the POSIX backend's code | Yes |
-| Object ACLs | Ignored | Yes |
-| Many small objects | A file and an inode each | Built for this |
+| Versioning | Refused unless given a directory for it, and marked experimental | Yes |
+| Lifecycle rules | Refused: not implemented | Yes |
+| Object ACLs | Refused: not implemented | Yes |
+| Keys `a` and `a/b` both | Refused, as a file cannot also be a directory | Yes |
+| 1,000 small objects | 2.7 seconds to write, and 0.15 to list | 3.5 seconds, and 0.11 |
 | Who | Versity Software, with three main contributors | One main maintainer, and a paid edition |
 | Advisories published by November 2026 | 8: 1 critical, 2 high | 25: 9 critical, 12 high |
 
 Why it suits Moorage: a service is one for each environment, so what scales with previews is what each instance runs. Plain files make a dump a tar and seeding a preview a
 copy. Moorage needs one bucket and one credential on one machine, and none of what SeaweedFS is built for.
 
-What it costs: an app that depends on versioning, lifecycle rules or object ACLs needs real S3, or SeaweedFS. Keys `a` and `a/b` cannot both exist, on either server. Its default
-metadata is in extended attributes, which plain `tar` in an Alpine image would lose, which is why it runs with `--sidecar`.
+What it costs: an app that depends on versioning, lifecycle rules, object ACLs or keys `a` and `a/b` at once needs real S3, or SeaweedFS. Its default metadata is in extended
+attributes, which plain `tar` in an Alpine image would lose, which is why it runs with `--sidecar`.
 
 The C++ in its repository is for NVIDIA's cuObject, S3 over RDMA for GPU clusters, behind the build tag `linux && amd64 && cgo && rdma`. The published image and release builds set
 `CGO_ENABLED=0`. Moorage pulls an image and talks S3 to it, so that its own rule of no cgo is untouched.
 
-Memory use at rest could not be found for either server, and the first test of wave 10 settles this. Choosing wrongly is cheap to undo: the manifest says only `type = "s3"`, an
-app sees the same variables whichever runs, and moving data is an S3 copy.
+Choosing wrongly is cheap to undo: the manifest says only `type = "s3"`, an app sees the same variables whichever runs, and moving data is an S3 copy.
+
+### What the first test found
+
+`.github/workflows/services-first-test.yml` tried the images under rootless Podman and Docker on 5 November 2026, with `boto3`, the AWS command line and `psql`. It runs when asked, or when it changes. What it settled:
+
+- **PostgreSQL does what this design needs,** under both: on a named volume, on a loopback port and by name on a network, ready in about a second and stopped cleanly by SIGINT in under half a second, with its data surviving a new container and a dump restoring into a fresh volume. At rest it uses 27 MiB.
+- **Where a volume goes depends on the image.** It is `/var/lib/postgresql` from 18 on, and `/var/lib/postgresql/data` before that, and an image of someone else's can say otherwise. So it goes by what an image declares, and is recorded when a service is made. A volume in the wrong place would hold nothing, while what the database wrote went in one that nothing looks at again.
+- **An older major on a newer volume stops at once,** and does not start empty: `initdb` says that the directory is not empty. So the refusal at deploy is a kindness, and not the only thing between a mistake and lost data.
+- **A plain `tar` of Versity's two directories is a dump.** Restored onto fresh volumes, an object comes back with its content type and metadata, which is the claim that decided on `--sidecar`.
+- **Everyday S3 works on both,** with real clients: multipart, presigned GET and PUT, CORS, enforced bucket policies, tags, and names in other alphabets. A presigned URL is refused for another host on both, as above.
+- **Versity runs as root in its image, as does PostgreSQL's** until it drops to its own user. `tar` and a shell are in Versity's image.
+- **An image's digest differs between engines:** one records the list for all platforms, and the other this platform's. So a digest is recorded with the engine that holds it, and is not compared across them.
 
 ## One for each environment
 
@@ -78,10 +91,13 @@ holds it, and its state. A new package has a `Run` beside the runtime's, and a s
 - **Stopping:** PostgreSQL gets SIGINT and 120 seconds. Its image warns that even 90 may not be enough, and the engines' default is ten.
 - **Provisioning comes before the release:** in `publish`, ahead of its capture, so that a release command can migrate. It waits for a health check run by exec, and a service that does not
   become healthy fails the deployment, with the previous release still serving.
-- **Sleep:** a preview's sleep stops its service and keeps its volume, and waking starts the service first. A cron job that runs while asleep starts what it needs, and stops it afterwards.
-- **A service the manifest no longer names** stays, with its data, and is shown as unused until `moor services remove`. Nothing deletes data because a line went from a file. An
+- **One name, and so one server.** Whatever a service is doing, its container has the same name, as starting one of a name replaces what has it: two servers on one volume would corrupt it, and this way there cannot be two. One that no app is to reach yet has a label that says so, with no port and `--network none`, and is not taken for running. An upgrade's temporary is the exception, as it reads from the service by name over their network, with the app stopped. Going by that, waking something asleep ends a dump of it, rather than waiting for one that may take hours.
+- **What a server leaves.** Stopping at any moment can leave something running where no app can reach it, or a volume that the record does not name. The next start stops what is running, and leaves volumes, as one that the record does not name may be newer than the record, if the server was restored from a backup. The doctor speaks of them, and removing the service or `--finish` lets them go. A volume is removed without `-f`, with which Podman would remove what is using it.
+- **An engine's program going away moves nothing,** as reading how a service stands should not lose track of what it holds because a package was being upgraded. A server moves what has lost its engine only as it starts, as it has to after a restore to another machine.
+- **Sleep:** a preview's sleep stops its service and keeps its volume, and waking starts the service first. Every command counts as using its environment's services. A command in one that is asleep starts what it needs, and the last to end stops it, unless a process with `sleep = false` needs it or the environment has woken; sleep leaves it for a command that is still going. A server stopping during that leaves it running, and looking at what is idle stops it.
+- **A service the manifest no longer names** stays, with its data, and is shown as unused until `moor services remove`, as it does for a preview whose manifest now says `previews = "none"`, which is not told of it. Nothing deletes data because a line went from a file. An
   environment's deletion removes its services and their volumes, as it does its data directory.
-- **Seen like everything else:** in `moor logs`, in events and alert rules, in metrics, in the doctor, and on a Services tab.
+- **Seen like everything else:** in `moor logs --service`, in events and alert rules, in metrics, in the doctor, and on a Services tab. Its engine keeps what it says: only what is asked for is read, and what PostgreSQL says of a load stays out of deployments and events, as it can quote a row. Who runs the server has it in the server's log.
 
 ## Reaching a service
 
@@ -113,19 +129,19 @@ Allowed, and labelled for what it is: one container with no replica, kept by bac
 ## Previews
 
 - **Empty by default,** with `[release] on_create` to seed them, which runs once. Copying production into previews is how customer data leaks.
-- **`seed = "production"` is an opt-in** that restores that service's latest dump, runs `sanitize` before any app connects, and is refused for a preview whose gate is public, or for a pull
-  request from a fork. Without a `sanitize`, it takes saying so in the manifest.
+- **`seed = "production"` is an opt-in** that restores that service's latest dump, runs `sanitize` before any app connects, and is refused for a preview whose gate is public, for a coding agent's preview, or for a pull
+  request from a fork, or that nothing says is not: a preview's branch says which pull request it is before a record of its environment does. Without a `sanitize`, it takes saying so in the manifest. It is done where no app can reach it, and it is on record as unfinished until it is over, so that a server stopping halfway does not leave a copy that nothing has sanitized: nothing but making it again will start one that is, and no app is told of it. A dump holds the password of what it came from, so that the role is then given its own. It is on record that a service holds such a copy, and a later commit that would open the preview's gate fails to deploy.
 - **Dumps and not clones.** They work across versions and on every platform. Cloning files is much quicker on a filesystem that can do it and useless on ext4, so it can be an optimisation later.
-- `previews = "none"` for an app that needs none, and the console shows how many services are running and what they use, as they add up.
+- `previews = "none"` for an app that needs none, and the console shows how many services an app has across its environments and what they use, as they add up.
 
 ## Backups and upgrades
 
-- **Server backups include a dump** of each production and named service: `pg_dump`, or a tar of the S3 directory. It is written to `data/<app>/<env>/.services/`, so that the backup's format
-  does not change and older versions can still read it. A dump that fails is reported, and does not lose the rest of the backup.
-- **Volumes are not in the backup.** A restore to a new machine makes the service afresh and loads its dump.
+- **Server backups include a dump** of each production and named service: `pg_dumpall`, as an app can make other databases and roles, or a tar of the S3 directories. One that is asleep is started for it, where no app can reach it, and never if its volume has gone: that would make an empty one, whose dump would replace the only good one. Only a whole dump replaces the last: one on the disk, that gets to its end, of what it still holds, as no lock is held while it reads, which can take hours. Waking something asleep goes first, and ends the dump. It is written to `data/<app>/.services/<env>/`, so that the backup's format
+  does not change and older versions can still read it, and not in an environment's data directory, which its app's user owns: it could leave a link there for the server to follow, and a preview's code could read production's. A dump that fails is reported, and does not lose the rest of the backup.
+- **Volumes are not in the backup.** A restore to a new machine makes the service afresh and loads its dump, where no app can reach it, as one that connected to an empty database would migrate it and the dump would not then load. It is on record that a volume holds nothing to keep until that has finished, so that a try that does not get to the end starts again from nothing, and the next backup does not replace the only good dump. Only the engine saying "no such volume" means that: one having trouble says nothing of what it holds, and "not found" can be said of its runtime. On the machine that it ran on, a service keeps what it holds, and `moor services restore` goes back to the dump. PostgreSQL's goes into a new volume, so that one that stops on an error changes nothing, and the old one stays until told. Only all of a service's volumes having gone means a fresh start: with one of S3's two gone, it does not start, as what is left may be all that there is.
 - **Minor updates** are explicit: `moor services update db`.
 - **A major version change is refused at deploy,** with instructions. `moor services upgrade` then does a dump with the newer tools, a new volume, a restore and a check, and keeps the old
-  volume until told. The images hold only their own major version, so `pg_upgrade` is not available.
+  volume, and what ran on it, until told: `--finish` lets go of it, and `--back` goes back to it. The images hold only their own major version, so `pg_upgrade` is not available. What can refuse it does so before anything stops. Then the app stops, with its usual drain, and commands and cron jobs are stopped and refused. The record names the new volume before it starts, once that holds everything, so that a server stopping at any moment comes back on one that is whole.
 
 ## What will surprise people
 

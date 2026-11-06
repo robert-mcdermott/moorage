@@ -95,7 +95,7 @@ everyone who is not a member a role, or none, in which case they see nothing of 
 console and git answer as they would for what is not there, and lists and feeds leave it out. An app's
 name is a hostname, shared by the whole server, so that taking a name that is taken says so, and an
 address answers anyone who can reach it. What the server does on its own account, such as a backup,
-is for administrators. A token limited to previews is refused every route that is not marked as fit for one, and reaches only the previews that stand apart from production ([spec/14-agents.md](14-agents.md)). A token limited to one app is refused what has no app in it, but for what keeps to
+is for administrators. A service's password is random and its own, sealed like a secret, and given to an app as it starts: on one machine, that keeps apps from it by password, and not by network ([spec/13-services.md](13-services.md)). A token limited to previews is refused every route that is not marked as fit for one, and reaches only the previews that stand apart from production ([spec/14-agents.md](14-agents.md)). A token limited to one app is refused what has no app in it, but for what keeps to
 that app by itself. Token scopes narrow what a
 token can do, whatever its owner's role: `read` the first two rows below, `deploy` up to the
 fourth, and `admin` the rest.

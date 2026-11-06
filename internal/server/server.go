@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	stdlog "log"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -48,6 +49,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/platform"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/secrets"
+	"github.com/robert-mcdermott/moorage/internal/services"
 	"github.com/robert-mcdermott/moorage/internal/sso"
 	"github.com/robert-mcdermott/moorage/internal/store"
 	"github.com/robert-mcdermott/moorage/internal/telemetry"
@@ -392,7 +394,15 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return hex.EncodeToString(mac.Sum(nil))
 	}
 	router.SetProxyToken(proxyToken)
-	runtime := reconcile.New(db, cfg, reconcile.Options{
+	// It takes its ports from the runtime's allocator, which counts its ports in turn.
+	var runtime *reconcile.Manager
+	backing := services.New(services.Options{
+		DB: db, Keyring: keyring, Engines: containers, Events: bus, Log: log, Tick: opts.Tick, DataDir: cfg.DataDir, GateFor: cfg.GateFor,
+		AllocPort:   func(ctx context.Context) (int, error) { return runtime.AllocPort(ctx) },
+		ReleasePort: func(port int) { runtime.ReleasePort(port) },
+	})
+	runtime = reconcile.New(db, cfg, reconcile.Options{
+		Services:        backing,
 		ProxyToken:      proxyToken,
 		DataDir:         cfg.DataDir,
 		Isolation:       isolation,
@@ -420,12 +430,14 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		return err
 	}
 	go runtime.Run(ctx)
+	go backing.Run(ctx)
 	go pruneAudit(ctx, db, log)
 	repos := gitserver.NewRepos(layout.Repos)
 	deployer := deploy.New(db, deploy.Options{
-		DataDir: cfg.DataDir,
-		Builder: &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engines: containers},
-		Runtime: runtime,
+		DataDir:  cfg.DataDir,
+		Builder:  &build.Builder{Isolation: isolation, DataDir: cfg.DataDir, Toolchains: toolchains, Shell: shell, ShellEnv: opts.ShellEnv, Engines: containers},
+		Runtime:  runtime,
+		Services: backing,
 		Reload: func(ctx context.Context) error {
 			err := router.Reload(ctx)
 			keepHostsBlock(ctx, cfg, db, log)
@@ -454,7 +466,20 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		sweep = time.Minute
 	}
 	go deployer.Sweep(ctx, sweep)
-	collector := &metrics.Collector{Store: metricsStore, Log: log, Instances: runtime.MetricsInstances, Containers: runtime.MetricsContainers, DataDir: cfg.DataDir, OverLimit: runtime.OverMemory}
+	collector := &metrics.Collector{Store: metricsStore, Log: log, DataDir: cfg.DataDir, OverLimit: runtime.OverMemory,
+		Instances: func(ctx context.Context) []metrics.Instance {
+			return append(runtime.MetricsInstances(ctx), backing.MetricsInstances(ctx)...)
+		},
+		// Side by side, as either can take as long as an engine is allowed, and what comes next waits for them.
+		Containers: func(ctx context.Context) map[string]metrics.Usage {
+			forServices := make(chan map[string]metrics.Usage, 1)
+			go func() { forServices <- backing.MetricsContainers(ctx) }()
+			usage := map[string]metrics.Usage{}
+			maps.Copy(usage, runtime.MetricsContainers(ctx))
+			maps.Copy(usage, <-forServices)
+			return usage
+		},
+	}
 	go collector.Run(ctx, opts.MetricsEvery)
 	cronTick := opts.CronTick
 	if cronTick == 0 {
@@ -498,7 +523,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// port.
 	git := &gitserver.Server{Repos: repos, Receiver: auditedPushes{&deploy.Pushes{Deployer: deployer}, authn}, Log: log}
 	console := http.NewServeMux()
-	backups := &backup.Service{DB: db, Bus: bus, Keyring: keyring, Keys: masterKey, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
+	backups := &backup.Service{Before: backing.DumpAll, DB: db, Bus: bus, Keyring: keyring, Keys: masterKey, Log: log, DataDir: cfg.DataDir, Version: buildinfo.Version, Domain: cfg.Domain, KeyFingerprint: backup.Fingerprint(masterKey), Tick: opts.BackupTick}
 	backupCtx, stopBackups := context.WithCancel(ctx)
 	go backups.Run(backupCtx)
 	defer func() {

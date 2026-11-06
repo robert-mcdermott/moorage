@@ -1359,3 +1359,52 @@ func (c *Client) AddThreshold(ctx context.Context, app, env string, in apitypes.
 func (c *Client) RemoveThreshold(ctx context.Context, app, env, id string) error {
 	return c.do(ctx, http.MethodDelete, envPath(app, env, "thresholds/"+url.PathEscape(id)), nil, "", nil)
 }
+
+// Services lists an environment's services.
+func (c *Client) Services(ctx context.Context, app, env string) ([]apitypes.Service, error) {
+	var out []apitypes.Service
+	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services", nil, "", &out)
+	return out, err
+}
+
+// ServiceLog reads the newest of what a service has said.
+func (c *Client) ServiceLog(ctx context.Context, app, env, name string, tail int) (string, error) {
+	var out apitypes.ServiceLog
+	path := fmt.Sprintf("/api/v1/apps/%s/envs/%s/services/%s/logs?tail=%d", url.PathEscape(app), url.PathEscape(env), url.PathEscape(name), tail)
+	err := c.do(ctx, http.MethodGet, path, nil, "", &out)
+	return out.Log, err
+}
+
+// RemoveService removes a service, with what it holds.
+func (c *Client) RemoveService(ctx context.Context, app, env, name string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name), nil, "", nil)
+}
+
+// UpdateService takes the newest image of a service's version.
+func (c *Client) UpdateService(ctx context.Context, app, env, name string) (string, error) {
+	var out apitypes.ServiceChange
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/update", struct{}{}, &out)
+	return out.Log, err
+}
+
+// UpgradeService moves a service to a newer major version.
+func (c *Client) UpgradeService(ctx context.Context, app, env, name, version, image string) (string, error) {
+	var out apitypes.ServiceChange
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/upgrade", apitypes.ServiceUpgrade{Version: version, Image: image}, &out)
+	return out.Log, err
+}
+
+// FinishServiceUpgrade lets go of what a service held before its last upgrade.
+func (c *Client) FinishServiceUpgrade(ctx context.Context, app, env, name string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/old-volume", nil, "", nil)
+}
+
+// BackService puts a service back on what it held before its last upgrade or restore.
+func (c *Client) BackService(ctx context.Context, app, env, name string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/back", nil, "", nil)
+}
+
+// RestoreService puts a service back to its latest dump.
+func (c *Client) RestoreService(ctx context.Context, app, env, name string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/restore", nil, "", nil)
+}

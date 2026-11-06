@@ -73,7 +73,7 @@ func TestProbeOfAnEngineThatHangs(t *testing.T) {
 	hung := engineScript(t, dir, "docker", "exec /bin/sleep 30")
 	began := time.Now()
 	st := Probe(context.Background(), hung)
-	if took := time.Since(began); took > probeLimit+waitForDescendants+time.Second {
+	if took := time.Since(began); took > probeTimeout()+waitForDescendants+time.Second {
 		t.Errorf("it took %v", took)
 	}
 	if st.State != NotAnswering {
@@ -256,7 +256,7 @@ func TestOneThatHangsHoldsUpNothing(t *testing.T) {
 		if st.State != NotAnswering {
 			t.Errorf("%+v", st)
 		}
-	case <-time.After(3 * probeLimit):
+	case <-time.After(3 * probeTimeout()):
 		t.Error("the probe did not end")
 	}
 }
@@ -309,7 +309,7 @@ func TestWhatIsMadeHereIsNotLeftBehind(t *testing.T) {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "docker")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in\n  run) sleep 1 ;;\n  inspect) echo '{\"ExitCode\":0}' ;;\nesac\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in\n  run) sleep 1 ;;\n  container) echo '{\"ExitCode\":0}' ;;\nesac\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	d := New(&Engine{Bin: bin, Kind: "docker"}, "test", slog.Default())
@@ -368,4 +368,54 @@ func TestADaemonThatIsDownIsNotAContainerThatHasGone(t *testing.T) {
 			t.Errorf("%q: %v", said, got)
 		}
 	}
+}
+
+// TestANoStandsForLessThanAYes: someone who has just started Docker Desktop should not have to wait to be believed.
+func TestANoStandsForLessThanAYes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	engineScript(t, dir, "podman", refuses)
+	s := NewSource(SourceOptions{Kept: time.Hour})
+	if st := s.Status(ctx); st.State != NotAnswering {
+		t.Fatalf("%+v", st)
+	}
+	engineScript(t, dir, "podman", answers)
+	if st := s.Status(ctx); st.State != NotAnswering {
+		t.Errorf("at once: %+v", st)
+	}
+	s.mu.Lock()
+	s.checked = time.Now().Add(-2 * notReadyKept)
+	s.mu.Unlock()
+	if st := s.Status(ctx); !st.Ready() {
+		t.Errorf("a little later: %+v", st)
+	}
+	s.mu.Lock()
+	s.checked = time.Now().Add(-2 * notReadyKept)
+	s.mu.Unlock()
+	engineScript(t, dir, "podman", refuses)
+	if st := s.Status(ctx); !st.Ready() {
+		t.Errorf("a yes stands for longer: %+v", st)
+	}
+}
+
+// TestASlowFirstAnswerIsAnAnswer: rootless Podman takes a while, the first time on a machine that has just started.
+func TestASlowFirstAnswerIsAnAnswer(t *testing.T) {
+	if defaultProbeLimit < 10*time.Second {
+		t.Errorf("%s is not long enough for that", defaultProbeLimit)
+	}
+	probeLimit.Store(int64(6 * time.Second))
+	defer probeLimit.Store(int64(2 * time.Second))
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	engineScript(t, dir, "podman", "/bin/sleep 3")
+	s := NewSource(SourceOptions{})
+	if st := s.Status(context.Background()); !st.Ready() {
+		t.Errorf("%+v", st)
+	}
+}
+
+func init() {
+	// These try engines that hang, and need not wait for as long as a real one is given.
+	probeLimit.Store(int64(2 * time.Second))
 }

@@ -989,6 +989,8 @@ Show the output of an app's instances, merged by time. Lines marked with \* are 
 
 --source chooses what to show, from stdout, stderr, moorage, build, access and events; the first three unless asked.
 
+--service shows the newest of what a service has said instead, which its engine keeps, so that it has only --tail.
+
 ```text
 moor logs
 ```
@@ -998,6 +1000,7 @@ moor logs --app api
 moor logs -f --app api --process worker
 moor logs --app api --source stderr,build --since 1h --grep timeout
 moor logs --app api --problems --since 24h
+moor logs --app api --service db --tail 500
 ```
 
 | Flag | Default | What it does |
@@ -1010,6 +1013,7 @@ moor logs --app api --problems --since 24h
 | `--json` |  | print each line as JSON |
 | `--problems` |  | show the lines that report a problem: errors, warnings, standard error, failed requests |
 | `--process string` |  | show one process only, such as web |
+| `--service string` |  | show what this service has said instead |
 | `--since string` |  | show lines since then: how long ago (15m, 2h, 7d) or a moment |
 | `--source string` |  | sources to show, separated by commas: stdout, stderr, moorage, build, access, events |
 | `-n, --tail int` | `100` | lines to show from the end |
@@ -2109,6 +2113,127 @@ Change a user's role
 ```text
 moor server users role EMAIL admin|member
 ```
+
+## `moor services`
+
+A service is a database that an app declares under \[services\] in moorage.toml, and Moorage runs and connects for it. Each environment has its own, with a password of its own, and the app is given its address as it starts. It needs a container engine, and nothing else here does.
+
+A service that a manifest no longer names stays, with what it holds, until you remove it. Deleting an environment removes its services.
+
+```text
+moor services
+```
+
+```text
+moor services --app shop
+moor services logs db --env staging
+moor services update db
+moor services upgrade db --to 19
+moor services remove db --env my-branch --yes
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--json` |  | print as JSON |
+
+### `moor services logs`
+
+Read the newest of what a service has said
+
+```text
+moor services logs NAME
+```
+
+```text
+moor services logs db --tail 500
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--tail int` | `100` | how many lines, up to 5,000 |
+
+### `moor services remove`
+
+Remove a service, with what it holds, which cannot be undone. If the manifest still names it, the next deployment makes a new one, which starts empty.
+
+```text
+moor services remove NAME
+```
+
+```text
+moor services remove db --env my-branch --yes
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--yes` |  | say that you mean it |
+
+### `moor services restore`
+
+Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say what to do with it, with moor services upgrade NAME --finish --yes or --back --yes.
+
+```text
+moor services restore NAME
+```
+
+```text
+moor services restore db --yes
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--yes` |  | say that you mean it |
+
+### `moor services update`
+
+Take the newest image of a service's version, such as PostgreSQL 18.7 where it ran 18.6, and restart it. What it holds stays. This does not happen by itself: an image is recorded when a service is made, and an update is something that you ask for.
+
+```text
+moor services update NAME
+```
+
+```text
+moor services update db
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+
+### `moor services upgrade`
+
+Move a PostgreSQL service to a newer major version: a dump with the newer version's tools, a new volume, a restore and a check that it holds what it did. The app is stopped for that, as what it wrote after the dump would be lost, and is started again however it goes. Anything going wrong leaves the old one as it was. Say the new version in the manifest too, if it names one.
+
+The old volume stays until you say what to do with it, as it does after moor services restore: --finish lets go of it, and --back goes back to it, losing what the service has held since. After --back, the manifest has to say the older version again, if it names one, and a dump made since by the newer version cannot be loaded.
+
+```text
+moor services upgrade NAME
+```
+
+```text
+moor services upgrade db --to 19
+moor services upgrade db --finish --yes
+moor services upgrade db --back --yes
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--back` |  | go back to what it held before its last upgrade or restore |
+| `--env string` | `production` | the environment |
+| `--finish` |  | let go of what it held before its last upgrade or restore |
+| `--image string` |  | the image that holds it, for a service that does not run the official one |
+| `--to string` |  | the major version to move to |
+| `--yes` |  | with --finish or --back, say that you mean it |
 
 ## `moor share`
 

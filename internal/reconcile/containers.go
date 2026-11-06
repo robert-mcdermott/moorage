@@ -39,8 +39,23 @@ func (m *Manager) containerEnv(ctx context.Context, app, env string, rel store.R
 	if err := m.addConfig(ctx, rel.AppID, rel.Config, vars, secrets); err != nil {
 		return nil, nil, err
 	}
+	if _, err := m.addServices(ctx, app, env, plan, rel.Config, vars, secrets, true); err != nil {
+		return nil, nil, err
+	}
 	m.addMoorage(app, env, rel, build, "0.0.0.0", plan.Container.Mount, vars, secrets)
 	return vars, secrets, nil
+}
+
+// serviceNetwork is the network that an app in a container reaches its services on, if it has any. Not being able to say is no reason not to start: it will say why it cannot connect.
+func (m *Manager) serviceNetwork(ctx context.Context, app, env string, plan manifest.Plan) string {
+	if m.opts.Services == nil || len(plan.Services) == 0 {
+		return ""
+	}
+	_, _, network, err := m.opts.Services.Addresses(ctx, app, env, plan, true)
+	if err != nil {
+		m.log.Warn("find an environment's network", "app", app, "env", env, "err", err)
+	}
+	return network
 }
 
 // containerData makes an environment's data directory ready to be mounted. The
@@ -77,6 +92,7 @@ func (m *Manager) containerSpec(ctx context.Context, es *envState, rel store.Rel
 	c := plan.Container
 	spec := m.baseContainerSpec(es.app, es.env, in, plan, rel.Version)
 	spec.Vars, spec.Secrets = vars, secrets
+	spec.Network = m.serviceNetwork(ctx, es.app, es.env, plan)
 	spec.DataDir, spec.Mount = dataDir, c.Mount
 	spec.User, spec.CPU, spec.PIDs = c.User, c.CPU, c.PIDs
 	spec.Command = in.proc.Command
@@ -114,6 +130,10 @@ func (m *Manager) adoptContainer(ctx context.Context, li store.LiveInstance, pla
 	if err == nil {
 		err = m.addConfig(ctx, li.Build.AppID, cfg, map[string]string{}, spec.Secrets)
 	}
+	// So that its address goes on being kept out of what it prints.
+	if err == nil {
+		_, err = m.addServices(ctx, li.App, li.Env, plan, cfg, map[string]string{}, spec.Secrets, true)
+	}
 	if err != nil {
 		// It is still better adopted, than stopped for this.
 		m.log.Warn("cannot read a container's secrets; they may appear in its log", "app", li.App, "instance", li.ID, "err", err)
@@ -146,7 +166,7 @@ func (m *Manager) runContainerOnce(ctx context.Context, app, env string, rel sto
 	}
 	spec := container.Spec{
 		ID: ids.New(ids.Instance), App: app, Env: env, Process: process, Release: "v" + strconv.Itoa(rel.Version),
-		Image: c.Image, Command: command, Vars: vars, Secrets: secrets, DataDir: dataDir, Mount: c.Mount,
+		Image: c.Image, Command: command, Vars: vars, Secrets: secrets, DataDir: dataDir, Mount: c.Mount, Network: m.serviceNetwork(ctx, app, env, plan),
 		User: c.User, Memory: c.Memory, CPU: c.CPU, PIDs: c.PIDs,
 	}
 	if session != nil {

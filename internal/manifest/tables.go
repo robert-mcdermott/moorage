@@ -11,6 +11,8 @@ import (
 	"unicode"
 
 	"github.com/robert-mcdermott/moorage/internal/schedule"
+	"slices"
+	"sort"
 )
 
 // Runtimes an app may name in [app].runtime.
@@ -134,10 +136,166 @@ type EnvironmentInstance struct {
 	Instances *int `toml:"instances"`
 }
 
-// Service is one [services.<name>] table.
+// Service is one [services.<name>] table: something that an app declares, and Moorage runs and connects for it (spec/13-services.md).
 type Service struct {
-	Type    string `toml:"type"`
+	Type string `toml:"type"`
+	// Version is left out for the default, which is recorded when the service is made and does not move by itself.
 	Version string `toml:"version"`
+	// Image replaces the usual image, which is the way to get extensions.
+	Image string `toml:"image"`
+	// Env is another name for the variable that it gives the app, needed for a second of one type.
+	Env    string `toml:"env"`
+	Memory Size   `toml:"memory"`
+	// Previews says whether a preview has one of its own: "own", the default, or "none".
+	Previews string `toml:"previews"`
+	// Seed and Sanitize say what a preview starts with, if not empty.
+	Seed     string `toml:"seed"`
+	Sanitize string `toml:"sanitize"`
+}
+
+// The types of service.
+const (
+	ServicePostgres = "postgres"
+	ServiceS3       = "s3"
+)
+
+// DefaultPostgres is the version of PostgreSQL that a service is made with, unless it says. What is made stays at what it was made with, as this moves.
+const DefaultPostgres = "18"
+
+// SanitizeNone says, under sanitize, that what is in production is fit to copy as it is.
+const SanitizeNone = "none"
+
+var (
+	postgresVersions = []string{"15", "16", "17", "18", "19"}
+	serviceName      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+)
+
+// AddressVariable is the variable that gives an app its address: its own name for it, or the usual one for the type.
+func (s Service) AddressVariable() string {
+	if s.Env != "" {
+		return s.Env
+	}
+	if s.Type == ServiceS3 {
+		return s3Default
+	}
+	return "DATABASE_URL"
+}
+
+// s3Default is what a service of S3 gives an app under the usual names.
+const s3Default = "S3_ENDPOINT"
+
+// Variables are what a service gives an app. A service of S3 has several, under the name in env, and under the names that S3 clients look for if it is the only one.
+func (s ServicePlan) Variables() []string {
+	if s.Type != ServiceS3 {
+		return []string{s.Env, s.Env + "_PASSWORD"}
+	}
+	prefix := s.Env
+	if prefix == s3Default {
+		prefix = "S3"
+	}
+	names := []string{prefix + "_ENDPOINT", prefix + "_BUCKET", prefix + "_REGION", prefix + "_ACCESS_KEY_ID", prefix + "_SECRET_ACCESS_KEY"}
+	if s.Env == s3Default {
+		names = append(names, "AWS_ENDPOINT_URL", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+	}
+	return names
+}
+
+// AddressVariable is the variable that says where a service is: setting it on an environment itself says that the environment goes elsewhere.
+func (s ServicePlan) AddressVariable() string { return s.Variables()[0] }
+
+// Plan is what a build keeps of a service.
+func (s Service) Plan() ServicePlan {
+	previews := s.Previews
+	if previews == "" {
+		previews = "own"
+	}
+	return ServicePlan{Type: s.Type, Version: s.Version, Image: s.Image, Env: s.AddressVariable(), Memory: int64(s.Memory), Previews: previews, Seed: s.Seed, Sanitize: s.Sanitize}
+}
+
+// checkServices says what is wrong with [services].
+func checkServices(add func(string, ...any), services map[string]Service) {
+	names := make([]string, 0, len(services))
+	for name := range services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	addresses := map[string]string{}
+	for _, name := range names {
+		s := services[name]
+		where := "services." + name
+		if !serviceName.MatchString(name) {
+			add("%s: a service's name is lower case letters, digits and dashes, starting with a letter, up to 31 of them", where)
+		}
+		if !oneOf(s.Type, []string{ServicePostgres, ServiceS3}) {
+			add("%s.type %q must be postgres or s3", where, s.Type)
+			continue
+		}
+		if s.Type == ServiceS3 && s.Version != "" {
+			add("%s.version: s3 has no version to choose", where)
+		}
+		if s.Type == ServicePostgres && s.Version != "" && !oneOf(s.Version, postgresVersions) {
+			add("%s.version %q must be one of %s", where, s.Version, strings.Join(postgresVersions, ", "))
+		}
+		if s.Image != "" {
+			if err := ValidateImage(s.Image); err != nil {
+				add("%s.image: %v", where, err)
+			} else if tag := imageTag(s.Image); tag == "" || tag == "latest" {
+				add("%s.image %q needs a tag of its own: latest would change under a database's data", where, s.Image)
+			}
+			if s.Type == ServiceS3 {
+				add("%s.image: s3 runs one server, and this cannot replace it", where)
+			}
+		}
+		if s.Env != "" && !envName.MatchString(s.Env) {
+			add("%s.env: %q is not a valid variable name", where, s.Env)
+		}
+		for _, variable := range s.Plan().Variables() {
+			if other, taken := addresses[variable]; taken {
+				add("%s and services.%s would both set %s: give one of them env", "services."+other, name, variable)
+				break
+			}
+			addresses[variable] = name
+			if reservedVariable(variable) {
+				add("%s.env: %s is not a name that an app can be given, as Moorage or the system needs it", where, variable)
+			}
+		}
+		if s.Memory < 0 {
+			add("%s.memory must not be negative", where)
+		}
+		if s.Previews != "" && !oneOf(s.Previews, []string{"own", "none"}) {
+			add("%s.previews %q must be own or none", where, s.Previews)
+		}
+		if s.Seed != "" && s.Seed != "production" {
+			add("%s.seed %q must be production", where, s.Seed)
+		}
+		if s.Sanitize != "" && s.Seed == "" {
+			add("%s.sanitize is for what a seed copies, and there is no seed", where)
+		}
+		if s.Seed != "" && s.Sanitize == "" {
+			add("%s.seed copies production's data into previews: say what removes what should not be copied, with sanitize, or say sanitize = \"none\"", where)
+		}
+		if s.Type == ServiceS3 && s.Sanitize != "" && s.Sanitize != SanitizeNone {
+			add("%s.sanitize: s3 has no script to run, so that it can only be none", where)
+		}
+		if strings.HasPrefix(s.Sanitize, "/") || slices.Contains(strings.Split(s.Sanitize, "/"), "..") {
+			add("%s.sanitize %q must be a path in the app", where, s.Sanitize)
+		}
+	}
+}
+
+// reservedVariable says that a service should not set this, as what runs depends on what it holds.
+func reservedVariable(name string) bool {
+	return strings.HasPrefix(name, "MOORAGE_") || slices.Contains([]string{"PATH", "HOME", "PORT", "HOST", "TMPDIR", "TEMP", "TMP", "LD_PRELOAD", "LD_LIBRARY_PATH"}, name)
+}
+
+// imageTag is the tag of an image reference, or its digest if it has one.
+func imageTag(ref string) string {
+	if _, digest, ok := strings.Cut(ref, "@"); ok {
+		return digest
+	}
+	last := ref[strings.LastIndex(ref, "/")+1:]
+	_, tag, _ := strings.Cut(last, ":")
+	return tag
 }
 
 // Size is an amount of bytes written as "512MiB", "2GiB", "300M" or a
@@ -320,11 +478,7 @@ func (m *Manifest) validateTables() []string {
 			}
 		}
 	}
-	for name, s := range m.Services {
-		if !oneOf(s.Type, []string{"postgres", "s3"}) {
-			add("services.%s.type %q must be postgres or s3", name, s.Type)
-		}
-	}
+	checkServices(add, m.Services)
 	return p
 }
 

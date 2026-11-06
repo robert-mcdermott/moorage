@@ -371,3 +371,149 @@ func (c *Console) previewsPage(w http.ResponseWriter, r *http.Request) {
 	d.Notice = environmentNotices[r.URL.Query().Get("done")]
 	c.render(w, http.StatusOK, "previews", d)
 }
+
+// serviceRow is a service on its page.
+type serviceRow struct {
+	Name, Kind, Variable string
+	Port                 int
+	Status               status
+	Unused               bool
+	Memory               string
+	// Kept says that it keeps what it held before its last upgrade or restore.
+	Kept bool
+}
+
+// servicesTotal says what an app's services add up to, as each preview has its own.
+func servicesTotal(total, running int, memory uint64) string {
+	if total == 0 {
+		return ""
+	}
+	text := fmt.Sprintf("Across its environments, this app has %s, %d of them running", countText(total, "service", "services"), running)
+	if memory > 0 {
+		text += ", using " + humanSize(int64(memory))
+	}
+	return text + "."
+}
+
+// serviceLogPage shows the newest of what a service has said.
+func (c *Console) serviceLogPage(w http.ResponseWriter, r *http.Request) {
+	p, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
+	app, ok := c.lookupApp(w, r, p)
+	if !ok {
+		return
+	}
+	name := r.PathValue("name")
+	d, err := c.appData(r, p, app, "apps", "The service "+name+" of "+app)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !d.Access.Logs {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not read its logs", Message: "Viewers of the project " + d.Access.Project.Name + " may not read logs.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
+		return
+	}
+	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}, {"Services", "/apps/" + url.PathEscape(app) + "/services" + string(envQuery(envOf(r)))}}
+	d.Tab = "services"
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, envOf(r))}
+	d.Heading = "What " + name + " has said"
+	d.ServiceLog = serviceLogView{Name: name}
+	if c.deployer != nil {
+		d.ServiceLog.Text, err = c.deployer.ServiceLogs(r.Context(), app, envOf(r), name, 500)
+		if errors.Is(err, store.ErrNotFound) {
+			c.message(w, http.StatusNotFound, data{Title: "Not found", Heading: "No such service", Message: app + " has no service called " + name + " here."})
+			return
+		}
+		if err != nil {
+			d.Failure = &failure{Message: sentence(err.Error())}
+		}
+	}
+	c.render(w, http.StatusOK, "app-service-log", d)
+}
+
+// serviceLogView is what a service has said.
+type serviceLogView struct {
+	Name, Text string
+}
+
+func (c *Console) servicesPage(w http.ResponseWriter, r *http.Request) {
+	p, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
+	app, ok := c.lookupApp(w, r, p)
+	if !ok {
+		return
+	}
+	c.showServices(w, r, p, app, http.StatusOK, nil)
+}
+
+func (c *Console) showServices(w http.ResponseWriter, r *http.Request, p auth.Principal, app string, code int, failed *failure) {
+	d, err := c.appData(r, p, app, "apps", "Services of "+app)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}}
+	d.Tab = "services"
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, envOf(r))}
+	d.Heading = "Services of " + app
+	var rows []deploy.ServiceRow
+	if c.deployer != nil {
+		rows, err = c.deployer.ServiceList(r.Context(), app, envOf(r))
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			c.internal(w, err)
+			return
+		}
+	}
+	for _, row := range rows {
+		s := status{"Should be running", "warn"}
+		switch {
+		case row.Unknown:
+			s = status{"The engine is not answering", "warn"}
+		case row.Running:
+			s = status{"Running", "ok"}
+		case row.State == store.ServiceStopped:
+			s = status{"Stopped", ""}
+		}
+		kind := row.Type
+		if row.Version != "" {
+			kind += " " + row.Version
+		}
+		used := ""
+		if row.Memory > 0 {
+			used = humanSize(int64(row.Memory))
+		}
+		d.ServiceRows = append(d.ServiceRows, serviceRow{Name: row.Name, Kind: kind, Variable: row.EnvVar, Port: row.Port, Status: s, Unused: row.Unused, Memory: used, Kept: row.OldVolume != ""})
+	}
+	if c.deployer != nil {
+		if total, running, memory, err := c.deployer.ServiceTotals(r.Context(), app); err == nil {
+			d.ServicesTotal = servicesTotal(total, running, memory)
+		}
+	}
+	d.Notice = map[string]string{"removed": "The service is removed, with what it held."}[r.URL.Query().Get("done")]
+	d.Failure = failed
+	c.render(w, code, "app-services", d)
+}
+
+func (c *Console) removeService(w http.ResponseWriter, r *http.Request, p auth.Principal, app string) {
+	name, env := r.PathValue("name"), envOf(r)
+	if strings.TrimSpace(r.PostFormValue("confirm")) != name {
+		c.showServices(w, r, p, app, http.StatusUnprocessableEntity, &failure{Message: "Type the name of the service, to say that you mean it."})
+		return
+	}
+	if err := c.deployer.RemoveService(lasting(r), app, env, name, p.Name); err != nil {
+		switch {
+		case errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
+			c.showServices(w, r, p, app, http.StatusConflict, &failure{Message: sentence(err.Error())})
+		case errors.Is(err, store.ErrNotFound):
+			c.showServices(w, r, p, app, http.StatusNotFound, &failure{Message: sentence(err.Error())})
+		default:
+			c.internal(w, err)
+		}
+		return
+	}
+	http.Redirect(w, r, "/apps/"+url.PathEscape(app)+"/services?done=removed"+strings.Replace(string(envQuery(env)), "?", "&", 1), http.StatusSeeOther)
+}

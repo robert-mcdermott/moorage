@@ -188,6 +188,11 @@ func failure(what string, res *http.Response) error {
 
 // sign adds what AWS Signature Version 4 asks. The body's hash goes in, so that a request cannot be
 // changed on its way.
+// Sign signs a request to an S3-compatible service, for what has one request to make and no need of more of this.
+func Sign(req *http.Request, body []byte, accessKey, secretKey, region string, at time.Time) {
+	sign(req, body, accessKey, secretKey, region, "s3", at.UTC())
+}
+
 func sign(req *http.Request, body []byte, accessKey, secretKey, region, service string, at time.Time) {
 	stamp, day := at.Format("20060102T150405Z"), at.Format("20060102")
 	sum := sha256.Sum256(body)

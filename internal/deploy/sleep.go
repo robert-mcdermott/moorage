@@ -94,6 +94,12 @@ func (d *Deployer) Sleep(ctx context.Context, app, env, by string) error {
 		}
 		return err
 	}
+	// Its services stop with it, and keep what they hold, unless something goes on running that needs them.
+	if !needsServicesAsleep(plan) && d.serviceUsers(sleepKey(app, env)).Load() == 0 {
+		if err := d.opts.Services.Sleep(ctx, app, env); err != nil {
+			d.log.Warn("stop the services of an environment going to sleep", "app", app, "env", env, "err", err)
+		}
+	}
 	d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentSlept, App: app, Env: env, Actor: by})
 	d.log.Info("an environment went to sleep", "app", app, "env", env, "by", by)
 	return nil
@@ -107,15 +113,20 @@ func (d *Deployer) Wake(ctx context.Context, app, env, by string) error {
 	if !d.Asleep(app, env) {
 		return nil
 	}
-	defer d.asleep.Delete(sleepKey(app, env))
+	// Only what has been recorded: what this waited for may have taken longer than whoever asked will wait, and what is said here has to be what starts instances goes by.
 	if err := d.db.SetAsleep(ctx, app, env, false); err != nil {
 		return err
 	}
+	defer d.asleep.Delete(sleepKey(app, env))
 	// Whatever woke it, its time starts again now.
 	if err := d.db.SetLastActive(ctx, app, env, time.Now()); err != nil {
 		return err
 	}
-	err := d.opts.Runtime.Settle(ctx, app, env)
+	// What it connects to comes first.
+	err := d.opts.Services.Wake(ctx, app, env)
+	if err == nil {
+		err = d.opts.Runtime.Settle(ctx, app, env)
+	}
 	d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentWoke, App: app, Env: env, Actor: by})
 	d.log.Info("an environment woke", "app", app, "env", env, "by", by, "err", err)
 	return err
@@ -151,7 +162,7 @@ func (d *Deployer) WakeFor(app, env string) <-chan struct{} {
 // release marks an environment that is about to get a release as awake: the release wakes it.
 // It says it is asleep until the rollout ends, with the lock of the environment held, so that a
 // request meanwhile waits for the rollout. The function returned ends that.
-func (d *Deployer) release(ctx context.Context, app, env string) func() {
+func (d *Deployer) release(ctx context.Context, app, env string, plan manifest.Plan) func() {
 	if !d.Asleep(app, env) {
 		return func() {}
 	}
@@ -160,6 +171,13 @@ func (d *Deployer) release(ctx context.Context, app, env string) func() {
 	}
 	if err := d.db.SetLastActive(ctx, app, env, time.Now()); err != nil {
 		d.log.Warn("waking an environment for a release", "app", app, "env", env, "err", err)
+	}
+	// It is awake from here, whatever comes of this release, and what is running goes on connecting to them. What keeps them running goes on trying if this cannot. A static site takes
+	// over from what ran before, and connects to nothing.
+	if plan.Kind == manifest.KindProcess {
+		if err := d.opts.Services.Wake(ctx, app, env); err != nil {
+			d.log.Warn("waking the services of an environment for a release", "app", app, "env", env, "err", err)
+		}
 	}
 	return func() {
 		d.asleep.Delete(sleepKey(app, env))

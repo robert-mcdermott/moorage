@@ -62,6 +62,22 @@ type Plan struct {
 	Cron []CronPlan `json:"cron,omitempty"`
 	// Vars are the variables it expects, by name.
 	Vars map[string]VarPlan `json:"vars,omitempty"`
+	// Services are what it asks Moorage to run for it, by name.
+	Services map[string]ServicePlan `json:"services,omitempty"`
+}
+
+// ServicePlan is a service, as a release keeps it.
+type ServicePlan struct {
+	Type    string `json:"type"`
+	Version string `json:"version,omitempty"`
+	Image   string `json:"image,omitempty"`
+	// Env is the variable that gives the app its address.
+	Env    string `json:"env"`
+	Memory int64  `json:"memory,omitempty"`
+	// Previews is "own" or "none".
+	Previews string `json:"previews,omitempty"`
+	Seed     string `json:"seed,omitempty"`
+	Sanitize string `json:"sanitize,omitempty"`
 }
 
 // CronPlan is a cron job.
@@ -366,8 +382,8 @@ const (
 
 // Validate checks a plan received with an upload.
 func (p *Plan) Validate() error {
-	if len(p.Steps) > 0 || len(p.Toolchains) > 0 || len(p.Path) > 0 || len(p.DirEnv) > 0 || p.Root != "" || p.Release != nil || p.Container != nil {
-		return &planError{"an uploaded plan cannot carry build steps, toolchains, containers or release commands; deploy the source to have it built"}
+	if len(p.Steps) > 0 || len(p.Toolchains) > 0 || len(p.Path) > 0 || len(p.DirEnv) > 0 || p.Root != "" || p.Release != nil || p.Container != nil || len(p.Services) > 0 {
+		return &planError{"an uploaded plan cannot carry build steps, toolchains, containers, services or release commands; deploy the source to have it built"}
 	}
 	switch p.Kind {
 	case KindStatic:

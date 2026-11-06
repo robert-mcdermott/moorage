@@ -1204,6 +1204,9 @@ func TestProjectsAndRoles(t *testing.T) {
 	if res, _ := ana.get("/apps/ledger/logs"); res.StatusCode != http.StatusForbidden {
 		t.Errorf("logs kept from a viewer: %d", res.StatusCode)
 	}
+	if res, _ := ana.get("/apps/ledger/services/db/logs"); res.StatusCode != http.StatusForbidden {
+		t.Errorf("a service's logs kept from a viewer: %d", res.StatusCode)
+	}
 	_, page = ana.get("/deployments/" + deps[0].ID)
 	contains(t, "a deployment for such a viewer", page, "may not read logs")
 	if strings.Contains(page, "▸ rollout") {

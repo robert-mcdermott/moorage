@@ -342,8 +342,8 @@ A container engine is optional ([D19](12-decisions.md#d19--the-container-engine-
 | `not answering` | A program, and no daemon or machine behind it | Docker Desktop not started, `podman machine` stopped |
 | `ready` | It answered, with its kind and version | |
 
-The probe lists what the daemon is running, which takes the daemon and not just the program, and is killed after three seconds, which counts as `not answering`. It runs once at start, off the main path so that a hung
-daemon cannot delay anything, and again when something wants the answer, keeping it for 30 seconds. So starting Docker Desktop an hour later, or installing Podman, needs no restart. Nothing polls when nothing wants it.
+The probe lists what the daemon is running, which takes the daemon and not just the program, and is killed after 15 seconds, which counts as `not answering`, as rootless Podman on a machine that has just started can take several seconds to answer for the first time. It runs once at start, off the main path so that a hung
+daemon cannot delay anything, and again when something wants the answer, keeping a yes for 30 seconds and a no for five. Looking after what is running goes by what was last found, and has it asked again behind the scenes. So starting Docker Desktop an hour later, or installing Podman, needs no restart. Nothing polls when nothing wants it.
 
 What can ask: the first look as a server starts, what needs an engine (deploying, restarting or looking after an environment with a container in its plan or among its instances), and what shows how the server stands, which is answered at once with what was last found and refreshed behind the scenes. A server with instances in containers waits for the engine for up to 5 seconds as it starts, and up to 15 for what they are doing; what it did not get to is `pending`, and is taken over once the engine answers, with the environment's rollout lock, so that nothing starts in its place.
 

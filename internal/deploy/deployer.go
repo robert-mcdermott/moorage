@@ -25,6 +25,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/reconcile"
+	"github.com/robert-mcdermott/moorage/internal/services"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -34,6 +35,8 @@ type Runtime interface {
 	// new instances are ready and before they take the traffic.
 	Rollout(ctx context.Context, app, env string, rel store.Release, build store.Build, plan manifest.Plan, commit func() error) error
 	Retire(app, env string)
+	// Offline stops an environment's instances, does something, and starts them again however it went.
+	Offline(ctx context.Context, app, env string, do func() error) error
 	// EngineBlocks says why what runs in an environment, or with none in any of an app's, could not be stopped now.
 	EngineBlocks(ctx context.Context, app, env string) error
 	Forget(app string)
@@ -62,6 +65,8 @@ type Options struct {
 	Reload func(context.Context) error
 	// Secrets seals and opens secret variables.
 	Secrets Keyring
+	// Services runs what an app declares under [services].
+	Services *services.Manager
 	// Events hears of deployments and releases.
 	Events *events.Bus
 	// Repos holds what was pushed, to build it again.
@@ -108,6 +113,10 @@ type Deployer struct {
 	started time.Time
 	runs    runBook
 	asleep  sync.Map // of app/env, as long as a request should wait for it
+	// upgrading is of app/env, while a service of it moves to another version, and nothing should write to it.
+	upgrading sync.Map
+	// usingServices is of app/env, how many commands are using an environment's services.
+	usingServices sync.Map
 	// previewsMu is held while counting an app's previews and making one for a token limited to previews.
 	previewsMu sync.Mutex
 	wakingMu   sync.Mutex
@@ -525,6 +534,13 @@ func (d *Deployer) run(dep store.Deployment) {
 	if dep.SourceType == SourceImage {
 		job.Image = dep.SourceRef
 	}
+	job.Check = func(plan manifest.Plan) error {
+		kind, err := d.db.EnvKind(ctx, dep.App, dep.Env)
+		if err != nil {
+			return err
+		}
+		return d.opts.Services.CheckEngine(ctx, dep.App, dep.Env, kind, plan)
+	}
 	res, err := d.opts.Builder.Build(ctx, job)
 	<-d.slots
 	os.RemoveAll(filepath.Join(d.opts.DataDir, "tmp", "build-"+dep.BuildID))
@@ -646,11 +662,22 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	lock := d.envLock(dep.App, dep.Env)
 	lock.Lock()
 	defer lock.Unlock()
-	defer d.release(ctx, dep.App, dep.Env)()
-
-	// A static site takes over from what ran before, which has to be able to stop.
+	// A static site takes over from what ran before, which has to be able to stop. Before anything wakes, so that being refused changes nothing.
 	if plan.Kind == manifest.KindStatic && d.opts.Runtime != nil {
 		if err := d.opts.Runtime.EngineBlocks(ctx, dep.App, dep.Env); err != nil {
+			return store.Release{}, err
+		}
+	}
+	defer d.release(ctx, dep.App, dep.Env, plan)()
+
+	// What a release command migrates has to be there, so that this comes first. A service that does not become healthy fails the deployment, with the previous release still serving.
+	if plan.Kind == manifest.KindProcess && len(plan.Services) > 0 {
+		kind, err := d.db.EnvKind(ctx, dep.App, dep.Env)
+		if err != nil {
+			return store.Release{}, err
+		}
+		appDir := filepath.Join(d.opts.DataDir, filepath.FromSlash(b.ArtifactRef), "app")
+		if err := d.opts.Services.Ensure(ctx, dep.App, dep.Env, kind, dep.CreatedBy, appDir, plan, log); err != nil {
 			return store.Release{}, err
 		}
 	}

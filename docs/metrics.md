@@ -74,7 +74,7 @@ scrape_configs:
 | `moorage_http_requests_in_flight` | Requests going on now |
 | `moorage_http_request_duration_seconds` | A histogram of how long they took |
 | `moorage_instance_cpu_percent` | By `instance_name`, such as `web.1`, and `process` |
-| `moorage_instance_memory_bytes` | The same |
+| `moorage_instance_memory_bytes` | The same. A [service](services.md) is one too, with an `instance_name` such as `service.db` |
 | `moorage_host_load`, `moorage_host_memory_used_bytes`, `moorage_host_disk_used_percent` | The server itself |
 
 Counts start again when the server does, as Prometheus expects of counters.
