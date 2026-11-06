@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -78,9 +79,15 @@ func FindAll(setting string) []*Engine {
 	}
 	var engines []*Engine
 	for _, name := range names {
-		if e, err := Find(name); err == nil {
-			engines = append(engines, e)
+		e, err := Find(name)
+		if err != nil {
+			continue
 		}
+		// Podman can answer to the name of Docker, with what is in one store.
+		if slices.ContainsFunc(engines, func(other *Engine) bool { return other.Kind == e.Kind }) {
+			continue
+		}
+		engines = append(engines, e)
 	}
 	return engines
 }

@@ -271,6 +271,11 @@ func (m fakeManager) File() string { return m.file }
 
 func (m fakeManager) Definition() ([]byte, error) { return os.ReadFile(m.file) }
 
+func (m fakeManager) Status() (service.Status, error) {
+	_, err := os.Stat(m.file)
+	return service.Status{Installed: err == nil}, nil
+}
+
 func TestStopLeavesAnotherServersService(t *testing.T) {
 	unit := filepath.Join(t.TempDir(), "moorage.service")
 	os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config /etc/moorage/server.toml\n"), 0o644)
@@ -290,6 +295,83 @@ func TestStopLeavesAnotherServersService(t *testing.T) {
 	}
 	if runsServer(fakeManager{file: filepath.Join(t.TempDir(), "none")}, "/etc/moorage/server.toml") {
 		t.Error("no unit, no service")
+	}
+}
+
+// A path that is only a part of what a service runs is not it, and one file under two spellings is.
+func TestWhichServerAServiceRuns(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "server.toml")
+	if err := os.WriteFile(real, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unit := filepath.Join(dir, "moorage.service")
+	definition := func(config string) fakeManager {
+		t.Helper()
+		if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config "+config+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return fakeManager{file: unit}
+	}
+	for _, c := range []struct {
+		config, asked string
+		same          bool
+	}{
+		{"/x/server.toml", "/x/server.toml", true},
+		{"/x/server.toml.prod", "/x/server.toml", false},
+		{"/srv/x/server.toml", "/x/server.toml", false},
+		{"/x/server.toml", "/srv/x/server.toml", false},
+	} {
+		m := definition(c.config)
+		if runsServer(m, c.asked) != c.same || runsAnother(m, c.asked) == c.same {
+			t.Errorf("a service of %s, asked of %s: it should be %v", c.config, c.asked, c.same)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(dir, "linked.toml")
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatal(err)
+		}
+		if m := definition(real); !runsServer(m, link) || runsAnother(m, link) {
+			t.Error("one file, through a link")
+		}
+		if m := definition(link); !runsServer(m, real) {
+			t.Error("one file, from the other side of a link")
+		}
+	}
+	// Naming nothing, it does not run this one.
+	if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if m := (fakeManager{file: unit}); runsServer(m, real) || !runsAnother(m, real) {
+		t.Error("a definition with no configuration")
+	}
+}
+
+// An upgrade restarts a service only if it runs this server.
+func TestUpgradeLeavesAnotherServersService(t *testing.T) {
+	dir := t.TempDir()
+	unit := filepath.Join(dir, "moorage.service")
+	m := fakeManager{file: unit}
+	write := func(config string) {
+		t.Helper()
+		if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config "+config+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ours, err := serviceToRestart(m, "/etc/moorage/server.toml", "/usr/local/bin/moor"); err != nil || ours {
+		t.Errorf("with none: %v %v", ours, err)
+	}
+	write("/etc/moorage/server.toml")
+	if ours, err := serviceToRestart(m, "/tmp/trying-it-out/server.toml", "/usr/local/bin/moor"); err != nil || ours {
+		t.Errorf("of another server: %v %v", ours, err)
+	}
+	if ours, err := serviceToRestart(m, "/etc/moorage/server.toml", "/usr/local/bin/moor"); err != nil || !ours {
+		t.Errorf("of this one: %v %v", ours, err)
+	}
+	// As before, it runs another binary, and replacing this one would change nothing.
+	if _, err := serviceToRestart(m, "/etc/moorage/server.toml", "/home/me/bin/moor"); err == nil {
+		t.Error("another binary")
 	}
 }
 
@@ -330,7 +412,7 @@ func TestServiceCommandsLeaveAnotherServersService(t *testing.T) {
 	if err := os.Remove(unit); err != nil {
 		t.Fatal(err)
 	}
-	if code, out, errOut := run(t, "server", "uninstall", "--keep-apps"); code != 0 || !strings.Contains(out, "No service runs this server") {
+	if code, out, errOut := run(t, "server", "uninstall"); code != 0 || !strings.Contains(out, "No service runs this server") || strings.Contains(out, "Stopped") {
 		t.Errorf("uninstall with none: %d %s %s", code, out, errOut)
 	}
 	for _, command := range []string{"start", "restart"} {
