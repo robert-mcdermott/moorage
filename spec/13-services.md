@@ -1,8 +1,7 @@
-# 13. Backing services *(Phase 4)*
+# 13. Backing services
 
 Services are a database or object store that an app declares in its manifest, and Moorage runs and connects for it.
-They arrive in 0.10.0. This document is the design that release builds. The [optional engine](05-runtime.md#the-engine)
-they depend on comes first, in 0.9.0.
+They arrived in 0.10.0. The [optional engine](05-runtime.md#the-engine) that they depend on came first, in 0.9.0.
 
 ## The manifest
 
@@ -92,9 +91,11 @@ holds it, and its state. A new package has a `Run` beside the runtime's, and a s
 - **Stopping:** PostgreSQL gets SIGINT and 120 seconds. Its image warns that even 90 may not be enough, and the engines' default is ten.
 - **Provisioning comes before the release:** in `publish`, ahead of its capture, so that a release command can migrate. It waits for a health check run by exec, and a service that does not
   become healthy fails the deployment, with the previous release still serving.
-- **One name, and so one server.** Whatever a service is doing, its container has the same name, as starting one of a name replaces what has it: two servers on one volume would corrupt it, and this way there cannot be two. One that no app is to reach yet has a label that says so, with no port or network, and is not taken for running.
+- **One name, and so one server.** Whatever a service is doing, its container has the same name, as starting one of a name replaces what has it: two servers on one volume would corrupt it, and this way there cannot be two. One that no app is to reach yet has a label that says so, with no port and `--network none`, and is not taken for running. Going by that, waking something asleep ends a dump of it, rather than waiting for one that may take hours.
+- **What a server leaves.** Stopping at any moment can leave something running where no app can reach it, or a volume that the record does not name. The next start stops what is running, and leaves volumes, as one that the record does not name may be newer than the record, if the server was restored from a backup. The doctor speaks of them, and removing the service or `--finish` lets them go.
+- **An engine's program going away moves nothing,** as reading how a service stands should not lose track of what it holds because a package was being upgraded. A server moves what has lost its engine only as it starts, as it has to after a restore to another machine.
 - **Sleep:** a preview's sleep stops its service and keeps its volume, and waking starts the service first. Every command counts as using its environment's services. A command in one that is asleep starts what it needs, and the last to end stops it, unless a process with `sleep = false` needs it or the environment has woken; sleep leaves it for a command that is still going. A server stopping during that leaves it running, and looking at what is idle stops it.
-- **A service the manifest no longer names** stays, with its data, and is shown as unused until `moor services remove`. Nothing deletes data because a line went from a file. An
+- **A service the manifest no longer names** stays, with its data, and is shown as unused until `moor services remove`, as it does for a preview whose manifest now says `previews = "none"`, which is not told of it. Nothing deletes data because a line went from a file. An
   environment's deletion removes its services and their volumes, as it does its data directory.
 - **Seen like everything else:** in `moor logs --service`, in events and alert rules, in metrics, in the doctor, and on a Services tab. Its engine keeps what it says: only what is asked for is read, which keeps a database's output out of what Moorage stores and sends on.
 
@@ -131,7 +132,7 @@ Allowed, and labelled for what it is: one container with no replica, kept by bac
 - **`seed = "production"` is an opt-in** that restores that service's latest dump, runs `sanitize` before any app connects, and is refused for a preview whose gate is public, for a coding agent's preview, or for a pull
   request from a fork, or that nothing says is not: a preview's branch says which pull request it is before a record of its environment does. Without a `sanitize`, it takes saying so in the manifest. It is done where no app can reach it, and it is on record as unfinished until it is over, so that a server stopping halfway does not leave a copy that nothing has sanitized: nothing but making it again will start one that is, and no app is told of it. A dump holds the password of what it came from, so that the role is then given its own. It is on record that a service holds such a copy, and a later commit that would open the preview's gate fails to deploy.
 - **Dumps and not clones.** They work across versions and on every platform. Cloning files is much quicker on a filesystem that can do it and useless on ext4, so it can be an optimisation later.
-- `previews = "none"` for an app that needs none, and the console shows how many services are running and what they use, as they add up.
+- `previews = "none"` for an app that needs none, and the console shows how many services an app has across its environments and what they use, as they add up.
 
 ## Backups and upgrades
 
@@ -140,7 +141,7 @@ Allowed, and labelled for what it is: one container with no replica, kept by bac
 - **Volumes are not in the backup.** A restore to a new machine makes the service afresh and loads its dump, where no app can reach it, as one that connected to an empty database would migrate it and the dump would not then load. It is on record that a volume holds nothing to keep until that has finished, so that a try that does not get to the end starts again from nothing, and the next backup does not replace the only good dump. Only the engine saying that there is no volume means that: one having trouble says nothing of what it holds. On the machine that it ran on, a service keeps what it holds, and `moor services restore` goes back to the dump. PostgreSQL's goes into a new volume, so that one that stops on an error changes nothing, and the old one stays until told. Only all of a service's volumes having gone means a fresh start: with one of S3's two gone, it does not start, as what is left may be all that there is.
 - **Minor updates** are explicit: `moor services update db`.
 - **A major version change is refused at deploy,** with instructions. `moor services upgrade` then does a dump with the newer tools, a new volume, a restore and a check, and keeps the old
-  volume until told. The images hold only their own major version, so `pg_upgrade` is not available. What can refuse it does so before anything stops. Then the app stops, with its usual drain, and commands and cron jobs are stopped and refused. The record names the new volume before it starts, once that holds everything, so that a server stopping at any moment comes back on one that is whole.
+  volume, and what ran on it, until told: `--finish` lets go of it, and `--back` goes back to it. The images hold only their own major version, so `pg_upgrade` is not available. What can refuse it does so before anything stops. Then the app stops, with its usual drain, and commands and cron jobs are stopped and refused. The record names the new volume before it starts, once that holds everything, so that a server stopping at any moment comes back on one that is whole.
 
 ## What will surprise people
 

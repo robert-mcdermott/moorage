@@ -95,8 +95,12 @@ func (d *Driver) RunService(ctx context.Context, s ServiceSpec) error {
 	for _, name := range sortedKeys(s.Volumes) {
 		args = append(args, "-v", name+":"+s.Volumes[name]+volumeOptions())
 	}
-	if s.Network != "" {
+	switch {
+	case s.Network != "":
 		args = append(args, "--network", s.Network)
+	case s.Private:
+		// With none named, an engine puts it on a network of its own, which other containers are on too.
+		args = append(args, "--network", "none")
 	}
 	if s.HostPort != 0 {
 		args = append(args, "-p", fmt.Sprintf("127.0.0.1:%d:%d", s.HostPort, s.ContainerPort))
@@ -204,6 +208,17 @@ func (d *Driver) ServiceRunning(ctx context.Context, name string) (bool, error) 
 	}
 	fields := strings.Fields(string(out))
 	return len(fields) == 1 && fields[0] == "true", nil
+}
+
+// ServiceVolumes lists the volumes of a service, by its label, including any that a server left that stopped halfway through something.
+func (d *Driver) ServiceVolumes(ctx context.Context, id string) ([]string, error) {
+	asking, cancel := context.WithTimeout(ctx, serviceLimit)
+	defer cancel()
+	out, err := d.engine.output(asking, nil, "volume", "ls", "-q", "--filter", "label="+labelService+"="+id)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
 }
 
 // ExecService runs a command in a service's container, and says what it wrote and whether it worked.

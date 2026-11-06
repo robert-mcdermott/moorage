@@ -238,10 +238,7 @@ keeps, so that it has only --tail.`,
 				if err != nil {
 					return err
 				}
-				fmt.Fprint(cmd.OutOrStdout(), text)
-				if text != "" && !strings.HasSuffix(text, "\n") {
-					fmt.Fprintln(cmd.OutOrStdout())
-				}
+				printServiceLog(cmd, text)
 				return nil
 			}
 			if q.Follow {

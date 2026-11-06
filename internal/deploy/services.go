@@ -153,7 +153,14 @@ func (d *Deployer) holdServicesForRun(ctx context.Context, app, env string, plan
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			lock.Lock()
+			// A restore or an upgrade can hold this for hours, and stopping the server does not wait for those. What sweeps up after commands sees to this if it never gets its turn.
+			for !lock.TryLock() {
+				select {
+				case <-d.ctx.Done():
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
 			defer lock.Unlock()
 			d.restServices(app, env, plan)
 		}()
@@ -200,6 +207,23 @@ func needsServicesAsleep(plan manifest.Plan) bool {
 		}
 	}
 	return false
+}
+
+// BackService puts a service back on what it held before its last upgrade or restore, with what connects to it stopped.
+func (d *Deployer) BackService(ctx context.Context, app, env, name string) error {
+	lock := d.envLock(app, env)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := d.opts.Services.CheckBack(ctx, app, env, name); err != nil {
+		return err
+	}
+	key := sleepKey(app, env)
+	d.upgrading.Store(key, true)
+	defer d.upgrading.Delete(key)
+	d.cancelRuns(app, env)
+	return d.opts.Runtime.Offline(ctx, app, env, func() error {
+		return d.opts.Services.Back(ctx, app, env, name)
+	})
 }
 
 // FinishServiceUpgrade lets go of what a service held before its last upgrade.

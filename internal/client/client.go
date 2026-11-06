@@ -1399,6 +1399,11 @@ func (c *Client) FinishServiceUpgrade(ctx context.Context, app, env, name string
 	return c.do(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/old-volume", nil, "", nil)
 }
 
+// BackService puts a service back on what it held before its last upgrade or restore.
+func (c *Client) BackService(ctx context.Context, app, env, name string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/back", nil, "", nil)
+}
+
 // RestoreService puts a service back to its latest dump.
 func (c *Client) RestoreService(ctx context.Context, app, env, name string) error {
 	return c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/restore", nil, "", nil)

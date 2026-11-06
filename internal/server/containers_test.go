@@ -1171,9 +1171,10 @@ func TestContainerServiceData(t *testing.T) {
 		list, err := c.Services(ctx, "shop", "production")
 		return err == nil && len(list) == 1 && list[0].Running
 	})
-	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
-		t.Errorf("what it held: %q", got)
-	}
+	waitUntil(t, "it to answer, with what it held", func() bool {
+		got, err := psqlIn(rec.ID, "select email from people where name = 'Ada'")
+		return err == nil && got == "ada@example.com"
+	})
 	if got := psql(rec.ID, "select count(*) from pg_database where datname = 'other'"); got != "1" {
 		t.Errorf("its other database: %q", got)
 	}
@@ -1305,8 +1306,25 @@ func TestContainerServiceData(t *testing.T) {
 		res, _ := get(t, addrs.HTTP, "shop."+cfg.Domain, "/health")
 		return res.StatusCode == http.StatusOK
 	})
-	if err := c.FinishServiceUpgrade(ctx, "shop", "production", "db"); err != nil {
+	// Not happy with that, it goes back.
+	if err := c.BackService(ctx, "shop", "production", "db"); err != nil {
 		t.Fatal(err)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Later'"); got != "later@example.com" {
+		t.Errorf("after going back: %q", got)
+	}
+	back, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Volume != after.Volume || back.OldVolume != "" {
+		t.Errorf("%+v", back)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", restored.Volume).CombinedOutput(); err == nil {
+		t.Errorf("what it held since: %s", out)
+	}
+	if err := c.BackService(ctx, "shop", "production", "db"); err == nil || !strings.Contains(err.Error(), "nothing from before") {
+		t.Errorf("going back again: %v", err)
 	}
 }
 

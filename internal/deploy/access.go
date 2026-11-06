@@ -116,6 +116,10 @@ func (d *Deployer) SetAccess(ctx context.Context, app, env, by string, change Ac
 	if change.Mode == ingress.GatePassword && next.PasswordHash == "" {
 		return AccessState{}, &InvalidAccessError{"the password gate needs a password"}
 	}
+	// What a copy of production's data was made behind stays between it and everyone else.
+	if change.Mode == ingress.GatePublic && len(next.Allow) == 0 && d.opts.Services.HoldsCopy(ctx, app, env) {
+		return AccessState{}, &InvalidAccessError{"it holds a copy of production's data, so that it cannot be open to anyone: remove the service that holds it with moor services remove first"}
+	}
 	if err := d.db.SetEnvironmentAccess(ctx, app, env, next); err != nil {
 		return AccessState{}, err
 	}

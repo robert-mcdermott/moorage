@@ -379,6 +379,8 @@ type serviceRow struct {
 	Status               status
 	Unused               bool
 	Memory               string
+	// Kept says that it keeps what it held before its last upgrade or restore.
+	Kept bool
 }
 
 // servicesTotal says what an app's services add up to, as each preview has its own.
@@ -484,7 +486,7 @@ func (c *Console) showServices(w http.ResponseWriter, r *http.Request, p auth.Pr
 		if row.Memory > 0 {
 			used = humanSize(int64(row.Memory))
 		}
-		d.ServiceRows = append(d.ServiceRows, serviceRow{Name: row.Name, Kind: kind, Variable: row.EnvVar, Port: row.Port, Status: s, Unused: row.Unused, Memory: used})
+		d.ServiceRows = append(d.ServiceRows, serviceRow{Name: row.Name, Kind: kind, Variable: row.EnvVar, Port: row.Port, Status: s, Unused: row.Unused, Memory: used, Kept: row.OldVolume != ""})
 	}
 	if c.deployer != nil {
 		if total, running, memory, err := c.deployer.ServiceTotals(r.Context(), app); err == nil {

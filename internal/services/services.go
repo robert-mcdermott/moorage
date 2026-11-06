@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -30,6 +31,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -232,6 +234,12 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 		version := s.Version
 		if version == "" {
 			version = manifest.DefaultPostgres
+			// What is to hold a copy of production's has to be able to load it, and production may have moved on from the default.
+			if s.Seed != "" {
+				if production, err := m.o.DB.Service(ctx, app, names.Production, name); err == nil && production.Type == s.Type && production.Version != "" {
+					version = production.Version
+				}
+			}
 		}
 		image = fmt.Sprintf(postgresImage, version)
 	default:
@@ -301,23 +309,26 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 			m.forget(rec, driver)
 		}
 	}()
-	seeded := false
 	if refused != "" {
 		fmt.Fprintf(log, "▸ service    %s: not seeded from production, and it starts empty: %s\n", name, refused)
 	}
 	if state == store.ServiceSeeding {
 		// If this goes wrong, nothing is left of it, which is better than half a copy with what sanitizing it was to remove.
-		if err := m.seed(ctx, driver, rec, s, appDir, password, log); err != nil {
+		copied, err := m.seed(ctx, driver, rec, s, appDir, password, log)
+		if err != nil {
 			return err
 		}
 		// It is noted before it is said to be finished, so that nothing thinks that a copy of production's is something else.
-		if err := m.o.DB.SetServiceSeeded(ctx, rec.ID); err != nil {
-			return err
+		if copied {
+			if err := m.o.DB.SetServiceSeeded(ctx, rec.ID, true); err != nil {
+				return err
+			}
+			rec.Seeded = true
 		}
 		if err := m.o.DB.SetServiceState(ctx, rec.ID, store.ServiceRunning); err != nil {
 			return err
 		}
-		rec.State, seeded = store.ServiceRunning, true
+		rec.State = store.ServiceRunning
 	}
 	if err := driver.RunService(ctx, m.spec(rec, password)); err != nil {
 		return err
@@ -327,7 +338,7 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 		return err
 	}
 	if s.Type == manifest.ServiceS3 {
-		if !seeded {
+		if !rec.Seeded {
 			if err := m.makeBucket(ctx, rec, password); err != nil {
 				return err
 			}
@@ -351,12 +362,12 @@ func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manif
 	}
 	// A later commit can take away the gate that a copy of production's data was made behind.
 	if rec.Seeded {
-		refused, err := m.seedRefused(ctx, rec.App, rec.Env, plan)
+		exposed, err := m.copyExposed(ctx, rec.App, rec.Env, plan)
 		if err != nil {
 			return err
 		}
-		if refused != "" {
-			return &MajorChangeError{"it holds a copy of production's data, and this would not keep it safe: " + refused}
+		if exposed {
+			return &MajorChangeError{fmt.Sprintf("it holds a copy of production's data, and anyone could reach this preview: give it a gate, with moor access or access under [environments.preview], or remove the copy with moor services remove %s --env %s --yes", rec.Name, rec.Env)}
 		}
 	}
 	driver, err := m.driverFor(ctx, rec)
@@ -402,30 +413,56 @@ func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manif
 			return err
 		}
 	}
-	return m.waitReady(ctx, driver, rec)
+	if err := m.waitReady(ctx, driver, rec); err != nil {
+		return err
+	}
+	// A server can stop between making one and making its bucket.
+	if rec.Type == manifest.ServiceS3 {
+		password, err := m.password(ctx, rec)
+		if err != nil {
+			return err
+		}
+		return m.makeBucket(ctx, rec, password)
+	}
+	return nil
 }
 
-// driverFor is the driver of the engine that holds a service. If another is in use now, what it holds is not to be found there.
+// driverFor is the driver of the engine that holds a service. If another is in use now, what it holds is not to be found there. It never moves one to another: reading how one stands
+// should not lose track of what it holds, because a program was gone for a moment as it was upgraded.
 func (m *Manager) driverFor(ctx context.Context, rec store.Service) (*container.Driver, error) {
 	st := m.o.Engines.Status(ctx)
 	if err := st.Err(); err != nil {
 		return nil, err
 	}
 	if st.Bin != rec.Engine {
-		// On a new machine, after a restore, its engine may be somewhere else, and its volumes are not there anyway. A program that is still here may hold what it held.
 		if _, err := os.Stat(rec.Engine); err == nil {
 			return nil, fmt.Errorf("the service %s is held by %s, and this server is using %s: set engine under [containers] in server.toml", rec.Name, rec.Engine, st.Bin)
 		}
-		m.o.Log.Warn("a service's engine has gone, and it goes on with another: what it held there is left behind, and it comes back from its dump", "app", rec.App, "env", rec.Env, "service", rec.Name, "was", rec.Engine, "now", st.Bin)
-		if err := m.o.DB.SetServiceEngine(ctx, rec.ID, st.Bin); err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("the service %s is held by %s, which is not there: put it back, or restart this server to move it to %s, where it comes back from its latest dump", rec.Name, rec.Engine, st.Bin)
 	}
 	driver := m.o.Engines.Driver()
 	if driver == nil {
 		return nil, errors.New("this server has no container engine")
 	}
 	return driver, nil
+}
+
+// adopt moves a service to the engine in use if the one that held it has gone, as it will have after a restore to another machine, whose volumes are not there anyway. That is only done
+// as a server starts.
+func (m *Manager) adopt(ctx context.Context, rec store.Service) (store.Service, error) {
+	st := m.o.Engines.Status(ctx)
+	if st.Err() != nil || st.Bin == rec.Engine {
+		return rec, nil
+	}
+	if _, err := os.Stat(rec.Engine); !errors.Is(err, os.ErrNotExist) {
+		return rec, nil
+	}
+	m.o.Log.Warn("a service's engine has gone, and it goes on with another: what it held there is left behind, and it comes back from its dump", "app", rec.App, "env", rec.Env, "service", rec.Name, "was", rec.Engine, "now", st.Bin)
+	if err := m.o.DB.SetServiceEngine(ctx, rec.ID, st.Bin); err != nil {
+		return rec, err
+	}
+	rec.Engine = st.Bin
+	return rec, nil
 }
 
 func (m *Manager) password(ctx context.Context, rec store.Service) (string, error) {
@@ -565,11 +602,16 @@ func (m *Manager) Addresses(ctx context.Context, app, env string, plan manifest.
 	if err != nil {
 		return nil, nil, "", err
 	}
+	kind, err := m.o.DB.EnvKind(ctx, app, env)
+	if err != nil {
+		return nil, nil, "", err
+	}
 	secret, plain = map[string]string{}, map[string]string{}
 	for _, rec := range list {
 		s, named := plan.Services[rec.Name]
-		// A release that does not name a service does not get it, so that going back behaves. What has not been sanitized yet is for nobody.
-		if !named || s.Type != rec.Type || rec.State == store.ServiceSeeding {
+		// A release that does not name a service does not get it, so that going back behaves. What has not been sanitized yet is for nobody, and what a preview is told it has no
+		// use for it does not get either, as it would then get it with nothing having looked at who can reach it.
+		if !named || s.Type != rec.Type || rec.State == store.ServiceSeeding || (kind == store.KindPreview && s.Previews == "none") {
 			continue
 		}
 		password, err := m.password(ctx, rec)
@@ -615,7 +657,7 @@ func (m *Manager) Run(ctx context.Context) {
 	if m == nil {
 		return
 	}
-	m.clearUp(ctx)
+	cleared := m.clearUp(ctx)
 	m.look(ctx)
 	t := time.NewTicker(m.o.Tick)
 	defer t.Stop()
@@ -624,30 +666,78 @@ func (m *Manager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !cleared {
+				cleared = m.clearUp(ctx)
+			}
 			m.look(ctx)
 		}
 	}
 }
 
-// clearUp stops what a server left when it stopped halfway through a dump or a seed. What is to be running sorts itself out: it is not taken for running until it has been started
-// where an app can reach it.
-func (m *Manager) clearUp(ctx context.Context) {
+// clearUp stops what a server left when it stopped halfway through a dump, a seed, an upgrade or a restore, and moves what has lost its engine. What is to be running sorts itself out:
+// it is not taken for running until it has been started where an app can reach it. It says whether it could, as an engine may not be answering yet. Volumes are not removed for this,
+// as one that the record does not name may be newer than the record, if the server was restored from a backup. The doctor speaks of them, and --finish lets them go.
+func (m *Manager) clearUp(ctx context.Context) bool {
 	list, err := m.o.DB.AllServices(ctx)
+	if err != nil {
+		return false
+	}
+	if len(list) == 0 {
+		return true
+	}
+	if !m.o.Engines.Status(ctx).Ready() {
+		return false
+	}
+	for _, listed := range list {
+		if ctx.Err() != nil {
+			return false
+		}
+		m.clearUpOne(ctx, listed)
+	}
+	return true
+}
+
+func (m *Manager) clearUpOne(ctx context.Context, listed store.Service) {
+	unlock := m.lock(listed.App + "/" + listed.Env)
+	defer unlock()
+	rec, err := m.o.DB.Service(ctx, listed.App, listed.Env, listed.Name)
 	if err != nil {
 		return
 	}
-	for _, rec := range list {
-		if rec.State == store.ServiceRunning || ctx.Err() != nil {
-			continue
-		}
-		unlock := m.lock(rec.App + "/" + rec.Env)
-		if driver, err := m.driverFor(ctx, rec); err == nil {
-			if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
-				m.o.Log.Warn("stop what a server left running", "app", rec.App, "env", rec.Env, "service", rec.Name, "err", err)
-			}
-		}
-		unlock()
+	if rec, err = m.adopt(ctx, rec); err != nil {
+		m.o.Log.Warn("move a service to another engine", "service", rec.Name, "err", err)
+		return
 	}
+	driver, err := m.driverFor(ctx, rec)
+	if err != nil {
+		m.o.Log.Warn("look at what a server left of a service", "app", rec.App, "env", rec.Env, "service", rec.Name, "err", err)
+		return
+	}
+	stop := temporaries(rec)
+	if rec.State != store.ServiceRunning {
+		stop = append(stop, container.ServiceName(rec.ID))
+	}
+	for _, name := range stop {
+		if err := driver.StopService(name, stopLimit(rec)); err != nil {
+			m.o.Log.Warn("stop what a server left running", "app", rec.App, "env", rec.Env, "service", rec.Name, "err", err)
+		}
+	}
+}
+
+// temporaries are the names of what a service's data goes through for a while.
+func temporaries(rec store.Service) []string {
+	name := container.ServiceName(rec.ID)
+	return []string{name + "-upgrade", name + "-restore"}
+}
+
+// strayVolumes are the volumes of a service that its record does not name.
+func strayVolumes(ctx context.Context, driver *container.Driver, rec store.Service) ([]string, error) {
+	listed, err := driver.ServiceVolumes(ctx, rec.ID)
+	if err != nil {
+		return nil, err
+	}
+	known := append(volumesOf(rec), rec.OldVolume)
+	return slices.DeleteFunc(listed, func(name string) bool { return slices.Contains(known, name) }), nil
 }
 
 func (m *Manager) look(ctx context.Context) {
@@ -784,7 +874,11 @@ func (m *Manager) each(ctx context.Context, app, env string, do func(*container.
 	if err != nil || len(list) == 0 {
 		return err
 	}
-	unlock := m.lock(app + "/" + env)
+	// What waits for this may have a limit, and what holds the lock may take hours.
+	unlock, err := m.lockWithin(ctx, app+"/"+env)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	list, err = m.o.DB.Services(ctx, app, env)
 	if err != nil {
@@ -832,7 +926,8 @@ func (m *Manager) MetricsInstances(ctx context.Context) []metrics.Instance {
 // servicePart comes before a service's name in its metrics.
 const servicePart = "service."
 
-// MetricsContainers asks the engines what services are using, by ID, and keeps it for the console, which should not have to wait for that. With none running, it asks no engine.
+// MetricsContainers asks the engine what services are using, by ID, and keeps it for the console, which should not have to wait for that. With none running, it asks nothing of any
+// engine, and it goes by what is already known of one, as what looks at everything else on this server should not wait for an engine that has hung.
 func (m *Manager) MetricsContainers(ctx context.Context) map[string]metrics.Usage {
 	if m == nil {
 		return nil
@@ -841,40 +936,29 @@ func (m *Manager) MetricsContainers(ctx context.Context) map[string]metrics.Usag
 	if err != nil {
 		return nil
 	}
-	type engineNames struct {
-		driver *container.Driver
-		byName map[string]string
-	}
-	engines := map[string]*engineNames{}
+	st := m.o.Engines.Known()
+	byName := map[string]string{}
 	for _, rec := range list {
-		if rec.State != store.ServiceRunning {
-			continue
+		if rec.State == store.ServiceRunning && rec.Engine == st.Bin {
+			byName[container.ServiceName(rec.ID)] = rec.ID
 		}
-		e := engines[rec.Engine]
-		if e == nil {
-			driver, err := m.driverFor(ctx, rec)
-			if err != nil {
-				continue
-			}
-			e = &engineNames{driver: driver, byName: map[string]string{}}
-			engines[rec.Engine] = e
-		}
-		e.byName[container.ServiceName(rec.ID)] = rec.ID
 	}
-	out := map[string]metrics.Usage{}
-	for _, e := range engines {
-		asking, cancel := context.WithTimeout(ctx, 8*time.Second)
-		stats, err := e.driver.ServiceStats(asking, e.byName)
-		cancel()
-		if err != nil {
-			if ctx.Err() == nil {
-				m.o.Log.Debug("read what services are using", "err", err)
-			}
-			continue
+	driver := m.o.Engines.Driver()
+	if !st.Ready() || driver == nil || len(byName) == 0 {
+		return nil
+	}
+	asking, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	stats, err := driver.ServiceStats(asking, byName)
+	if err != nil {
+		if ctx.Err() == nil {
+			m.o.Log.Debug("read what services are using", "err", err)
 		}
-		for id, u := range stats {
-			out[id] = metrics.Usage{CPU: u.CPU, Memory: u.Memory}
-		}
+		return nil
+	}
+	out := make(map[string]metrics.Usage, len(stats))
+	for id, u := range stats {
+		out[id] = metrics.Usage{CPU: u.CPU, Memory: u.Memory}
 	}
 	m.usedMu.Lock()
 	m.used = out
@@ -951,17 +1035,10 @@ func (m *Manager) Remove(ctx context.Context, app, env, name, by string) error {
 	if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 		return err
 	}
-	if err := removeVolumes(driver, rec); err != nil {
+	if err := removeAll(ctx, driver, rec); err != nil {
 		return err
 	}
-	if rec.OldVolume != "" {
-		if err := driver.RemoveVolume(rec.OldVolume); err != nil {
-			return err
-		}
-	}
-	if err := os.Remove(m.dumpPath(rec)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		m.o.Log.Warn("remove a service's dump", "service", rec.Name, "err", err)
-	}
+	removeDumps(m.dumpPath(rec), m.o.Log)
 	if err := m.o.DB.DeleteService(ctx, rec.ID); err != nil {
 		return err
 	}
@@ -1073,10 +1150,53 @@ func (m *Manager) Logs(ctx context.Context, app, env, name string, tail int) (st
 	if err != nil {
 		return "", err
 	}
-	return driver.ServiceLogs(ctx, container.ServiceName(rec.ID), tail)
+	text, err := driver.ServiceLogs(ctx, container.ServiceName(rec.ID), tail)
+	// What a service says goes with its container, which goes when it stops.
+	if container.IsNotFound(err) {
+		return "", nil
+	}
+	return text, err
 }
 
 // removeVolumes removes what a service holds.
+// removeAll removes everything of a service's but its record: what its data goes through for a while, what it held before, and what a server left that stopped halfway. Each of them is
+// a copy of what it holds.
+func removeAll(ctx context.Context, driver *container.Driver, rec store.Service) error {
+	for _, name := range temporaries(rec) {
+		if err := driver.StopService(name, 10*time.Second); err != nil {
+			return err
+		}
+	}
+	if err := removeVolumes(driver, rec); err != nil {
+		return err
+	}
+	if rec.OldVolume != "" {
+		if err := driver.RemoveVolume(rec.OldVolume); err != nil {
+			return err
+		}
+	}
+	stray, err := strayVolumes(ctx, driver, rec)
+	if err != nil {
+		return err
+	}
+	for _, name := range stray {
+		if err := driver.RemoveVolume(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeDumps removes a service's dump, and any that a server left unfinished.
+func removeDumps(path string, log *slog.Logger) {
+	unfinished, _ := filepath.Glob(path + ".*")
+	for _, name := range append(unfinished, path) {
+		if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Warn("remove a service's dump", "path", name, "err", err)
+		}
+	}
+}
+
 func removeVolumes(driver *container.Driver, rec store.Service) error {
 	for _, name := range volumesOf(rec) {
 		if err := driver.RemoveVolume(name); err != nil {
@@ -1091,8 +1211,12 @@ func (m *Manager) forget(rec store.Service, driver *container.Driver) {
 	if err := driver.StopService(container.ServiceName(rec.ID), 10*time.Second); err != nil {
 		m.o.Log.Warn("remove a service that did not start", "service", rec.Name, "err", err)
 	}
-	if err := removeVolumes(driver, rec); err != nil {
+	if err := removeAll(ctx, driver, rec); err != nil {
 		m.o.Log.Warn("remove a service's volume", "service", rec.Name, "err", err)
+		// Nothing would then know of a copy of production's. On record, the next deployment tries again.
+		if rec.State == store.ServiceSeeding || rec.Seeded {
+			return
+		}
 	}
 	if err := m.o.DB.DeleteService(ctx, rec.ID); err != nil {
 		m.o.Log.Error("forget a service that did not start", "service", rec.Name, "err", err)
@@ -1120,6 +1244,18 @@ func (m *Manager) lock(key string) func() {
 	lock := m.lockFor(key)
 	lock.Lock()
 	return lock.Unlock
+}
+
+func (m *Manager) lockWithin(ctx context.Context, key string) (func(), error) {
+	lock := m.lockFor(key)
+	for !lock.TryLock() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return lock.Unlock, nil
 }
 
 func (m *Manager) tryLock(key string) (func(), bool) {
@@ -1187,12 +1323,15 @@ func (m *Manager) Problems(ctx context.Context) (int, []string) {
 	}
 	var problems []string
 	for _, rec := range list {
-		if rec.State != store.ServiceRunning {
-			continue
-		}
 		driver, err := m.driverFor(ctx, rec)
 		if err != nil {
 			problems = append(problems, err.Error())
+			continue
+		}
+		if stray, err := strayVolumes(ctx, driver, rec); err == nil && len(stray) > 0 {
+			problems = append(problems, fmt.Sprintf("%s of %s of %s has a volume that nothing names, %s, which a server may have left that stopped halfway: moor services upgrade %s --finish lets it go", rec.Name, rec.Env, rec.App, strings.Join(stray, ", "), rec.Name))
+		}
+		if rec.State != store.ServiceRunning {
 			continue
 		}
 		if running, err := driver.ServiceRunning(ctx, container.ServiceName(rec.ID)); err != nil {

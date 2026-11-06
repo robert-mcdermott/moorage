@@ -103,7 +103,7 @@ sanitize = "scripts/sanitize.sql"
 
 A new preview then starts with production's latest dump, which [a backup](backups.md) makes. The copy and the script happen where nothing can connect, and if either fails, or the server stops halfway, nothing is left of the copy, and the deployment fails. The script is in the app, and a link in its place that leads out of the app is refused. `sanitize = "none"` says that nothing needs removing.
 
-A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request that comes from a fork, or that nothing says does not, or if a [coding agent's token](agents.md) made it. An existing preview is not seeded again: destroy it, or remove its service. A later commit that would let anyone reach a preview holding such a copy fails to deploy, and says so.
+A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request that comes from a fork, or that nothing says does not, or if a [coding agent's token](agents.md) made it. An existing preview is not seeded again: destroy it, or remove its service. A later commit that would let anyone reach a preview holding such a copy fails to deploy, and says so, and `moor access` refuses to open it. If production has moved to a newer version and the manifest names none, the copy runs that version too. Only the role `app` gets a new password: any others that the dump holds keep what production gave them, which is for `sanitize` to deal with.
 
 ## Backups
 
@@ -117,7 +117,7 @@ On the machine that it ran on, a service still has its volume, and so keeps what
 moor services restore db --yes
 ```
 
-PostgreSQL's dump goes into a new volume first, so that one that will not load changes nothing. The old volume stays until you are happy, with `moor services upgrade db --finish`. An object store's dump is checked, and replaces what it holds.
+PostgreSQL's dump goes into a new volume first, so that one that will not load changes nothing. An object store's dump is checked, and replaces what it holds. What PostgreSQL held stays until you say what to do with it, as it does [after an upgrade](#updates-and-upgrades).
 
 If one of an object store's two volumes has gone, it does not start, and says so: the other may be all that there is of what it held, so that going back to its dump is for you to ask for.
 
@@ -137,11 +137,21 @@ A new major version takes moving its data, as an image holds only its own versio
 moor services upgrade db --to 19
 ```
 
-The app stops for that, as what it wrote after the dump would be lost, and commands and cron jobs are stopped and refused until it is over. Moorage dumps the service with the newer version's tools, restores into a new volume, checks that the database `app` holds as many rows and tables and that the same databases are there, and switches. Anything that would refuse it does so before anything stops. Anything going wrong after that leaves the old one as it was, and the app starts again however it goes. Say the new version in the manifest too, if it names one. A service with an `image` of its own has to say which holds the new version, with `--image`. The old volume stays until you are happy:
+The app stops for that, as what it wrote after the dump would be lost, and commands and cron jobs are stopped and refused until it is over. Moorage dumps the service with the newer version's tools, restores into a new volume, checks that the database `app` holds as many rows and tables and that the same databases are there, and switches. Anything that would refuse it does so before anything stops. Anything going wrong after that leaves the old one as it was, and the app starts again however it goes. Say the new version in the manifest too, if it names one. A service with an `image` of its own has to say which holds the new version, with `--image`. The old volume stays until you say what to do with it. To let go of it:
 
 ```bash
 moor services upgrade db --finish
 ```
+
+Or, if you are not happy, to go back to it, losing what the service has held since:
+
+```bash
+moor services upgrade db --back --yes
+```
+
+After going back from an upgrade, the manifest has to say the older version again, if it names one, and a dump made since by the newer version cannot be loaded, so that it takes the next backup to have one that can.
+
+`moor services` says which of them still keep an old volume. A server that stops halfway through an upgrade or a restore comes back on the service as it was, and can leave a volume behind. `moor server doctor` says so, and `--finish` lets go of that too.
 
 ## Seeing and removing them
 
@@ -157,7 +167,7 @@ moor logs --service db --env staging
 moor services remove db --env my-branch --yes
 ```
 
-`moor services logs db` is the same. Its engine keeps what it says, so that it has only `--tail`, and goes with it.
+`moor services logs db` is the same. Its engine keeps what it says, so that it has only `--tail`, and what it says goes when it stops.
 
 They are on the Services tab of an app in the console too, with what each has said and what an app's services add up to across its environments, as each preview has its own. What one uses is in [metrics](metrics.md) as `service.db`, with an app's instances. `moor server doctor` says if one that should be running is not. Removing one takes what it holds, for good. If the manifest still names it, the next deployment makes a new one, which starts empty.
 

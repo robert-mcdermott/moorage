@@ -888,16 +888,13 @@ func (d *Driver) Stats(ctx context.Context) (map[string]Usage, error) {
 	return parseStats(string(out), byName), nil
 }
 
-// ServiceStats asks the engine what services are using, by ID, given their names.
+// ServiceStats asks the engine what services are using, by ID, given their names. It asks of all that are running and leaves out the rest, as asking by name fails for all of them if
+// one has gone.
 func (d *Driver) ServiceStats(ctx context.Context, byName map[string]string) (map[string]Usage, error) {
 	if len(byName) == 0 {
 		return nil, nil
 	}
-	args := []string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"}
-	for _, name := range sortedKeys(byName) {
-		args = append(args, name)
-	}
-	out, err := d.engine.output(ctx, nil, args...)
+	out, err := d.engine.output(ctx, nil, "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}")
 	if err != nil {
 		return nil, err
 	}

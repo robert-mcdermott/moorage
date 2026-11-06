@@ -10,6 +10,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
 	"github.com/robert-mcdermott/moorage/internal/deploy"
 	"github.com/robert-mcdermott/moorage/internal/driver/container"
+	"github.com/robert-mcdermott/moorage/internal/reconcile"
 	"github.com/robert-mcdermott/moorage/internal/services"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
@@ -299,6 +300,17 @@ func (s *Server) upgradeService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apitypes.ServiceChange{Log: log.String()})
 }
 
+func (s *Server) backService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.serviceFailed(w, s.deployer.BackService(lasting(r), app, env, r.PathValue("name"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) finishServiceUpgrade(w http.ResponseWriter, r *http.Request) {
 	app, env, ok := s.target(w, r)
 	if !ok {
@@ -323,9 +335,19 @@ func (s *Server) restoreService(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serviceFailed(w http.ResponseWriter, err error) bool {
 	var major *services.MajorChangeError
-	if errors.As(err, &major) {
+	var locked *deploy.LockedError
+	var busy *deploy.AppBusyError
+	var rollout *reconcile.RolloutError
+	switch {
+	case errors.As(err, &major):
 		problem(w, http.StatusConflict, "conflict", sentenceOf(err))
 		return true
+	case err == nil, errors.As(err, &locked), errors.As(err, &busy), errors.As(err, &rollout), errors.Is(err, context.Canceled), errors.Is(err, store.ErrNotFound),
+		errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
+		return s.environmentFailed(w, err)
 	}
-	return s.environmentFailed(w, err)
+	// Who may ask for these may know why one went wrong, in the words of the engine or of PostgreSQL, which they would otherwise have to find in the server's log.
+	s.log.Error("a service could not do what was asked", "err", err)
+	problem(w, http.StatusInternalServerError, "service_failed", sentenceOf(err))
+	return true
 }

@@ -54,7 +54,15 @@ A service that a manifest no longer names stays, with what it holds, until you r
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n", s.Name, serviceKind(s), serviceStatus(s), s.Variable, s.Port, memory)
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			for _, s := range list {
+				if s.OldVolume != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s keeps what it held before its last upgrade or restore, until: moor services upgrade %s --finish, or --back to go back to it\n", s.Name, s.Name)
+				}
+			}
+			return nil
 		},
 	}
 	f.add(cmd)
@@ -107,10 +115,7 @@ func newServiceLogsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), text)
-			if text != "" && !strings.HasSuffix(text, "\n") {
-				fmt.Fprintln(cmd.OutOrStdout())
-			}
+			printServiceLog(cmd, text)
 			return nil
 		},
 	}
@@ -118,6 +123,18 @@ func newServiceLogsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&env, "env", "production", "the environment")
 	cmd.Flags().IntVar(&tail, "tail", 100, "how many lines, up to 5,000")
 	return cmd
+}
+
+// printServiceLog shows what a service has said.
+func printServiceLog(cmd *cobra.Command, text string) {
+	if text == "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "It has said nothing since it last started: what a service says goes when it stops.")
+		return
+	}
+	fmt.Fprint(cmd.OutOrStdout(), text)
+	if !strings.HasSuffix(text, "\n") {
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
 }
 
 func newServiceRemoveCmd() *cobra.Command {
@@ -183,19 +200,28 @@ is recorded when a service is made, and an update is something that you ask for.
 func newServiceUpgradeCmd() *cobra.Command {
 	var f appFlags
 	var env, to, image string
-	var finish bool
+	var finish, back, yes bool
 	cmd := &cobra.Command{
 		Use:   "upgrade NAME",
 		Short: "Move a service to a newer major version",
 		Long: `Move a PostgreSQL service to a newer major version: a dump with the newer version's tools, a new volume, a restore and a check that it holds what it did. The app is
-stopped for that, as what it wrote after the dump would be lost, and is started again however it goes. The old volume stays until you say that all is well with --finish, and
-anything going wrong leaves the old one as it was. Say the new version in the manifest too, if it names one.`,
+stopped for that, as what it wrote after the dump would be lost, and is started again however it goes. Anything going wrong leaves the old one as it was. Say the new version in the manifest too, if it names one.
+
+The old volume stays until you say what to do with it, as it does after moor services restore: --finish lets go of it, and --back goes back to it, losing what the service has held
+since. After --back, the manifest has to say the older version again, if it names one, and a dump made since by the newer version cannot be loaded.`,
 		Example: `  moor services upgrade db --to 19
-  moor services upgrade db --finish`,
+  moor services upgrade db --finish
+  moor services upgrade db --back --yes`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if (to == "") == !finish {
-				return usageError{fmt.Errorf("say --to VERSION, or --finish to let go of the old volume")}
+			asked := 0
+			for _, on := range []bool{to != "", finish, back} {
+				if on {
+					asked++
+				}
+			}
+			if asked != 1 {
+				return usageError{fmt.Errorf("say --to VERSION, --finish to let go of the old volume, or --back to go back to it")}
 			}
 			app, c, err := f.open()
 			if err != nil {
@@ -205,7 +231,17 @@ anything going wrong leaves the old one as it was. Say the new version in the ma
 				if err := c.FinishServiceUpgrade(cmd.Context(), app, env, args[0]); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Let go of what %s held before its last upgrade.\n", args[0])
+				fmt.Fprintf(cmd.OutOrStdout(), "Let go of what %s held before.\n", args[0])
+				return nil
+			}
+			if back {
+				if !yes {
+					return usageError{fmt.Errorf("this loses what %s of %s of %s has held since its last upgrade or restore: say --yes", args[0], env, app)}
+				}
+				if err := c.BackService(cmd.Context(), app, env, args[0]); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s is back on what it held before.\n", args[0])
 				return nil
 			}
 			said, err := c.UpgradeService(cmd.Context(), app, env, args[0], to, image)
@@ -213,7 +249,7 @@ anything going wrong leaves the old one as it was. Say the new version in the ma
 				return err
 			}
 			fmt.Fprint(cmd.OutOrStdout(), said)
-			fmt.Fprintf(cmd.OutOrStdout(), "It runs PostgreSQL %s, and the old volume stays until: moor services upgrade %s --finish\n", to, args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "It runs PostgreSQL %s, and the old volume stays until: moor services upgrade %s --finish, or --back to go back to it\n", to, args[0])
 			return nil
 		},
 	}
@@ -222,6 +258,8 @@ anything going wrong leaves the old one as it was. Say the new version in the ma
 	cmd.Flags().StringVar(&to, "to", "", "the major version to move to")
 	cmd.Flags().StringVar(&image, "image", "", "the image that holds it, for a service that does not run the official one")
 	cmd.Flags().BoolVar(&finish, "finish", false, "let go of what it held before its last upgrade or restore")
+	cmd.Flags().BoolVar(&back, "back", false, "go back to what it held before its last upgrade or restore")
+	cmd.Flags().BoolVar(&yes, "yes", false, "with --back, say that you mean it")
 	return cmd
 }
 
@@ -234,7 +272,7 @@ func newServiceRestoreCmd() *cobra.Command {
 		Short: "Put a service back to its latest dump",
 		Long: `Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a
 restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go
-back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say that all is well, with moor services upgrade NAME --finish.`,
+back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say what to do with it, with moor services upgrade NAME --finish or --back.`,
 		Example: `  moor services restore db --yes`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -248,7 +286,7 @@ back. A dump that will not load changes nothing. PostgreSQL's old volume stays u
 			if err := c.RestoreService(cmd.Context(), app, env, args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s is back to its latest dump. If it had one, its old volume stays until: moor services upgrade %s --finish\n", args[0], args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is back to its latest dump. If it had one, its old volume stays until: moor services upgrade %s --finish, or --back to go back to it\n", args[0], args[0])
 			return nil
 		},
 	}

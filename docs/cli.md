@@ -2176,7 +2176,7 @@ moor services remove db --env my-branch --yes
 
 ### `moor services restore`
 
-Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say that all is well, with moor services upgrade NAME --finish.
+Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say what to do with it, with moor services upgrade NAME --finish or --back.
 
 ```text
 moor services restore NAME
@@ -2211,7 +2211,9 @@ moor services update db
 
 ### `moor services upgrade`
 
-Move a PostgreSQL service to a newer major version: a dump with the newer version's tools, a new volume, a restore and a check that it holds what it did. The app is stopped for that, as what it wrote after the dump would be lost, and is started again however it goes. The old volume stays until you say that all is well with --finish, and anything going wrong leaves the old one as it was. Say the new version in the manifest too, if it names one.
+Move a PostgreSQL service to a newer major version: a dump with the newer version's tools, a new volume, a restore and a check that it holds what it did. The app is stopped for that, as what it wrote after the dump would be lost, and is started again however it goes. Anything going wrong leaves the old one as it was. Say the new version in the manifest too, if it names one.
+
+The old volume stays until you say what to do with it, as it does after moor services restore: --finish lets go of it, and --back goes back to it, losing what the service has held since. After --back, the manifest has to say the older version again, if it names one, and a dump made since by the newer version cannot be loaded.
 
 ```text
 moor services upgrade NAME
@@ -2220,15 +2222,18 @@ moor services upgrade NAME
 ```text
 moor services upgrade db --to 19
 moor services upgrade db --finish
+moor services upgrade db --back --yes
 ```
 
 | Flag | Default | What it does |
 |---|---|---|
 | `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--back` |  | go back to what it held before its last upgrade or restore |
 | `--env string` | `production` | the environment |
 | `--finish` |  | let go of what it held before its last upgrade or restore |
 | `--image string` |  | the image that holds it, for a service that does not run the official one |
 | `--to string` |  | the major version to move to |
+| `--yes` |  | with --back, say that you mean it |
 
 ## `moor share`
 

@@ -26,8 +26,8 @@ type Service struct {
 	Image, Digest       string
 	// Engine is the path of the program that holds its image and volume.
 	Engine, Volume string
-	// OldVolume is what it held before an upgrade, until someone says that the upgrade was good.
-	OldVolume string
+	// OldVolume is what it held before an upgrade or a restore, until someone says that that was good, and the others what ran on it, so that it can go back.
+	OldVolume, OldVersion, OldImage, OldDigest, OldMount string
 	// Mount is where its volume goes, which depends on the image that made it.
 	Mount string
 	Port  int
@@ -45,7 +45,7 @@ type Service struct {
 	CreatedAt time.Time
 }
 
-const serviceColumns = `s.id, s.env_id, a.name, e.name, s.name, s.type, s.version, s.image, s.digest, s.engine, s.volume, s.old_volume, s.mount, s.port, s.pending_load, s.seeded,
+const serviceColumns = `s.id, s.env_id, a.name, e.name, s.name, s.type, s.version, s.image, s.digest, s.engine, s.volume, s.old_volume, s.old_version, s.old_image, s.old_digest, s.old_mount, s.mount, s.port, s.pending_load, s.seeded,
 	s.password_enc, s.env_var, s.memory, s.state, s.created_by, s.created_at`
 
 const serviceFrom = ` FROM services s JOIN environments e ON e.id = s.env_id JOIN apps a ON a.id = e.app_id`
@@ -53,7 +53,7 @@ const serviceFrom = ` FROM services s JOIN environments e ON e.id = s.env_id JOI
 func scanService(row interface{ Scan(...any) error }) (Service, error) {
 	var s Service
 	var created int64
-	if err := row.Scan(&s.ID, &s.EnvID, &s.App, &s.Env, &s.Name, &s.Type, &s.Version, &s.Image, &s.Digest, &s.Engine, &s.Volume, &s.OldVolume, &s.Mount, &s.Port, &s.PendingLoad, &s.Seeded,
+	if err := row.Scan(&s.ID, &s.EnvID, &s.App, &s.Env, &s.Name, &s.Type, &s.Version, &s.Image, &s.Digest, &s.Engine, &s.Volume, &s.OldVolume, &s.OldVersion, &s.OldImage, &s.OldDigest, &s.OldMount, &s.Mount, &s.Port, &s.PendingLoad, &s.Seeded,
 		&s.Sealed, &s.EnvVar, &s.Memory, &s.State, &s.CreatedBy, &created); err != nil {
 		return s, err
 	}
@@ -143,7 +143,16 @@ func (db *DB) DeleteService(ctx context.Context, id string) error {
 // SetServiceImage records what a service runs now, and what it holds, after an update or an upgrade.
 func (db *DB) SetServiceImage(ctx context.Context, id, version, image, digest, mount, volume, oldVolume string) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `UPDATE services SET version = ?, image = ?, digest = ?, mount = ?, volume = ?, old_volume = ? WHERE id = ?`, version, image, digest, mount, volume, oldVolume, id)
+		_, err := tx.ExecContext(ctx, `UPDATE services SET version = ?, image = ?, digest = ?, mount = ?, volume = ?, old_volume = ?, old_version = '', old_image = '', old_digest = '', old_mount = '' WHERE id = ?`, version, image, digest, mount, volume, oldVolume, id)
+		return err
+	})
+}
+
+// SetServiceMoved says that a service now holds what it holds in another volume, and keeps what it was, so that it can go back.
+func (db *DB) SetServiceMoved(ctx context.Context, id string, next, was Service) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE services SET version = ?, image = ?, digest = ?, mount = ?, volume = ?, old_volume = ?, old_version = ?, old_image = ?, old_digest = ?, old_mount = ? WHERE id = ?`,
+			next.Version, next.Image, next.Digest, next.Mount, next.Volume, was.Volume, was.Version, was.Image, was.Digest, was.Mount, id)
 		return err
 	})
 }
@@ -156,10 +165,10 @@ func (db *DB) SetServicePendingLoad(ctx context.Context, id string, pending bool
 	})
 }
 
-// SetServiceSeeded says that a service holds a copy of production's data.
-func (db *DB) SetServiceSeeded(ctx context.Context, id string) error {
+// SetServiceSeeded says whether a service holds a copy of production's data.
+func (db *DB) SetServiceSeeded(ctx context.Context, id string, seeded bool) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `UPDATE services SET seeded = 1 WHERE id = ?`, id)
+		_, err := tx.ExecContext(ctx, `UPDATE services SET seeded = ? WHERE id = ?`, seeded, id)
 		return err
 	})
 }

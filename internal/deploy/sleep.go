@@ -113,10 +113,11 @@ func (d *Deployer) Wake(ctx context.Context, app, env, by string) error {
 	if !d.Asleep(app, env) {
 		return nil
 	}
-	defer d.asleep.Delete(sleepKey(app, env))
+	// Only what has been recorded: what this waited for may have taken longer than whoever asked will wait, and what is said here has to be what starts instances goes by.
 	if err := d.db.SetAsleep(ctx, app, env, false); err != nil {
 		return err
 	}
+	defer d.asleep.Delete(sleepKey(app, env))
 	// Whatever woke it, its time starts again now.
 	if err := d.db.SetLastActive(ctx, app, env, time.Now()); err != nil {
 		return err
@@ -171,6 +172,10 @@ func (d *Deployer) release(ctx context.Context, app, env string) func() {
 	if err := d.db.SetLastActive(ctx, app, env, time.Now()); err != nil {
 		d.log.Warn("waking an environment for a release", "app", app, "env", env, "err", err)
 	}
+	// It is awake from here, whatever comes of this release, and what is running goes on connecting to them. What keeps them running goes on trying if this cannot.
+	if err := d.opts.Services.Wake(ctx, app, env); err != nil {
+		d.log.Warn("waking the services of an environment for a release", "app", app, "env", env, "err", err)
+	}
 	return func() {
 		d.asleep.Delete(sleepKey(app, env))
 		d.opts.Events.Publish(context.WithoutCancel(ctx), store.Event{Type: events.EnvironmentWoke, App: app, Env: env, Data: map[string]any{"reason": "a release"}})
@@ -194,12 +199,8 @@ func (d *Deployer) sleepAfter(ctx context.Context, e store.Environment) time.Dur
 // sweepSleep puts an environment to sleep if it has been idle long enough, with nothing still
 // connected to it, and nothing on its way.
 func (d *Deployer) sweepSleep(ctx context.Context, e store.Environment, now time.Time) {
-	if d.Asleep(e.App, e.Name) {
-		d.restLeftServices(ctx, e.App, e.Name)
-		return
-	}
 	after := d.sleepAfter(ctx, e)
-	if after == 0 {
+	if after == 0 || d.Asleep(e.App, e.Name) {
 		return
 	}
 	active := d.EnvironmentActive(ctx, e)

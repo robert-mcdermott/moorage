@@ -85,6 +85,7 @@ case "$1" in
     while [ $# -gt 0 ]; do if [ "$1" = --name ]; then echo "$state" > "` + dir + `/running-$2"; fi; shift; done
     ;;
   rm|stop) rm -f "` + dir + `/running-$last" ;;
+  stats) for file in "` + dir + `"/running-*; do [ -e "$file" ] && printf '%s\t1.50%%\t30MiB / 1GiB\n' "${file##*/running-}"; done; exit 0 ;;
   exec)
     if [ -e "` + dir + `/never-ready" ]; then exit 2; fi
     if [ -e "` + dir + `/no-dump" ] && echo "$*" | grep -q pg_dump; then echo "pg_dump: it went wrong" >&2; exit 1; fi
@@ -97,6 +98,11 @@ case "$1" in
     ;;
   logs) echo "what it said" ;;
   volume|network)
+    if [ "$2" = ls ]; then
+      id=$(printf '%s' "${last##*=svc_}" | tr 'A-Z' 'a-z')
+      for file in "` + dir + `"/volume-*"$id"*; do [ -e "$file" ] && echo "${file##*/volume-}"; done
+      exit 0
+    fi
     if [ "$2" = inspect ] && [ -e "` + dir + `/odd-$1" ]; then echo "something odd happened" >&2; exit 1; fi
     if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1-$last" ]; then echo "no such $1" >&2; exit 1; fi
     if [ "$2" = inspect ]; then echo "$last"; fi
@@ -510,8 +516,8 @@ func TestSmallThings(t *testing.T) {
 		t.Error(got)
 	}
 	// What a new service has already is left out of a dump, and rows that look like it are not.
-	dump := "CREATE ROLE app;\nALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\nCREATE DATABASE app WITH TEMPLATE = template0;\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
-	want := "ALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
+	dump := "CREATE ROLE app;\nALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n-- Database \"app\" dump\nCREATE DATABASE app WITH TEMPLATE = template0;\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
+	want := "ALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n-- Database \"app\" dump\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
 	if got, err := io.ReadAll(withoutWhatIsThere(strings.NewReader(dump))); err != nil || string(got) != want {
 		t.Errorf("%q %v", got, err)
 	}
@@ -1082,7 +1088,7 @@ func TestAnUnfinishedSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.db.SetServiceSeeded(ctx, seeded.ID); err != nil {
+	if err := f.db.SetServiceSeeded(ctx, seeded.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	f.m.o.GateFor = func(set, asked, kind string) (string, string) { return "public", "manifest" }

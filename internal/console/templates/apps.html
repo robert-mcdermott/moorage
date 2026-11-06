@@ -729,7 +729,7 @@
     <tr>
       <td><strong>{{.Name}}</strong></td>
       <td>{{.Kind}}</td>
-      <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Unused}} <span class="muted small">The manifest no longer names it.</span>{{end}}</td>
+      <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Unused}} <span class="muted small">The manifest no longer names it.</span>{{end}}{{if .Kept}} <span class="muted small">It keeps what it held before its last upgrade or restore, until <code>moor services upgrade {{.Name}}</code> is given <code>--finish</code> or <code>--back</code>.</span>{{end}}</td>
       <td><code>{{.Variable}}</code></td>
       <td>{{.Port}}</td>
       <td>{{if .Memory}}{{.Memory}}{{else}}<span class="muted">-</span>{{end}}</td>
@@ -762,7 +762,7 @@ type = "postgres"</code></pre></section>
 {{template "failure" .}}
 <p class="muted">The newest of what {{.ServiceLog.Name}} has said, which its engine keeps, and which goes with it.</p>
 {{if .ServiceLog.Text}}<section class="block"><pre class="log" tabindex="0" aria-label="What it has said">{{.ServiceLog.Text}}</pre></section>
-{{else if not .Failure}}<section class="panel panel-pad"><p>It has said nothing yet.</p></section>{{end}}
+{{else if not .Failure}}<section class="panel panel-pad"><p>It has said nothing since it last started: what a service says goes when it stops.</p></section>{{end}}
 {{end}}
 
 {{define "app-environments"}}

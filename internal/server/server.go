@@ -470,10 +470,13 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		Instances: func(ctx context.Context) []metrics.Instance {
 			return append(runtime.MetricsInstances(ctx), backing.MetricsInstances(ctx)...)
 		},
+		// Side by side, as either can take as long as an engine is allowed, and what comes next waits for them.
 		Containers: func(ctx context.Context) map[string]metrics.Usage {
+			forServices := make(chan map[string]metrics.Usage, 1)
+			go func() { forServices <- backing.MetricsContainers(ctx) }()
 			usage := map[string]metrics.Usage{}
 			maps.Copy(usage, runtime.MetricsContainers(ctx))
-			maps.Copy(usage, backing.MetricsContainers(ctx))
+			maps.Copy(usage, <-forServices)
 			return usage
 		},
 	}

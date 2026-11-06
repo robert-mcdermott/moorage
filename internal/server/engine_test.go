@@ -341,7 +341,7 @@ case "$1" in
   container) if [ -e "` + dir + `/running-$last" ]; then echo true; else echo "Error: no such container" >&2; exit 1; fi ;;
   run) while [ $# -gt 0 ]; do if [ "$1" = --name ]; then touch "` + dir + `/running-$2"; fi; shift; done ;;
   rm|stop) rm -f "` + dir + `/running-$last" ;;
-  stats) shift 4; for name; do printf '%s\t1.50%%\t30MiB / 1GiB\n' "$name"; done ;;
+  stats) for file in "` + dir + `"/running-*; do printf '%s\t1.50%%\t30MiB / 1GiB\n' "${file##*/running-}"; done ;;
   logs) echo "what it said" ;;
   volume|network)
     if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1-$last" ]; then echo "no such $1" >&2; exit 1; fi

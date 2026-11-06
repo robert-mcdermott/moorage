@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -84,32 +85,18 @@ func (m *Manager) dump(ctx context.Context, rec store.Service) error {
 	}
 	name := container.ServiceName(rec.ID)
 	if rec.State == store.ServiceStopped {
-		unlock := m.lock(rec.App + "/" + rec.Env)
-		defer unlock()
-		// It may have woken while this waited.
-		if now, err := m.o.DB.Service(ctx, rec.App, rec.Env, rec.Name); err == nil && now.State != store.ServiceStopped {
-			return errors.New("it woke as this was about to dump it: the next backup has it")
-		}
-		// Starting it to dump it would make its volume, if that has gone, and the dump of that would replace the only good one.
-		there, err := m.volumesThere(ctx, driver, rec)
-		if err != nil {
+		started, err := m.startToDump(ctx, driver, rec)
+		if err != nil || !started {
 			return err
 		}
-		if there != len(volumesOf(rec)) {
-			if _, err := os.Stat(m.dumpPath(rec)); err == nil {
-				return nil // it holds no more than its last dump does, as after a restore
+		// Waking it while this goes on replaces what this started, and that ends the dump, as the one wanting it should not have to wait. It is then not this one's to stop.
+		defer func() {
+			unlock := m.lock(rec.App + "/" + rec.Env)
+			defer unlock()
+			if now, err := m.o.DB.Service(context.WithoutCancel(ctx), rec.App, rec.Env, rec.Name); err == nil && now.State == store.ServiceStopped {
+				driver.StopService(name, stopLimit(rec))
 			}
-			return errors.New("it is asleep, and has neither a volume nor a dump")
-		}
-		password, err := m.password(ctx, rec)
-		if err != nil {
-			return err
-		}
-		spec := m.privateSpec(rec, password)
-		if err := driver.RunService(ctx, spec); err != nil {
-			return err
-		}
-		defer driver.StopService(spec.Name, stopLimit(rec))
+		}()
 		if err := m.waitReady(ctx, driver, rec); err != nil {
 			return err
 		}
@@ -122,6 +109,12 @@ func (m *Manager) dump(ctx context.Context, rec store.Service) error {
 	path := m.dumpPath(rec)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
+	}
+	// What a server left that stopped halfway through the last one would otherwise go in every backup from now on.
+	if unfinished, err := filepath.Glob(path + ".*"); err == nil {
+		for _, name := range unfinished {
+			os.Remove(name)
+		}
 	}
 	// Only a whole one replaces the last one.
 	temp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
@@ -149,6 +142,35 @@ func (m *Manager) dump(ctx context.Context, rec store.Service) error {
 		return err
 	}
 	return syncDir(filepath.Dir(path))
+}
+
+// startToDump starts a service that is asleep, where no app can reach it, and says whether it did. Starting it would make its volume if that has gone, and the dump of that would replace
+// the only good one, so that it is left with the dump that it has.
+func (m *Manager) startToDump(ctx context.Context, driver *container.Driver, rec store.Service) (bool, error) {
+	unlock := m.lock(rec.App + "/" + rec.Env)
+	defer unlock()
+	// It may have woken while this waited.
+	if now, err := m.o.DB.Service(ctx, rec.App, rec.Env, rec.Name); err == nil && now.State != store.ServiceStopped {
+		return false, errors.New("it woke as this was about to dump it: the next backup has it")
+	}
+	there, err := m.volumesThere(ctx, driver, rec)
+	if err != nil {
+		return false, err
+	}
+	if there != len(volumesOf(rec)) {
+		if _, err := os.Stat(m.dumpPath(rec)); err == nil {
+			return false, nil // it holds no more than its last dump does, as after a restore
+		}
+		return false, errors.New("it is asleep, and has neither a volume nor a dump")
+	}
+	password, err := m.password(ctx, rec)
+	if err != nil {
+		return false, err
+	}
+	if err := driver.RunService(ctx, m.privateSpec(rec, password)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // syncDir makes a rename last.
@@ -252,17 +274,28 @@ func withoutWhatIsThere(r io.Reader) io.ReadCloser {
 	reader, writer := io.Pipe()
 	go func() {
 		in := bufio.NewReaderSize(r, 1<<16)
-		copying := false
+		// Roles come first in a dump, before anything connects anywhere. A database's own part has a heading, and creates it before connecting to it. Going by those, text that happens to
+		// look like these in the body of a function, or in a table's rows, stays as it is.
+		copying, amongRoles, ownDatabase := false, true, false
+		heading := []byte(`-- Database "`)
 		for {
 			line, err := in.ReadBytes('\n')
 			if len(line) > 0 {
 				text := bytes.TrimRight(line, "\r\n")
 				switch {
+				// First, as what looked like the start of rows may have been text in a function.
+				case bytes.HasPrefix(text, heading) && bytes.HasSuffix(text, []byte(`" dump`)):
+					copying, amongRoles, ownDatabase = false, false, bytes.Equal(text, []byte(`-- Database "`+postgresUser+`" dump`))
 				case copying:
 					copying = !bytes.Equal(text, []byte(`\.`))
 				case bytes.HasPrefix(text, []byte("COPY ")) && bytes.HasSuffix(text, []byte("FROM stdin;")):
 					copying = true
-				case bytes.Equal(text, []byte("CREATE ROLE "+postgresUser+";")), bytes.HasPrefix(text, []byte("CREATE DATABASE "+postgresUser+" ")):
+				case bytes.HasPrefix(text, []byte(`\connect `)):
+					amongRoles = false
+					if bytes.Equal(text, []byte(`\connect `+postgresUser)) {
+						ownDatabase = false
+					}
+				case amongRoles && bytes.Equal(text, []byte("CREATE ROLE "+postgresUser+";")), ownDatabase && bytes.HasPrefix(text, []byte("CREATE DATABASE "+postgresUser+" ")):
 					line = nil
 				}
 				if len(line) > 0 {
@@ -350,6 +383,12 @@ func (m *Manager) bringUp(ctx context.Context, driver *container.Driver, rec sto
 					return err
 				}
 			}
+			// There is no longer a copy of production's here, as a preview on a new machine has no dump.
+			if rec.Seeded {
+				if err := m.o.DB.SetServiceSeeded(ctx, rec.ID, false); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if err := driver.RunService(ctx, m.spec(rec, password)); err != nil {
@@ -383,39 +422,45 @@ func (m *Manager) volumesThere(ctx context.Context, driver *container.Driver, re
 // seed fills a new preview's service from production's latest dump, if the manifest asks for that, and it is safe. Copying production into previews is how customer data leaks, so
 // that this is an opt-in, and it has to say that it has thought about what is in there. It happens where no app can reach it, and it is on record as not finished until it is, so
 // that a server stopping halfway does not leave a copy that nothing has sanitized.
-func (m *Manager) seed(ctx context.Context, driver *container.Driver, rec store.Service, s manifest.ServicePlan, appDir, password string, log io.Writer) error {
+func (m *Manager) seed(ctx context.Context, driver *container.Driver, rec store.Service, s manifest.ServicePlan, appDir, password string, log io.Writer) (bool, error) {
 	path := dumpPathIn(m.o.DataDir, rec.App, names.Production, rec.Name, rec.Type)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(log, "▸ service    %s: not seeded from production, and it starts empty: there is no dump of it yet, which a backup makes\n", rec.Name)
-		return nil
+		return false, nil
 	}
 	spec := m.privateSpec(rec, password)
 	if err := driver.RunService(ctx, spec); err != nil {
-		return err
+		return false, err
 	}
 	if err := m.waitReady(ctx, driver, rec); err != nil {
-		return err
+		return false, err
 	}
 	fmt.Fprintf(log, "▸ service    %s: seeding it from production's latest dump\n", rec.Name)
 	if err := m.load(ctx, driver, rec, spec.Name, path, password); err != nil {
-		return fmt.Errorf("load production's dump: %w", err)
+		return false, m.seedFailed(rec, "load production's dump", err)
 	}
 	if s.Sanitize == manifest.SanitizeNone {
-		return driver.StopService(spec.Name, stopLimit(rec))
+		return true, driver.StopService(spec.Name, stopLimit(rec))
 	}
 	// A build can leave anything at that path, and what is outside the app is not its to give.
 	script, err := os.OpenInRoot(appDir, filepath.FromSlash(s.Sanitize))
 	if err != nil {
-		return fmt.Errorf("sanitize: %w", err)
+		return false, fmt.Errorf("sanitize: %w", err)
 	}
 	defer script.Close()
 	fmt.Fprintf(log, "▸ service    %s: sanitizing it with %s\n", rec.Name, s.Sanitize)
 	limit, cancel := context.WithTimeout(ctx, dataLimit)
 	defer cancel()
 	if err := driver.ExecServiceFrom(limit, spec.Name, nil, script, loadCommand(rec)...); err != nil {
-		return fmt.Errorf("sanitize: %w", err)
+		return false, m.seedFailed(rec, "sanitize", err)
 	}
-	return driver.StopService(spec.Name, stopLimit(rec))
+	return true, driver.StopService(spec.Name, stopLimit(rec))
+}
+
+// seedFailed keeps what PostgreSQL said out of a deployment's error, which goes to more people than a dump does, and to where it is sent on, as it can quote a row that has not been sanitized.
+func (m *Manager) seedFailed(rec store.Service, doing string, err error) error {
+	m.o.Log.Warn("seeding a service did not finish", "app", rec.App, "env", rec.Env, "service", rec.Name, "doing", doing, "err", err)
+	return fmt.Errorf("%s: it did not finish, and nothing is left of the copy. What it said can quote what the copy held, so that it is in the server's log, and not here", doing)
 }
 
 // seedRefused says why a preview should not have a copy of production's data.
@@ -437,15 +482,40 @@ func (m *Manager) seedRefused(ctx context.Context, app, env string, plan manifes
 	if fork {
 		return "this is the preview of a pull request that may come from a fork", nil
 	}
-	access, err := m.o.DB.EnvironmentAccess(ctx, app, env)
+	exposed, err := m.copyExposed(ctx, app, env, plan)
 	if err != nil {
 		return "", err
 	}
-	mode, _ := m.o.GateFor(access.Mode, plan.AccessFor(env, e.Kind), e.Kind)
-	if mode == "public" && len(access.Allow) == 0 {
+	if exposed {
 		return "anyone can reach this preview: give previews a gate with access under [environments.preview]", nil
 	}
 	return "", nil
+}
+
+// copyExposed says whether anyone could reach an environment under a plan, and so reach what a copy of production's holds through its app.
+func (m *Manager) copyExposed(ctx context.Context, app, env string, plan manifest.Plan) (bool, error) {
+	access, err := m.o.DB.EnvironmentAccess(ctx, app, env)
+	if err != nil {
+		return false, err
+	}
+	e, err := m.o.DB.Environment(ctx, app, env)
+	if err != nil {
+		return false, err
+	}
+	mode, _ := m.o.GateFor(access.Mode, plan.AccessFor(env, e.Kind), e.Kind)
+	return mode == "public" && len(access.Allow) == 0, nil
+}
+
+// HoldsCopy says whether an environment has a service that holds a copy of production's data.
+func (m *Manager) HoldsCopy(ctx context.Context, app, env string) bool {
+	if m == nil {
+		return false
+	}
+	list, err := m.o.DB.Services(ctx, app, env)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(list, func(s store.Service) bool { return s.Seeded })
 }
 
 // Update takes the newest image of a service's version, which is something that you ask for. What it holds stays, as a version's images read one another's data.
@@ -479,6 +549,10 @@ func (m *Manager) Update(ctx context.Context, app, env, name string, log io.Writ
 	}
 	if rec.State == store.ServiceSeeding {
 		return "", &MajorChangeError{"it is still being made"}
+	}
+	// Starting it would let an app connect to what it held only a part of.
+	if rec.PendingLoad {
+		return "", &MajorChangeError{"what it held has not been put back yet: try again when it is running"}
 	}
 	password, err := m.password(ctx, rec)
 	if err != nil {
@@ -572,8 +646,9 @@ func (m *Manager) Upgrade(ctx context.Context, u *Upgrade, log io.Writer) error 
 		return err
 	}
 	old := container.ServiceName(rec.ID)
-	spec := m.privateSpec(next, password)
-	spec.Name += "-upgrade"
+	// On the same network as the service, as it reads from that with the newer version's tools.
+	spec := m.spec(next, password)
+	spec.Name, spec.HostPort, spec.Private = old+"-upgrade", 0, true
 	temp := spec.Name
 	// What a try that the server did not outlive left, as the record has never named it.
 	if err := driver.StopService(temp, 10*time.Second); err != nil {
@@ -619,7 +694,7 @@ func (m *Manager) Upgrade(ctx context.Context, u *Upgrade, log io.Writer) error 
 		return err
 	}
 	// The record first: from here the new volume has everything, so that a server stopping now comes back on it.
-	if err := m.o.DB.SetServiceImage(ctx, rec.ID, next.Version, next.Image, next.Digest, next.Mount, next.Volume, rec.Volume); err != nil {
+	if err := m.o.DB.SetServiceMoved(ctx, rec.ID, next, rec); err != nil {
 		driver.RunService(ctx, m.spec(rec, password))
 		driver.RemoveVolume(next.Volume)
 		return err
@@ -669,23 +744,103 @@ func moveData(ctx context.Context, driver *container.Driver, from, to, password 
 
 // FinishUpgrade lets go of what a service held before its last upgrade.
 func (m *Manager) FinishUpgrade(ctx context.Context, app, env, name string) error {
+	unlock := m.lock(app + "/" + env)
+	defer unlock()
 	rec, err := m.o.DB.Service(ctx, app, env, name)
 	if err != nil {
 		return err
 	}
-	if rec.OldVolume == "" {
-		return nil
-	}
-	unlock := m.lock(app + "/" + env)
-	defer unlock()
 	driver, err := m.driverFor(ctx, rec)
 	if err != nil {
 		return err
+	}
+	// What a server left that stopped halfway through one of these goes too.
+	stray, err := strayVolumes(ctx, driver, rec)
+	if err != nil {
+		return err
+	}
+	for _, volume := range stray {
+		if err := driver.RemoveVolume(volume); err != nil {
+			return err
+		}
+	}
+	if rec.OldVolume == "" {
+		return nil
 	}
 	if err := driver.RemoveVolume(rec.OldVolume); err != nil {
 		return err
 	}
 	return m.o.DB.SetServiceImage(ctx, rec.ID, rec.Version, rec.Image, rec.Digest, rec.Mount, rec.Volume, "")
+}
+
+// CheckBack says why a service cannot go back to what it held before its last upgrade or restore, so that nothing need stop to find out.
+func (m *Manager) CheckBack(ctx context.Context, app, env, name string) error {
+	rec, err := m.o.DB.Service(ctx, app, env, name)
+	if err != nil {
+		return err
+	}
+	if rec.OldVolume == "" {
+		return &MajorChangeError{"it keeps nothing from before to go back to"}
+	}
+	driver, err := m.driverFor(ctx, rec)
+	if err != nil {
+		return err
+	}
+	there, err := driver.VolumeThere(ctx, rec.OldVolume)
+	if err != nil {
+		return err
+	}
+	if !there {
+		return &MajorChangeError{"what it held before has gone from its engine"}
+	}
+	return nil
+}
+
+// Back puts a service back on what it held before its last upgrade or restore, and lets go of what it has held since.
+func (m *Manager) Back(ctx context.Context, app, env, name string) error {
+	unlock := m.lock(app + "/" + env)
+	defer unlock()
+	if err := m.CheckBack(ctx, app, env, name); err != nil {
+		return err
+	}
+	rec, err := m.o.DB.Service(ctx, app, env, name)
+	if err != nil {
+		return err
+	}
+	driver, err := m.driverFor(ctx, rec)
+	if err != nil {
+		return err
+	}
+	password, err := m.password(ctx, rec)
+	if err != nil {
+		return err
+	}
+	if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
+		return err
+	}
+	was := rec
+	was.Volume, was.OldVolume = rec.OldVolume, ""
+	// A restore of something that came before this release of the record has no more to go on than a volume.
+	if rec.OldImage != "" {
+		was.Version, was.Image, was.Digest, was.Mount = rec.OldVersion, rec.OldImage, rec.OldDigest, rec.OldMount
+	}
+	// The record first: a server stopping now comes back on what it asked to go back to.
+	if err := m.o.DB.SetServiceImage(ctx, rec.ID, was.Version, was.Image, was.Digest, was.Mount, was.Volume, ""); err != nil {
+		return err
+	}
+	if err := m.o.DB.SetServicePendingLoad(ctx, rec.ID, false); err != nil {
+		return err
+	}
+	if err := driver.RemoveVolume(rec.Volume); err != nil {
+		m.o.Log.Warn("remove what a service held since", "service", rec.Name, "volume", rec.Volume, "err", err)
+	}
+	if was.State != store.ServiceRunning {
+		return nil
+	}
+	if err := driver.RunService(ctx, m.spec(was, password)); err != nil {
+		return err
+	}
+	return m.waitReady(ctx, driver, was)
 }
 
 // CheckRestore says why a service cannot go back to its latest dump, so that nothing need stop to find out.
@@ -698,7 +853,7 @@ func (m *Manager) CheckRestore(ctx context.Context, app, env, name string) error
 		return &MajorChangeError{"it is still being made"}
 	}
 	if rec.OldVolume != "" {
-		return &MajorChangeError{fmt.Sprintf("it still has the volume from before: moor services upgrade %s --finish lets it go", name)}
+		return &MajorChangeError{fmt.Sprintf("it still has the volume from before: moor services upgrade %s --finish lets it go, and --back goes back to it", name)}
 	}
 	path := m.dumpPath(rec)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -707,7 +862,8 @@ func (m *Manager) CheckRestore(ctx context.Context, app, env, name string) error
 	if err := dumpWhole(path, rec.Type); err != nil {
 		return &MajorChangeError{err.Error()}
 	}
-	return nil
+	_, err = m.driverFor(ctx, rec)
+	return err
 }
 
 // Restore puts a service back to its latest dump, which on the machine that it ran on, a restore of a backup does not do by itself, as what it holds may be newer. A dump can fail
@@ -743,14 +899,13 @@ func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
 		next.Volume = container.ServiceRestoredVolume(rec.ID, time.Now().UnixMilli())
 		spec := m.privateSpec(next, password)
 		spec.Name += "-restore"
-		if err := driver.RunService(ctx, spec); err != nil {
-			return err
-		}
-		defer driver.StopService(spec.Name, 10*time.Second)
 		failed := func(err error) error {
 			driver.StopService(spec.Name, 10*time.Second)
 			driver.RemoveVolume(next.Volume)
 			return err
+		}
+		if err := driver.RunService(ctx, spec); err != nil {
+			return failed(err)
 		}
 		if err := m.waitReadyNamed(ctx, driver, next, spec.Name); err != nil {
 			return failed(err)
@@ -764,8 +919,13 @@ func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
 		if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 			return failed(err)
 		}
-		if err := m.o.DB.SetServiceImage(ctx, rec.ID, rec.Version, rec.Image, rec.Digest, rec.Mount, next.Volume, rec.Volume); err != nil {
+		if err := m.o.DB.SetServiceMoved(ctx, rec.ID, next, rec); err != nil {
+			driver.RunService(ctx, m.spec(rec, password))
 			return failed(err)
+		}
+		// What it was waiting to put back is what it now has.
+		if err := m.o.DB.SetServicePendingLoad(ctx, rec.ID, false); err != nil {
+			return err
 		}
 		rec = next
 	}

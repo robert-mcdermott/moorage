@@ -307,7 +307,7 @@ func (d *Deployer) DeleteEnvironment(ctx context.Context, app, env, by string) e
 		}
 	}
 	root := d.opts.DataDir
-	for _, dir := range []string{filepath.Join(root, "data", app, env), filepath.Join(root, "logs", "apps", app, env)} {
+	for _, dir := range []string{filepath.Join(root, "data", app, env), filepath.Join(root, "data", app, ".services", env), filepath.Join(root, "logs", "apps", app, env)} {
 		if err := removeTree(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
 			d.log.Warn("remove the files of a deleted environment", "app", app, "env", env, "err", err)
 		}
@@ -372,6 +372,10 @@ func (d *Deployer) SweepEnvironments(ctx context.Context, now time.Time) {
 		return
 	}
 	for _, e := range list {
+		// Whichever kind it is, and however it came to sleep.
+		if d.Asleep(e.App, e.Name) {
+			d.restLeftServices(ctx, e.App, e.Name)
+		}
 		if e.Kind != store.KindPreview && d.sleepAfter(ctx, e) == 0 {
 			continue
 		}

@@ -13,8 +13,12 @@ CREATE TABLE services (
     volume       TEXT NOT NULL,
     -- Where it is mounted, which depends on the image that made it.
     mount        TEXT NOT NULL DEFAULT '',
-    -- What it held before an upgrade, kept until someone says that the upgrade was good.
+    -- What it held before an upgrade or a restore, and what ran on it, kept until someone says that that was good.
     old_volume   TEXT NOT NULL DEFAULT '',
+    old_version  TEXT NOT NULL DEFAULT '',
+    old_image    TEXT NOT NULL DEFAULT '',
+    old_digest   TEXT NOT NULL DEFAULT '',
+    old_mount    TEXT NOT NULL DEFAULT '',
     port         INTEGER NOT NULL,
     password_enc BLOB NOT NULL,
     -- The variable that gives the app its address.
