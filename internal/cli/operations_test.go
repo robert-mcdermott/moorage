@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -270,6 +271,11 @@ func (m fakeManager) File() string { return m.file }
 
 func (m fakeManager) Definition() ([]byte, error) { return os.ReadFile(m.file) }
 
+func (m fakeManager) Status() (service.Status, error) {
+	_, err := os.Stat(m.file)
+	return service.Status{Installed: err == nil}, nil
+}
+
 func TestStopLeavesAnotherServersService(t *testing.T) {
 	unit := filepath.Join(t.TempDir(), "moorage.service")
 	os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config /etc/moorage/server.toml\n"), 0o644)
@@ -289,6 +295,83 @@ func TestStopLeavesAnotherServersService(t *testing.T) {
 	}
 	if runsServer(fakeManager{file: filepath.Join(t.TempDir(), "none")}, "/etc/moorage/server.toml") {
 		t.Error("no unit, no service")
+	}
+}
+
+// A path that is only a part of what a service runs is not it, and one file under two spellings is.
+func TestWhichServerAServiceRuns(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "server.toml")
+	if err := os.WriteFile(real, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unit := filepath.Join(dir, "moorage.service")
+	definition := func(config string) fakeManager {
+		t.Helper()
+		if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config "+config+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return fakeManager{file: unit}
+	}
+	for _, c := range []struct {
+		config, asked string
+		same          bool
+	}{
+		{"/x/server.toml", "/x/server.toml", true},
+		{"/x/server.toml.prod", "/x/server.toml", false},
+		{"/srv/x/server.toml", "/x/server.toml", false},
+		{"/x/server.toml", "/srv/x/server.toml", false},
+	} {
+		m := definition(c.config)
+		if runsServer(m, c.asked) != c.same || runsAnother(m, c.asked) == c.same {
+			t.Errorf("a service of %s, asked of %s: it should be %v", c.config, c.asked, c.same)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(dir, "linked.toml")
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatal(err)
+		}
+		if m := definition(real); !runsServer(m, link) || runsAnother(m, link) {
+			t.Error("one file, through a link")
+		}
+		if m := definition(link); !runsServer(m, real) {
+			t.Error("one file, from the other side of a link")
+		}
+	}
+	// Naming nothing, it does not run this one.
+	if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if m := (fakeManager{file: unit}); runsServer(m, real) || !runsAnother(m, real) {
+		t.Error("a definition with no configuration")
+	}
+}
+
+// An upgrade restarts a service only if it runs this server.
+func TestUpgradeLeavesAnotherServersService(t *testing.T) {
+	dir := t.TempDir()
+	unit := filepath.Join(dir, "moorage.service")
+	m := fakeManager{file: unit}
+	write := func(config string) {
+		t.Helper()
+		if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config "+config+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ours, err := serviceToRestart(m, "/etc/moorage/server.toml", "/usr/local/bin/moor"); err != nil || ours {
+		t.Errorf("with none: %v %v", ours, err)
+	}
+	write("/etc/moorage/server.toml")
+	if ours, err := serviceToRestart(m, "/tmp/trying-it-out/server.toml", "/usr/local/bin/moor"); err != nil || ours {
+		t.Errorf("of another server: %v %v", ours, err)
+	}
+	if ours, err := serviceToRestart(m, "/etc/moorage/server.toml", "/usr/local/bin/moor"); err != nil || !ours {
+		t.Errorf("of this one: %v %v", ours, err)
+	}
+	// As before, it runs another binary, and replacing this one would change nothing.
+	if _, err := serviceToRestart(m, "/etc/moorage/server.toml", "/home/me/bin/moor"); err == nil {
+		t.Error("another binary")
 	}
 }
 
@@ -329,7 +412,7 @@ func TestServiceCommandsLeaveAnotherServersService(t *testing.T) {
 	if err := os.Remove(unit); err != nil {
 		t.Fatal(err)
 	}
-	if code, out, errOut := run(t, "server", "uninstall", "--keep-apps"); code != 0 || !strings.Contains(out, "No service runs this server") {
+	if code, out, errOut := run(t, "server", "uninstall"); code != 0 || !strings.Contains(out, "No service runs this server") || strings.Contains(out, "Stopped") {
 		t.Errorf("uninstall with none: %d %s %s", code, out, errOut)
 	}
 	for _, command := range []string{"start", "restart"} {
@@ -351,6 +434,79 @@ func TestServiceCommandsLeaveAnotherServersService(t *testing.T) {
 	if len(asked) != 1 || asked[0] != "uninstall" {
 		t.Errorf("its own: %v", asked)
 	}
+}
+
+// Stopping everything stops an app's services too, in whichever engine holds them, and uninstalling can be told not to.
+func TestStoppingEverythingStopsServices(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for an engine is a shell script")
+	}
+	old := serviceFor
+	serviceFor = func(bool) (service.Manager, error) { return nil, service.ErrUnsupported }
+	defer func() { serviceFor = old }()
+	path := localConfig(t, "--preset", "local")
+	freePort(t, path)
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	bin := filepath.Join(dir, "engine")
+	// Two containers of this server: one is an app's, and the other is a service's, with one engine's slash before its name.
+	script := `#!/bin/sh
+echo "$*" >> "` + calls + `"
+case "$*" in
+  --version) echo "podman version 5" ;;
+  ps*) echo aaa; echo bbb ;;
+  *io.moorage.service*) echo "/an-app "; echo "/moorage-svc-one svc_one" ;;
+  *io.moorage.instance*) echo ""; echo "" ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(string(text), `engine = "auto"`, `engine = "`+bin+`"`, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readAll(t, path), bin) {
+		t.Fatal("the configuration does not name the engine")
+	}
+
+	code, out, errOut := run(t, "server", "stop", "--all")
+	if code != 0 || !strings.Contains(out, "Stopped 1 service, which keep what they hold") {
+		t.Errorf("%d %s %s", code, out, errOut)
+	}
+	asked := readAll(t, calls)
+	if !strings.Contains(asked, "stop -t 120 moorage-svc-one") || !strings.Contains(asked, "rm -f moorage-svc-one") {
+		t.Errorf("what it asked:\n%s", asked)
+	}
+	if strings.Contains(asked, "an-app") {
+		t.Errorf("it took an app's container for a service:\n%s", asked)
+	}
+	if strings.Contains(asked, "volume") {
+		t.Errorf("what a service holds is not for this to touch:\n%s", asked)
+	}
+
+	// A server stopped with no --all leaves it running, as it does an app.
+	if err := os.Remove(calls); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := run(t, "server", "stop"); code != 0 {
+		t.Errorf("%d %s", code, errOut)
+	}
+	if _, err := os.Stat(calls); err == nil {
+		t.Errorf("a stop with no --all asked the engine:\n%s", readAll(t, calls))
+	}
+}
+
+func readAll(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func TestStopWithNothingRunning(t *testing.T) {

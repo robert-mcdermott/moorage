@@ -1,10 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 (2026-11-06)
+
+Moorage 0.10.1 fixes two things about stopping a server, for those who have more than one server on a machine, or use [services](docs/services.md).
+
+To upgrade from 0.10.0, run `moor server upgrade`. Running apps are taken over without a restart, and `moor server upgrade --rollback` goes back. This release does not change the database.
 
 ### Fixed
 
-- **`moor server uninstall`, `start` and `restart` went by the name of the service, and not by which server it runs.** A server tried out with a configuration or a home directory of its own could take away the real one's service. They now leave it alone, as `moor server stop` already did.
+- **`moor server stop --all` and `moor server uninstall` left services running,** so that uninstalling Moorage could leave a database running that nothing looked after. They now stop them, after the apps, and what they hold stays in their volumes. The server starts them again when it next starts. `--keep-apps` leaves them running, as it does apps.
+- **`moor server uninstall`, `start` and `restart` went by the name of the service, and not by which server it runs.** A server tried out with a configuration or a home directory of its own could take away the real one's service. They now leave it alone, as `moor server stop` already did. If yours was installed with a `--config` of its own, pass the same one, as they say if you do not.
+- **With `engine = "auto"` and both Podman and Docker installed, stopping everything only looked in the first.** A server takes whichever answers, so that what it ran could be in the other. It now looks in both.
+- **`moor server uninstall` with no service said that it had removed one,** and stopped the apps of a server that might be running without one. It now says that there is none, and leaves them. `moor server stop --all` stops them.
 
 ## 0.10.0 (2026-11-05)
 

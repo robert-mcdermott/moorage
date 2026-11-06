@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -68,6 +69,27 @@ func Find(setting string) (*Engine, error) {
 		kind = "podman"
 	}
 	return &Engine{Bin: bin, Kind: kind}, nil
+}
+
+// FindAll returns every engine that a setting could mean. With "auto", a server takes whichever answers, so that what it ran may be in either.
+func FindAll(setting string) []*Engine {
+	names := []string{setting}
+	if setting == "" || setting == "auto" {
+		names = []string{"podman", "docker"}
+	}
+	var engines []*Engine
+	for _, name := range names {
+		e, err := Find(name)
+		if err != nil {
+			continue
+		}
+		// Podman can answer to the name of Docker, with what is in one store.
+		if slices.ContainsFunc(engines, func(other *Engine) bool { return other.Kind == e.Kind }) {
+			continue
+		}
+		engines = append(engines, e)
+	}
+	return engines
 }
 
 // Check reports the engine's version, and whether it answers.

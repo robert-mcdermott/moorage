@@ -87,16 +87,16 @@ since what has happened since is then lost from it.`,
 			}
 			target := serviceTarget{cfg: cfg}
 			o.Healthy = target.healthy
-			manager, err := service.For(platform.IsPrivileged())
+			manager, err := serviceFor(platform.IsPrivileged())
 			if err != nil && !errors.Is(err, service.ErrUnsupported) {
 				return err
 			}
 			if err == nil && !check {
-				if status, err := manager.Status(); err == nil && status.Installed {
-					// The binary that matters is the one the service runs.
-					if err := runsThis(manager, exe, resolved); err != nil {
-						return err
-					}
+				ours, err := serviceToRestart(manager, path, exe, resolved)
+				if err != nil {
+					return err
+				}
+				if ours {
 					o.Service = runningService{manager}
 				}
 			}
@@ -156,6 +156,19 @@ since what has happened since is then lost from it.`,
 	cmd.Flags().BoolVar(&rollback, "rollback", false, "go back to the version before the last upgrade")
 	cmd.Flags().BoolVar(&force, "force", false, "with --rollback, go back even if that loses what has happened since")
 	return cmd
+}
+
+// serviceToRestart says whether an upgrade of this server goes through the machine's service. One of another server is left alone, as a server tried out with a configuration
+// of its own must not restart the real one. The binary that matters is the one the service runs.
+func serviceToRestart(manager service.Manager, configFile string, binaries ...string) (bool, error) {
+	status, err := manager.Status()
+	if err != nil || !status.Installed || runsAnother(manager, configFile) {
+		return false, nil
+	}
+	if err := runsThis(manager, binaries...); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // runsThis refuses to replace a binary that the server's service does not run, which would change nothing.

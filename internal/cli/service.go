@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -105,16 +106,34 @@ func (t *serviceTarget) healthy(wait time.Duration) bool {
 	}
 }
 
-// stopApps stops every app instance of the server, as a server shutting
-// down for good would: those it runs natively, and those in containers.
+// engineAnswerLimit is how long an engine has to answer, to stop what is in it. A rootless Podman that has just started can take several seconds.
+const engineAnswerLimit = 15 * time.Second
+
+// stopApps stops every app instance of the server, as a server shutting down for good would: those it runs natively, and those in containers. Then it stops
+// its services, which keep what they hold in their volumes, after the apps that may be writing to them.
 func stopApps(cmd *cobra.Command, cfg config.Config) {
 	type stopper interface {
 		List() []string
 		Stop(id string, stopTimeout time.Duration) error
 	}
 	drivers := []stopper{native.New(filepath.Join(cfg.DataDir, "run", "shims"), nil, nil)}
-	if engine, err := container.Find(cfg.Containers.Engine); err == nil {
-		drivers = append(drivers, container.New(engine, server.ContainerLabel(cfg), slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))))
+	// Any of them may be what a server used, so that only those that do not answer are left out, and that is only worth saying if none did.
+	var engines []*container.Driver
+	var silent []string
+	for _, engine := range container.FindAll(cfg.Containers.Engine) {
+		asking, cancel := context.WithTimeout(cmd.Context(), engineAnswerLimit)
+		_, err := engine.Check(asking)
+		cancel()
+		if err != nil {
+			silent = append(silent, filepath.Base(engine.Bin))
+			continue
+		}
+		d := container.New(engine, server.ContainerLabel(cfg), slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)))
+		engines = append(engines, d)
+		drivers = append(drivers, d)
+	}
+	if len(engines) == 0 && len(silent) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Not stopped: anything in containers, as %s did not answer.\n", strings.Join(silent, " and "))
 	}
 	var wg sync.WaitGroup
 	var stopped atomic.Int32
@@ -135,6 +154,29 @@ func stopApps(cmd *cobra.Command, cfg config.Config) {
 	if n := int(stopped.Load()); n > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "Stopped %d app instance%s; the server starts them again when it starts.\n", n, plural(n))
 	}
+	var services atomic.Int32
+	for _, d := range engines {
+		names, err := d.ServiceContainers(cmd.Context())
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "could not list what services there are: %v\n", err)
+			continue
+		}
+		for _, name := range names {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := d.StopService(name, container.ServiceStopLimit); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "could not stop %s: %v\n", name, err)
+					return
+				}
+				services.Add(1)
+			}()
+		}
+	}
+	wg.Wait()
+	if n := int(services.Load()); n > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Stopped %d service%s, which keep what they hold; the server starts them again when it starts.\n", n, plural(n))
+	}
 }
 
 // serviceFor finds this machine's service; tests keep theirs out of it.
@@ -144,13 +186,26 @@ var serviceFor = service.For
 // a server tried out with a configuration of its own must not stop the real one.
 func runsServer(m service.Manager, configFile string) bool {
 	unit, err := m.Definition()
-	return err == nil && strings.Contains(string(unit), configFile)
+	return err == nil && sameFile(service.ConfigIn(unit), configFile)
 }
 
 // runsAnother says that it certainly does not: one that cannot be read may be this one.
 func runsAnother(m service.Manager, configFile string) bool {
 	unit, err := m.Definition()
-	return err == nil && !strings.Contains(string(unit), configFile)
+	return err == nil && !sameFile(service.ConfigIn(unit), configFile)
+}
+
+// sameFile says whether two paths are one file, however they are spelled: through a link, as /tmp is on macOS, or in another case where that makes no difference.
+func sameFile(a, b string) bool {
+	if a == b {
+		return a != ""
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
 }
 
 // stopForeground stops a server that is not running under the service manager,
@@ -259,9 +314,10 @@ func newServerUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Stop the server and remove its service",
-		Long: `Stop the server, remove its service, and stop the apps (unless --keep-apps).
-The configuration and the data directory are left in place: installing the
-service again brings the server, and its apps, back.`,
+		Long: `Stop the server, remove its service, and stop the apps and the services they
+use (unless --keep-apps). The configuration, the data directory and the volumes of
+services are left in place: installing the service again brings the server, and
+its apps, back.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := t.load(); err != nil {
@@ -276,7 +332,9 @@ service again brings the server, and its apps, back.`,
 			case runsAnother(t.manager, t.path):
 				return t.isThisServers()
 			default:
-				fmt.Fprintln(cmd.OutOrStdout(), "No service runs this server.")
+				// The server may be running without one, and this should not stop what it is looking after under it.
+				fmt.Fprintln(cmd.OutOrStdout(), "No service runs this server, so that there is nothing to remove. moor server stop --all stops it, and its apps.")
+				return nil
 			}
 			if !keepApps {
 				stopApps(cmd, t.cfg)
@@ -285,7 +343,7 @@ service again brings the server, and its apps, back.`,
 		},
 	}
 	t.addFlag(cmd)
-	cmd.Flags().BoolVar(&keepApps, "keep-apps", false, "leave the apps running")
+	cmd.Flags().BoolVar(&keepApps, "keep-apps", false, "leave the apps and services running")
 	return cmd
 }
 
@@ -322,9 +380,9 @@ func newServerStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the server (the apps keep running)",
-		Long: `Stop the server: its service, or one started with moor server run. The apps keep
-running, and the server adopts them when it starts again; --all stops them too,
-whether or not a server is running.`,
+		Long: `Stop the server: its service, or one started with moor server run. The apps and
+services keep running, and the server adopts them when it starts again; --all stops
+them too, whether or not a server is running. Services keep what they hold.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, cfg, err := loadServerConfig(t.cfgFlag)
@@ -363,7 +421,7 @@ whether or not a server is running.`,
 		},
 	}
 	t.addFlag(cmd)
-	cmd.Flags().BoolVar(&all, "all", false, "stop the apps too")
+	cmd.Flags().BoolVar(&all, "all", false, "stop the apps and services too")
 	return cmd
 }
 

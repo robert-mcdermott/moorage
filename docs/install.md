@@ -57,18 +57,18 @@ sudo sh install-moor.sh
 
 | Variable | `install.sh` | `install.ps1` | |
 |---|---|---|---|
-| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.10.0`. By default, the latest |
+| `MOOR_VERSION` | `--version` | `-Version` | A release, such as `v0.10.1`. By default, the latest |
 | `MOOR_INSTALL_DIR` | `--install-dir` | `-InstallDir` | An absolute directory |
 | `MOOR_REPOSITORY` | | `-Repository` | `owner/repository`, for a fork |
 | `MOOR_ARCH` | | `-Architecture` | `amd64` or `arm64`, if detecting it fails |
 | `MOOR_NO_PATH_UPDATE` | | `-NoPathUpdate` | Leave the user `PATH` alone |
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.10.0 sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.sh | MOOR_VERSION=v0.10.1 sh
 ```
 
 ```powershell
-$env:MOOR_VERSION = 'v0.10.0'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
+$env:MOOR_VERSION = 'v0.10.1'; irm https://raw.githubusercontent.com/robert-mcdermott/moorage/main/install.ps1 | iex
 ```
 
 **On Windows,** `irm … | iex` reads the script into memory and runs it, so the
@@ -256,13 +256,12 @@ sudo moor server restart
 | `moor server start` | Starts the service |
 | `moor server restart` | Restarts the service |
 | `moor server stop` | Stops the server, as a service or as started with `moor server run`. It stays stopped until you start it, or the machine or your next login does |
-| `moor server stop --all` | Stops the apps too |
-| `moor server uninstall` | Removes the service and stops the apps, and leaves the configuration and data in place |
+| `moor server stop --all` | Stops the apps and [services](services.md) too, which keep what they hold. The server starts them again when it starts |
+| `moor server uninstall` | Removes the service, and stops the apps and services. It leaves the configuration, the data and what services hold in place |
 
-Apps keep running while the server stops or restarts: each runs under a small
+Apps and services keep running while the server stops or restarts: each app runs under a small
 supervisor of its own, and the server takes them over when it starts again.
 Requests to apps are refused until it is back, so that a site can look down while a stopped server leaves its app running.
-[Services](services.md) go on running through all of these, including `--all` and `uninstall`.
 
 The server's log is in the journal on Linux
 (`journalctl -u moorage.service -f`, and with `--user` for a service of your own) and in `logs/server/moorage.log` in the
@@ -445,19 +444,15 @@ gh attestation verify moor-linux-amd64 --repo robert-mcdermott/moorage
 
 ## Uninstalling
 
-**First, if your apps have [services](services.md):** their containers and volumes are in the container engine, and uninstalling
-the server leaves them there, running. While the server still runs, deleting an app takes its services with it, and
+**First, if your apps have [services](services.md):** what they hold is in volumes in the container engine, and uninstalling
+the server leaves those there. While the server still runs, deleting an app takes its services with it, and
 `moor services remove` takes one on its own:
 
 ```bash
 moor apps delete shop
 ```
 
-If you have already gone further than that, your engine still lists them. These are for Podman, and Docker takes the same:
-
-```bash
-podman ps -a --filter label=io.moorage.managed=true
-```
+If you have already gone further than that, your engine still lists them, and `podman volume rm` takes one. This is for Podman, and Docker takes the same:
 
 ```bash
 podman volume ls --filter label=io.moorage.managed=true
@@ -473,7 +468,7 @@ moor trust --remove
 moor server resolver remove
 ```
 
-**Then stop the server and its apps, and remove the service:**
+**Then stop the server, its apps and their services, and remove the service:**
 
 ```bash
 sudo moor server uninstall

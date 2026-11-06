@@ -419,3 +419,37 @@ func init() {
 	// These try engines that hang, and need not wait for as long as a real one is given.
 	probeLimit.Store(int64(2 * time.Second))
 }
+
+// Podman can answer to the name of Docker, with what is in one store, which is one engine and not two.
+func TestFindAll(t *testing.T) {
+	version := func(dir, name, says string) {
+		t.Helper()
+		script := "#!/bin/sh\necho " + says + "\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-ins are shell scripts")
+	}
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	if got := FindAll("auto"); len(got) != 0 {
+		t.Errorf("with none: %v", got)
+	}
+	version(dir, "podman", "podman version 5")
+	version(dir, "docker", "Docker version 28")
+	if got := FindAll("auto"); len(got) != 2 || got[0].Kind != "podman" || got[1].Kind != "docker" {
+		t.Errorf("with both: %+v", got)
+	}
+	if got := FindAll(""); len(got) != 2 {
+		t.Errorf("with no setting: %+v", got)
+	}
+	if got := FindAll("docker"); len(got) != 1 || got[0].Kind != "docker" {
+		t.Errorf("named: %+v", got)
+	}
+	version(dir, "docker", "podman version 5")
+	if got := FindAll("auto"); len(got) != 1 {
+		t.Errorf("one under two names: %+v", got)
+	}
+}
