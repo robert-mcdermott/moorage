@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Services · Moorage</title>
+  <meta name="description" content="A database for each environment, which an app asks for in its manifest." />
+  <link rel="canonical" href="https://robert-mcdermott.github.io/moorage/docs/services.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Moorage" />
+  <meta property="og:title" content="Services · Moorage" />
+  <meta property="og:description" content="A database for each environment, which an app asks for in its manifest." />
+  <meta property="og:url" content="https://robert-mcdermott.github.io/moorage/docs/services.html" />
+  <meta property="og:image" content="https://robert-mcdermott.github.io/moorage/assets/img/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#08264c" />
+  <link rel="icon" href="../assets/img/moorage-icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <script>try { const t = localStorage.getItem('moorage-site-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <script src="../assets/site.js" defer></script>
+</head>
+<body data-root="../">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        <a href="../index.html#features">Features</a>
+        <a href="../docs/getting-started.html">Get started</a>
+        <a href="../docs/" aria-current="page">Documentation</a>
+        <a href="../docs/install.html">Install</a>
+        <a href="../docs/changelog.html">Changelog</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-button" type="button" data-search-open aria-label="Search the documentation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg><span>Search</span><kbd>/</kbd></button>
+        <a class="icon-button" href="https://github.com/robert-mcdermott/moorage" aria-label="Moorage on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Switch between light and dark"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="icon-button nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <button class="docs-menu-toggle" type="button" aria-expanded="false">Documentation menu</button>
+      <nav class="docs-nav" aria-label="Documentation">
+        <div class="docs-group">
+          <h2>Start</h2>
+          <ul>
+            <li><a href="./">Documentation</a></li>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="concepts.html">Concepts</a></li>
+            <li><a href="examples.html">Examples</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Deploy your apps</h2>
+          <ul>
+            <li><a href="git.html">With git push</a></li>
+            <li><a href="forges.html">From GitHub, GitLab or Gitea</a></li>
+            <li><a href="go.html">Go</a></li>
+            <li><a href="python.html">Python</a></li>
+            <li><a href="node.html">Node.js</a></li>
+            <li><a href="static.html">Static sites</a></li>
+            <li><a href="containers.html">In containers</a></li>
+            <li><a href="other.html">Anything else</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run your apps</h2>
+          <ul>
+            <li><a href="console.html">The web console</a></li>
+            <li><a href="releases.html">Releases, rollbacks and scaling</a></li>
+            <li><a href="variables.html">Variables and secrets</a></li>
+            <li><a href="previews.html">Previews and environments</a></li>
+            <li><a href="cron.html">Cron jobs and one-off commands</a></li>
+            <li><a href="interactive.html">Getting into an app</a></li>
+            <li><a href="logs.html">Logs</a></li>
+            <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="services.html" aria-current="page">Services</a></li>
+            <li><a href="agents.html">Coding agents</a></li>
+            <li><a href="notifications.html">Notifications</a></li>
+            <li><a href="access.html">Who can reach an app</a></li>
+            <li><a href="domains.html">Your own domains, and paths</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Run a server</h2>
+          <ul>
+            <li><a href="install.html">Installing Moorage</a></li>
+            <li><a href="sizing.html">How big a machine</a></li>
+            <li><a href="upgrading.html">Upgrading and uninstalling</a></li>
+            <li><a href="configuration.html">Server configuration</a></li>
+            <li><a href="administration.html">Running a server</a></li>
+            <li><a href="tls.html">TLS and trusting the server</a></li>
+            <li><a href="proxy.html">Behind a TLS proxy</a></li>
+            <li><a href="accounts.html">Accounts and access</a></li>
+            <li><a href="sign-in.html">How people sign in</a></li>
+            <li><a href="isolation.html">How apps are kept apart</a></li>
+            <li><a href="backups.html">Backups</a></li>
+            <li><a href="telemetry.html">Sending telemetry elsewhere</a></li>
+            <li><a href="troubleshooting.html">When something is wrong</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>Reference</h2>
+          <ul>
+            <li><a href="manifest.html">moorage.toml</a></li>
+            <li><a href="cli.html">Command line</a></li>
+            <li><a href="api.html">The API</a></li>
+            <li><a href="api-reference.html">API reference</a></li>
+            <li><a href="changelog.html">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="docs-group">
+          <h2>How it works</h2>
+          <ul>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main id="main" class="doc">
+      <h1>Services</h1>
+      <p class="doc-lede">A database for each environment, which an app asks for in its manifest.</p>
+<details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#in-the-manifest">In the manifest</a></li>
+        <li class="toc-2"><a href="#an-object-store">An object store</a></li>
+        <li class="toc-2"><a href="#which-address-an-app-gets">Which address an app gets</a></li>
+        <li class="toc-2"><a href="#what-happens-to-it">What happens to it</a></li>
+        <li class="toc-2"><a href="#what-a-preview-starts-with">What a preview starts with</a></li>
+        <li class="toc-2"><a href="#backups">Backups</a></li>
+        <li class="toc-2"><a href="#updates-and-upgrades">Updates and upgrades</a></li>
+        <li class="toc-2"><a href="#seeing-and-removing-them">Seeing and removing them</a></li>
+        <li class="toc-2"><a href="#how-far-to-trust-this">How far to trust this</a></li>
+      </ul></details>
+<p>An app can ask for a database or an object store in its manifest, and Moorage runs it and connects the app to it. Each environment gets its own, so that a branch's preview has a database of its own to break.</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[services.db]</span>
+<span class="t-k">type</span> = <span class="t-s">&quot;postgres&quot;</span></code></pre></div>
+<p>That is all it takes. On the next deployment, Moorage starts PostgreSQL 18 for that environment, waits for it to be ready, and then gives your app <code>DATABASE_URL</code>. A release command can migrate, as the service is ready before it runs.</p>
+<p><strong>This is the one thing in Moorage, apart from apps in containers, that needs <a href="containers.html#the-engine">a container engine</a>.</strong> Podman or Docker has to be there for an app that asks for a service, and nothing else cares. A deployment that asks for one with no engine answering says so before it builds anything.</p>
+<h2 id="in-the-manifest">In the manifest<a class="anchor" href="#in-the-manifest" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Key</th><th>Means</th><th>Default</th></tr></thead><tbody><tr><td><code>type</code></td><td><code>postgres</code> or <code>s3</code></td><td>Required</td></tr><tr><td><code>version</code></td><td>For <code>postgres</code>, <code>15</code> to <code>19</code></td><td><code>18</code>. It is recorded when the service is made, and does not move by itself</td></tr><tr><td><code>image</code></td><td>For <code>postgres</code>, another image based on the official one, such as <code>pgvector/pgvector:pg18</code>, which is the way to get extensions. It needs a tag other than <code>latest</code></td><td>The official image</td></tr><tr><td><code>env</code></td><td>Another name for the variable, or for <code>s3</code> the start of each, needed for a second of one type</td><td><code>DATABASE_URL</code>, or <code>S3_ENDPOINT</code> and its fellows</td></tr><tr><td><code>memory</code></td><td>A limit, such as <code>512MiB</code></td><td>None</td></tr><tr><td><code>previews</code></td><td><code>own</code>, or <code>none</code> for previews to have none</td><td><code>own</code></td></tr><tr><td><code>seed</code></td><td><code>production</code>, for a new preview to start with a copy. See <a href="#what-a-preview-starts-with">what a preview starts with</a></td><td>Empty</td></tr><tr><td><code>sanitize</code></td><td>With <code>seed</code>, a script in the app that removes what should not be copied, or <code>none</code> to say that nothing should</td><td></td></tr></tbody></table></div>
+<p>Two of a type need different variables:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[services.db]</span>
+<span class="t-k">type</span> = <span class="t-s">&quot;postgres&quot;</span>
+
+<span class="t-h">[services.analytics]</span>
+<span class="t-k">type</span> = <span class="t-s">&quot;postgres&quot;</span>
+<span class="t-k">version</span> = <span class="t-s">&quot;16&quot;</span>
+<span class="t-k">env</span> = <span class="t-s">&quot;ANALYTICS_DATABASE_URL&quot;</span></code></pre></div>
+<h2 id="an-object-store">An object store<a class="anchor" href="#an-object-store" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[services.files]</span>
+<span class="t-k">type</span> = <span class="t-s">&quot;s3&quot;</span></code></pre></div>
+<p>It gets one bucket, and one key that can do anything in it:</p>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Variable</th><th>Is</th></tr></thead><tbody><tr><td><code>S3_ENDPOINT</code> and <code>AWS_ENDPOINT_URL</code></td><td>Its address, such as <code>http://127.0.0.1:27014</code></td></tr><tr><td><code>S3_BUCKET</code></td><td><code>app</code></td></tr><tr><td><code>S3_REGION</code> and <code>AWS_REGION</code></td><td><code>us-east-1</code>, which means nothing here and which clients want</td></tr><tr><td><code>S3_ACCESS_KEY_ID</code> and <code>AWS_ACCESS_KEY_ID</code></td><td>Its key</td></tr><tr><td><code>S3_SECRET_ACCESS_KEY</code> and <code>AWS_SECRET_ACCESS_KEY</code></td><td>Its secret key, kept out of what the app prints</td></tr></tbody></table></div>
+<p>With <code>env = &quot;UPLOADS&quot;</code>, they are <code>UPLOADS_ENDPOINT</code> and so on, and the <code>AWS_</code> names are left for another. Clients need path-style addresses, as there is no name for a bucket to go in front of: <code>force_path_style</code> or <code>addressing_style = &quot;path&quot;</code>, depending on the client.</p>
+<p>It is <a href="https://github.com/versity/versitygw">Versity Gateway</a>, which keeps a bucket as a directory and an object as a file. Everyday S3 works: uploading in parts, presigned URLs, CORS and bucket policies. <strong>What does not:</strong> versioning, lifecycle rules, object ACLs, and keys <code>a</code> and <code>a/b</code> at once, as a file cannot also be a directory. An app that needs those needs real S3, which it can have by setting these variables on the environment itself, as below.</p>
+<p>A presigned URL is signed for its host, so that a browser elsewhere cannot use one for <code>127.0.0.1</code>. For now, this is for what an app reads and writes for itself, and it has no public address.</p>
+<h2 id="which-address-an-app-gets">Which address an app gets<a class="anchor" href="#which-address-an-app-gets" aria-label="Link to this section">#</a></h2>
+<p>From weakest to strongest:</p>
+<ol><li>Variables for all environments, and what a preview inherits from production</li><li>The address of this environment's own service</li><li>A variable set on this environment itself</li></ol>
+<p>So production can use a real database by setting its own <code>DATABASE_URL</code>, in which case Moorage starts nothing for it and needs no engine for it, while every preview still gets its own. <strong>A preview never ends up on production's database by inheritance:</strong> with <code>previews = &quot;none&quot;</code>, what it would inherit of that name is left out.</p>
+<p>The address is given as an instance starts, as a secret is, along with its password alone as <code>DATABASE_URL_PASSWORD</code>. Neither is in a release or on a command line, and both are kept out of what the app prints. An app that runs natively gets <code>127.0.0.1</code> and a port that stays the same for the life of the service. One in a container reaches it by name, on a network for its environment.</p>
+<h2 id="what-happens-to-it">What happens to it<a class="anchor" href="#what-happens-to-it" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>When</th><th>What happens</th></tr></thead><tbody><tr><td>You deploy</td><td>It is made if it is not there, and started if it has stopped. If it does not become ready, the deployment fails, and the previous release goes on serving</td></tr><tr><td>It stops by itself, or the machine restarts</td><td>Moorage starts it again</td></tr><tr><td>The server stops or is upgraded</td><td>It goes on running, like your apps</td></tr><tr><td>The environment goes to sleep</td><td>It stops, and keeps what it holds, unless a process with <code>sleep = false</code> or a command is still using it. Waking starts it first, and a command or a cron job starts it for as long as it runs</td></tr><tr><td>The manifest stops naming it</td><td>It stays, with what it holds, marked as unused. A release that does not name it does not get its address</td></tr><tr><td>The environment is deleted</td><td>It goes, with what it holds</td></tr><tr><td>The engine stops answering</td><td>What is running is left alone. Deploying, restarting, putting to sleep or deleting says why it cannot, and leaves what is running as it is. <code>server.engine_down</code> says so, to <a href="notifications.html">the rules that ask</a></td></tr></tbody></table></div>
+<p>A manifest that asks for another major version than a service holds is refused, as that takes moving its data. PostgreSQL itself also refuses to start on a newer version's files, so this is not all that stands between a mistake and lost data.</p>
+<h2 id="what-a-preview-starts-with">What a preview starts with<a class="anchor" href="#what-a-preview-starts-with" aria-label="Link to this section">#</a></h2>
+<p><strong>Empty,</strong> unless the manifest says otherwise, with <code>[release] on_create</code> to put something in it, which runs once. Copying production into previews is how customer data leaks.</p>
+<p>To copy it anyway, it takes saying so, and saying what removes what should not be copied:</p>
+<div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[environments.preview]</span>
+<span class="t-k">access</span> = <span class="t-s">&quot;login&quot;</span>
+
+<span class="t-h">[services.db]</span>
+<span class="t-k">type</span> = <span class="t-s">&quot;postgres&quot;</span>
+<span class="t-k">seed</span> = <span class="t-s">&quot;production&quot;</span>
+<span class="t-k">sanitize</span> = <span class="t-s">&quot;scripts/sanitize.sql&quot;</span></code></pre></div>
+<p>A new preview then starts with production's latest dump, which <a href="backups.html">a backup</a> makes. The copy and the script happen where nothing can connect, and if either fails, or the server stops halfway, nothing is left of the copy, and the deployment fails. The script is in the app, and a link in its place that leads out of the app is refused. <code>sanitize = &quot;none&quot;</code> says that nothing needs removing.</p>
+<p>A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request that comes from a fork, or that nothing says does not, or if a <a href="agents.html">coding agent's token</a> made it. An existing preview is not seeded again: destroy it, or remove its service. A later commit that would let anyone reach a preview holding such a copy fails to deploy, and says so, and <code>moor access</code> refuses to open it. If production has moved to a newer version and the manifest names none, the copy runs that version too. Only the role <code>app</code> gets a new password: any others that the dump holds keep what production gave them, which is for <code>sanitize</code> to deal with.</p>
+<h2 id="backups">Backups<a class="anchor" href="#backups" aria-label="Link to this section">#</a></h2>
+<p>A <a href="backups.html">backup</a> holds a dump of each service of production and of the named environments, made just before: <code>pg_dumpall</code>, or a tar of the object store. One that is asleep is started for that, where no app can reach it, and one that has lost its volume is left with the dump that it has. A dump that fails or does not get to its end is reported, the last good one stays, and the rest of the backup goes on. Volumes are not in a backup, and previews are not dumped. Dumps go in <code>.services</code> in the app's directory of data, where apps that run as <a href="isolation.html">users of their own</a> cannot reach them. Without that, an app's code can read them, as it can read anything else of the server's.</p>
+<p>After a restore to a new machine, a service comes up on a fresh volume and loads its dump by itself, before anything can connect to it. So does one whose volume has gone for any other reason, and if that does not get to the end, it starts again from nothing on the next try. What was written after the last dump is gone.</p>
+<p>On the machine that it ran on, a service still has its volume, and so keeps what it holds, which may be newer than the backup. To go back to the dump:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> services restore db --yes</code></pre></div>
+<p>PostgreSQL's dump goes into a new volume first, so that one that will not load changes nothing. An object store's dump is checked, and replaces what it holds. What PostgreSQL held stays until you say what to do with it, as it does <a href="#updates-and-upgrades">after an upgrade</a>.</p>
+<p>If one of an object store's two volumes has gone, it does not start, and says so: the other may be all that there is of what it held, so that going back to its dump is for you to ask for.</p>
+<h2 id="updates-and-upgrades">Updates and upgrades<a class="anchor" href="#updates-and-upgrades" aria-label="Link to this section">#</a></h2>
+<p>Nothing changes an image by itself: which one it runs is recorded when a service is made.</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> services update db</code></pre></div>
+<p>That takes the newest image of its version, such as 18.7 where it ran 18.6, and restarts it. One that is asleep stays asleep, and runs it when it wakes.</p>
+<p>A new major version takes moving its data, as an image holds only its own version:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> services upgrade db --to 19</code></pre></div>
+<p>The app stops for that, as what it wrote after the dump would be lost, and commands and cron jobs are stopped and refused until it is over. Moorage dumps the service with the newer version's tools, restores into a new volume, checks that the database <code>app</code> holds as many rows and tables and that the same databases are there, and switches. Anything that would refuse it does so before anything stops. Anything going wrong after that leaves the old one as it was, and the app starts again however it goes. Say the new version in the manifest too, if it names one. A service with an <code>image</code> of its own has to say which holds the new version, with <code>--image</code>. The old volume stays until you say what to do with it. To let go of it:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> services upgrade db --finish --yes</code></pre></div>
+<p>Or, if you are not happy, to go back to it, losing what the service has held since:</p>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> services upgrade db --back --yes</code></pre></div>
+<p>After going back from an upgrade, the manifest has to say the older version again, if it names one, and a dump made since by the newer version cannot be loaded, so that it takes the next backup to have one that can.</p>
+<p>Going back starts what it held before first, and if that will not start, it goes on as it was. <code>moor services</code> says which of them still keep an old volume. A server that stops halfway through an upgrade or a restore comes back on whichever volume the record names, which is whole, and can leave another behind. <code>moor server doctor</code> says so, and <code>--finish</code> lets go of that too, along with any old volume.</p>
+<h2 id="seeing-and-removing-them">Seeing and removing them<a class="anchor" href="#seeing-and-removing-them" aria-label="Link to this section">#</a></h2>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> services --app shop</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> logs --service db --env staging</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> services remove db --env my-branch --yes</code></pre></div>
+<p><code>moor services logs db</code> is the same. Its engine keeps what it says, so that it has only <code>--tail</code>, and what it says goes when it stops.</p>
+<p>They are on the Services tab of an app in the console too, with what each has said and what an app's services add up to across its environments, as each preview has its own. What one uses is in <a href="metrics.html">metrics</a> as <code>service.db</code>, with an app's instances. <code>moor server doctor</code> says if one that should be running is not. Removing one takes what it holds, for good. If the manifest still names it, the next deployment makes a new one, which starts empty.</p>
+<h2 id="how-far-to-trust-this">How far to trust this<a class="anchor" href="#how-far-to-trust-this" aria-label="Link to this section">#</a></h2>
+<p><strong>In production, this is one container with no replica.</strong> It is a convenience, and not database hosting. For a database that matters, set <code>DATABASE_URL</code> on production to one that is looked after, and let previews use their own.</p>
+<p><strong>Apps on a machine are kept apart from a service by its password, and not by the network.</strong> Each has a random password of its own, but a port on the loopback address can be reached by anything on that machine. See <a href="isolation.html">how apps are kept apart</a>.</p>
+<p>On macOS and Windows, the data lives inside the engine's machine, so that <code>podman machine rm</code> takes it with it.</p>
+<p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/services.md">Suggest a change to this page</a></p>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="metrics.html"><span>Previous</span>Metrics</a><a class="doc-pager-next" rel="next" href="agents.html"><span>Next</span>Coding agents</a></nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li class="toc-2"><a href="#in-the-manifest">In the manifest</a></li>
+        <li class="toc-2"><a href="#an-object-store">An object store</a></li>
+        <li class="toc-2"><a href="#which-address-an-app-gets">Which address an app gets</a></li>
+        <li class="toc-2"><a href="#what-happens-to-it">What happens to it</a></li>
+        <li class="toc-2"><a href="#what-a-preview-starts-with">What a preview starts with</a></li>
+        <li class="toc-2"><a href="#backups">Backups</a></li>
+        <li class="toc-2"><a href="#updates-and-upgrades">Updates and upgrades</a></li>
+        <li class="toc-2"><a href="#seeing-and-removing-them">Seeing and removing them</a></li>
+        <li class="toc-2"><a href="#how-far-to-trust-this">How far to trust this</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-about">
+          <a class="brand" href="../" aria-label="Moorage home"><img class="logo-light" src="../assets/img/moorage-logo.svg" alt="" width="133" height="30" /><img class="logo-dark" src="../assets/img/moorage-logo-dark.svg" alt="" width="133" height="30" /></a>
+          <p>Push code. Get a URL. Own the platform. Free and open source under the Apache License 2.0.</p>
+        </div>
+        <div>
+          <h2>Use</h2>
+          <ul>
+            <li><a href="../docs/getting-started.html">Getting started</a></li>
+            <li><a href="../docs/git.html">Deploy with git push</a></li>
+            <li><a href="../docs/previews.html">Previews</a></li>
+            <li><a href="../docs/manifest.html">moorage.toml</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Run</h2>
+          <ul>
+            <li><a href="../docs/install.html">Install</a></li>
+            <li><a href="../docs/administration.html">Running a server</a></li>
+            <li><a href="../docs/backups.html">Backups</a></li>
+            <li><a href="../docs/troubleshooting.html">Troubleshooting</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="https://github.com/robert-mcdermott/moorage">GitHub</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/releases">Releases</a></li>
+            <li><a href="https://github.com/robert-mcdermott/moorage/issues">Issues</a></li>
+            <li><a href="../docs/architecture.html">Architecture</a></li>
+            <li><a href="../docs/security.html">Security</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+    </div>
+  </footer>
+
+  <dialog class="search-dialog" aria-label="Search the documentation">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" placeholder="Search the documentation" aria-label="Search the documentation" autocomplete="off" spellcheck="false" />
+      <button type="button" class="search-close" aria-label="Close">Esc</button>
+    </div>
+    <ul class="search-results" role="list"></ul>
+  </dialog>
+</body>
+</html>

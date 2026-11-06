@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="services.html">Services</a></li>
             <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
@@ -164,6 +165,7 @@
 <p>Restore to a data directory at the same path as before: builds can hold links to their toolchains by their full paths. Without <code>--include-keys</code>, the server has a new SSH host key, so that those who push over SSH are told that it has changed.</p>
 <p><strong>Restore only your own backups.</strong> What a server restores, it goes on to run, and it refuses what no backup should hold, such as keys in one that says it has none. A <code>.sha256</code> beside a backup shows that it is whole, and not who made it, so that whoever can write to where your backups go can change them: keep that as closed as the server.</p>
 <h2 id="apps-with-databases">Apps with databases<a class="anchor" href="#apps-with-databases" aria-label="Link to this section">#</a></h2>
+<p><a href="services.html">Services</a> are looked after: a backup holds a dump of each, made just before.</p>
 <p>The data directories are read while the apps go on running, so that a file being written at that moment may be caught halfway. For most files that does not matter, but a database file copied while it is in use may not open again, and the command says how many files changed as they were read: the server's log does for those it makes itself.</p>
 <p>If an app keeps a database in its data directory, have a <a href="cron.html">cron job</a> dump it there shortly before the backup, and restore from the dump. For SQLite:</p>
 <div class="code"><pre tabindex="0"><code class="language-toml"><span class="t-h">[[cron]]</span>
@@ -258,7 +260,7 @@ skip    registry        ghcr.io             set MOORAGE_REGISTRY_GHCR_IO_PASSWOR
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

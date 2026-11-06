@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html" aria-current="page">Metrics</a></li>
+            <li><a href="services.html">Services</a></li>
             <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
@@ -155,12 +156,12 @@
       credentials_file: /etc/prometheus/moorage-token
     static_configs:
       - targets: [moorage.apps.example.com]</code></pre></div>
-<div class="table-wrap" tabindex="0"><table><thead><tr><th>Metric</th><th></th></tr></thead><tbody><tr><td><code>moorage_http_requests_total</code></td><td>Requests, by <code>app</code>, <code>env</code> and status <code>class</code></td></tr><tr><td><code>moorage_http_response_bytes_total</code></td><td>Bytes sent in answers</td></tr><tr><td><code>moorage_http_requests_in_flight</code></td><td>Requests going on now</td></tr><tr><td><code>moorage_http_request_duration_seconds</code></td><td>A histogram of how long they took</td></tr><tr><td><code>moorage_instance_cpu_percent</code></td><td>By <code>instance_name</code>, such as <code>web.1</code>, and <code>process</code></td></tr><tr><td><code>moorage_instance_memory_bytes</code></td><td>The same</td></tr><tr><td><code>moorage_host_load</code>, <code>moorage_host_memory_used_bytes</code>, <code>moorage_host_disk_used_percent</code></td><td>The server itself</td></tr></tbody></table></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Metric</th><th></th></tr></thead><tbody><tr><td><code>moorage_http_requests_total</code></td><td>Requests, by <code>app</code>, <code>env</code> and status <code>class</code></td></tr><tr><td><code>moorage_http_response_bytes_total</code></td><td>Bytes sent in answers</td></tr><tr><td><code>moorage_http_requests_in_flight</code></td><td>Requests going on now</td></tr><tr><td><code>moorage_http_request_duration_seconds</code></td><td>A histogram of how long they took</td></tr><tr><td><code>moorage_instance_cpu_percent</code></td><td>By <code>instance_name</code>, such as <code>web.1</code>, and <code>process</code></td></tr><tr><td><code>moorage_instance_memory_bytes</code></td><td>The same. A <a href="services.html">service</a> is one too, with an <code>instance_name</code> such as <code>service.db</code></td></tr><tr><td><code>moorage_host_load</code>, <code>moorage_host_memory_used_bytes</code>, <code>moorage_host_disk_used_percent</code></td><td>The server itself</td></tr></tbody></table></div>
 <p>Counts start again when the server does, as Prometheus expects of counters.</p>
 <h2 id="how-it-is-measured">How it is measured<a class="anchor" href="#how-it-is-measured" aria-label="Link to this section">#</a></h2>
 <p>On Linux and macOS, an instance's usage is added up over its process and all that descend from it. Containers' usage comes from their engine. On Windows it is the same with what the system says of processes, and the server's load has no number there.</p>
 <p class="doc-edit"><a href="https://github.com/robert-mcdermott/moorage/edit/main/docs/metrics.md">Suggest a change to this page</a></p>
-<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="logs.html"><span>Previous</span>Logs</a><a class="doc-pager-next" rel="next" href="agents.html"><span>Next</span>Coding agents</a></nav>
+<nav class="doc-pager" aria-label="Previous and next pages"><a class="doc-pager-prev" rel="prev" href="logs.html"><span>Previous</span>Logs</a><a class="doc-pager-next" rel="next" href="services.html"><span>Next</span>Services</a></nav>
     </main>
 
     <aside class="toc" aria-label="On this page">
@@ -210,7 +211,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

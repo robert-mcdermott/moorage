@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="services.html">Services</a></li>
             <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
@@ -159,7 +160,7 @@
 <h2 id="variables-and-secrets">Variables and secrets<a class="anchor" href="#variables-and-secrets" aria-label="Link to this section">#</a></h2>
 <p><strong>Variables</strong> are what an app is configured with, kept on the server and given to it as its environment. A <strong>secret</strong> is a variable sealed with the server's master key, which is handed to the app in memory and is not shown again (<a href="variables.html">more</a>). Changing either makes a new release, unless you ask to keep the change for the next deploy.</p>
 <h2 id="data">Data<a class="anchor" href="#data" aria-label="Link to this section">#</a></h2>
-<p>The <strong>data directory</strong> of an environment survives deploys, and is at <code>$MOORAGE_DATA_DIR</code>. Everything else about a release is read-only once built, which is why an app's own files belong in that directory (<a href="interactive.html#the-data-directory">more</a>). It suits a SQLite database, with <a href="backups.html#apps-with-databases">a dump for backups</a>. Moorage does not run other databases yet: reach yours through a variable, such as <code>DATABASE_URL</code>. Services are <a href="https://github.com/robert-mcdermott/moorage/blob/main/spec/11-roadmap.md">planned for 0.10.0</a>.</p>
+<p>The <strong>data directory</strong> of an environment survives deploys, and is at <code>$MOORAGE_DATA_DIR</code>. Everything else about a release is read-only once built, which is why an app's own files belong in that directory (<a href="interactive.html#the-data-directory">more</a>). It suits a SQLite database, with <a href="backups.html#apps-with-databases">a dump for backups</a>. For anything else, Moorage can <a href="services.html">run PostgreSQL or object storage for an app</a>, or you can reach your own through a variable, such as <code>DATABASE_URL</code>.</p>
 <h2 id="gates">Gates<a class="anchor" href="#gates" aria-label="Link to this section">#</a></h2>
 <p>A <strong>gate</strong> says who can reach an environment: anyone, whoever has a password, people signed in, or only those with a share link. It can also be limited to a list of addresses (<a href="access.html">more</a>).</p>
 <h2 id="projects-roles-and-tokens">Projects, roles and tokens<a class="anchor" href="#projects-roles-and-tokens" aria-label="Link to this section">#</a></h2>
@@ -227,7 +228,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

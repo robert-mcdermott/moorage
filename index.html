@@ -47,7 +47,7 @@
     <section class="hero">
       <div class="container">
         <div class="hero-text">
-          <a class="eyebrow" href="https://github.com/robert-mcdermott/moorage/releases"><span class="pill">v0.9.0</span> Coding agents, with a narrow token and <code>moor mcp</code></a>
+          <a class="eyebrow" href="https://github.com/robert-mcdermott/moorage/releases"><span class="pill">v0.10.0</span> A database for each preview, with <code>[services]</code></a>
           <h1>Push code. Get a URL. <span class="accent">Own the platform.</span></h1>
           <p class="lede">One binary turns your laptop or a server into your own app platform. Every branch gets a live address to try out or show off. Releases roll out with no downtime and roll back in a second, and scaling takes one command.</p>
           <div class="btn-row">
@@ -299,8 +299,9 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
         </div>
         <div class="status">
           <h3>Where it stands</h3>
-          <p>Moorage is at 0.9.0, young, and moving quickly. CI tries it on Linux, macOS and Windows, including real installs, upgrades, backups and browsers. It has had close reviews of what faces the internet, and no outside one yet, so that we would keep it on a network you control until it has.</p>
+          <p>Moorage is at 0.10.0, young, and moving quickly. CI tries it on Linux, macOS and Windows, including real installs, upgrades, backups and browsers. It has had close reviews of what faces the internet, and no outside one yet, so that we would keep it on a network you control until it has.</p>
           <p>Its connections have met the real thing: GitHub by hand, and GitLab, Gitea, an OpenTelemetry collector, syslog-ng, a gRPC client and an ACME test server in CI, each time that code changes. It has not yet taken a certificate from Let's Encrypt itself, or a webhook directly from GitHub. If you try them first, <a href="https://github.com/robert-mcdermott/moorage/issues">tell us how it goes</a>.</p>
+          <p>Its <a href="docs/services.html">services</a> run real PostgreSQL and object storage under Docker and Podman in CI, on Linux, including dumps, restores and upgrades. In production, a service is one container with no replica, kept by backups.</p>
         </div>
       </div>
     </section>
@@ -314,7 +315,7 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
         <div class="questions">
           <div>
             <h3>Where does my app's database go?</h3>
-            <p>Moorage does not run databases for you yet: that is planned for 0.10.0. Today, an app can keep SQLite in its <a href="docs/interactive.html#the-data-directory">data directory</a>, which survives deploys and goes in <a href="docs/backups.html#apps-with-databases">backups</a>, or reach any database you already run through a <a href="docs/variables.html">variable</a> such as <code>DATABASE_URL</code>.</p>
+            <p>Wherever suits it. Moorage can <a href="docs/services.html">run PostgreSQL for an app</a>, with its own copy for each environment and preview and a dump in each backup, if you have Podman or Docker: in production, that is one container with no replica. An app can also keep SQLite in its <a href="docs/interactive.html#the-data-directory">data directory</a>, which needs nothing, or reach any database you already run through a <a href="docs/variables.html">variable</a> such as <code>DATABASE_URL</code>.</p>
           </div>
           <div>
             <h3>Can I run production on it?</h3>
@@ -388,7 +389,7 @@ Uploaded 13 files (56.9 KiB); deployment dep_01M6MQN3BN394RAM4D6XRSASHR is queue
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

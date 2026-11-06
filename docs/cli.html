@@ -80,6 +80,7 @@
             <li><a href="interactive.html">Getting into an app</a></li>
             <li><a href="logs.html">Logs</a></li>
             <li><a href="metrics.html">Metrics</a></li>
+            <li><a href="services.html">Services</a></li>
             <li><a href="agents.html">Coding agents</a></li>
             <li><a href="notifications.html">Notifications</a></li>
             <li><a href="access.html">Who can reach an app</a></li>
@@ -166,6 +167,7 @@
         <li class="toc-2"><a href="#moor-run"><code>moor run</code></a></li>
         <li class="toc-2"><a href="#moor-scale"><code>moor scale</code></a></li>
         <li class="toc-2"><a href="#moor-server"><code>moor server</code></a></li>
+        <li class="toc-2"><a href="#moor-services"><code>moor services</code></a></li>
         <li class="toc-2"><a href="#moor-share"><code>moor share</code></a></li>
         <li class="toc-2"><a href="#moor-sleep"><code>moor sleep</code></a></li>
         <li class="toc-2"><a href="#moor-tokens"><code>moor tokens</code></a></li>
@@ -514,12 +516,14 @@ moor login https://moorage.apps.example.com --with-token &lt; token.txt</code></
 <h2 id="moor-logs"><code>moor logs</code><a class="anchor" href="#moor-logs" aria-label="Link to this section">#</a></h2>
 <p>Show the output of an app's instances, merged by time. Lines marked with * are notes from Moorage (starts, exits, restarts); lines marked with ! came from standard error.</p>
 <p>--source chooses what to show, from stdout, stderr, moorage, build, access and events; the first three unless asked.</p>
+<p>--service shows the newest of what a service has said instead, which its engine keeps, so that it has only --tail.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor logs</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-text">moor logs --app api
 moor logs -f --app api --process worker
 moor logs --app api --source stderr,build --since 1h --grep timeout
-moor logs --app api --problems --since 24h</code></pre></div>
-<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>-f, --follow</code></td><td></td><td>keep showing new lines</td></tr><tr><td><code>--grep string</code></td><td></td><td>show the lines with this text, whatever its case</td></tr><tr><td><code>--instance string</code></td><td></td><td>show one instance only: its number or its ID</td></tr><tr><td><code>--json</code></td><td></td><td>print each line as JSON</td></tr><tr><td><code>--problems</code></td><td></td><td>show the lines that report a problem: errors, warnings, standard error, failed requests</td></tr><tr><td><code>--process string</code></td><td></td><td>show one process only, such as web</td></tr><tr><td><code>--since string</code></td><td></td><td>show lines since then: how long ago (15m, 2h, 7d) or a moment</td></tr><tr><td><code>--source string</code></td><td></td><td>sources to show, separated by commas: stdout, stderr, moorage, build, access, events</td></tr><tr><td><code>-n, --tail int</code></td><td><code>100</code></td><td>lines to show from the end</td></tr><tr><td><code>--until string</code></td><td></td><td>show lines until then</td></tr></tbody></table></div>
+moor logs --app api --problems --since 24h
+moor logs --app api --service db --tail 500</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>environment</td></tr><tr><td><code>-f, --follow</code></td><td></td><td>keep showing new lines</td></tr><tr><td><code>--grep string</code></td><td></td><td>show the lines with this text, whatever its case</td></tr><tr><td><code>--instance string</code></td><td></td><td>show one instance only: its number or its ID</td></tr><tr><td><code>--json</code></td><td></td><td>print each line as JSON</td></tr><tr><td><code>--problems</code></td><td></td><td>show the lines that report a problem: errors, warnings, standard error, failed requests</td></tr><tr><td><code>--process string</code></td><td></td><td>show one process only, such as web</td></tr><tr><td><code>--service string</code></td><td></td><td>show what this service has said instead</td></tr><tr><td><code>--since string</code></td><td></td><td>show lines since then: how long ago (15m, 2h, 7d) or a moment</td></tr><tr><td><code>--source string</code></td><td></td><td>sources to show, separated by commas: stdout, stderr, moorage, build, access, events</td></tr><tr><td><code>-n, --tail int</code></td><td><code>100</code></td><td>lines to show from the end</td></tr><tr><td><code>--until string</code></td><td></td><td>show lines until then</td></tr></tbody></table></div>
 <h2 id="moor-manifest"><code>moor manifest</code><a class="anchor" href="#moor-manifest" aria-label="Link to this section">#</a></h2>
 <p>moorage.toml tells Moorage how to build and run an app. These commands check it, show what Moorage will do with an app, and print the manifest's JSON Schema for editors.</p>
 <h3 id="moor-manifest-explain"><code>moor manifest explain</code><a class="anchor" href="#moor-manifest-explain" aria-label="Link to this section">#</a></h3>
@@ -894,6 +898,44 @@ moor server users create ops@example.com --admin</code></pre></div>
 <h4 id="moor-server-users-role"><code>moor server users role</code><a class="anchor" href="#moor-server-users-role" aria-label="Link to this section">#</a></h4>
 <p>Change a user's role</p>
 <div class="code"><pre tabindex="0"><code class="language-text">moor server users role EMAIL admin|member</code></pre></div>
+<h2 id="moor-services"><code>moor services</code><a class="anchor" href="#moor-services" aria-label="Link to this section">#</a></h2>
+<p>A service is a database that an app declares under [services] in moorage.toml, and Moorage runs and connects for it. Each environment has its own, with a password of its own, and the app is given its address as it starts. It needs a container engine, and nothing else here does.</p>
+<p>A service that a manifest no longer names stays, with what it holds, until you remove it. Deleting an environment removes its services.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services --app shop
+moor services logs db --env staging
+moor services update db
+moor services upgrade db --to 19
+moor services remove db --env my-branch --yes</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>the environment</td></tr><tr><td><code>--json</code></td><td></td><td>print as JSON</td></tr></tbody></table></div>
+<h3 id="moor-services-logs"><code>moor services logs</code><a class="anchor" href="#moor-services-logs" aria-label="Link to this section">#</a></h3>
+<p>Read the newest of what a service has said</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services logs NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services logs db --tail 500</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>the environment</td></tr><tr><td><code>--tail int</code></td><td><code>100</code></td><td>how many lines, up to 5,000</td></tr></tbody></table></div>
+<h3 id="moor-services-remove"><code>moor services remove</code><a class="anchor" href="#moor-services-remove" aria-label="Link to this section">#</a></h3>
+<p>Remove a service, with what it holds, which cannot be undone. If the manifest still names it, the next deployment makes a new one, which starts empty.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services remove NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services remove db --env my-branch --yes</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>the environment</td></tr><tr><td><code>--yes</code></td><td></td><td>say that you mean it</td></tr></tbody></table></div>
+<h3 id="moor-services-restore"><code>moor services restore</code><a class="anchor" href="#moor-services-restore" aria-label="Link to this section">#</a></h3>
+<p>Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say what to do with it, with moor services upgrade NAME --finish --yes or --back --yes.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services restore NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services restore db --yes</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>the environment</td></tr><tr><td><code>--yes</code></td><td></td><td>say that you mean it</td></tr></tbody></table></div>
+<h3 id="moor-services-update"><code>moor services update</code><a class="anchor" href="#moor-services-update" aria-label="Link to this section">#</a></h3>
+<p>Take the newest image of a service's version, such as PostgreSQL 18.7 where it ran 18.6, and restart it. What it holds stays. This does not happen by itself: an image is recorded when a service is made, and an update is something that you ask for.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services update NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services update db</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>the environment</td></tr></tbody></table></div>
+<h3 id="moor-services-upgrade"><code>moor services upgrade</code><a class="anchor" href="#moor-services-upgrade" aria-label="Link to this section">#</a></h3>
+<p>Move a PostgreSQL service to a newer major version: a dump with the newer version's tools, a new volume, a restore and a check that it holds what it did. The app is stopped for that, as what it wrote after the dump would be lost, and is started again however it goes. Anything going wrong leaves the old one as it was. Say the new version in the manifest too, if it names one.</p>
+<p>The old volume stays until you say what to do with it, as it does after moor services restore: --finish lets go of it, and --back goes back to it, losing what the service has held since. After --back, the manifest has to say the older version again, if it names one, and a dump made since by the newer version cannot be loaded.</p>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services upgrade NAME</code></pre></div>
+<div class="code"><pre tabindex="0"><code class="language-text">moor services upgrade db --to 19
+moor services upgrade db --finish --yes
+moor services upgrade db --back --yes</code></pre></div>
+<div class="table-wrap" tabindex="0"><table><thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>--app string</code></td><td></td><td>app (default: $MOOR_APP or [app].name in moorage.toml)</td></tr><tr><td><code>--back</code></td><td></td><td>go back to what it held before its last upgrade or restore</td></tr><tr><td><code>--env string</code></td><td><code>production</code></td><td>the environment</td></tr><tr><td><code>--finish</code></td><td></td><td>let go of what it held before its last upgrade or restore</td></tr><tr><td><code>--image string</code></td><td></td><td>the image that holds it, for a service that does not run the official one</td></tr><tr><td><code>--to string</code></td><td></td><td>the major version to move to</td></tr><tr><td><code>--yes</code></td><td></td><td>with --finish or --back, say that you mean it</td></tr></tbody></table></div>
 <h2 id="moor-share"><code>moor share</code><a class="anchor" href="#moor-share" aria-label="Link to this section">#</a></h2>
 <p>Make a link that lets someone reach an environment, whatever its gate, without an account or a password. It is shown only now. It lasts seven days unless you say otherwise, up to a year, and can be revoked.</p>
 <p>A link with --max-uses asks for a click, so that what fetches addresses to preview them does not use it up.</p>
@@ -1007,6 +1049,7 @@ moor trust --remove</code></pre></div>
         <li class="toc-2"><a href="#moor-run"><code>moor run</code></a></li>
         <li class="toc-2"><a href="#moor-scale"><code>moor scale</code></a></li>
         <li class="toc-2"><a href="#moor-server"><code>moor server</code></a></li>
+        <li class="toc-2"><a href="#moor-services"><code>moor services</code></a></li>
         <li class="toc-2"><a href="#moor-share"><code>moor share</code></a></li>
         <li class="toc-2"><a href="#moor-sleep"><code>moor sleep</code></a></li>
         <li class="toc-2"><a href="#moor-tokens"><code>moor tokens</code></a></li>
@@ -1055,7 +1098,7 @@ moor trust --remove</code></pre></div>
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.9.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 
