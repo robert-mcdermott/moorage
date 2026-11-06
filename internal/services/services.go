@@ -643,12 +643,12 @@ func (m *Manager) keepUp(ctx context.Context, rec store.Service) {
 	}
 	driver, err := m.driverFor(ctx, rec)
 	if err != nil {
-		m.sayOnce(rec.ID, err.Error(), rec)
+		m.sayOnce(ctx, rec.ID, err.Error(), rec)
 		return
 	}
 	running, err := driver.ServiceRunning(ctx, container.ServiceName(rec.ID))
 	if err != nil {
-		m.sayOnce(rec.ID, err.Error(), rec)
+		m.sayOnce(ctx, rec.ID, err.Error(), rec)
 		return
 	}
 	if running && !rec.PendingLoad {
@@ -661,7 +661,7 @@ func (m *Manager) keepUp(ctx context.Context, rec store.Service) {
 		err = m.bringUp(ctx, driver, rec, password)
 	}
 	if err != nil {
-		m.sayOnce(rec.ID, err.Error(), rec)
+		m.sayOnce(ctx, rec.ID, err.Error(), rec)
 		return
 	}
 	m.said.Delete(rec.ID)
@@ -669,7 +669,11 @@ func (m *Manager) keepUp(ctx context.Context, rec store.Service) {
 }
 
 // sayOnce logs what stops a service from being looked after, until that changes.
-func (m *Manager) sayOnce(id, problem string, rec store.Service) {
+func (m *Manager) sayOnce(ctx context.Context, id, problem string, rec store.Service) {
+	// The server going away is no problem of the service's.
+	if ctx.Err() != nil {
+		return
+	}
 	if last, ok := m.said.Load(id); ok && last == problem {
 		return
 	}

@@ -50,6 +50,11 @@ func ServiceVolume(id string) string { return "moorage-svc-" + idPart(id) + "-da
 // ServiceMetadataVolume is where a service keeps what goes with its files, if it keeps it apart.
 func ServiceMetadataVolume(id string) string { return "moorage-svc-" + idPart(id) + "-meta" }
 
+// ServiceUpgradeVolume is where a service keeps what it holds after moving to a major version. No volume's name starts with another's, as Podman takes a name for anything that it starts.
+func ServiceUpgradeVolume(id, version string) string {
+	return "moorage-svc-" + idPart(id) + "-pg" + version
+}
+
 // ServiceNetwork is the network of an environment's services and of its apps in containers.
 func ServiceNetwork(envID string) string { return "moorage-env-" + idPart(envID) }
 
@@ -145,14 +150,15 @@ func (d *Driver) ensureVolume(ctx context.Context, name string, s ServiceSpec) e
 	return err
 }
 
-// VolumeThere says whether there is a volume of that name. Only the engine saying that there is none counts: one that is having trouble says nothing of what it holds.
+// VolumeThere says whether there is a volume of exactly that name. Only the engine saying that there is none counts: one that is having trouble says nothing of what it holds.
+// Podman takes a name for anything that it starts, so that what answers has to be asked what it is called.
 func (d *Driver) VolumeThere(ctx context.Context, name string) (bool, error) {
 	asking, cancel := context.WithTimeout(ctx, serviceLimit)
 	defer cancel()
-	_, err := d.engine.output(asking, nil, "volume", "inspect", name)
+	out, err := d.engine.output(asking, nil, "volume", "inspect", "--format", "{{.Name}}", name)
 	switch {
 	case err == nil:
-		return true, nil
+		return strings.TrimSpace(string(out)) == name, nil
 	case IsNotFound(err):
 		return false, nil
 	}
@@ -244,9 +250,13 @@ func (d *Driver) StopService(name string, timeout time.Duration) error {
 	return nil
 }
 
-// RemoveVolume removes what a service holds.
+// RemoveVolume removes what a service holds. It looks first, as Podman would otherwise take this name for another that starts with it, and remove what should be kept.
 func (d *Driver) RemoveVolume(name string) error {
-	_, err := d.tell(removeLimit, "volume", "rm", "-f", name)
+	there, err := d.VolumeThere(context.Background(), name)
+	if err != nil || !there {
+		return err
+	}
+	_, err = d.tell(removeLimit, "volume", "rm", "-f", name)
 	if err != nil && !IsNotFound(err) {
 		return err
 	}

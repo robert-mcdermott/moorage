@@ -94,7 +94,8 @@ case "$1" in
   logs) echo "what it said" ;;
   volume|network)
     if [ "$2" = inspect ] && [ -e "` + dir + `/odd-$1" ]; then echo "something odd happened" >&2; exit 1; fi
-    if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1-$3" ]; then echo "no such $1" >&2; exit 1; fi
+    if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1-$last" ]; then echo "no such $1" >&2; exit 1; fi
+    if [ "$2" = inspect ]; then echo "$last"; fi
     if [ "$2" = create ]; then touch "` + dir + `/$1-$last"; fi
     if [ "$2" = rm ]; then rm -f "` + dir + `/$1-$last"; fi
     ;;
@@ -823,13 +824,13 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if _, err := prepare("19", ""); err == nil || !strings.Contains(err.Error(), "--finish") {
 		t.Errorf("again before finishing: %v", err)
 	}
-	if strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume+"\n") {
+	if strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume) {
 		t.Error("it removed what it held")
 	}
 	if err := f.m.FinishUpgrade(ctx, "shop", "production", "db"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume+"\n") {
+	if !strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume) {
 		t.Error("it kept what it held")
 	}
 	if got, _ := f.db.Service(ctx, "shop", "production", "db"); got.OldVolume != "" {
@@ -912,5 +913,54 @@ func TestAPullRequestFromAFork(t *testing.T) {
 	}
 	if fork, err := f.db.EnvironmentFromFork(ctx, "shop", "pr-9"); err != nil || !fork {
 		t.Errorf("from a fork: %v %v", fork, err)
+	}
+}
+
+// TestAVolumeIsItsWholeName: Podman takes a name for any volume that it starts, so that asking for one that has gone can answer with another, and removing it would remove that.
+func TestAVolumeIsItsWholeName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake engine is a shell script")
+	}
+	dir := t.TempDir()
+	removed := filepath.Join(dir, "removed")
+	bin := filepath.Join(dir, "podman")
+	script := `#!/bin/sh
+case "$1 $2" in
+  "volume inspect") for last; do :; done
+    case "$last" in moorage-*) echo "moorage-svc-a-pg18" ;; esac ;;
+  "volume rm") echo "$*" >> "` + removed + `" ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := container.New(&container.Engine{Bin: bin, Kind: "podman"}, "test", slog.New(slog.DiscardHandler))
+	if there, err := d.VolumeThere(context.Background(), "moorage-svc-a-data"); err != nil || there {
+		t.Errorf("one that has gone: %v %v", there, err)
+	}
+	if there, err := d.VolumeThere(context.Background(), "moorage-svc-a-pg18"); err != nil || !there {
+		t.Errorf("one that is there: %v %v", there, err)
+	}
+	if err := d.RemoveVolume("moorage-svc-a-data"); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(removed); err == nil {
+		t.Errorf("it removed another: %s", data)
+	}
+	if err := d.RemoveVolume("moorage-svc-a-pg18"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(removed); !strings.Contains(string(data), "volume rm -f moorage-svc-a-pg18") {
+		t.Errorf("it did not remove it: %s", data)
+	}
+	// And no volume's name starts with another's.
+	id := "svc_01abc"
+	names := []string{container.ServiceVolume(id), container.ServiceMetadataVolume(id), container.ServiceUpgradeVolume(id, "18"), container.ServiceUpgradeVolume(id, "19")}
+	for _, a := range names {
+		for _, b := range names {
+			if a != b && strings.HasPrefix(b, a) {
+				t.Errorf("%s starts with %s", b, a)
+			}
+		}
 	}
 }

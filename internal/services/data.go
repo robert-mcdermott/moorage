@@ -442,7 +442,7 @@ func (m *Manager) PrepareUpgrade(ctx context.Context, app, env, name, version, i
 		return nil, &MajorChangeError{fmt.Sprintf("%s holds PostgreSQL %s", image, major)}
 	}
 	next := rec
-	next.Version, next.Image, next.Digest, next.Mount, next.Volume = version, image, repoDigest(info), dataMount(info, version), container.ServiceVolume(rec.ID)+"-"+version
+	next.Version, next.Image, next.Digest, next.Mount, next.Volume = version, image, repoDigest(info), dataMount(info, version), container.ServiceUpgradeVolume(rec.ID, version)
 	return &Upgrade{rec: rec, driver: driver, next: next, version: version}, nil
 }
 
