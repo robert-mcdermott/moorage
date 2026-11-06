@@ -73,7 +73,7 @@ func TestProbeOfAnEngineThatHangs(t *testing.T) {
 	hung := engineScript(t, dir, "docker", "exec /bin/sleep 30")
 	began := time.Now()
 	st := Probe(context.Background(), hung)
-	if took := time.Since(began); took > probeLimit+waitForDescendants+time.Second {
+	if took := time.Since(began); took > probeTimeout()+waitForDescendants+time.Second {
 		t.Errorf("it took %v", took)
 	}
 	if st.State != NotAnswering {
@@ -256,7 +256,7 @@ func TestOneThatHangsHoldsUpNothing(t *testing.T) {
 		if st.State != NotAnswering {
 			t.Errorf("%+v", st)
 		}
-	case <-time.After(3 * probeLimit):
+	case <-time.After(3 * probeTimeout()):
 		t.Error("the probe did not end")
 	}
 }
@@ -404,8 +404,8 @@ func TestASlowFirstAnswerIsAnAnswer(t *testing.T) {
 	if defaultProbeLimit < 10*time.Second {
 		t.Errorf("%s is not long enough for that", defaultProbeLimit)
 	}
-	probeLimit = 6 * time.Second
-	defer func() { probeLimit = 2 * time.Second }()
+	probeLimit.Store(int64(6 * time.Second))
+	defer probeLimit.Store(int64(2 * time.Second))
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 	engineScript(t, dir, "podman", "/bin/sleep 3")
@@ -417,5 +417,5 @@ func TestASlowFirstAnswerIsAnAnswer(t *testing.T) {
 
 func init() {
 	// These try engines that hang, and need not wait for as long as a real one is given.
-	probeLimit = 2 * time.Second
+	probeLimit.Store(int64(2 * time.Second))
 }

@@ -65,7 +65,9 @@ function moor(...args) {
   };
 
   // WebKit on Linux now and then gives up on a navigation that interrupts a stream the
-  // page holds, with an internal error of its own. Once or twice more is enough.
+  // page holds, with an internal error of its own, or never finishes one, which says nothing
+  // of the page: it loaded a moment ago. Once or twice more is enough, from a page that holds
+  // nothing, and a server that really does not answer goes on failing this.
   const visit = async (page, url) => {
     for (let tries = 3; ; tries--) {
       try {
@@ -76,7 +78,10 @@ function moor(...args) {
         }
         return res;
       } catch (e) {
-        if (tries <= 1 || !/internal error/.test(e.message)) { throw e; }
+        const gaveUp = /internal error/.test(e.message) || (browserName === 'webkit' && e.name === 'TimeoutError');
+        if (tries <= 1 || !gaveUp) { throw e; }
+        console.log(`note  ${browserName}: ${url} did not load, and it tries again: ${e.message.split('\n')[0]}`);
+        await page.goto('about:blank', { timeout: 5000 }).catch(() => {});
         await page.waitForTimeout(250);
       }
     }

@@ -34,7 +34,14 @@ const (
 // how things stand, or looks after what is running, uses Known, and so does not wait for this.
 const defaultProbeLimit = 15 * time.Second
 
-var probeLimit = defaultProbeLimit
+// probeLimit is held so that a look at an engine that is under way, behind the scenes, can read it as it changes. Only tests change it, to try engines that hang without waiting so long.
+var probeLimit = func() *atomic.Int64 {
+	limit := new(atomic.Int64)
+	limit.Store(int64(defaultProbeLimit))
+	return limit
+}()
+
+func probeTimeout() time.Duration { return time.Duration(probeLimit.Load()) }
 
 const (
 	// statusKept is how long an answer stands, so that asking often costs nothing.
@@ -105,7 +112,7 @@ func ask(ctx context.Context, bin string) Status {
 		st.Kind = "podman"
 	}
 	run := func(args ...string) ([]byte, error) {
-		ctx, cancel := context.WithTimeout(ctx, probeLimit)
+		ctx, cancel := context.WithTimeout(ctx, probeTimeout())
 		defer cancel()
 		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.WaitDelay = waitForDescendants
@@ -275,7 +282,7 @@ func (s *Source) Known() Status {
 	if s.refreshing.CompareAndSwap(false, true) {
 		go func() {
 			defer s.refreshing.Store(false)
-			ctx, cancel := context.WithTimeout(context.Background(), 2*probeLimit)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*probeTimeout())
 			defer cancel()
 			s.Status(ctx)
 		}()
