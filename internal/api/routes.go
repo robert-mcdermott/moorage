@@ -266,6 +266,7 @@ func (s *Server) routes() []route {
 			response: apitypes.ServiceLog{}, query: map[string]string{"tail": "How many lines: 100, unless it says, and at most 5,000."}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/services/{name}/update", perm: canManage, handler: s.updateService, summary: "Take the newest image of a service's version", response: apitypes.ServiceChange{}},
 		{method: "POST", path: "/apps/{app}/envs/{env}/services/{name}/upgrade", perm: canManage, handler: s.upgradeService, summary: "Move a service to a newer major version, with what connects to it stopped", request: apitypes.ServiceUpgrade{}, response: apitypes.ServiceChange{}},
+		{method: "POST", path: "/apps/{app}/envs/{env}/services/{name}/restore", perm: canManage, handler: s.restoreService, status: http.StatusNoContent, summary: "Put a service back to its latest dump, with what connects to it stopped"},
 		{method: "DELETE", path: "/apps/{app}/envs/{env}/services/{name}/old-volume", perm: canManage, handler: s.finishServiceUpgrade, status: http.StatusNoContent, summary: "Let go of what a service held before its last upgrade"},
 		{method: "DELETE", path: "/apps/{app}/envs/{env}/services/{name}", perm: canManage, handler: s.removeService, status: http.StatusNoContent, summary: "Remove a service, with what it holds"},
 		{method: "GET", path: "/apps/{app}/envs/{env}/instances", previews: true, perm: canRead, handler: s.instances, summary: "List an environment's instances", response: []apitypes.Instance{}},

@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -87,7 +88,8 @@ type Options struct {
 // Manager runs services. A nil Manager has none.
 type Manager struct {
 	o     Options
-	locks sync.Map // by service ID or app/env: one change at a time
+	locks sync.Map // by app/env: one change at a time
+	said  sync.Map // by service ID: what stops it from being looked after, as last logged
 }
 
 // New makes a Manager.
@@ -130,7 +132,7 @@ func (m *Manager) Wanted(ctx context.Context, app, env, kind string, plan manife
 		if kind == store.KindPreview && s.Previews == "none" {
 			continue
 		}
-		if own[s.Env] {
+		if own[s.AddressVariable()] {
 			continue
 		}
 		wanted[name] = s
@@ -182,6 +184,16 @@ func (m *Manager) Ensure(ctx context.Context, app, env, kind, by, appDir string,
 			}
 		case err != nil:
 			return err
+		case rec.State == store.ServiceSeeding:
+			// A server stopped as it was being made: what is there has not been sanitized, and no app has seen it.
+			driver, err := m.driverFor(ctx, rec)
+			if err != nil {
+				return fmt.Errorf("the service %s: %w", name, err)
+			}
+			m.forget(rec, driver)
+			if err := m.create(ctx, app, env, by, appDir, name, s, plan, log); err != nil {
+				return fmt.Errorf("the service %s: %w", name, err)
+			}
 		default:
 			if err := m.ensureExisting(ctx, rec, s, log); err != nil {
 				return fmt.Errorf("the service %s: %w", name, err)
@@ -255,10 +267,23 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 	if err != nil {
 		return err
 	}
+	mount := s3DataDir
+	if s.Type == manifest.ServicePostgres {
+		mount = dataMount(info, version)
+	}
+	state, refused := store.ServiceRunning, ""
+	if s.Seed != "" {
+		if refused, err = m.seedRefused(ctx, app, env, plan); err != nil {
+			return err
+		}
+		if refused == "" {
+			state = store.ServiceSeeding
+		}
+	}
 	rec := store.Service{
 		ID: id, App: app, Env: env, Name: name, Type: s.Type, Version: version, Image: image, Digest: repoDigest(info),
-		Engine: engine.Bin, Volume: container.ServiceVolume(id), Port: port, Sealed: sealed, EnvVar: s.Env, Memory: s.Memory,
-		State: store.ServiceRunning, CreatedBy: by, CreatedAt: time.Now().UTC(),
+		Engine: engine.Bin, Volume: container.ServiceVolume(id), Mount: mount, Port: port, Sealed: sealed, EnvVar: s.AddressVariable(), Memory: s.Memory,
+		State: state, CreatedBy: by, CreatedAt: time.Now().UTC(),
 	}
 	err = m.o.DB.CreateService(ctx, rec)
 	m.o.ReleasePort(port)
@@ -271,22 +296,32 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 			m.forget(rec, driver)
 		}
 	}()
-	if _, err := m.start(ctx, driver, rec, password); err != nil {
+	seeded := false
+	if refused != "" {
+		fmt.Fprintf(log, "▸ service    %s: not seeded from production, and it starts empty: %s\n", name, refused)
+	}
+	if state == store.ServiceSeeding {
+		// If this goes wrong, nothing is left of it, which is better than half a copy with what sanitizing it was to remove.
+		if err := m.seed(ctx, driver, rec, s, appDir, password, log); err != nil {
+			return err
+		}
+		if err := m.o.DB.SetServiceState(ctx, rec.ID, store.ServiceRunning); err != nil {
+			return err
+		}
+		rec.State, seeded = store.ServiceRunning, true
+	}
+	if err := driver.RunService(ctx, m.spec(rec, password)); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "▸ service    %s: waiting for it to be ready\n", name)
 	if err := m.waitReady(ctx, driver, rec); err != nil {
 		return err
 	}
-	if s.Seed != "" {
-		// If this goes wrong, nothing is left of it, which is better than half a copy with what sanitizing it was to remove.
-		if err := m.seed(ctx, driver, rec, s, plan, appDir, log); err != nil {
-			return err
-		}
-	}
 	if s.Type == manifest.ServiceS3 {
-		if err := m.makeBucket(ctx, rec, password); err != nil {
-			return err
+		if !seeded {
+			if err := m.makeBucket(ctx, rec, password); err != nil {
+				return err
+			}
 		}
 		fmt.Fprintf(log, "▸ service    %s: S3 is ready, and the app gets %s\n", name, strings.Join(s.Variables(), ", "))
 	} else {
@@ -313,25 +348,39 @@ func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manif
 		if err := m.o.DB.SetServiceState(ctx, rec.ID, store.ServiceRunning); err != nil {
 			return err
 		}
+		rec.State = store.ServiceRunning
+	}
+	if s.Image != "" && qualified(s.Image) != rec.Image {
+		fmt.Fprintf(log, "▸ service    %s: it goes on running %s, as what it holds was made with that: moor services upgrade --image is the way to change it\n", rec.Name, rec.Image)
+	}
+	// A limit is a change to how it runs, and what it holds stays.
+	restart := false
+	if s.Memory != rec.Memory {
+		if err := m.o.DB.SetServiceMemory(ctx, rec.ID, s.Memory); err != nil {
+			return err
+		}
+		rec.Memory, restart = s.Memory, true
+		fmt.Fprintf(log, "▸ service    %s: restarting it with its new limit on memory\n", rec.Name)
 	}
 	running, err := driver.ServiceRunning(ctx, container.ServiceName(rec.ID))
 	if err != nil {
 		return err
 	}
-	if !running {
+	if !running || restart || rec.PendingLoad {
 		password, err := m.password(ctx, rec)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(log, "▸ service    %s: starting it\n", rec.Name)
-		fresh, err := m.start(ctx, driver, rec, password)
-		if err != nil {
-			return err
+		if !running {
+			fmt.Fprintf(log, "▸ service    %s: starting it\n", rec.Name)
 		}
-		if fresh {
-			if err := m.recover(ctx, driver, rec); err != nil {
+		if running {
+			if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 				return err
 			}
+		}
+		if err := m.bringUp(ctx, driver, rec, password); err != nil {
+			return err
 		}
 	}
 	return m.waitReady(ctx, driver, rec)
@@ -344,7 +393,13 @@ func (m *Manager) driverFor(ctx context.Context, rec store.Service) (*container.
 		return nil, err
 	}
 	if st.Bin != rec.Engine {
-		return nil, fmt.Errorf("the service %s is held by %s, and this server is using %s: set engine under [containers] in server.toml", rec.Name, rec.Engine, st.Bin)
+		// On a new machine, after a restore, its engine may be somewhere else, and its volumes are not there anyway. A program that is still here may hold what it held.
+		if _, err := os.Stat(rec.Engine); err == nil {
+			return nil, fmt.Errorf("the service %s is held by %s, and this server is using %s: set engine under [containers] in server.toml", rec.Name, rec.Engine, st.Bin)
+		}
+		if err := m.o.DB.SetServiceEngine(ctx, rec.ID, st.Bin); err != nil {
+			return nil, err
+		}
 	}
 	driver := m.o.Engines.Driver()
 	if driver == nil {
@@ -359,11 +414,6 @@ func (m *Manager) password(ctx context.Context, rec store.Service) (string, erro
 		return "", err
 	}
 	return m.o.Keyring.Open(ctx, appID, rec.EnvID, sealedPrefix+rec.Name, rec.Sealed)
-}
-
-// start runs a service's container, from what is on record, and says whether it has come up on a fresh volume.
-func (m *Manager) start(ctx context.Context, driver *container.Driver, rec store.Service, password string) (bool, error) {
-	return driver.RunService(ctx, m.spec(rec, password))
 }
 
 // spec is how a service runs.
@@ -383,11 +433,26 @@ func (m *Manager) spec(rec store.Service, password string) container.ServiceSpec
 		spec.Secrets = map[string]string{"ROOT_SECRET_KEY": password}
 	} else {
 		spec.ContainerPort, spec.StopSignal = postgresPort, "SIGINT"
-		spec.Volumes = map[string]string{rec.Volume: postgresMount(rec.Version)}
+		spec.Volumes = map[string]string{rec.Volume: rec.Mount}
 		spec.Vars = map[string]string{"POSTGRES_USER": postgresUser, "POSTGRES_DB": postgresUser}
 		spec.Secrets = map[string]string{"POSTGRES_PASSWORD": password}
 	}
 	return spec
+}
+
+// privateSpec is a service where no app can reach it: for what it has to go through first.
+func (m *Manager) privateSpec(rec store.Service, password string) container.ServiceSpec {
+	spec := m.spec(rec, password)
+	spec.Name, spec.HostPort, spec.Network = spec.Name+"-private", 0, ""
+	return spec
+}
+
+// volumesOf are what a service keeps what it holds in.
+func volumesOf(rec store.Service) []string {
+	if rec.Type == manifest.ServiceS3 {
+		return []string{rec.Volume, container.ServiceMetadataVolume(rec.ID)}
+	}
+	return []string{rec.Volume}
 }
 
 // stopLimit is how long a service has to stop without losing anything.
@@ -420,9 +485,24 @@ func (m *Manager) makeBucket(ctx context.Context, rec store.Service, secret stri
 	return nil
 }
 
-// postgresMount is where a version keeps its data. It moved at 18: an older one on the newer's path would not find it.
-func postgresMount(version string) string {
-	if slices.Contains([]string{"15", "16", "17"}, version) {
+// dataMount is where a volume has to go, for what an image keeps to last: the volume that it declares around its data, or its data. It moved at 18, and an image can say otherwise,
+// and a volume in the wrong place holds nothing, while what the database writes goes in one that nothing looks at again.
+func dataMount(info container.ImageInfo, major string) string {
+	pgdata := ""
+	for _, env := range info.Config.Env {
+		if value, ok := strings.CutPrefix(env, "PGDATA="); ok {
+			pgdata = value
+		}
+	}
+	if pgdata != "" {
+		for volume := range info.Config.Volumes {
+			if pgdata == volume || strings.HasPrefix(pgdata, strings.TrimRight(volume, "/")+"/") {
+				return volume
+			}
+		}
+		return pgdata
+	}
+	if n, err := strconv.Atoi(major); err == nil && n < 18 {
 		return "/var/lib/postgresql/data"
 	}
 	return "/var/lib/postgresql"
@@ -486,6 +566,8 @@ func (m *Manager) Addresses(ctx context.Context, app, env string, plan manifest.
 		}
 		if rec.Type != manifest.ServiceS3 {
 			secret[s.Env] = postgresURL(host, port, password)
+			// On its own as well, so that it is kept out of what an app prints as it is, and not only in its address.
+			secret[s.Env+"_PASSWORD"] = password
 			continue
 		}
 		endpoint := fmt.Sprintf("http://%s:%d", host, port)
@@ -543,7 +625,8 @@ func (m *Manager) look(ctx context.Context) {
 		if rec.State != store.ServiceRunning || ctx.Err() != nil {
 			continue
 		}
-		m.keepUp(ctx, rec)
+		// One that takes a while to come back, as one putting back its dump does, holds up no other. What is already being looked at is left to that.
+		go m.keepUp(ctx, rec)
 	}
 }
 
@@ -560,27 +643,40 @@ func (m *Manager) keepUp(ctx context.Context, rec store.Service) {
 	}
 	driver, err := m.driverFor(ctx, rec)
 	if err != nil {
+		m.sayOnce(rec.ID, err.Error(), rec)
 		return
 	}
 	running, err := driver.ServiceRunning(ctx, container.ServiceName(rec.ID))
-	if err != nil || running {
+	if err != nil {
+		m.sayOnce(rec.ID, err.Error(), rec)
+		return
+	}
+	if running && !rec.PendingLoad {
+		m.said.Delete(rec.ID)
 		return
 	}
 	password, err := m.password(ctx, rec)
 	if err == nil {
 		m.o.Log.Warn("a service had stopped: starting it again", "app", rec.App, "env", rec.Env, "service", rec.Name)
-		var fresh bool
-		fresh, err = m.start(ctx, driver, rec, password)
-		// A restore to a new machine has records of services, and no volumes.
-		if err == nil && fresh {
-			err = m.recover(ctx, driver, rec)
-		}
+		err = m.bringUp(ctx, driver, rec, password)
 	}
 	if err != nil {
-		m.o.Log.Error("start a service again", "app", rec.App, "env", rec.Env, "service", rec.Name, "err", err)
+		m.sayOnce(rec.ID, err.Error(), rec)
 		return
 	}
+	m.said.Delete(rec.ID)
 	m.emit(ctx, events.ServiceRestarted, rec, nil)
+}
+
+// sayOnce logs what stops a service from being looked after, until that changes.
+func (m *Manager) sayOnce(id, problem string, rec store.Service) {
+	if last, ok := m.said.Load(id); ok && last == problem {
+		return
+	}
+	m.said.Store(id, problem)
+	if m.o.Log != nil {
+		m.o.Log.Error("a service cannot be looked after", "app", rec.App, "env", rec.Env, "service", rec.Name, "err", problem)
+	}
 }
 
 // Sleep stops an environment's services, and keeps what they hold.
@@ -593,22 +689,32 @@ func (m *Manager) Sleep(ctx context.Context, app, env string) error {
 	})
 }
 
-// Wake starts an environment's services again, and returns when they are ready, as what comes next connects to them.
+// Wake starts an environment's services again, and returns when they are ready, as what comes next connects to them. They should be running from now on, whether or not this manages
+// it now, so that what keeps them running picks them up if it cannot.
 func (m *Manager) Wake(ctx context.Context, app, env string) error {
-	return m.each(ctx, app, env, func(driver *container.Driver, rec store.Service) error {
+	if m == nil {
+		return nil
+	}
+	list, err := m.o.DB.Services(ctx, app, env)
+	if err != nil {
+		return err
+	}
+	for _, rec := range list {
 		if err := m.o.DB.SetServiceState(ctx, rec.ID, store.ServiceRunning); err != nil {
 			return err
 		}
-		password, err := m.password(ctx, rec)
+	}
+	return m.each(ctx, app, env, func(driver *container.Driver, rec store.Service) error {
+		running, err := driver.ServiceRunning(ctx, container.ServiceName(rec.ID))
 		if err != nil {
 			return err
 		}
-		fresh, err := m.start(ctx, driver, rec, password)
-		if err != nil {
-			return err
-		}
-		if fresh {
-			if err := m.recover(ctx, driver, rec); err != nil {
+		if !running {
+			password, err := m.password(ctx, rec)
+			if err != nil {
+				return err
+			}
+			if err := m.bringUp(ctx, driver, rec, password); err != nil {
 				return err
 			}
 		}
@@ -672,6 +778,11 @@ func (m *Manager) Remove(ctx context.Context, app, env, name, by string) error {
 	}
 	if err := removeVolumes(driver, rec); err != nil {
 		return err
+	}
+	if rec.OldVolume != "" {
+		if err := driver.RemoveVolume(rec.OldVolume); err != nil {
+			return err
+		}
 	}
 	if err := os.Remove(m.dumpPath(rec)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		m.o.Log.Warn("remove a service's dump", "service", rec.Name, "err", err)
@@ -787,16 +898,10 @@ func (m *Manager) Logs(ctx context.Context, app, env, name string, tail int) (st
 
 // removeVolumes removes what a service holds.
 func removeVolumes(driver *container.Driver, rec store.Service) error {
-	if err := driver.RemoveVolume(rec.Volume); err != nil {
-		return err
-	}
-	if rec.OldVolume != "" {
-		if err := driver.RemoveVolume(rec.OldVolume); err != nil {
+	for _, name := range volumesOf(rec) {
+		if err := driver.RemoveVolume(name); err != nil {
 			return err
 		}
-	}
-	if rec.Type == manifest.ServiceS3 {
-		return driver.RemoveVolume(container.ServiceMetadataVolume(rec.ID))
 	}
 	return nil
 }

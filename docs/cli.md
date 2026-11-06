@@ -2170,6 +2170,24 @@ moor services remove db --env my-branch --yes
 | `--env string` | `production` | the environment |
 | `--yes` |  | say that you mean it |
 
+### `moor services restore`
+
+Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back.
+
+```text
+moor services restore NAME
+```
+
+```text
+moor services restore db --yes
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
+| `--env string` | `production` | the environment |
+| `--yes` |  | say that you mean it |
+
 ### `moor services update`
 
 Take the newest image of a service's version, such as PostgreSQL 18.7 where it ran 18.6, and restart it. What it holds stays. This does not happen by itself: an image is recorded when a service is made, and an update is something that you ask for.
@@ -2205,6 +2223,7 @@ moor services upgrade db --finish
 | `--app string` |  | app (default: $MOOR\_APP or \[app\].name in moorage.toml) |
 | `--env string` | `production` | the environment |
 | `--finish` |  | let go of what it held before its last upgrade |
+| `--image string` |  | the image that holds it, for a service that does not run the official one |
 | `--to string` |  | the major version to move to |
 
 ## `moor share`

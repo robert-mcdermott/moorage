@@ -187,7 +187,7 @@ const s3Default = "S3_ENDPOINT"
 // Variables are what a service gives an app. A service of S3 has several, under the name in env, and under the names that S3 clients look for if it is the only one.
 func (s ServicePlan) Variables() []string {
 	if s.Type != ServiceS3 {
-		return []string{s.Env}
+		return []string{s.Env, s.Env + "_PASSWORD"}
 	}
 	prefix := s.Env
 	if prefix == s3Default {
@@ -199,6 +199,9 @@ func (s ServicePlan) Variables() []string {
 	}
 	return names
 }
+
+// AddressVariable is the variable that says where a service is: setting it on an environment itself says that the environment goes elsewhere.
+func (s ServicePlan) AddressVariable() string { return s.Variables()[0] }
 
 // Plan is what a build keeps of a service.
 func (s Service) Plan() ServicePlan {
@@ -246,10 +249,16 @@ func checkServices(add func(string, ...any), services map[string]Service) {
 		if s.Env != "" && !envName.MatchString(s.Env) {
 			add("%s.env: %q is not a valid variable name", where, s.Env)
 		}
-		if other, taken := addresses[s.AddressVariable()]; taken {
-			add("%s and services.%s would both set %s: give one of them env", "services."+other, name, s.AddressVariable())
+		for _, variable := range s.Plan().Variables() {
+			if other, taken := addresses[variable]; taken {
+				add("%s and services.%s would both set %s: give one of them env", "services."+other, name, variable)
+				break
+			}
+			addresses[variable] = name
+			if reservedVariable(variable) {
+				add("%s.env: %s is not a name that an app can be given, as Moorage or the system needs it", where, variable)
+			}
 		}
-		addresses[s.AddressVariable()] = name
 		if s.Memory < 0 {
 			add("%s.memory must not be negative", where)
 		}
@@ -272,6 +281,11 @@ func checkServices(add func(string, ...any), services map[string]Service) {
 			add("%s.sanitize %q must be a path in the app", where, s.Sanitize)
 		}
 	}
+}
+
+// reservedVariable says that a service should not set this, as what runs depends on what it holds.
+func reservedVariable(name string) bool {
+	return strings.HasPrefix(name, "MOORAGE_") || slices.Contains([]string{"PATH", "HOME", "PORT", "HOST", "TMPDIR", "TEMP", "TMP", "LD_PRELOAD", "LD_LIBRARY_PATH"}, name)
 }
 
 // imageTag is the tag of an image reference, or its digest if it has one.

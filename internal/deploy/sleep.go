@@ -94,9 +94,11 @@ func (d *Deployer) Sleep(ctx context.Context, app, env, by string) error {
 		}
 		return err
 	}
-	// Its services stop with it, and keep what they hold.
-	if err := d.opts.Services.Sleep(ctx, app, env); err != nil {
-		d.log.Warn("stop the services of an environment going to sleep", "app", app, "env", env, "err", err)
+	// Its services stop with it, and keep what they hold, unless something goes on running that needs them.
+	if !needsServicesAsleep(plan) {
+		if err := d.opts.Services.Sleep(ctx, app, env); err != nil {
+			d.log.Warn("stop the services of an environment going to sleep", "app", app, "env", env, "err", err)
+		}
 	}
 	d.opts.Events.Publish(ctx, store.Event{Type: events.EnvironmentSlept, App: app, Env: env, Actor: by})
 	d.log.Info("an environment went to sleep", "app", app, "env", env, "by", by)

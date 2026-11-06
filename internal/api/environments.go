@@ -293,7 +293,7 @@ func (s *Server) upgradeService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var log bytes.Buffer
-	if s.serviceFailed(w, s.deployer.UpgradeService(lasting(r), app, env, r.PathValue("name"), req.Version, &log)) {
+	if s.serviceFailed(w, s.deployer.UpgradeService(lasting(r), app, env, r.PathValue("name"), req.Version, req.Image, &log)) {
 		return
 	}
 	writeJSON(w, http.StatusOK, apitypes.ServiceChange{Log: log.String()})
@@ -305,6 +305,17 @@ func (s *Server) finishServiceUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.serviceFailed(w, s.deployer.FinishServiceUpgrade(lasting(r), app, env, r.PathValue("name"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) restoreService(w http.ResponseWriter, r *http.Request) {
+	app, env, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if s.serviceFailed(w, s.deployer.RestoreService(lasting(r), app, env, r.PathValue("name"))) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

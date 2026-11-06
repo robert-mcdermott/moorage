@@ -309,7 +309,7 @@ func TestWhatIsMadeHereIsNotLeftBehind(t *testing.T) {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "docker")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in\n  run) sleep 1 ;;\n  inspect) echo '{\"ExitCode\":0}' ;;\nesac\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncase \"$1\" in\n  run) sleep 1 ;;\n  container) echo '{\"ExitCode\":0}' ;;\nesac\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	d := New(&Engine{Bin: bin, Kind: "docker"}, "test", slog.Default())

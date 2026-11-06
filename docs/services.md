@@ -69,7 +69,7 @@ From weakest to strongest:
 
 So production can use a real database by setting its own `DATABASE_URL`, in which case Moorage starts nothing for it and needs no engine for it, while every preview still gets its own. **A preview never ends up on production's database by inheritance:** with `previews = "none"`, what it would inherit of that name is left out.
 
-The address is given as an instance starts, as a secret is. It is not in a release, or on a command line, and it is kept out of what the app prints. An app that runs natively gets `127.0.0.1` and a port that stays the same for the life of the service. One in a container reaches it by name, on a network for its environment.
+The address is given as an instance starts, as a secret is, along with its password alone as `DATABASE_URL_PASSWORD`. Neither is in a release or on a command line, and both are kept out of what the app prints. An app that runs natively gets `127.0.0.1` and a port that stays the same for the life of the service. One in a container reaches it by name, on a network for its environment.
 
 ## What happens to it
 
@@ -78,7 +78,7 @@ The address is given as an instance starts, as a secret is. It is not in a relea
 | You deploy | It is made if it is not there, and started if it has stopped. If it does not become ready, the deployment fails, and the previous release goes on serving |
 | It stops by itself, or the machine restarts | Moorage starts it again |
 | The server stops or is upgraded | It goes on running, like your apps |
-| The environment goes to sleep | It stops, and keeps what it holds. Waking starts it first |
+| The environment goes to sleep | It stops, and keeps what it holds, unless a process with `sleep = false` goes on running. Waking starts it first, and a command or a cron job starts it for as long as it runs |
 | The manifest stops naming it | It stays, with what it holds, marked as unused. A release that does not name it does not get its address |
 | The environment is deleted | It goes, with what it holds |
 | The engine stops answering | What is running is left alone. Deploying, restarting, putting to sleep or deleting says why it cannot, and changes nothing. `server.engine_down` says so, to [the rules that ask](notifications.md) |
@@ -101,15 +101,21 @@ seed = "production"
 sanitize = "scripts/sanitize.sql"
 ```
 
-A new preview then starts with production's latest dump, which [a backup](backups.md) makes. The script runs before anything can connect, and if it fails, nothing is left of the copy, and the deployment fails. `sanitize = "none"` says that nothing needs removing.
+A new preview then starts with production's latest dump, which [a backup](backups.md) makes. The copy and the script happen where nothing can connect, and if either fails, or the server stops halfway, nothing is left of the copy, and the deployment fails. The script is in the app, and a link in its place that leads out of the app is refused. `sanitize = "none"` says that nothing needs removing.
 
-A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request from a fork, or if a [coding agent's token](agents.md) made it. An existing preview is not seeded again: destroy it, or remove its service.
+A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request that comes from a fork, or that nothing says does not, or if a [coding agent's token](agents.md) made it. An existing preview is not seeded again: destroy it, or remove its service.
 
 ## Backups
 
-A [backup](backups.md) holds a dump of each service of production and of the named environments, written to `.services` in the environment's data directory just before: `pg_dump`, or a tar of the object store. A dump that fails is reported, and the rest of the backup goes on. Volumes are not in a backup, and previews are not dumped.
+A [backup](backups.md) holds a dump of each service of production and of the named environments, made just before: `pg_dumpall`, or a tar of the object store. One that is asleep is started for that, where no app can reach it. A dump that fails is reported, and the rest of the backup goes on. Volumes are not in a backup, and previews are not dumped. Dumps go in `.services` in the app's directory of data, where apps that run as [users of their own](isolation.md) cannot reach them. Without that, an app's code can read them, as it can read anything else of the server's.
 
-After a restore, a service comes up on a fresh volume and loads its dump, by itself. So does one whose volume has gone for any other reason. What was written after the last dump is gone.
+After a restore to a new machine, a service comes up on a fresh volume and loads its dump by itself, before anything can connect to it. So does one whose volume has gone for any other reason, and if that does not get to the end, it starts again from nothing on the next try. What was written after the last dump is gone.
+
+On the machine that it ran on, a service still has its volume, and so keeps what it holds, which may be newer than the backup. To go back to the dump:
+
+```bash
+moor services restore db --yes
+```
 
 ## Updates and upgrades
 
@@ -127,7 +133,7 @@ A new major version takes moving its data, as an image holds only its own versio
 moor services upgrade db --to 19
 ```
 
-The app stops for that, as what it wrote after the dump would be lost. Moorage dumps the service with the newer version's tools, restores into a new volume, checks that it holds as many rows and tables, and switches. Anything going wrong leaves the old one as it was, and the app starts again however it goes. Say the new version in the manifest too, if it names one. The old volume stays until you are happy:
+The app stops for that, as what it wrote after the dump would be lost, and commands and cron jobs are stopped and refused until it is over. Moorage dumps the service with the newer version's tools, restores into a new volume, checks that the database `app` holds as many rows and tables and that the same databases are there, and switches. Anything that would refuse it does so before anything stops. Anything going wrong after that leaves the old one as it was, and the app starts again however it goes. Say the new version in the manifest too, if it names one. A service with an `image` of its own has to say which holds the new version, with `--image`. The old volume stays until you are happy:
 
 ```bash
 moor services upgrade db --finish

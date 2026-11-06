@@ -402,6 +402,11 @@ env = "VECTORS_URL"
 		"no tag":            {"[services.db]\ntype = \"postgres\"\nimage = \"example.com:5000/postgres\"\n", "needs a tag"},
 		"a variable":        {"[services.db]\ntype = \"postgres\"\nenv = \"not-a-name\"\n", "not a valid variable name"},
 		"previews":          {"[services.db]\ntype = \"postgres\"\npreviews = \"shared\"\n", "must be own or none"},
+		"two s3s":           {"[services.a]\ntype = \"s3\"\n\n[services.b]\ntype = \"s3\"\nenv = \"S3\"\n", "would both set"},
+		"names that meet":   {"[services.a]\ntype = \"s3\"\nenv = \"UP\"\n\n[services.b]\ntype = \"postgres\"\nenv = \"UP_ENDPOINT\"\n", "would both set"},
+		"a password":        {"[services.a]\ntype = \"postgres\"\n\n[services.b]\ntype = \"postgres\"\nenv = \"DATABASE_URL_PASSWORD\"\n", "would both set"},
+		"the path":          {"[services.a]\ntype = \"postgres\"\nenv = \"PATH\"\n", "not a name"},
+		"moorage's own":     {"[services.a]\ntype = \"postgres\"\nenv = \"MOORAGE_DATA_DIR\"\n", "not a name"},
 		"a seed, no word":   {"[services.db]\ntype = \"postgres\"\nseed = \"production\"\n", "say sanitize"},
 		"s3 sanitized":      {"[services.files]\ntype = \"s3\"\nseed = \"production\"\nsanitize = \"a.sql\"\n", "can only be none"},
 		"a seed":            {"[services.db]\ntype = \"postgres\"\nseed = \"staging\"\nsanitize = \"none\"\n", "must be production"},
@@ -417,6 +422,12 @@ env = "VECTORS_URL"
 	}
 	s3 := Service{Type: ServiceS3}.Plan()
 	if got := strings.Join(s3.Variables(), " "); !strings.Contains(got, "S3_ENDPOINT S3_BUCKET S3_REGION S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY") || !strings.Contains(got, "AWS_SECRET_ACCESS_KEY") {
+		t.Error(got)
+	}
+	if got := (Service{Type: ServiceS3, Env: "UPLOADS"}).Plan().AddressVariable(); got != "UPLOADS_ENDPOINT" {
+		t.Error(got)
+	}
+	if got := (Service{Type: ServicePostgres}).Plan().AddressVariable(); got != "DATABASE_URL" {
 		t.Error(got)
 	}
 	if got := strings.Join(Service{Type: ServiceS3, Env: "UPLOADS"}.Plan().Variables(), " "); !strings.Contains(got, "UPLOADS_ENDPOINT") || strings.Contains(got, "AWS") || strings.Contains(got, "S3_") {

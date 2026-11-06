@@ -19,6 +19,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/ingress"
 	"github.com/robert-mcdermott/moorage/internal/isolate"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/names"
 	"github.com/robert-mcdermott/moorage/internal/observe/logs"
 	"github.com/robert-mcdermott/moorage/internal/oneoff"
 	"github.com/robert-mcdermott/moorage/internal/shim"
@@ -262,7 +263,14 @@ func (m *Manager) Offline(ctx context.Context, app, env string, do func() error)
 	es.rollout.Lock()
 	defer es.rollout.Unlock()
 	es.pool.Set(nil)
-	m.retire(es, es.list(), 0)
+	// They finish what they have in hand, as for any rollout.
+	drain := time.Duration(0)
+	if _, b, err := m.db.CurrentRelease(ctx, app, env); err == nil {
+		if plan, err := readPlan(b); err == nil {
+			drain = plan.Deploy.Drain.Std()
+		}
+	}
+	m.retire(es, es.list(), drain)
 	err := do()
 	routes, routesErr := m.db.Routes(ctx)
 	if routesErr != nil {
@@ -513,14 +521,10 @@ func (m *Manager) addConfig(ctx context.Context, appID string, cfg []store.Confi
 // variables for all environments and what a preview inherits, then the address of this environment's own service, then a variable set on this environment itself. So that a
 // preview never ends up on production's database by inheritance, what it would inherit of that name goes, even if it has no service of its own.
 func (m *Manager) addServices(ctx context.Context, app, env string, plan manifest.Plan, cfg []store.ConfigVar, vars, secrets map[string]string, inContainer bool) (string, error) {
-	if m.opts.Services == nil || len(plan.Services) == 0 {
+	if m.opts.Services == nil {
 		return "", nil
 	}
 	envID, err := m.db.EnvID(ctx, app, env)
-	if err != nil {
-		return "", err
-	}
-	secret, plain, network, err := m.opts.Services.Addresses(ctx, app, env, plan, inContainer)
 	if err != nil {
 		return "", err
 	}
@@ -529,9 +533,34 @@ func (m *Manager) addServices(ctx context.Context, app, env string, plan manifes
 		// In the order of what overrides what, so that the last is what it has.
 		scopes[v.Name] = v.Scope
 	}
+	// What this environment does not name can still be production's, and what it inherits of that is not to be used: a branch from before a service was added, say, or a rollback to a release of then.
+	if env != names.Production {
+		if _, b, err := m.db.CurrentRelease(ctx, app, names.Production); err == nil {
+			if production, err := readPlan(b); err == nil {
+				for name, s := range production.Services {
+					if _, named := plan.Services[name]; named {
+						continue
+					}
+					for _, variable := range s.Variables() {
+						if scope, set := scopes[variable]; set && scope != "" && scope != envID {
+							delete(vars, variable)
+							delete(secrets, variable)
+						}
+					}
+				}
+			}
+		}
+	}
+	if len(plan.Services) == 0 {
+		return "", nil
+	}
+	secret, plain, network, err := m.opts.Services.Addresses(ctx, app, env, plan, inContainer)
+	if err != nil {
+		return "", err
+	}
 	for _, s := range plan.Services {
 		// Its own address set on this environment says that it goes elsewhere, for all of what goes with it.
-		if scope, set := scopes[s.Env]; set && scope == envID {
+		if scope, set := scopes[s.AddressVariable()]; set && scope == envID {
 			continue
 		}
 		for _, name := range s.Variables() {

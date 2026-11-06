@@ -70,12 +70,17 @@ func newFixture(t *testing.T) *fixture {
 echo "$*" >> "` + f.calls + `"
 echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> "` + f.calls + `.env"
 if [ -e "` + dir + `/down" ] && [ "$1" != "--version" ]; then echo "Cannot connect to Podman" >&2; exit 125; fi
+# The last word of a command is the container that it is about, but for run and exec.
+for last; do :; done
 case "$1" in
   --version) echo "podman version 5" ;;
-  image) echo '[{"Id":"abc","RepoDigests":["docker.io/library/postgres@sha256:abc"],"Size":1,"Config":{"Env":["PATH=/x","PG_MAJOR=18"]}}]' ;;
-  inspect) if [ -e "` + dir + `/running" ]; then echo '{"Running":true,"Status":"running"}'; else echo "Error: no such object" >&2; exit 1; fi ;;
-  run) touch "` + dir + `/running" ;;
-  rm|stop) rm -f "` + dir + `/running" ;;
+  image) cat "` + dir + `/image.json" ;;
+  container) if [ -e "` + dir + `/running-$last" ]; then echo '{"Running":true,"Status":"running"}'; else echo "Error: no such container" >&2; exit 1; fi ;;
+  run)
+    if [ -e "` + dir + `/no-run" ]; then echo "it would not run" >&2; exit 1; fi
+    while [ $# -gt 0 ]; do if [ "$1" = --name ]; then touch "` + dir + `/running-$2"; fi; shift; done
+    ;;
+  rm|stop) rm -f "` + dir + `/running-$last" ;;
   exec)
     if [ -e "` + dir + `/never-ready" ]; then exit 2; fi
     if [ -e "` + dir + `/no-dump" ] && echo "$*" | grep -q pg_dump; then echo "pg_dump: it went wrong" >&2; exit 1; fi
@@ -83,16 +88,19 @@ case "$1" in
     case "$*" in
       *pg_dump*) echo "a dump of it" ;;
       *"tar -C /data -cf"*) echo "a tar of it" ;;
-      *n_live_tup*) echo "3 rows in 1 tables" ;;
+      *query_to_xml*) echo "3 rows in 1 tables, of databases app, postgres" ;;
     esac
     ;;
   logs) echo "what it said" ;;
   volume|network)
-    if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1" ]; then echo "no such $1" >&2; exit 1; fi
-    if [ "$2" = create ]; then touch "` + dir + `/$1"; fi
+    if [ "$2" = inspect ] && [ -e "` + dir + `/odd-$1" ]; then echo "something odd happened" >&2; exit 1; fi
+    if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1-$3" ]; then echo "no such $1" >&2; exit 1; fi
+    if [ "$2" = create ]; then touch "` + dir + `/$1-$last"; fi
+    if [ "$2" = rm ]; then rm -f "` + dir + `/$1-$last"; fi
     ;;
 esac
 `
+	f.image(18)
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -106,6 +114,37 @@ esac
 		ReleasePort: func(int) {},
 	})
 	return f
+}
+
+// image says what the engine says of any image.
+func (f *fixture) image(major int) {
+	f.t.Helper()
+	pgdata, volume := fmt.Sprintf("/var/lib/postgresql/%d/docker", major), "/var/lib/postgresql"
+	if major < 18 {
+		pgdata, volume = "/var/lib/postgresql/data", "/var/lib/postgresql/data"
+	}
+	doc := fmt.Sprintf(`[{"Id":"abc","RepoDigests":["docker.io/library/postgres@sha256:abc%d"],"Size":1,"Config":{"Env":["PATH=/x","PG_MAJOR=%d","PGDATA=%s"],"Volumes":{"%s":{}}}}]`, major, major, pgdata, volume)
+	if err := os.WriteFile(filepath.Join(f.dir, "image.json"), []byte(doc), 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// running says whether a service's own container is running, as an app would find it.
+func (f *fixture) running(rec store.Service) bool {
+	_, err := os.Stat(filepath.Join(f.dir, "running-"+container.ServiceName(rec.ID)))
+	return err == nil
+}
+
+func (f *fixture) flag(name string, on bool) {
+	f.t.Helper()
+	path := filepath.Join(f.dir, name)
+	if !on {
+		os.Remove(path)
+		return
+	}
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		f.t.Fatal(err)
+	}
 }
 
 func (f *fixture) asked() string {
@@ -167,7 +206,7 @@ func TestMakingAService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.Version != "18" || rec.Digest != "docker.io/library/postgres@sha256:abc" || rec.State != store.ServiceRunning || rec.EnvVar != "DATABASE_URL" || rec.Port != 40001 {
+	if rec.Version != "18" || rec.Digest != "docker.io/library/postgres@sha256:abc18" || rec.State != store.ServiceRunning || rec.EnvVar != "DATABASE_URL" || rec.Port != 40001 || rec.Mount != "/var/lib/postgresql" {
 		t.Errorf("%+v", rec)
 	}
 	asked := f.asked()
@@ -233,9 +272,7 @@ func TestMakingAService(t *testing.T) {
 	}
 
 	// With what it needs gone, it says so, and leaves things as they are.
-	if err := os.WriteFile(filepath.Join(f.dir, "down"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	f.flag("down", true)
 	if err := f.m.Blocks(ctx, "shop", ""); err == nil {
 		t.Error("removing it with the engine down")
 	}
@@ -246,7 +283,7 @@ func TestMakingAService(t *testing.T) {
 		t.Errorf("%+v", got)
 	}
 	f.m.look(ctx)
-	os.Remove(filepath.Join(f.dir, "down"))
+	f.flag("down", false)
 
 	// Sleep stops it, and keeps what it holds, and waking starts it.
 	if err := f.m.Sleep(ctx, "shop", "production"); err != nil {
@@ -258,10 +295,9 @@ func TestMakingAService(t *testing.T) {
 	if strings.Contains(f.asked(), "volume rm") {
 		t.Error("going to sleep removed its volume")
 	}
-	before = f.asked()
-	f.m.look(ctx)
-	if again := strings.TrimPrefix(f.asked(), before); strings.Contains(again, " run ") || strings.HasPrefix(again, "run ") {
-		t.Errorf("it started what should be asleep:\n%s", again)
+	f.m.keepUp(ctx, rec)
+	if f.running(rec) {
+		t.Error("it started what should be asleep")
 	}
 	if err := f.m.Wake(ctx, "shop", "production"); err != nil {
 		t.Fatal(err)
@@ -271,9 +307,9 @@ func TestMakingAService(t *testing.T) {
 	}
 
 	// One that has stopped by itself is started again.
-	os.Remove(filepath.Join(f.dir, "running"))
-	f.m.look(ctx)
-	if _, err := os.Stat(filepath.Join(f.dir, "running")); err != nil {
+	os.Remove(filepath.Join(f.dir, "running-"+container.ServiceName(rec.ID)))
+	f.m.keepUp(ctx, rec)
+	if !f.running(rec) {
 		t.Error("it was not started again")
 	}
 
@@ -286,7 +322,7 @@ func TestMakingAService(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.m.keepUp(ctx, stale)
-	if _, err := os.Stat(filepath.Join(f.dir, "running")); err == nil {
+	if f.running(stale) {
 		t.Error("it started what had just gone to sleep")
 	}
 	if err := f.m.Wake(ctx, "shop", "production"); err != nil {
@@ -304,7 +340,7 @@ func TestMakingAService(t *testing.T) {
 		t.Errorf("%+v", list)
 	}
 	f.m.keepUp(ctx, stale)
-	if _, err := os.Stat(filepath.Join(f.dir, "running")); err == nil {
+	if f.running(stale) {
 		t.Error("it started what had just been removed")
 	}
 }
@@ -312,9 +348,7 @@ func TestMakingAService(t *testing.T) {
 func TestAServiceThatDoesNotComeUpLeavesNothing(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	if err := os.WriteFile(filepath.Join(f.dir, "never-ready"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	f.flag("never-ready", true)
 	err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", postgresPlan(), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "did not become ready") || !strings.Contains(err.Error(), "what it said") {
 		t.Errorf("%v", err)
@@ -449,10 +483,32 @@ func TestAServiceOfS3(t *testing.T) {
 }
 
 func TestSmallThings(t *testing.T) {
-	for version, want := range map[string]string{"15": "/var/lib/postgresql/data", "17": "/var/lib/postgresql/data", "18": "/var/lib/postgresql", "19": "/var/lib/postgresql"} {
-		if got := postgresMount(version); got != want {
-			t.Errorf("%s: %s", version, got)
+	mounts := map[string]string{
+		`{"Env":["PGDATA=/var/lib/postgresql/18/docker"],"Volumes":{"/var/lib/postgresql":{}}}`: "/var/lib/postgresql",
+		`{"Env":["PGDATA=/var/lib/postgresql/data"],"Volumes":{"/var/lib/postgresql/data":{}}}`: "/var/lib/postgresql/data",
+		`{"Env":["PGDATA=/srv/pg/data"]}`:                             "/srv/pg/data",
+		`{"Env":["PGDATA=/srv/pg/data"],"Volumes":{"/elsewhere":{}}}`: "/srv/pg/data",
+	}
+	for config, want := range mounts {
+		var info container.ImageInfo
+		if err := json.Unmarshal([]byte(`{"Config":`+config+`}`), &info); err != nil {
+			t.Fatal(err)
 		}
+		if got := dataMount(info, "18"); got != want {
+			t.Errorf("%s: %s", config, got)
+		}
+	}
+	if got := dataMount(container.ImageInfo{}, "14"); got != "/var/lib/postgresql/data" {
+		t.Error(got)
+	}
+	if got := dataMount(container.ImageInfo{}, "18"); got != "/var/lib/postgresql" {
+		t.Error(got)
+	}
+	// What a new service has already is left out of a dump, and rows that look like it are not.
+	dump := "CREATE ROLE app;\nALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\nCREATE DATABASE app WITH TEMPLATE = template0;\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
+	want := "ALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
+	if got, err := io.ReadAll(withoutWhatIsThere(strings.NewReader(dump))); err != nil || string(got) != want {
+		t.Errorf("%q %v", got, err)
 	}
 	for image, want := range map[string]string{
 		"postgres:18":            "docker.io/library/postgres:18",
@@ -496,7 +552,7 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", plan, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	dump := filepath.Join(f.dir, "data", "shop", "production", ".services", "db.sql")
+	dump := filepath.Join(f.dir, "data", "shop", ".services", "production", "db.sql")
 
 	// A preview's is left out of a backup, as it is not meant to last.
 	if _, err := f.db.CreateEnvironment(ctx, "shop", "topic", store.KindPreview, "topic"); err != nil {
@@ -512,13 +568,11 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if err != nil || string(data) != "a dump of it\n" {
 		t.Errorf("%q %v", data, err)
 	}
-	if _, err := os.Stat(filepath.Join(f.dir, "data", "shop", "topic", ".services", "db.sql")); err == nil {
+	if _, err := os.Stat(filepath.Join(f.dir, "data", "shop", ".services", "topic", "db.sql")); err == nil {
 		t.Error("a preview's was dumped")
 	}
 	// One that fails says so, and leaves the last one as it was.
-	if err := os.WriteFile(filepath.Join(f.dir, "no-dump"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	f.flag("no-dump", true)
 	problems := f.m.DumpAll(ctx)
 	if len(problems) != 1 || !strings.Contains(problems[0], "was not dumped") || !strings.Contains(problems[0], "it went wrong") {
 		t.Errorf("%v", problems)
@@ -529,26 +583,94 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if entries, _ := os.ReadDir(filepath.Dir(dump)); len(entries) != 1 {
 		t.Errorf("what it left: %v", entries)
 	}
-	os.Remove(filepath.Join(f.dir, "no-dump"))
+	f.flag("no-dump", false)
 
-	// On a fresh volume, as after a restore to a new machine, what it held comes back from its dump.
+	// One that is asleep is dumped as well, where no app can reach it, as nothing says that its last one is current.
 	rec, err := f.db.Service(ctx, "shop", "production", "db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Remove(filepath.Join(f.dir, "running"))
-	os.Remove(filepath.Join(f.dir, "volume"))
+	if err := f.m.Sleep(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dump); err != nil {
+		t.Fatal(err)
+	}
+	if problems := f.m.DumpAll(ctx); len(problems) != 0 {
+		t.Errorf("%v", problems)
+	}
+	if data, err := os.ReadFile(dump); err != nil || string(data) != "a dump of it\n" {
+		t.Errorf("asleep: %q %v", data, err)
+	}
+	if f.running(rec) {
+		t.Error("what dumped it left it running")
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "running-"+container.ServiceName(rec.ID)+"-private")); err == nil {
+		t.Error("what dumped it left it running, where no app can reach it")
+	}
+	if err := f.m.Wake(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+
+	// On a fresh volume, as after a restore to a new machine, what it held comes back from its dump, before anything can reach it.
+	gone := func() {
+		t.Helper()
+		f.flag("running-"+container.ServiceName(rec.ID), false)
+		f.flag("volume-"+rec.Volume, false)
+		f.flag("loaded", false)
+	}
+	gone()
+	f.flag("no-run", true)
+	// With it failing to start, for a start: nothing is left to think that it holds anything.
+	f.m.keepUp(ctx, rec)
+	if f.running(rec) {
+		t.Error("it is running")
+	}
+	f.flag("no-run", false)
+	if got, _ := f.db.Service(ctx, "shop", "production", "db"); !got.PendingLoad {
+		t.Errorf("what is pending: %+v", got)
+	}
+	f.flag("never-ready", true)
+	f.m.keepUp(ctx, rec)
+	f.flag("never-ready", false)
+	if f.running(rec) {
+		t.Error("it is running, with nothing in it")
+	}
+	if got := f.m.DumpAll(ctx); len(got) != 1 || !strings.Contains(got[0], "has not been put back") {
+		t.Errorf("a dump of what is not back yet: %v", got)
+	}
+	if data, _ := os.ReadFile(dump); string(data) != "a dump of it\n" {
+		t.Errorf("the only good dump: %q", data)
+	}
 	f.m.keepUp(ctx, rec)
 	loaded, err := os.ReadFile(filepath.Join(f.dir, "loaded"))
 	if err != nil || !strings.Contains(string(loaded), "a dump of it") {
 		t.Errorf("what it loaded: %q %v", loaded, err)
 	}
-	os.Remove(filepath.Join(f.dir, "loaded"))
+	if !f.running(rec) {
+		t.Error("it did not come up after that")
+	}
+	if got, _ := f.db.Service(ctx, "shop", "production", "db"); got.PendingLoad {
+		t.Errorf("what is pending: %+v", got)
+	}
+	f.flag("loaded", false)
 	// And on the volume that it had, nothing is loaded over it.
-	os.Remove(filepath.Join(f.dir, "running"))
+	f.flag("running-"+container.ServiceName(rec.ID), false)
 	f.m.keepUp(ctx, rec)
 	if _, err := os.Stat(filepath.Join(f.dir, "loaded")); err == nil {
 		t.Error("it loaded a dump over what it held")
+	}
+	// Nor if the engine cannot say whether it has one: only saying that it has none means that.
+	f.flag("running-"+container.ServiceName(rec.ID), false)
+	f.flag("odd-volume", true)
+	f.m.keepUp(ctx, rec)
+	f.flag("odd-volume", false)
+	if _, err := os.Stat(filepath.Join(f.dir, "loaded")); err == nil {
+		t.Error("it loaded a dump, not knowing")
+	}
+	f.m.keepUp(ctx, rec)
+	if !f.running(rec) {
+		t.Error("it did not come up")
 	}
 
 	// A preview is seeded only if it says so, and only behind a gate.
@@ -579,6 +701,19 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.dir, "loaded")); err == nil {
 		t.Error("it copied production's data to where anyone can reach it")
 	}
+	// A pull request's branch with nothing to say that it is not from a fork, as on its first deployment.
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "pr-7", store.KindPreview, "pr-7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetEnvironmentAccess(ctx, "shop", "pr-7", store.EnvAccess{Mode: "login"}); err != nil {
+		t.Fatal(err)
+	}
+	if log := make("pr-7"); !strings.Contains(log, "may come from a fork") {
+		t.Errorf("a pull request:\n%s", log)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "loaded")); err == nil {
+		t.Error("it copied production's data to a fork's preview")
+	}
 	if _, err := f.db.CreatePreviewAlone(ctx, "shop", "agent-work"); err != nil {
 		t.Fatal(err)
 	}
@@ -602,10 +737,38 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if a, b := strings.Index(string(loaded), "a dump of it"), strings.Index(string(loaded), "update users"); a < 0 || b < a {
 		t.Errorf("what it loaded, in order: %q", loaded)
 	}
-	// If what removes what should not be copied goes wrong, nothing is left of the copy.
+	// A build can leave a link there, which is not to be followed out of the app.
 	if err := os.Remove(filepath.Join(appDir, "sanitize.sql")); err != nil {
 		t.Fatal(err)
 	}
+	secret := filepath.Join(f.dir, "master.key")
+	if err := os.WriteFile(secret, []byte("the server's secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(appDir, "sanitize.sql")); err != nil {
+		t.Fatal(err)
+	}
+	f.flag("loaded", false)
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "linked", store.KindPreview, "linked"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetEnvironmentAccess(ctx, "shop", "linked", store.EnvAccess{Mode: "login"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Ensure(ctx, "shop", "linked", store.KindPreview, "me", appDir, seeded, io.Discard); err == nil || !strings.Contains(err.Error(), "sanitize") {
+		t.Errorf("a link out: %v", err)
+	}
+	if loaded, _ := os.ReadFile(filepath.Join(f.dir, "loaded")); strings.Contains(string(loaded), "the server's secret") {
+		t.Error("it fed the server's own file to the service")
+	}
+	if list, _ := f.db.Services(ctx, "shop", "linked"); len(list) != 0 {
+		t.Errorf("what it left: %+v", list)
+	}
+	if err := os.Remove(filepath.Join(appDir, "sanitize.sql")); err != nil {
+		t.Fatal(err)
+	}
+
+	// If what removes what should not be copied goes wrong, nothing is left of the copy.
 	if _, err := f.db.CreateEnvironment(ctx, "shop", "gated2", store.KindPreview, "gated2"); err != nil {
 		t.Fatal(err)
 	}
@@ -624,39 +787,130 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 		t.Errorf("%q %v", digest, err)
 	}
 
-	// Upgrading goes only up, and keeps what it held until told.
-	if err := f.m.Upgrade(ctx, "shop", "production", "db", "17", io.Discard); err == nil || !strings.Contains(err.Error(), "not newer") {
+	// Upgrading goes only up, and refuses before anything has been stopped.
+	prepare := func(version, image string) (*Upgrade, error) {
+		return f.m.PrepareUpgrade(ctx, "shop", "production", "db", version, image, io.Discard)
+	}
+	if _, err := prepare("17", ""); err == nil || !strings.Contains(err.Error(), "not newer") {
 		t.Errorf("going down: %v", err)
 	}
-	if err := f.m.Upgrade(ctx, "shop", "production", "db", "18", io.Discard); err == nil || !strings.Contains(err.Error(), "not newer") {
+	if _, err := prepare("18", ""); err == nil || !strings.Contains(err.Error(), "not newer") {
 		t.Errorf("staying: %v", err)
 	}
-	if err := f.db.SetServiceImage(ctx, rec.ID, "17", "docker.io/library/postgres:17-trixie", "", rec.Volume, ""); err != nil {
+	f.image(17)
+	if err := f.db.SetServiceImage(ctx, rec.ID, "17", "docker.io/library/postgres:17-trixie", "", "/var/lib/postgresql/data", rec.Volume, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.m.Upgrade(ctx, "shop", "production", "db", "18", io.Discard); err != nil {
+	if _, err := prepare("18", ""); err == nil || !strings.Contains(err.Error(), "holds PostgreSQL 17") {
+		t.Errorf("an image that holds something else: %v", err)
+	}
+	f.image(18)
+	upgrade, err := prepare("18", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := f.asked()
+	if err := f.m.Upgrade(ctx, upgrade, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.db.Service(ctx, "shop", "production", "db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != "18" || got.OldVolume != rec.Volume || got.Volume == rec.Volume {
+	if got.Version != "18" || got.OldVolume != rec.Volume || got.Volume == rec.Volume || got.Mount != "/var/lib/postgresql" {
 		t.Errorf("%+v", got)
 	}
-	if err := f.m.Upgrade(ctx, "shop", "production", "db", "19", io.Discard); err == nil || !strings.Contains(err.Error(), "--finish") {
+	if _, err := prepare("19", ""); err == nil || !strings.Contains(err.Error(), "--finish") {
 		t.Errorf("again before finishing: %v", err)
 	}
-	if strings.Contains(f.asked(), "volume rm -f "+rec.Volume) {
+	if strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume+"\n") {
 		t.Error("it removed what it held")
 	}
 	if err := f.m.FinishUpgrade(ctx, "shop", "production", "db"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(f.asked(), "volume rm -f "+rec.Volume) {
+	if !strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume+"\n") {
 		t.Error("it kept what it held")
 	}
 	if got, _ := f.db.Service(ctx, "shop", "production", "db"); got.OldVolume != "" {
 		t.Errorf("%+v", got)
+	}
+	// Another image has to be named, as moving to the official one would lose what it was there for.
+	if err := f.db.SetServiceImage(ctx, rec.ID, "18", "docker.io/pgvector/pgvector:pg18", "", "/var/lib/postgresql", got.Volume, ""); err != nil {
+		t.Fatal(err)
+	}
+	f.image(19)
+	if _, err := prepare("19", ""); err == nil || !strings.Contains(err.Error(), "with --image") {
+		t.Errorf("a custom image: %v", err)
+	}
+	if u, err := prepare("19", "pgvector/pgvector:pg19"); err != nil || u.next.Image != "docker.io/pgvector/pgvector:pg19" {
+		t.Errorf("%+v %v", u, err)
+	}
+	// Going back to a dump is a thing to ask for.
+	f.flag("loaded", false)
+	f.image(18)
+	if err := f.db.SetServiceImage(ctx, rec.ID, "18", "docker.io/library/postgres:18-trixie", "", "/var/lib/postgresql", got.Volume, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Restore(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if loaded, _ := os.ReadFile(filepath.Join(f.dir, "loaded")); !strings.Contains(string(loaded), "a dump of it") {
+		t.Errorf("%q", loaded)
+	}
+	// A failed wake still means that it should be running, and what keeps it so picks it up.
+	if err := f.m.Sleep(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	f.flag("down", true)
+	if err := f.m.Wake(ctx, "shop", "production"); err == nil {
+		t.Error("it woke, with the engine down")
+	}
+	f.flag("down", false)
+	if got, _ := f.db.Service(ctx, "shop", "production", "db"); got.State != store.ServiceRunning {
+		t.Errorf("after a failed wake: %+v", got)
+	}
+	// A limit that changes reaches it, and what it holds stays.
+	limited := postgresPlan()
+	limited.Services["db"] = manifest.ServicePlan{Type: manifest.ServicePostgres, Version: "18", Env: "DATABASE_URL", Memory: 1 << 30}
+	f.flag("running-"+container.ServiceName(rec.ID), false)
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", limited, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.asked(), "--memory 1073741824") {
+		t.Errorf("%s", f.asked())
+	}
+}
+
+func TestAPullRequestFromAFork(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "feature", store.KindPreview, "feature"); err != nil {
+		t.Fatal(err)
+	}
+	if fork, err := f.db.EnvironmentFromFork(ctx, "shop", "feature"); err != nil || fork {
+		t.Errorf("a branch: %v %v", fork, err)
+	}
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "pr-9", store.KindPreview, "pr-9"); err != nil {
+		t.Fatal(err)
+	}
+	if fork, err := f.db.EnvironmentFromFork(ctx, "shop", "pr-9"); err != nil || !fork {
+		t.Errorf("nothing on record: %v %v", fork, err)
+	}
+	appID, _, err := f.db.Scope(ctx, "shop", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetForgePull(ctx, store.ForgePull{AppID: appID, Number: 9, HeadSHA: "abc", State: store.PullBuilding, FromFork: false, UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if fork, err := f.db.EnvironmentFromFork(ctx, "shop", "pr-9"); err != nil || fork {
+		t.Errorf("from this repository: %v %v", fork, err)
+	}
+	if err := f.db.SetForgePull(ctx, store.ForgePull{AppID: appID, Number: 9, HeadSHA: "abc", State: store.PullBuilding, FromFork: true, UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if fork, err := f.db.EnvironmentFromFork(ctx, "shop", "pr-9"); err != nil || !fork {
+		t.Errorf("from a fork: %v %v", fork, err)
 	}
 }

@@ -2721,6 +2721,9 @@
       },
       "ServiceUpgrade": {
         "properties": {
+          "image": {
+            "type": "string"
+          },
           "version": {
             "type": "string"
           }
@@ -5823,6 +5826,64 @@
           }
         ],
         "summary": "Let go of what a service held before its last upgrade",
+        "tags": [
+          "apps"
+        ],
+        "x-moorage-permission": "admin"
+      }
+    },
+    "/apps/{app}/envs/{env}/services/{name}/restore": {
+      "post": {
+        "operationId": "postAppsAppEnvsEnvServicesNameRestore",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "token": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "summary": "Put a service back to its latest dump, with what connects to it stopped",
         "tags": [
           "apps"
         ],

@@ -1100,7 +1100,7 @@ func TestContainerServiceData(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Containers.Engine = e.Bin
 	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
-	addrs, _ := start(t, cfg)
+	addrs, stop := start(t, cfg)
 	c := apiClient(t, cfg, addrs)
 	ctx := context.Background()
 	db := testAuth(t, cfg).DB
@@ -1126,7 +1126,8 @@ func TestContainerServiceData(t *testing.T) {
 		}
 		return got
 	}
-	psql(rec.ID, "create table people (name text, email text); insert into people values ('Ada', 'ada@example.com')")
+	psql(rec.ID, "create table people (name text, email text); insert into people values ('Ada', 'ada@example.com'), ('odd', 'CREATE ROLE app;')")
+	psql(rec.ID, "create database other")
 
 	// A backup dumps it into the data directory, and so holds it.
 	started, err := c.StartBackup(ctx)
@@ -1145,23 +1146,36 @@ func TestContainerServiceData(t *testing.T) {
 		}
 		return false
 	})
-	dump := filepath.Join(cfg.DataDir, "data", "shop", "production", ".services", "db.sql")
+	dump := filepath.Join(cfg.DataDir, "data", "shop", ".services", "production", "db.sql")
 	data, err := os.ReadFile(dump)
 	if err != nil || !strings.Contains(string(data), "ada@example.com") {
 		t.Fatalf("its dump: %v\n%s", err, data)
 	}
 
 	// With its volume gone, as on a new machine after a restore, it comes back with what it held.
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
 	if out, err := exec.Command(e.Bin, "rm", "-f", container.ServiceName(rec.ID)).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 	if out, err := exec.Command(e.Bin, "volume", "rm", "-f", rec.Volume).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
+	addrs, stop = start(t, cfg)
+	t.Cleanup(func() { stop() })
+	c = apiClient(t, cfg, addrs)
+	db = testAuth(t, cfg).DB
 	waitUntil(t, "what it held to come back", func() bool {
-		got, err := psqlIn(rec.ID, "select email from people")
+		got, err := psqlIn(rec.ID, "select email from people where name = 'Ada'")
 		return err == nil && got == "ada@example.com"
 	})
+	if got := psql(rec.ID, "select count(*) from pg_database where datname = 'other'"); got != "1" {
+		t.Errorf("its other database: %q", got)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'odd'"); got != "CREATE ROLE app;" {
+		t.Errorf("a row that looks like what is left out: %q", got)
+	}
 
 	// A preview behind a gate is seeded from that dump, and sanitized before anything connects.
 	seeded := appManifest("# a preview\n\n[environments.preview]\naccess = \"login\"\n\n[services.db]\ntype = \"postgres\"\nversion = \"17\"\nseed = \"production\"\nsanitize = \"sanitize.sql\"\n")
@@ -1184,16 +1198,16 @@ func TestContainerServiceData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := psql(preview.ID, "select name || ' ' || email from people"); got != "Ada nobody@example.com" {
+	if got := psql(preview.ID, "select distinct email from people"); got != "nobody@example.com" {
 		t.Errorf("in the preview: %q", got)
 	}
 
 	// An upgrade moves what it holds to the newer version, with the app stopped for that, and keeps the old volume until told.
-	said, err := c.UpgradeService(ctx, "shop", "production", "db", "18")
+	said, err := c.UpgradeService(ctx, "shop", "production", "db", "18", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(said, "1 tables") {
+	if !strings.Contains(said, "2 rows in 1 tables, of databases app, other, postgres") {
 		t.Errorf("what it said: %q", said)
 	}
 	after, err := db.Service(ctx, "shop", "production", "db")
@@ -1206,8 +1220,11 @@ func TestContainerServiceData(t *testing.T) {
 	if got := psql(rec.ID, "show server_version_num"); !strings.HasPrefix(got, "18") {
 		t.Errorf("its version: %q", got)
 	}
-	if got := psql(rec.ID, "select email from people"); got != "ada@example.com" {
+	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
 		t.Errorf("what it holds: %q", got)
+	}
+	if got := psql(rec.ID, "select count(*) from pg_database where datname = 'other'"); got != "1" {
+		t.Errorf("its other database: %q", got)
 	}
 	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err != nil {
 		t.Errorf("its old volume: %v: %s", err, out)

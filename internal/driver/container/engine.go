@@ -257,6 +257,7 @@ type ImageInfo struct {
 	Config      struct {
 		ExposedPorts map[string]any `json:"ExposedPorts"`
 		Env          []string       `json:"Env"`
+		Volumes      map[string]any `json:"Volumes"`
 	} `json:"Config"`
 }
 

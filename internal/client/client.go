@@ -1388,13 +1388,18 @@ func (c *Client) UpdateService(ctx context.Context, app, env, name string) (stri
 }
 
 // UpgradeService moves a service to a newer major version.
-func (c *Client) UpgradeService(ctx context.Context, app, env, name, version string) (string, error) {
+func (c *Client) UpgradeService(ctx context.Context, app, env, name, version, image string) (string, error) {
 	var out apitypes.ServiceChange
-	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/upgrade", apitypes.ServiceUpgrade{Version: version}, &out)
+	err := c.post(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/upgrade", apitypes.ServiceUpgrade{Version: version, Image: image}, &out)
 	return out.Log, err
 }
 
 // FinishServiceUpgrade lets go of what a service held before its last upgrade.
 func (c *Client) FinishServiceUpgrade(ctx context.Context, app, env, name string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/old-volume", nil, "", nil)
+}
+
+// RestoreService puts a service back to its latest dump.
+func (c *Client) RestoreService(ctx context.Context, app, env, name string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(app)+"/envs/"+url.PathEscape(env)+"/services/"+url.PathEscape(name)+"/restore", nil, "", nil)
 }

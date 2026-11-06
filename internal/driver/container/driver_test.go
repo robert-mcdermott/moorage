@@ -506,7 +506,7 @@ func fakeEngine(t *testing.T) (*Driver, string) {
 } >> "` + calls + `"
 case "$1" in
   --version) echo "podman version 5" ;;
-  inspect) echo '{"Status":"running","Running":true,"Pid":42,"StartedAt":"2026-01-01T00:00:00Z"}' ;;
+  container) echo '{"Status":"running","Running":true,"Pid":42,"StartedAt":"2026-01-01T00:00:00Z"}' ;;
   wait) sleep 600 ;;
 esac
 `

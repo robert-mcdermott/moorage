@@ -1236,6 +1236,8 @@ type ServiceLog struct {
 // ServiceUpgrade asks for a newer major version of a service.
 type ServiceUpgrade struct {
 	Version string `json:"version"`
+	// Image names the image that holds it, for a service that does not run the official one.
+	Image string `json:"image,omitempty"`
 }
 
 // ServiceChange says what a change to a service did, in the words of what it did.

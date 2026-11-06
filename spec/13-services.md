@@ -70,7 +70,7 @@ Choosing wrongly is cheap to undo: the manifest says only `type = "s3"`, an app 
 `.github/workflows/services-first-test.yml` tried the images under rootless Podman and Docker on 5 November 2026, with `boto3`, the AWS command line and `psql`. It runs when asked, or when it changes. What it settled:
 
 - **PostgreSQL does what this design needs,** under both: on a named volume, on a loopback port and by name on a network, ready in about a second and stopped cleanly by SIGINT in under half a second, with its data surviving a new container and a dump restoring into a fresh volume. At rest it uses 27 MiB.
-- **Where a volume goes depends on the major version.** It is `/var/lib/postgresql` from 18 on, and `/var/lib/postgresql/data` before that.
+- **Where a volume goes depends on the image.** It is `/var/lib/postgresql` from 18 on, and `/var/lib/postgresql/data` before that, and an image of someone else's can say otherwise. So it goes by what an image declares, and is recorded when a service is made. A volume in the wrong place would hold nothing, while what the database wrote went in one that nothing looks at again.
 - **An older major on a newer volume stops at once,** and does not start empty: `initdb` says that the directory is not empty. So the refusal at deploy is a kindness, and not the only thing between a mistake and lost data.
 - **A plain `tar` of Versity's two directories is a dump.** Restored onto fresh volumes, an object comes back with its content type and metadata, which is the claim that decided on `--sidecar`.
 - **Everyday S3 works on both,** with real clients: multipart, presigned GET and PUT, CORS, enforced bucket policies, tags, and names in other alphabets. A presigned URL is refused for another host on both, as above.
@@ -127,19 +127,19 @@ Allowed, and labelled for what it is: one container with no replica, kept by bac
 ## Previews
 
 - **Empty by default,** with `[release] on_create` to seed them, which runs once. Copying production into previews is how customer data leaks.
-- **`seed = "production"` is an opt-in** that restores that service's latest dump, runs `sanitize` before any app connects, and is refused for a preview whose gate is public, or for a pull
-  request from a fork. Without a `sanitize`, it takes saying so in the manifest.
+- **`seed = "production"` is an opt-in** that restores that service's latest dump, runs `sanitize` before any app connects, and is refused for a preview whose gate is public, for a coding agent's preview, or for a pull
+  request from a fork, or that nothing says is not: a preview's branch says which pull request it is before a record of its environment does. Without a `sanitize`, it takes saying so in the manifest. It is done where no app can reach it, and it is on record as unfinished until it is over, so that a server stopping halfway does not leave a copy that nothing has sanitized.
 - **Dumps and not clones.** They work across versions and on every platform. Cloning files is much quicker on a filesystem that can do it and useless on ext4, so it can be an optimisation later.
 - `previews = "none"` for an app that needs none, and the console shows how many services are running and what they use, as they add up.
 
 ## Backups and upgrades
 
-- **Server backups include a dump** of each production and named service: `pg_dump`, or a tar of the S3 directory. It is written to `data/<app>/<env>/.services/`, so that the backup's format
-  does not change and older versions can still read it. A dump that fails is reported, and does not lose the rest of the backup.
-- **Volumes are not in the backup.** A restore to a new machine makes the service afresh and loads its dump.
+- **Server backups include a dump** of each production and named service: `pg_dumpall`, as an app can make other databases and roles, or a tar of the S3 directories. One that is asleep is started for it, where no app can reach it. It is written to `data/<app>/.services/<env>/`, so that the backup's format
+  does not change and older versions can still read it, and not in an environment's data directory, which its app's user owns: it could leave a link there for the server to follow, and a preview's code could read production's. A dump that fails is reported, and does not lose the rest of the backup.
+- **Volumes are not in the backup.** A restore to a new machine makes the service afresh and loads its dump, where no app can reach it, as one that connected to an empty database would migrate it and the dump would not then load. It is on record that a volume holds nothing to keep until that has finished, so that a try that does not get to the end starts again from nothing, and the next backup does not replace the only good dump. Only the engine saying that there is no volume means that: one having trouble says nothing of what it holds. On the machine that it ran on, a service keeps what it holds, and `moor services restore` goes back to the dump.
 - **Minor updates** are explicit: `moor services update db`.
 - **A major version change is refused at deploy,** with instructions. `moor services upgrade` then does a dump with the newer tools, a new volume, a restore and a check, and keeps the old
-  volume until told. The images hold only their own major version, so `pg_upgrade` is not available.
+  volume until told. The images hold only their own major version, so `pg_upgrade` is not available. What can refuse it does so before anything stops. Then the app stops, with its usual drain, and commands and cron jobs are stopped and refused. The record names the new volume before it starts, once that holds everything, so that a server stopping at any moment comes back on one that is whole.
 
 ## What will surprise people
 

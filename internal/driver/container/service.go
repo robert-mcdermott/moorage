@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -62,22 +63,20 @@ func idPart(id string) string {
 }
 
 // RunService starts a service's container, replacing any that is there. The data is in the volume, so that nothing is lost by starting afresh, and what it
-// was started with is always what is on record. It says whether a volume had to be made, which means that the service holds nothing.
-func (d *Driver) RunService(ctx context.Context, s ServiceSpec) (fresh bool, err error) {
+// was started with is always what is on record.
+func (d *Driver) RunService(ctx context.Context, s ServiceSpec) error {
 	for _, name := range sortedKeys(s.Volumes) {
-		made, err := d.ensureVolume(ctx, name, s)
-		if err != nil {
-			return false, err
+		if err := d.ensureVolume(ctx, name, s); err != nil {
+			return err
 		}
-		fresh = fresh || made
 	}
 	if s.Network != "" {
 		if err := d.EnsureNetwork(ctx, s.Network); err != nil {
-			return false, err
+			return err
 		}
 	}
 	if _, err := d.tell(removeLimit, "rm", "-f", s.Name); err != nil && !IsNotFound(err) {
-		return false, err
+		return err
 	}
 	args := []string{"run", "-d", "--name", s.Name, "--restart=no", "--security-opt", "no-new-privileges"}
 	args = append(args, d.serviceLabels(s)...)
@@ -111,16 +110,16 @@ func (d *Driver) RunService(ctx context.Context, s ServiceSpec) (fresh bool, err
 	args = append(args, s.Command...)
 	authEnv, cleanup, err := d.engine.withAuth(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer cleanup()
 	running, stopWaiting := context.WithTimeout(ctx, runLimit)
 	defer stopWaiting()
 	if _, err := d.engine.output(running, append(env, authEnv...), args...); err != nil {
 		d.tell(removeLimit, "rm", "-f", s.Name)
-		return false, err
+		return err
 	}
-	return fresh, nil
+	return nil
 }
 
 func (d *Driver) serviceLabels(s ServiceSpec) []string {
@@ -131,30 +130,47 @@ func (d *Driver) serviceLabels(s ServiceSpec) []string {
 	return args
 }
 
-func (d *Driver) ensureVolume(ctx context.Context, name string, s ServiceSpec) (made bool, err error) {
+func (d *Driver) ensureVolume(ctx context.Context, name string, s ServiceSpec) error {
+	there, err := d.VolumeThere(ctx, name)
+	if err != nil || there {
+		return err
+	}
 	asking, cancel := context.WithTimeout(ctx, serviceLimit)
 	defer cancel()
-	if _, err := d.engine.output(asking, nil, "volume", "inspect", name); err == nil {
-		return false, nil
-	}
 	args := []string{"volume", "create"}
 	for _, l := range [][2]string{{labelManaged, "true"}, {labelServer, d.server}, {labelService, s.ID}} {
 		args = append(args, "--label", l[0]+"="+l[1])
 	}
-	if _, err := d.engine.output(asking, nil, append(args, name)...); err != nil {
-		return false, err
+	_, err = d.engine.output(asking, nil, append(args, name)...)
+	return err
+}
+
+// VolumeThere says whether there is a volume of that name. Only the engine saying that there is none counts: one that is having trouble says nothing of what it holds.
+func (d *Driver) VolumeThere(ctx context.Context, name string) (bool, error) {
+	asking, cancel := context.WithTimeout(ctx, serviceLimit)
+	defer cancel()
+	_, err := d.engine.output(asking, nil, "volume", "inspect", name)
+	switch {
+	case err == nil:
+		return true, nil
+	case IsNotFound(err):
+		return false, nil
 	}
-	return true, nil
+	return false, err
 }
 
 // EnsureNetwork makes a network, if there is none of that name.
 func (d *Driver) EnsureNetwork(ctx context.Context, name string) error {
 	asking, cancel := context.WithTimeout(ctx, serviceLimit)
 	defer cancel()
-	if _, err := d.engine.output(asking, nil, "network", "inspect", name); err == nil {
+	_, err := d.engine.output(asking, nil, "network", "inspect", name)
+	if err == nil {
 		return nil
 	}
-	_, err := d.engine.output(asking, nil, "network", "create", "--label", labelManaged+"=true", "--label", labelServer+"="+d.server, name)
+	if !IsNotFound(err) {
+		return err
+	}
+	_, err = d.engine.output(asking, nil, "network", "create", "--label", labelManaged+"=true", "--label", labelServer+"="+d.server, name)
 	return err
 }
 
@@ -174,29 +190,39 @@ func (d *Driver) ServiceRunning(ctx context.Context, name string) (bool, error) 
 
 // ExecService runs a command in a service's container, and says what it wrote and whether it worked.
 func (d *Driver) ExecService(ctx context.Context, name string, env map[string]string, args ...string) (string, error) {
-	command := []string{"exec"}
-	var secrets []string
-	for _, k := range sortedKeys(env) {
-		command = append(command, "-e", k)
-		secrets = append(secrets, k+"="+env[k])
-	}
-	command = append(append(command, name), args...)
+	command, secrets := execArgs(name, env, false, args)
 	out, err := d.engine.output(ctx, secrets, command...)
 	return string(out), err
 }
 
+// execArgs gives a command the values of env by way of the engine command's own environment, and so not on a command line.
+func execArgs(name string, env map[string]string, interactive bool, args []string) (command, secrets []string) {
+	command = []string{"exec"}
+	if interactive {
+		command = append(command, "-i")
+	}
+	for _, k := range sortedKeys(env) {
+		command = append(command, "-e", k)
+		secrets = append(secrets, k+"="+env[k])
+	}
+	return append(append(command, name), args...), secrets
+}
+
 // ExecServiceTo runs a command in a service's container, with what it writes going to w.
-func (d *Driver) ExecServiceTo(ctx context.Context, name string, w io.Writer, args ...string) error {
+func (d *Driver) ExecServiceTo(ctx context.Context, name string, env map[string]string, w io.Writer, args ...string) error {
+	command, secrets := execArgs(name, env, false, args)
 	var said bytes.Buffer
-	if err := d.engine.stream(ctx, nil, w, &said, append([]string{"exec", name}, args...)...); err != nil {
+	if err := d.engine.stream(ctx, secrets, w, &said, command...); err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(said.String()))
 	}
 	return nil
 }
 
 // ExecServiceFrom runs a command in a service's container, reading r.
-func (d *Driver) ExecServiceFrom(ctx context.Context, name string, r io.Reader, args ...string) error {
-	cmd := exec.CommandContext(ctx, d.engine.Bin, append([]string{"exec", "-i", name}, args...)...)
+func (d *Driver) ExecServiceFrom(ctx context.Context, name string, env map[string]string, r io.Reader, args ...string) error {
+	command, secrets := execArgs(name, env, true, args)
+	cmd := exec.CommandContext(ctx, d.engine.Bin, command...)
+	cmd.Env = append(os.Environ(), secrets...)
 	cmd.Stdin = r
 	cmd.WaitDelay = waitForDescendants
 	said, err := cmd.CombinedOutput()

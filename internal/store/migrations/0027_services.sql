@@ -11,6 +11,8 @@ CREATE TABLE services (
     -- The engine that holds its image and its volume, which it stays with.
     engine       TEXT NOT NULL,
     volume       TEXT NOT NULL,
+    -- Where it is mounted, which depends on the image that made it.
+    mount        TEXT NOT NULL DEFAULT '',
     -- What it held before an upgrade, kept until someone says that the upgrade was good.
     old_volume   TEXT NOT NULL DEFAULT '',
     port         INTEGER NOT NULL,
@@ -18,8 +20,10 @@ CREATE TABLE services (
     -- The variable that gives the app its address.
     env_var      TEXT NOT NULL,
     memory       INTEGER NOT NULL DEFAULT 0,
-    -- running, or stopped: what it should be doing, and not what it was last seen doing.
+    -- running, or stopped: what it should be doing, and not what it was last seen doing. seeding is one that has not finished being made.
     state        TEXT NOT NULL,
+    -- Its volume holds nothing that should be kept, until what its dump holds has been put back in it.
+    pending_load INTEGER NOT NULL DEFAULT 0,
     created_by   TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     UNIQUE (env_id, name)

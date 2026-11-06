@@ -224,6 +224,22 @@ func TestServicesWithAnEngineThatIsDown(t *testing.T) {
 		t.Errorf("its own: %q", got)
 	}
 
+	// A preview of a branch with no services takes nothing of the sort from production, as what production names says what that is.
+	if _, err := testAuth(t, cfg).DB.CreateEnvironment(ctx, "shop", "old-branch", "preview", "old-branch"); err != nil {
+		t.Fatal(err)
+	}
+	branch, _, err := c.DeploySource(ctx, "shop", "old-branch", writeSite(t, appManifest("# from before\n")), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the branch", func() bool {
+		d, err := c.Deployment(ctx, branch.ID)
+		return err == nil && d.Finished()
+	})
+	if _, got := get(t, addrs.HTTP, "shop--old-branch."+cfg.Domain, "/env?name=DATABASE_URL"); strings.Contains(got, "real.example.com") {
+		t.Errorf("a preview with production's database: %q", got)
+	}
+
 	// One on record, with the engine down.
 	db := testAuth(t, cfg).DB
 	if err := db.CreateService(ctx, store.Service{

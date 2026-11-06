@@ -358,7 +358,8 @@ type state struct {
 }
 
 func (d *Driver) inspect(ctx context.Context, name string) (state, error) {
-	out, err := d.engine.output(ctx, nil, "inspect", "--format", "{{json .State}}", name)
+	// Of a container and nothing else: Podman takes a name for anything that it starts, and so would find a volume whose name began with this.
+	out, err := d.engine.output(ctx, nil, "container", "inspect", "--format", "{{json .State}}", name)
 	if err != nil {
 		return state{}, err
 	}
@@ -938,7 +939,7 @@ func (d *Driver) List() []string {
 	if len(ids) == 0 {
 		return nil
 	}
-	args := append([]string{"inspect", "--format", `{{index .Config.Labels "` + labelInstance + `"}}`}, ids...)
+	args := append([]string{"container", "inspect", "--format", `{{index .Config.Labels "` + labelInstance + `"}}`}, ids...)
 	out, err = d.engine.output(ctx, nil, args...)
 	if err != nil && !IsNotFound(err) { // one may have gone since; the rest are listed
 		d.log.Warn("listing containers", "err", err)
