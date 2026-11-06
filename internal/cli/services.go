@@ -232,14 +232,18 @@ since. After --back, the manifest has to say the older version again, if it name
 			if asked != 1 {
 				return usageError{fmt.Errorf("say --to VERSION, --finish to let go of the old volume, or --back to go back to it")}
 			}
+			// Before anything is asked of a server, whichever it is.
+			if finish && !yes {
+				return usageError{fmt.Errorf("this lets go of what %s of %s held before its last upgrade or restore, and of any volume of its that nothing names: say --yes", args[0], env)}
+			}
+			if back && !yes {
+				return usageError{fmt.Errorf("this loses what %s of %s has held since its last upgrade or restore: say --yes", args[0], env)}
+			}
 			app, c, err := f.open()
 			if err != nil {
 				return err
 			}
 			if finish {
-				if !yes {
-					return usageError{fmt.Errorf("this lets go of what %s of %s of %s held before its last upgrade or restore, and of any volume of its that nothing names: say --yes", args[0], env, app)}
-				}
 				if err := c.FinishServiceUpgrade(cmd.Context(), app, env, args[0]); err != nil {
 					return err
 				}
@@ -247,9 +251,6 @@ since. After --back, the manifest has to say the older version again, if it name
 				return nil
 			}
 			if back {
-				if !yes {
-					return usageError{fmt.Errorf("this loses what %s of %s of %s has held since its last upgrade or restore: say --yes", args[0], env, app)}
-				}
 				if err := c.BackService(cmd.Context(), app, env, args[0]); err != nil {
 					return err
 				}
