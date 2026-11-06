@@ -70,6 +70,21 @@ func Find(setting string) (*Engine, error) {
 	return &Engine{Bin: bin, Kind: kind}, nil
 }
 
+// FindAll returns every engine that a setting could mean. With "auto", a server takes whichever answers, so that what it ran may be in either.
+func FindAll(setting string) []*Engine {
+	names := []string{setting}
+	if setting == "" || setting == "auto" {
+		names = []string{"podman", "docker"}
+	}
+	var engines []*Engine
+	for _, name := range names {
+		if e, err := Find(name); err == nil {
+			engines = append(engines, e)
+		}
+	}
+	return engines
+}
+
 // Check reports the engine's version, and whether it answers.
 func (e *Engine) Check(ctx context.Context) (version string, err error) {
 	out, err := e.output(ctx, nil, "--version")

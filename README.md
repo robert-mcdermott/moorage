@@ -221,7 +221,7 @@ server](docs/tls.md) certificates, [Behind a TLS proxy](docs/proxy.md) nginx, an
 
 ## Status
 
-Moorage 0.10.0 is a server on Linux, macOS or Windows for a team: it builds and deploys
+Moorage 0.10.1 is a server on Linux, macOS or Windows for a team: it builds and deploys
 apps from their source, a `git push` or [a forge](docs/forges.md), in containers or not, with accounts, projects
 and roles, an audit log and a [web console](docs/console.md). Every branch can have
 [its own preview and address](docs/previews.md), which sleeps when idle, and [who can

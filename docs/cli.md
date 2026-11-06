@@ -1939,7 +1939,7 @@ moor server status
 
 ### `moor server stop`
 
-Stop the server: its service, or one started with moor server run. The apps keep running, and the server adopts them when it starts again; --all stops them too, whether or not a server is running.
+Stop the server: its service, or one started with moor server run. The apps and services keep running, and the server adopts them when it starts again; --all stops them too, whether or not a server is running. Services keep what they hold.
 
 ```text
 moor server stop
@@ -1947,7 +1947,7 @@ moor server stop
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--all` |  | stop the apps too |
+| `--all` |  | stop the apps and services too |
 | `--config string` |  | server.toml (default: $MOORAGE\_CONFIG or the per-platform location) |
 
 ### `moor server telemetry`
@@ -2013,7 +2013,7 @@ moor server telemetry test NAME
 
 ### `moor server uninstall`
 
-Stop the server, remove its service, and stop the apps (unless --keep-apps). The configuration and the data directory are left in place: installing the service again brings the server, and its apps, back.
+Stop the server, remove its service, and stop the apps and the services they use (unless --keep-apps). The configuration, the data directory and the volumes of services are left in place: installing the service again brings the server, and its apps, back.
 
 ```text
 moor server uninstall
@@ -2022,7 +2022,7 @@ moor server uninstall
 | Flag | Default | What it does |
 |---|---|---|
 | `--config string` |  | server.toml (default: $MOORAGE\_CONFIG or the per-platform location) |
-| `--keep-apps` |  | leave the apps running |
+| `--keep-apps` |  | leave the apps and services running |
 
 ### `moor server upgrade`
 

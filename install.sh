@@ -31,7 +31,7 @@ Usage:
   install.sh [--version VERSION] [--install-dir DIRECTORY]
 
 Options:
-  --version VERSION       Release to install, such as v0.10.0. Defaults to latest.
+  --version VERSION       Release to install, such as v0.10.1. Defaults to latest.
   --install-dir DIRECTORY Where to install it. Defaults to $HOME/.local/bin, or
                           /usr/local/bin when run as root.
   -h, --help              Show this help.

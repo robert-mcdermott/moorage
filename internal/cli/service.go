@@ -105,16 +105,24 @@ func (t *serviceTarget) healthy(wait time.Duration) bool {
 	}
 }
 
-// stopApps stops every app instance of the server, as a server shutting
-// down for good would: those it runs natively, and those in containers.
+// stopApps stops every app instance of the server, as a server shutting down for good would: those it runs natively, and those in containers. Then it stops
+// its services, which keep what they hold in their volumes, after the apps that may be writing to them.
 func stopApps(cmd *cobra.Command, cfg config.Config) {
 	type stopper interface {
 		List() []string
 		Stop(id string, stopTimeout time.Duration) error
 	}
 	drivers := []stopper{native.New(filepath.Join(cfg.DataDir, "run", "shims"), nil, nil)}
-	if engine, err := container.Find(cfg.Containers.Engine); err == nil {
-		drivers = append(drivers, container.New(engine, server.ContainerLabel(cfg), slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))))
+	var engines []*container.Driver
+	for i, engine := range container.FindAll(cfg.Containers.Engine) {
+		// One is what a server uses, and another that is not answering is nothing to speak of.
+		log := slog.New(slog.DiscardHandler)
+		if i == 0 {
+			log = slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
+		}
+		d := container.New(engine, server.ContainerLabel(cfg), log)
+		engines = append(engines, d)
+		drivers = append(drivers, d)
 	}
 	var wg sync.WaitGroup
 	var stopped atomic.Int32
@@ -134,6 +142,29 @@ func stopApps(cmd *cobra.Command, cfg config.Config) {
 	wg.Wait()
 	if n := int(stopped.Load()); n > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "Stopped %d app instance%s; the server starts them again when it starts.\n", n, plural(n))
+	}
+	var services atomic.Int32
+	for _, d := range engines {
+		// Listing the apps has said why, if an engine is not answering.
+		names, err := d.ServiceContainers(cmd.Context())
+		if err != nil {
+			continue
+		}
+		for _, name := range names {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := d.StopService(name, container.ServiceStopLimit); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "could not stop %s: %v\n", name, err)
+					return
+				}
+				services.Add(1)
+			}()
+		}
+	}
+	wg.Wait()
+	if n := int(services.Load()); n > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Stopped %d service%s, which keep what they hold; the server starts them again when it starts.\n", n, plural(n))
 	}
 }
 
@@ -259,9 +290,10 @@ func newServerUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Stop the server and remove its service",
-		Long: `Stop the server, remove its service, and stop the apps (unless --keep-apps).
-The configuration and the data directory are left in place: installing the
-service again brings the server, and its apps, back.`,
+		Long: `Stop the server, remove its service, and stop the apps and the services they
+use (unless --keep-apps). The configuration, the data directory and the volumes of
+services are left in place: installing the service again brings the server, and
+its apps, back.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := t.load(); err != nil {
@@ -285,7 +317,7 @@ service again brings the server, and its apps, back.`,
 		},
 	}
 	t.addFlag(cmd)
-	cmd.Flags().BoolVar(&keepApps, "keep-apps", false, "leave the apps running")
+	cmd.Flags().BoolVar(&keepApps, "keep-apps", false, "leave the apps and services running")
 	return cmd
 }
 
@@ -322,9 +354,9 @@ func newServerStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the server (the apps keep running)",
-		Long: `Stop the server: its service, or one started with moor server run. The apps keep
-running, and the server adopts them when it starts again; --all stops them too,
-whether or not a server is running.`,
+		Long: `Stop the server: its service, or one started with moor server run. The apps and
+services keep running, and the server adopts them when it starts again; --all stops
+them too, whether or not a server is running. Services keep what they hold.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, cfg, err := loadServerConfig(t.cfgFlag)
@@ -363,7 +395,7 @@ whether or not a server is running.`,
 		},
 	}
 	t.addFlag(cmd)
-	cmd.Flags().BoolVar(&all, "all", false, "stop the apps too")
+	cmd.Flags().BoolVar(&all, "all", false, "stop the apps and services too")
 	return cmd
 }
 

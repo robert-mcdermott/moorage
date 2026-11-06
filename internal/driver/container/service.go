@@ -265,6 +265,38 @@ func (d *Driver) ExecServiceFrom(ctx context.Context, name string, env map[strin
 	return nil
 }
 
+// ServiceStopLimit is how long a service has to stop without losing anything, for what does not know which kind it is. It is what PostgreSQL is given,
+// as its image warns that even 90 seconds may not be enough, and what else there is stops sooner.
+const ServiceStopLimit = 120 * time.Second
+
+// ServiceContainers names the containers of this server's services, running or not, including what a server left of what their data goes through. As with
+// List, their labels are read with inspect, which answers the same way on every engine and version.
+func (d *Driver) ServiceContainers(ctx context.Context) ([]string, error) {
+	asking, cancel := context.WithTimeout(ctx, listTimeout)
+	defer cancel()
+	out, err := d.engine.output(asking, nil, "ps", "-aq", "--filter", "label="+labelServer+"="+d.server)
+	if err != nil {
+		return nil, err
+	}
+	ids := strings.Fields(string(out))
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := append([]string{"container", "inspect", "--format", `{{.Name}} {{index .Config.Labels "` + labelService + `"}}`}, ids...)
+	out, err = d.engine.output(asking, nil, args...)
+	if err != nil && !IsNotFound(err) { // one may have gone since; the rest are listed
+		return nil, err
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		// Only a service's has a second word. One engine puts a slash before a name.
+		if fields := strings.Fields(line); len(fields) == 2 {
+			names = append(names, strings.TrimPrefix(fields[0], "/"))
+		}
+	}
+	return names, nil
+}
+
 // StopService stops a service's container and removes it. What it holds stays in its volume.
 func (d *Driver) StopService(name string, timeout time.Duration) error {
 	_, err := d.tell(timeout+stopMargin, "stop", "-t", stopSeconds(timeout), name)

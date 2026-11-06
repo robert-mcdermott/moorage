@@ -14,7 +14,7 @@ server's files.
 
 ```text
 ✔ config         /etc/moorage/server.toml
-✔ server         running 0.10.0 on :80
+✔ server         running 0.10.1 on :80
 ✔ listen.http    answering on :80
 ✔ listen.https   answering on :443
 ✔ listen.ssh     answering on :2222
@@ -70,16 +70,15 @@ signatures = "warn"
 
 ## Stopping everything
 
-Apps keep running when the server stops, on purpose. `moor server stop` stops the
+Apps and [services](services.md) keep running when the server stops, on purpose. `moor server stop` stops the
 server, as a service or as started with `moor server run`; with `--all` it stops
-the apps too, in containers or not, whether or not a server is running:
+the apps too, in containers or not, and their services, whether or not a server is running:
 
 ```bash
 moor server stop --all
 ```
 
-The server starts them again when it next starts. A [service](services.md), such as a database, goes on running through
-this. Your engine can stop it, and the server starts it again when it next starts.
+The server starts them again when it next starts. A service keeps what it holds.
 
 ## `*.localhost` does not resolve
 

@@ -733,3 +733,53 @@ func TestWhatACommandLeavesBehindHoldsNothingUp(t *testing.T) {
 		t.Fatal("going away is held up by what a command left running")
 	}
 }
+
+// What stops everything finds a server's services, by name, and not its apps or another server's services. Stopping one leaves its volume.
+func TestServiceContainersOnARealEngine(t *testing.T) {
+	d := realEngine(t)
+	other := New(d.engine, d.server+"-other", slog.New(slog.DiscardHandler))
+	ctx := context.Background()
+	run := func(driver *Driver, id string) ServiceSpec {
+		t.Helper()
+		spec := ServiceSpec{
+			ID: id, Name: ServiceName(id), App: "shop", Env: "production", Service: "db", Image: testImage, Command: []string{"sleep", "300"},
+			Volumes: map[string]string{ServiceVolume(id): "/data"},
+		}
+		if err := driver.RunService(ctx, spec); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			driver.StopService(spec.Name, 2*time.Second)
+			driver.RemoveVolume(ServiceVolume(id))
+		})
+		return spec
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+	mine := run(d, "svc_"+suffix+"a")
+	run(other, "svc_"+suffix+"b")
+	app := d.engine
+	if _, err := app.output(ctx, nil, "run", "-d", "--name", "moorage-app-"+suffix, "--label", labelServer+"="+d.server, "--label", labelInstance+"=ins_"+suffix, testImage, "sleep", "300"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { app.output(ctx, nil, "rm", "-f", "moorage-app-"+suffix) })
+
+	names, err := d.ServiceContainers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != mine.Name {
+		t.Errorf("found %v, and not only %s", names, mine.Name)
+	}
+	if err := d.StopService(names[0], 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if names, err := d.ServiceContainers(ctx); err != nil || len(names) != 0 {
+		t.Errorf("after stopping it: %v %v", names, err)
+	}
+	if there, err := d.VolumeThere(ctx, ServiceVolume(mine.ID)); err != nil || !there {
+		t.Errorf("what it holds: %v %v", there, err)
+	}
+	if running, err := other.ServiceRunning(ctx, ServiceName("svc_"+suffix+"b")); err != nil || !running {
+		t.Errorf("another server's service: %v %v", running, err)
+	}
+}

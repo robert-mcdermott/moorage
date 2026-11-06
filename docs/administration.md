@@ -104,7 +104,7 @@ sudo moor server restart
 sudo moor server stop
 ```
 
-To stop the apps too, whether or not the server is running:
+To stop the apps and their services too, whether or not the server is running:
 
 ```bash
 sudo moor server stop --all

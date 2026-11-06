@@ -1239,6 +1239,12 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
 6. **Release 0.10.0.**
    - Done: four independent reviews before it, each of which found real bugs in what the last had fixed, and a last check of what the fourth's fixes changed found nothing that should hold it. CI runs real PostgreSQL and object storage under Docker and Podman on Linux. One thing is left as it is, as better said than worked around: rows that are exactly a dump's heading, in a table of one text column, could lose the row after them on a restore.
 
+## 0.10.1: stopping a server (released 2026-11-06)
+
+A patch. `moor server stop --all` and `uninstall` stop services, which they had left running, and `uninstall`, `start` and `restart` go by which server a service runs.
+
+- Found by following the install guide for real: a scratch home directory does not isolate a launchd job, which belongs to the user, and `uninstall` went by the job's name. It took away a real server's service, on the machine where this was tried.
+
 ## 0.11.0: ecosystem (planned)
 
 ### Wave 11

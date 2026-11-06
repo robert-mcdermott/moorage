@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -351,6 +352,79 @@ func TestServiceCommandsLeaveAnotherServersService(t *testing.T) {
 	if len(asked) != 1 || asked[0] != "uninstall" {
 		t.Errorf("its own: %v", asked)
 	}
+}
+
+// Stopping everything stops an app's services too, in whichever engine holds them, and uninstalling can be told not to.
+func TestStoppingEverythingStopsServices(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for an engine is a shell script")
+	}
+	old := serviceFor
+	serviceFor = func(bool) (service.Manager, error) { return nil, service.ErrUnsupported }
+	defer func() { serviceFor = old }()
+	path := localConfig(t, "--preset", "local")
+	freePort(t, path)
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	bin := filepath.Join(dir, "engine")
+	// Two containers of this server: one is an app's, and the other is a service's, with one engine's slash before its name.
+	script := `#!/bin/sh
+echo "$*" >> "` + calls + `"
+case "$*" in
+  --version) echo "podman version 5" ;;
+  ps*) echo aaa; echo bbb ;;
+  *io.moorage.service*) echo "/an-app "; echo "/moorage-svc-one svc_one" ;;
+  *io.moorage.instance*) echo ""; echo "" ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(string(text), `engine = "auto"`, `engine = "`+bin+`"`, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readAll(t, path), bin) {
+		t.Fatal("the configuration does not name the engine")
+	}
+
+	code, out, errOut := run(t, "server", "stop", "--all")
+	if code != 0 || !strings.Contains(out, "Stopped 1 service, which keep what they hold") {
+		t.Errorf("%d %s %s", code, out, errOut)
+	}
+	asked := readAll(t, calls)
+	if !strings.Contains(asked, "stop -t 120 moorage-svc-one") || !strings.Contains(asked, "rm -f moorage-svc-one") {
+		t.Errorf("what it asked:\n%s", asked)
+	}
+	if strings.Contains(asked, "an-app") {
+		t.Errorf("it took an app's container for a service:\n%s", asked)
+	}
+	if strings.Contains(asked, "volume") {
+		t.Errorf("what a service holds is not for this to touch:\n%s", asked)
+	}
+
+	// A server stopped with no --all leaves it running, as it does an app.
+	if err := os.Remove(calls); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := run(t, "server", "stop"); code != 0 {
+		t.Errorf("%d %s", code, errOut)
+	}
+	if _, err := os.Stat(calls); err == nil {
+		t.Errorf("a stop with no --all asked the engine:\n%s", readAll(t, calls))
+	}
+}
+
+func readAll(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func TestStopWithNothingRunning(t *testing.T) {
