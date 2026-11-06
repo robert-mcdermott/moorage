@@ -24,6 +24,8 @@ CREATE TABLE services (
     state        TEXT NOT NULL,
     -- Its volume holds nothing that should be kept, until what its dump holds has been put back in it.
     pending_load INTEGER NOT NULL DEFAULT 0,
+    -- It holds a copy of production's data, which is not for everyone.
+    seeded       INTEGER NOT NULL DEFAULT 0,
     created_by   TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     UNIQUE (env_id, name)

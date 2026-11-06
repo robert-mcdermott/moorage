@@ -37,6 +37,7 @@ const (
 	labelProcess  = "io.moorage.process"
 	labelInstance = "io.moorage.instance"
 	labelService  = "io.moorage.service"
+	labelPrivate  = "io.moorage.private"
 )
 
 // Spec describes a container to run.

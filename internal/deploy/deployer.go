@@ -115,8 +115,8 @@ type Deployer struct {
 	asleep  sync.Map // of app/env, as long as a request should wait for it
 	// upgrading is of app/env, while a service of it moves to another version, and nothing should write to it.
 	upgrading sync.Map
-	// runningAsleep is of app/env, how many commands are using the services of an environment that is asleep.
-	runningAsleep sync.Map
+	// usingServices is of app/env, how many commands are using an environment's services.
+	usingServices sync.Map
 	// previewsMu is held while counting an app's previews and making one for a token limited to previews.
 	previewsMu sync.Mutex
 	wakingMu   sync.Mutex

@@ -95,7 +95,7 @@ func (d *Deployer) Sleep(ctx context.Context, app, env, by string) error {
 		return err
 	}
 	// Its services stop with it, and keep what they hold, unless something goes on running that needs them.
-	if !needsServicesAsleep(plan) {
+	if !needsServicesAsleep(plan) && d.serviceUsers(sleepKey(app, env)).Load() == 0 {
 		if err := d.opts.Services.Sleep(ctx, app, env); err != nil {
 			d.log.Warn("stop the services of an environment going to sleep", "app", app, "env", env, "err", err)
 		}
@@ -194,8 +194,12 @@ func (d *Deployer) sleepAfter(ctx context.Context, e store.Environment) time.Dur
 // sweepSleep puts an environment to sleep if it has been idle long enough, with nothing still
 // connected to it, and nothing on its way.
 func (d *Deployer) sweepSleep(ctx context.Context, e store.Environment, now time.Time) {
+	if d.Asleep(e.App, e.Name) {
+		d.restLeftServices(ctx, e.App, e.Name)
+		return
+	}
 	after := d.sleepAfter(ctx, e)
-	if after == 0 || d.Asleep(e.App, e.Name) {
+	if after == 0 {
 		return
 	}
 	active := d.EnvironmentActive(ctx, e)

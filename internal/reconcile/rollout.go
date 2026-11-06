@@ -537,10 +537,7 @@ func (m *Manager) addServices(ctx context.Context, app, env string, plan manifes
 	if env != names.Production {
 		if _, b, err := m.db.CurrentRelease(ctx, app, names.Production); err == nil {
 			if production, err := readPlan(b); err == nil {
-				for name, s := range production.Services {
-					if _, named := plan.Services[name]; named {
-						continue
-					}
+				for _, s := range production.Services {
 					for _, variable := range s.Variables() {
 						if scope, set := scopes[variable]; set && scope != "" && scope != envID {
 							delete(vars, variable)

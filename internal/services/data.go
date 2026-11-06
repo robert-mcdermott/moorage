@@ -3,6 +3,7 @@
 package services
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -65,7 +67,11 @@ func (m *Manager) DumpAll(ctx context.Context) []string {
 
 // dump replaces a service's dump. It holds no lock while it reads: a dump is of a moment, and it can take hours.
 func (m *Manager) dump(ctx context.Context, rec store.Service) error {
-	// What it would dump is not all that it held, until that has been put back.
+	// The others may have taken a long time, and what it would dump now may not be all that it held.
+	rec, err := m.o.DB.Service(ctx, rec.App, rec.Env, rec.Name)
+	if err != nil {
+		return err
+	}
 	if rec.PendingLoad {
 		return errors.New("what it held has not been put back yet")
 	}
@@ -84,6 +90,17 @@ func (m *Manager) dump(ctx context.Context, rec store.Service) error {
 		if now, err := m.o.DB.Service(ctx, rec.App, rec.Env, rec.Name); err == nil && now.State != store.ServiceStopped {
 			return errors.New("it woke as this was about to dump it: the next backup has it")
 		}
+		// Starting it to dump it would make its volume, if that has gone, and the dump of that would replace the only good one.
+		there, err := m.volumesThere(ctx, driver, rec)
+		if err != nil {
+			return err
+		}
+		if there != len(volumesOf(rec)) {
+			if _, err := os.Stat(m.dumpPath(rec)); err == nil {
+				return nil // it holds no more than its last dump does, as after a restore
+			}
+			return errors.New("it is asleep, and has neither a volume nor a dump")
+		}
 		password, err := m.password(ctx, rec)
 		if err != nil {
 			return err
@@ -93,10 +110,14 @@ func (m *Manager) dump(ctx context.Context, rec store.Service) error {
 			return err
 		}
 		defer driver.StopService(spec.Name, stopLimit(rec))
-		if err := m.waitReadyNamed(ctx, driver, rec, spec.Name); err != nil {
+		if err := m.waitReady(ctx, driver, rec); err != nil {
 			return err
 		}
-		name = spec.Name
+	} else if running, err := driver.ServiceRunning(ctx, name); err != nil {
+		return err
+	} else if !running {
+		// It may be having its own dump put back, and part of that is no replacement for it.
+		return errors.New("it is not running just now: the last dump stays, and the next backup has it")
 	}
 	path := m.dumpPath(rec)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -114,10 +135,75 @@ func (m *Manager) dump(ctx context.Context, rec store.Service) error {
 	if err := driver.ExecServiceTo(limit, name, nil, temp, dumpCommand(rec)...); err != nil {
 		return err
 	}
+	// It is what a restore has to go on: on the disk, and all there, before it replaces one that is.
+	if err := temp.Sync(); err != nil {
+		return err
+	}
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temp.Name(), path)
+	if err := dumpWhole(temp.Name(), rec.Type); err != nil {
+		return err
+	}
+	if err := os.Rename(temp.Name(), path); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
+}
+
+// syncDir makes a rename last.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	// Windows cannot do this to a directory, and does not need it to.
+	if err := d.Sync(); err != nil && runtime.GOOS != "windows" {
+		return err
+	}
+	return nil
+}
+
+// dumpEnd is the last thing that pg_dumpall writes.
+const dumpEnd = "-- PostgreSQL database cluster dump complete"
+
+// dumpWhole says whether a dump is all there. One cut short would load without complaint, as PostgreSQL takes the end of its input as the end of a table's rows.
+func dumpWhole(path, kind string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	tail := make([]byte, min(info.Size(), 1024))
+	if _, err := f.ReadAt(tail, info.Size()-int64(len(tail))); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if kind != manifest.ServiceS3 {
+		if !bytes.Contains(tail[max(0, len(tail)-256):], []byte(dumpEnd)) {
+			return errors.New("its dump is not whole: it does not get to the end")
+		}
+		return nil
+	}
+	// A tar ends in two blocks of nothing, and each thing in it says how long it is.
+	if len(tail) < 1024 || len(bytes.Trim(tail, "\x00")) != 0 {
+		return errors.New("its dump is not whole: it does not get to the end")
+	}
+	reader := tar.NewReader(f)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	for {
+		if _, err := reader.Next(); errors.Is(err, io.EOF) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("its dump is not whole: %w", err)
+		}
+	}
 }
 
 func dumpCommand(rec store.Service) []string {
@@ -135,8 +221,11 @@ func loadCommand(rec store.Service) []string {
 	return []string{"psql", "-U", postgresUser, "-d", postgresUser, "-q", "-v", "ON_ERROR_STOP=1"}
 }
 
-// load puts a dump into a service's container, which has only just been given a fresh volume.
-func (m *Manager) load(ctx context.Context, driver *container.Driver, rec store.Service, name, path string) error {
+// load puts a dump into a service's container, which has only just been given a fresh volume. A dump holds the password of what it came from, which is not always this one's.
+func (m *Manager) load(ctx context.Context, driver *container.Driver, rec store.Service, name, path, password string) error {
+	if err := dumpWhole(path, rec.Type); err != nil {
+		return err
+	}
 	f, err := os.OpenInRoot(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		return err
@@ -144,16 +233,22 @@ func (m *Manager) load(ctx context.Context, driver *container.Driver, rec store.
 	defer f.Close()
 	limit, cancel := context.WithTimeout(ctx, dataLimit)
 	defer cancel()
-	var dump io.Reader = f
-	if rec.Type == manifest.ServicePostgres {
-		dump = withoutWhatIsThere(f)
+	if rec.Type != manifest.ServicePostgres {
+		return driver.ExecServiceFrom(limit, name, nil, f, loadCommand(rec)...)
 	}
-	return driver.ExecServiceFrom(limit, name, nil, dump, loadCommand(rec)...)
+	dump := withoutWhatIsThere(f)
+	defer dump.Close()
+	if err := driver.ExecServiceFrom(limit, name, nil, dump, loadCommand(rec)...); err != nil {
+		return err
+	}
+	// By its input, and so not on a command line.
+	statement := fmt.Sprintf("ALTER ROLE %s WITH PASSWORD '%s';\n", postgresUser, password)
+	return driver.ExecServiceFrom(limit, name, nil, strings.NewReader(statement), loadCommand(rec)...)
 }
 
 // withoutWhatIsThere leaves out of a dump the two statements that make what a new service already has, which would otherwise stop it there. Rows of data can look like
 // anything, so that it knows when it is among them.
-func withoutWhatIsThere(r io.Reader) io.Reader {
+func withoutWhatIsThere(r io.Reader) io.ReadCloser {
 	reader, writer := io.Pipe()
 	go func() {
 		in := bufio.NewReaderSize(r, 1<<16)
@@ -191,6 +286,10 @@ func withoutWhatIsThere(r io.Reader) io.Reader {
 // putBack gives a service with no volume what it held, from its dump. It does this where nothing can reach it, as an app that connected to an empty database would migrate it, and
 // then its dump would not load, and the next backup would hold only that. It is noted first, so that if it does not get to the end, the next try starts again from nothing, however it ended.
 func (m *Manager) putBack(ctx context.Context, driver *container.Driver, rec store.Service, password string) error {
+	// Before anything is removed: a dump that will not do is no reason to lose what there may be.
+	if err := dumpWhole(m.dumpPath(rec), rec.Type); err != nil {
+		return err
+	}
 	if !rec.PendingLoad {
 		if err := m.o.DB.SetServicePendingLoad(ctx, rec.ID, true); err != nil {
 			return err
@@ -208,10 +307,10 @@ func (m *Manager) putBack(ctx context.Context, driver *container.Driver, rec sto
 		return err
 	}
 	defer driver.StopService(spec.Name, stopLimit(rec))
-	if err := m.waitReadyNamed(ctx, driver, rec, spec.Name); err != nil {
+	if err := m.waitReady(ctx, driver, rec); err != nil {
 		return err
 	}
-	if err := m.load(ctx, driver, rec, spec.Name, m.dumpPath(rec)); err != nil {
+	if err := m.load(ctx, driver, rec, spec.Name, m.dumpPath(rec), password); err != nil {
 		return fmt.Errorf("load its dump: %w", err)
 	}
 	if err := driver.StopService(spec.Name, stopLimit(rec)); err != nil {
@@ -231,7 +330,11 @@ func (m *Manager) bringUp(ctx context.Context, driver *container.Driver, rec sto
 	if err != nil {
 		return err
 	}
-	fresh := !there
+	fresh := there == 0
+	// One gone of two says that something has happened that nobody here understands, and what is left may be all that there is.
+	if there > 0 && there < len(volumesOf(rec)) && !rec.PendingLoad {
+		return fmt.Errorf("one of its volumes has gone, and the other is still there: moor services restore goes back to its latest dump, and loses that")
+	}
 	if fresh || rec.PendingLoad {
 		if _, err := os.Stat(m.dumpPath(rec)); err == nil {
 			if err := m.putBack(ctx, driver, rec, password); err != nil {
@@ -262,14 +365,19 @@ func (m *Manager) bringUp(ctx context.Context, driver *container.Driver, rec sto
 	return nil
 }
 
-func (m *Manager) volumesThere(ctx context.Context, driver *container.Driver, rec store.Service) (bool, error) {
+// volumesThere says how many of a service's volumes there are.
+func (m *Manager) volumesThere(ctx context.Context, driver *container.Driver, rec store.Service) (int, error) {
+	count := 0
 	for _, name := range volumesOf(rec) {
 		there, err := driver.VolumeThere(ctx, name)
-		if err != nil || !there {
-			return false, err
+		if err != nil {
+			return 0, err
+		}
+		if there {
+			count++
 		}
 	}
-	return true, nil
+	return count, nil
 }
 
 // seed fills a new preview's service from production's latest dump, if the manifest asks for that, and it is safe. Copying production into previews is how customer data leaks, so
@@ -285,12 +393,11 @@ func (m *Manager) seed(ctx context.Context, driver *container.Driver, rec store.
 	if err := driver.RunService(ctx, spec); err != nil {
 		return err
 	}
-	defer driver.StopService(spec.Name, stopLimit(rec))
-	if err := m.waitReadyNamed(ctx, driver, rec, spec.Name); err != nil {
+	if err := m.waitReady(ctx, driver, rec); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "▸ service    %s: seeding it from production's latest dump\n", rec.Name)
-	if err := m.load(ctx, driver, rec, spec.Name, path); err != nil {
+	if err := m.load(ctx, driver, rec, spec.Name, path, password); err != nil {
 		return fmt.Errorf("load production's dump: %w", err)
 	}
 	if s.Sanitize == manifest.SanitizeNone {
@@ -370,9 +477,16 @@ func (m *Manager) Update(ctx context.Context, app, env, name string, log io.Writ
 			return "", &MajorChangeError{fmt.Sprintf("%s now holds PostgreSQL %s, and this holds data of %s: moor services upgrade is for that", rec.Image, major, rec.Version)}
 		}
 	}
+	if rec.State == store.ServiceSeeding {
+		return "", &MajorChangeError{"it is still being made"}
+	}
 	password, err := m.password(ctx, rec)
 	if err != nil {
 		return "", err
+	}
+	// What is asleep stays asleep, and runs this when it wakes.
+	if rec.State != store.ServiceRunning {
+		return digest, m.o.DB.SetServiceDigest(ctx, rec.ID, digest)
 	}
 	if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 		return "", err
@@ -458,8 +572,8 @@ func (m *Manager) Upgrade(ctx context.Context, u *Upgrade, log io.Writer) error 
 		return err
 	}
 	old := container.ServiceName(rec.ID)
-	spec := m.spec(next, password)
-	spec.Name, spec.HostPort = old+"-upgrade", 0
+	spec := m.privateSpec(next, password)
+	spec.Name += "-upgrade"
 	temp := spec.Name
 	// What a try that the server did not outlive left, as the record has never named it.
 	if err := driver.StopService(temp, 10*time.Second); err != nil {
@@ -546,7 +660,9 @@ func moveData(ctx context.Context, driver *container.Driver, from, to, password 
 		writer.CloseWithError(err)
 		dumped <- err
 	}()
-	err := driver.ExecServiceFrom(ctx, to, nil, withoutWhatIsThere(reader), "psql", "-U", postgresUser, "-d", postgresUser, "-q", "-v", "ON_ERROR_STOP=1")
+	filtered := withoutWhatIsThere(reader)
+	err := driver.ExecServiceFrom(ctx, to, nil, filtered, "psql", "-U", postgresUser, "-d", postgresUser, "-q", "-v", "ON_ERROR_STOP=1")
+	filtered.Close()
 	reader.CloseWithError(err)
 	return errors.Join(err, <-dumped)
 }
@@ -572,7 +688,8 @@ func (m *Manager) FinishUpgrade(ctx context.Context, app, env, name string) erro
 	return m.o.DB.SetServiceImage(ctx, rec.ID, rec.Version, rec.Image, rec.Digest, rec.Mount, rec.Volume, "")
 }
 
-// Restore puts a service back to its latest dump, which on the machine that it ran on, a restore of a backup does not do by itself, as what it holds may be newer.
+// Restore puts a service back to its latest dump, which on the machine that it ran on, a restore of a backup does not do by itself, as what it holds may be newer. A dump can fail
+// to load, so that PostgreSQL's goes into a volume of its own first, and what it held is kept until someone says that this was good, as after an upgrade.
 func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
 	rec, err := m.o.DB.Service(ctx, app, env, name)
 	if err != nil {
@@ -580,8 +697,18 @@ func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
 	}
 	unlock := m.lock(app + "/" + env)
 	defer unlock()
-	if _, err := os.Stat(m.dumpPath(rec)); errors.Is(err, os.ErrNotExist) {
+	if rec.State == store.ServiceSeeding {
+		return &MajorChangeError{"it is still being made"}
+	}
+	if rec.OldVolume != "" {
+		return &MajorChangeError{fmt.Sprintf("it still has the volume from before: moor services upgrade %s --finish lets it go", name)}
+	}
+	path := m.dumpPath(rec)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return &MajorChangeError{"there is no dump of it to go back to, which a backup makes"}
+	}
+	if err := dumpWhole(path, rec.Type); err != nil {
+		return &MajorChangeError{err.Error()}
 	}
 	driver, err := m.driverFor(ctx, rec)
 	if err != nil {
@@ -591,11 +718,43 @@ func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
-		return err
-	}
-	if err := m.putBack(ctx, driver, rec, password); err != nil {
-		return err
+	if rec.Type == manifest.ServiceS3 {
+		if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
+			return err
+		}
+		if err := m.putBack(ctx, driver, rec, password); err != nil {
+			return err
+		}
+	} else {
+		next := rec
+		next.Volume = container.ServiceRestoredVolume(rec.ID, time.Now().UnixMilli())
+		spec := m.privateSpec(next, password)
+		spec.Name += "-restore"
+		if err := driver.RunService(ctx, spec); err != nil {
+			return err
+		}
+		defer driver.StopService(spec.Name, 10*time.Second)
+		failed := func(err error) error {
+			driver.StopService(spec.Name, 10*time.Second)
+			driver.RemoveVolume(next.Volume)
+			return err
+		}
+		if err := m.waitReadyNamed(ctx, driver, next, spec.Name); err != nil {
+			return failed(err)
+		}
+		if err := m.load(ctx, driver, next, spec.Name, path, password); err != nil {
+			return failed(fmt.Errorf("load its dump, and it goes on as it was: %w", err))
+		}
+		if err := driver.StopService(spec.Name, stopLimit(next)); err != nil {
+			return failed(err)
+		}
+		if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
+			return failed(err)
+		}
+		if err := m.o.DB.SetServiceImage(ctx, rec.ID, rec.Version, rec.Image, rec.Digest, rec.Mount, next.Volume, rec.Volume); err != nil {
+			return failed(err)
+		}
+		rec = next
 	}
 	if rec.State != store.ServiceRunning {
 		return nil

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"sync/atomic"
+	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/services"
@@ -100,32 +101,86 @@ func (d *Deployer) RestoreService(ctx context.Context, app, env, name string) er
 	})
 }
 
-// usingServices says how many commands of an asleep environment are using its services, which started for them.
+// serviceUsers is how many commands are using an environment's services, whether it was asleep or awake when they began.
 func (d *Deployer) serviceUsers(key string) *atomic.Int64 {
-	counter, _ := d.runningAsleep.LoadOrStore(key, &atomic.Int64{})
+	counter, _ := d.usingServices.LoadOrStore(key, &atomic.Int64{})
 	return counter.(*atomic.Int64)
 }
 
-// startServicesForRun starts what a command needs, if its environment is asleep, and says what to do when the command has ended.
-func (d *Deployer) startServicesForRun(ctx context.Context, app, env string) (func(), error) {
-	if !d.Asleep(app, env) {
+// holdServicesForRun starts what a command needs, if its environment is asleep, and keeps it running until the command has ended, whatever else happens to the environment. It says
+// what to do at the end. It counts itself before it looks, and Sleep marks an environment asleep before it counts, so that one of the two always sees the other. It waits for a wake
+// or a rollout only if it has to, and gives up if the command is stopped, as what holds that lock may be waiting for the command to end. That is why stopping them again goes on
+// in the background.
+func (d *Deployer) holdServicesForRun(ctx context.Context, app, env string, plan manifest.Plan) (func(), error) {
+	if len(plan.Services) == 0 || d.opts.Services == nil {
 		return func() {}, nil
 	}
-	key := sleepKey(app, env)
-	users := d.serviceUsers(key)
+	users := d.serviceUsers(sleepKey(app, env))
 	users.Add(1)
-	if err := d.opts.Services.Wake(ctx, app, env); err != nil {
-		users.Add(-1)
-		return nil, err
-	}
-	return func() {
-		// The last one out, if it has not woken for anything else in the meantime.
-		if users.Add(-1) == 0 && d.Asleep(app, env) {
-			if err := d.opts.Services.Sleep(context.WithoutCancel(ctx), app, env); err != nil {
-				d.log.Warn("stop the services of an environment that is asleep", "app", app, "env", env, "err", err)
+	lock := d.envLock(app, env)
+	if d.Asleep(app, env) {
+		for !lock.TryLock() {
+			select {
+			case <-ctx.Done():
+				users.Add(-1)
+				return nil, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
 			}
 		}
+		var err error
+		if d.Asleep(app, env) {
+			err = d.opts.Services.Wake(ctx, app, env)
+		}
+		lock.Unlock()
+		if err != nil {
+			users.Add(-1)
+			return nil, err
+		}
+	}
+	return func() {
+		if users.Add(-1) != 0 {
+			return
+		}
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			lock.Lock()
+			defer lock.Unlock()
+			d.restServices(app, env, plan)
+		}()
 	}, nil
+}
+
+// restServices stops the services of an environment that is asleep, if nothing is using them, with the environment's lock held. A wake or a rollout that was under way has gone first,
+// and is then what it finds.
+func (d *Deployer) restServices(app, env string, plan manifest.Plan) {
+	if d.serviceUsers(sleepKey(app, env)).Load() != 0 || !d.Asleep(app, env) || needsServicesAsleep(plan) {
+		return
+	}
+	if err := d.opts.Services.Sleep(d.ctx, app, env); err != nil {
+		d.log.Warn("stop the services of an environment that is asleep", "app", app, "env", env, "err", err)
+	}
+}
+
+// restLeftServices stops what a server that stopped during a command left running for it, in an environment that is asleep.
+func (d *Deployer) restLeftServices(ctx context.Context, app, env string) {
+	if !d.opts.Services.AnyRunning(ctx, app, env) {
+		return
+	}
+	lock := d.envLock(app, env)
+	if !lock.TryLock() {
+		return
+	}
+	defer lock.Unlock()
+	_, b, err := d.db.CurrentRelease(ctx, app, env)
+	if err != nil {
+		return
+	}
+	var plan manifest.Plan
+	if err := json.Unmarshal(b.Plan, &plan); err != nil {
+		return
+	}
+	d.restServices(app, env, plan)
 }
 
 // needsServicesAsleep says that something goes on running while an environment sleeps, and so needs its services.

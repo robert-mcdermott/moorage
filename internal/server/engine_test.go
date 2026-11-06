@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/apitypes"
+	"github.com/robert-mcdermott/moorage/internal/driver/container"
 	"github.com/robert-mcdermott/moorage/internal/store"
+	"github.com/robert-mcdermott/moorage/internal/testroles"
 )
 
 // recordingEngine is a program that writes down everything it is asked, and answers as a daemon that is down does if down exists.
@@ -239,6 +241,19 @@ func TestServicesWithAnEngineThatIsDown(t *testing.T) {
 	if _, got := get(t, addrs.HTTP, "shop--old-branch."+cfg.Domain, "/env?name=DATABASE_URL"); strings.Contains(got, "real.example.com") {
 		t.Errorf("a preview with production's database: %q", got)
 	}
+	// Nor if it calls its own by another name.
+	renamed := "\n[services.db]\ntype = \"postgres\"\nenv = \"OTHER_URL\"\npreviews = \"none\"\n"
+	branch, _, err = c.DeploySource(ctx, "shop", "old-branch", writeSite(t, appManifest(renamed)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the branch again", func() bool {
+		d, err := c.Deployment(ctx, branch.ID)
+		return err == nil && d.Finished()
+	})
+	if _, got := get(t, addrs.HTTP, "shop--old-branch."+cfg.Domain, "/env?name=DATABASE_URL"); strings.Contains(got, "real.example.com") {
+		t.Errorf("a preview with production's database, by another name of its own: %q", got)
+	}
 
 	// One on record, with the engine down.
 	db := testAuth(t, cfg).DB
@@ -307,5 +322,176 @@ func TestServicesWithAnEngineThatIsDown(t *testing.T) {
 	waitUntil(t, "it to be looked at", func() bool {
 		data, _ := os.ReadFile(calls)
 		return strings.Contains(string(data), "moorage-svc-test")
+	})
+}
+
+// serviceEngine is an engine that does what it is told, and leaves a file for each container that is running.
+func serviceEngine(t *testing.T) (bin, dir string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake engine is a shell script")
+	}
+	dir = t.TempDir()
+	bin = filepath.Join(dir, "podman")
+	script := `#!/bin/sh
+for last; do :; done
+case "$1" in
+  --version) echo "podman version 5" ;;
+  image) cat "` + dir + `/image.json" ;;
+  container) if [ -e "` + dir + `/running-$last" ]; then echo true; else echo "Error: no such container" >&2; exit 1; fi ;;
+  run) while [ $# -gt 0 ]; do if [ "$1" = --name ]; then touch "` + dir + `/running-$2"; fi; shift; done ;;
+  rm|stop) rm -f "` + dir + `/running-$last" ;;
+  volume|network)
+    if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1-$last" ]; then echo "no such $1" >&2; exit 1; fi
+    if [ "$2" = inspect ]; then echo "$last"; fi
+    if [ "$2" = create ]; then touch "` + dir + `/$1-$last"; fi
+    if [ "$2" = rm ]; then rm -f "` + dir + `/$1-$last"; fi
+    ;;
+esac
+`
+	image := `[{"Id":"abc","RepoDigests":["docker.io/library/postgres@sha256:abc"],"Size":1,"Config":{"Env":["PG_MAJOR=18","PGDATA=/var/lib/postgresql/18/docker"],"Volumes":{"/var/lib/postgresql":{}}}}]`
+	if err := os.WriteFile(filepath.Join(dir, "image.json"), []byte(image), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, dir
+}
+
+func manifestWithService(more, delay string) map[string]string {
+	return map[string]string{"moorage.toml": `[app]
+runtime = "command"
+
+[processes.web]
+command = ` + tomlString(testroles.AppCommand()) + `
+health = { path = "/health", interval = "100ms", startup = "30s" }
+` + more + `
+[env]
+TESTAPP_BODY = "good morning"
+TESTAPP_START_DELAY = "` + delay + `"
+
+[deploy]
+drain = "1s"
+
+[services.db]
+type = "postgres"
+`}
+}
+
+// A command in an environment that is asleep starts what it needs, and what stops it afterwards leaves what something else still needs.
+func TestServicesAndCommandsWhileAsleep(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		more string
+		// after is what a command leaves it as.
+		after string
+	}{
+		{"nothing else needs it", "", store.ServiceStopped},
+		{"a process goes on running", "\n[processes.worker]\ncommand = \"sleep 10000\"\nsleep = false\n", store.ServiceRunning},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			bin, dir := serviceEngine(t)
+			cfg := testConfig(t)
+			cfg.Containers.Engine = bin
+			addrs, _ := start(t, cfg)
+			client := apiClient(t, cfg, addrs)
+			ctx := context.Background()
+			db := testAuth(t, cfg).DB
+			deployedSource(t, client, "shop", manifestWithService(c.more, "0s"))
+			rec, err := db.Service(ctx, "shop", "production", "db")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.SleepEnvironment(ctx, "shop", "production"); err != nil {
+				t.Fatal(err)
+			}
+			run, err := client.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "true"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			followedRun(t, client, "shop", run.ID)
+			waitUntil(t, "its services to be as they should", func() bool {
+				now, err := db.Service(ctx, "shop", "production", "db")
+				if err != nil || now.State != c.after {
+					return false
+				}
+				_, there := os.Stat(filepath.Join(dir, "running-"+container.ServiceName(rec.ID)))
+				return (there == nil) == (c.after == store.ServiceRunning)
+			})
+		})
+	}
+}
+
+// A command that ends while its environment is waking does not leave it awake with nothing to connect to.
+func TestACommandEndingDuringAWake(t *testing.T) {
+	bin, dir := serviceEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	addrs, _ := start(t, cfg)
+	client := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	db := testAuth(t, cfg).DB
+	deployedSource(t, client, "shop", manifestWithService("", "3s"))
+	rec, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	run, err := client.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sleep 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := client.WakeEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	followedRun(t, client, "shop", run.ID)
+	time.Sleep(500 * time.Millisecond)
+	now, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, there := os.Stat(filepath.Join(dir, "running-"+container.ServiceName(rec.ID))); now.State != store.ServiceRunning || there != nil {
+		t.Errorf("awake, and %s: %v", now.State, there)
+	}
+}
+
+// Going to sleep does not stop a database under a command, and it stops when the command ends.
+func TestSleepLeavesWhatACommandIsUsing(t *testing.T) {
+	bin, dir := serviceEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	addrs, _ := start(t, cfg)
+	client := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	db := testAuth(t, cfg).DB
+	deployedSource(t, client, "shop", manifestWithService("", "0s"))
+	rec, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "running-"+container.ServiceName(rec.ID))
+	run, err := client.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sleep 3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, err := client.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := client.Run(ctx, "shop", run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, there := os.Stat(file); r.Status == "running" && there != nil {
+		t.Errorf("sleep stopped it under a command: %v", there)
+	}
+	followedRun(t, client, "shop", run.ID)
+	waitUntil(t, "it to stop after the command", func() bool {
+		_, there := os.Stat(file)
+		return there != nil
 	})
 }

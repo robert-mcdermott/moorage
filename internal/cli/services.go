@@ -217,7 +217,7 @@ anything going wrong leaves the old one as it was. Say the new version in the ma
 	cmd.Flags().StringVar(&env, "env", "production", "the environment")
 	cmd.Flags().StringVar(&to, "to", "", "the major version to move to")
 	cmd.Flags().StringVar(&image, "image", "", "the image that holds it, for a service that does not run the official one")
-	cmd.Flags().BoolVar(&finish, "finish", false, "let go of what it held before its last upgrade")
+	cmd.Flags().BoolVar(&finish, "finish", false, "let go of what it held before its last upgrade or restore")
 	return cmd
 }
 
@@ -229,7 +229,8 @@ func newServiceRestoreCmd() *cobra.Command {
 		Use:   "restore NAME",
 		Short: "Put a service back to its latest dump",
 		Long: `Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a
-restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back.`,
+restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go
+back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say that all is well, with moor services upgrade NAME --finish.`,
 		Example: `  moor services restore db --yes`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -243,7 +244,7 @@ restore of a server to a new machine, this happens by itself. On the machine tha
 			if err := c.RestoreService(cmd.Context(), app, env, args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s is back to its latest dump.\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is back to its latest dump. If it had one, its old volume stays until: moor services upgrade %s --finish\n", args[0], args[0])
 			return nil
 		},
 	}

@@ -33,6 +33,8 @@ type Service struct {
 	Port  int
 	// PendingLoad says that its volume holds nothing to keep, until its dump has been put back.
 	PendingLoad bool
+	// Seeded says that it holds a copy of production's data, which is not for everyone.
+	Seeded bool
 	// Sealed is its password. Its address is made from this when an instance starts.
 	Sealed []byte
 	// EnvVar is the variable that gives an app its address.
@@ -43,7 +45,7 @@ type Service struct {
 	CreatedAt time.Time
 }
 
-const serviceColumns = `s.id, s.env_id, a.name, e.name, s.name, s.type, s.version, s.image, s.digest, s.engine, s.volume, s.old_volume, s.mount, s.port, s.pending_load,
+const serviceColumns = `s.id, s.env_id, a.name, e.name, s.name, s.type, s.version, s.image, s.digest, s.engine, s.volume, s.old_volume, s.mount, s.port, s.pending_load, s.seeded,
 	s.password_enc, s.env_var, s.memory, s.state, s.created_by, s.created_at`
 
 const serviceFrom = ` FROM services s JOIN environments e ON e.id = s.env_id JOIN apps a ON a.id = e.app_id`
@@ -51,7 +53,7 @@ const serviceFrom = ` FROM services s JOIN environments e ON e.id = s.env_id JOI
 func scanService(row interface{ Scan(...any) error }) (Service, error) {
 	var s Service
 	var created int64
-	if err := row.Scan(&s.ID, &s.EnvID, &s.App, &s.Env, &s.Name, &s.Type, &s.Version, &s.Image, &s.Digest, &s.Engine, &s.Volume, &s.OldVolume, &s.Mount, &s.Port, &s.PendingLoad,
+	if err := row.Scan(&s.ID, &s.EnvID, &s.App, &s.Env, &s.Name, &s.Type, &s.Version, &s.Image, &s.Digest, &s.Engine, &s.Volume, &s.OldVolume, &s.Mount, &s.Port, &s.PendingLoad, &s.Seeded,
 		&s.Sealed, &s.EnvVar, &s.Memory, &s.State, &s.CreatedBy, &created); err != nil {
 		return s, err
 	}
@@ -150,6 +152,14 @@ func (db *DB) SetServiceImage(ctx context.Context, id, version, image, digest, m
 func (db *DB) SetServicePendingLoad(ctx context.Context, id string, pending bool) error {
 	return db.write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE services SET pending_load = ? WHERE id = ?`, pending, id)
+		return err
+	})
+}
+
+// SetServiceSeeded says that a service holds a copy of production's data.
+func (db *DB) SetServiceSeeded(ctx context.Context, id string) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE services SET seeded = 1 WHERE id = ?`, id)
 		return err
 	})
 }

@@ -3,6 +3,8 @@
 package services
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -75,10 +77,12 @@ for last; do :; done
 case "$1" in
   --version) echo "podman version 5" ;;
   image) cat "` + dir + `/image.json" ;;
-  container) if [ -e "` + dir + `/running-$last" ]; then echo '{"Running":true,"Status":"running"}'; else echo "Error: no such container" >&2; exit 1; fi ;;
+  container) if [ -e "` + dir + `/running-$last" ]; then cat "` + dir + `/running-$last"; else echo "Error: no such container" >&2; exit 1; fi ;;
   run)
     if [ -e "` + dir + `/no-run" ]; then echo "it would not run" >&2; exit 1; fi
-    while [ $# -gt 0 ]; do if [ "$1" = --name ]; then touch "` + dir + `/running-$2"; fi; shift; done
+    state="true"
+    case "$*" in *io.moorage.private=true*) state="true true" ;; esac
+    while [ $# -gt 0 ]; do if [ "$1" = --name ]; then echo "$state" > "` + dir + `/running-$2"; fi; shift; done
     ;;
   rm|stop) rm -f "` + dir + `/running-$last" ;;
   exec)
@@ -86,7 +90,7 @@ case "$1" in
     if [ -e "` + dir + `/no-dump" ] && echo "$*" | grep -q pg_dump; then echo "pg_dump: it went wrong" >&2; exit 1; fi
     if [ "$2" = -i ]; then cat >> "` + dir + `/loaded"; echo "--- $*" >> "` + dir + `/loaded"; fi
     case "$*" in
-      *pg_dump*) echo "a dump of it" ;;
+      *pg_dump*) echo "a dump of it"; if [ ! -e "` + dir + `/cut-short" ]; then echo "-- PostgreSQL database cluster dump complete"; fi ;;
       *"tar -C /data -cf"*) echo "a tar of it" ;;
       *query_to_xml*) echo "3 rows in 1 tables, of databases app, postgres" ;;
     esac
@@ -540,6 +544,7 @@ func TestSmallThings(t *testing.T) {
 
 // Data: a dump for a backup, what comes back on a fresh volume, what a preview may be seeded with, and moving between versions.
 func TestDumpsAndWhatComesOfThem(t *testing.T) {
+	const dumped = "a dump of it\n-- PostgreSQL database cluster dump complete\n"
 	f := newFixture(t)
 	ctx := context.Background()
 	f.m.o.DataDir = f.dir
@@ -566,7 +571,7 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 		t.Fatalf("%v", problems)
 	}
 	data, err := os.ReadFile(dump)
-	if err != nil || string(data) != "a dump of it\n" {
+	if err != nil || string(data) != dumped {
 		t.Errorf("%q %v", data, err)
 	}
 	if _, err := os.Stat(filepath.Join(f.dir, "data", "shop", ".services", "topic", "db.sql")); err == nil {
@@ -578,7 +583,7 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if len(problems) != 1 || !strings.Contains(problems[0], "was not dumped") || !strings.Contains(problems[0], "it went wrong") {
 		t.Errorf("%v", problems)
 	}
-	if data, _ := os.ReadFile(dump); string(data) != "a dump of it\n" {
+	if data, _ := os.ReadFile(dump); string(data) != dumped {
 		t.Errorf("the last one: %q", data)
 	}
 	if entries, _ := os.ReadDir(filepath.Dir(dump)); len(entries) != 1 {
@@ -600,17 +605,37 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if problems := f.m.DumpAll(ctx); len(problems) != 0 {
 		t.Errorf("%v", problems)
 	}
-	if data, err := os.ReadFile(dump); err != nil || string(data) != "a dump of it\n" {
+	if data, err := os.ReadFile(dump); err != nil || string(data) != dumped {
 		t.Errorf("asleep: %q %v", data, err)
 	}
 	if f.running(rec) {
 		t.Error("what dumped it left it running")
 	}
-	if _, err := os.Stat(filepath.Join(f.dir, "running-"+container.ServiceName(rec.ID)+"-private")); err == nil {
+	if _, err := os.Stat(filepath.Join(f.dir, "running-"+container.ServiceName(rec.ID))); err == nil {
 		t.Error("what dumped it left it running, where no app can reach it")
 	}
+	// It has one name, so that there cannot be two of it on one volume.
+	if strings.Contains(f.asked(), "-private") {
+		t.Error("it was given another name")
+	}
+	// With its volume gone, as on a new machine after a restore, a backup leaves its only dump as it is, and does not make a volume to dump.
+	f.flag("volume-"+rec.Volume, false)
+	if problems := f.m.DumpAll(ctx); len(problems) != 0 {
+		t.Errorf("%v", problems)
+	}
+	if data, _ := os.ReadFile(dump); string(data) != dumped {
+		t.Errorf("the only dump: %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "volume-"+rec.Volume)); err == nil {
+		t.Error("it made a volume to dump")
+	}
+	f.flag("loaded", false)
 	if err := f.m.Wake(ctx, "shop", "production"); err != nil {
 		t.Fatal(err)
+	}
+
+	if loaded, _ := os.ReadFile(filepath.Join(f.dir, "loaded")); !strings.Contains(string(loaded), "a dump of it") {
+		t.Errorf("waking on no volume: %q", loaded)
 	}
 
 	// On a fresh volume, as after a restore to a new machine, what it held comes back from its dump, before anything can reach it.
@@ -640,13 +665,17 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if got := f.m.DumpAll(ctx); len(got) != 1 || !strings.Contains(got[0], "has not been put back") {
 		t.Errorf("a dump of what is not back yet: %v", got)
 	}
-	if data, _ := os.ReadFile(dump); string(data) != "a dump of it\n" {
+	if data, _ := os.ReadFile(dump); string(data) != dumped {
 		t.Errorf("the only good dump: %q", data)
 	}
 	f.m.keepUp(ctx, rec)
 	loaded, err := os.ReadFile(filepath.Join(f.dir, "loaded"))
 	if err != nil || !strings.Contains(string(loaded), "a dump of it") {
 		t.Errorf("what it loaded: %q %v", loaded, err)
+	}
+	// A dump holds the password of what it came from, and this may not be that.
+	if !strings.Contains(string(loaded), "ALTER ROLE app WITH PASSWORD '"+strings.TrimPrefix(string(rec.Sealed), "sealed:")+"'") {
+		t.Errorf("its own password: %q", loaded)
 	}
 	if !f.running(rec) {
 		t.Error("it did not come up after that")
@@ -847,7 +876,7 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if u, err := prepare("19", "pgvector/pgvector:pg19"); err != nil || u.next.Image != "docker.io/pgvector/pgvector:pg19" {
 		t.Errorf("%+v %v", u, err)
 	}
-	// Going back to a dump is a thing to ask for.
+	// Going back to a dump is a thing to ask for. It goes into a volume of its own, and what it held is kept.
 	f.flag("loaded", false)
 	f.image(18)
 	if err := f.db.SetServiceImage(ctx, rec.ID, "18", "docker.io/library/postgres:18-trixie", "", "/var/lib/postgresql", got.Volume, ""); err != nil {
@@ -858,6 +887,47 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	}
 	if loaded, _ := os.ReadFile(filepath.Join(f.dir, "loaded")); !strings.Contains(string(loaded), "a dump of it") {
 		t.Errorf("%q", loaded)
+	}
+	restored, err := f.db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.OldVolume != got.Volume || restored.Volume == got.Volume || !strings.Contains(restored.Volume, "-restored-") {
+		t.Errorf("%+v", restored)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "volume-"+got.Volume)); err != nil {
+		t.Errorf("what it held: %v", err)
+	}
+	if err := f.m.FinishUpgrade(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	// A dump that does not get to the end is not gone back to, or put back, and nothing is lost for it.
+	if err := os.WriteFile(dump, []byte("a dump that stops here"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Restore(ctx, "shop", "production", "db"); err == nil || !strings.Contains(err.Error(), "not whole") {
+		t.Errorf("a dump cut short: %v", err)
+	}
+	if err := os.WriteFile(dump, []byte(dumped), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetServiceImage(ctx, rec.ID, "18", "docker.io/library/postgres:18-trixie", "", "/var/lib/postgresql", got.Volume, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Sleep(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	// Taking the newest image of something asleep does not wake it.
+	f.image(18)
+	f.flag("running-"+container.ServiceName(rec.ID), false)
+	if _, err := f.m.Update(ctx, "shop", "production", "db", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if f.running(rec) {
+		t.Error("updating it started it")
+	}
+	if err := f.m.Wake(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
 	}
 	// A failed wake still means that it should be running, and what keeps it so picks it up.
 	if err := f.m.Sleep(ctx, "shop", "production"); err != nil {
@@ -962,5 +1032,244 @@ esac
 				t.Errorf("%s starts with %s", b, a)
 			}
 		}
+	}
+}
+
+// A copy of production's that has not been sanitized is for nobody, whatever else goes on around it.
+func TestAnUnfinishedSeed(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.m.o.GateFor = func(set, asked, kind string) (string, string) { return "login", "setting" }
+	if _, err := f.db.CreateEnvironment(ctx, "shop", "topic", store.KindPreview, "topic"); err != nil {
+		t.Fatal(err)
+	}
+	rec := store.Service{ID: "svc_seed", App: "shop", Env: "topic", Name: "db", Type: manifest.ServicePostgres, Version: "18", Image: "postgres", Engine: f.source.Status(ctx).Bin, Volume: "a-volume", Mount: "/x", Port: 45000,
+		Sealed: []byte("sealed:pw"), EnvVar: "DATABASE_URL", State: store.ServiceSeeding, CreatedAt: time.Now()}
+	if err := f.db.CreateService(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Sleep(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Wake(ctx, "shop", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	f.m.keepUp(ctx, rec)
+	got, err := f.db.Service(ctx, "shop", "topic", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != store.ServiceSeeding || f.running(got) {
+		t.Errorf("it started, or is said to have finished: %+v", got)
+	}
+	plan := postgresPlan()
+	if secret, _, _, err := f.m.Addresses(ctx, "shop", "topic", plan, false); err != nil || len(secret) != 0 {
+		t.Errorf("an app is told of it: %v %v", secret, err)
+	}
+	// The next deployment starts it again from nothing.
+	f.flag("volume-a-volume", true)
+	if err := f.m.Ensure(ctx, "shop", "topic", store.KindPreview, "me", "", plan, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Service(ctx, "shop", "topic", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "volume-a-volume")); err == nil {
+		t.Errorf("what it held: %s", f.asked())
+	}
+	// With what kept a copy safe gone, a deployment says so.
+	seeded, err := f.db.Service(ctx, "shop", "topic", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetServiceSeeded(ctx, seeded.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.m.o.GateFor = func(set, asked, kind string) (string, string) { return "public", "manifest" }
+	if err := f.m.Ensure(ctx, "shop", "topic", store.KindPreview, "me", "", plan, io.Discard); err == nil || !strings.Contains(err.Error(), "a copy of production's data") {
+		t.Errorf("the gate gone: %v", err)
+	}
+}
+
+// S3's two volumes: one gone is not something to clear up by removing the other.
+func TestOneVolumeOfTwoGone(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.m.o.DataDir = f.dir
+	id := "svc_two"
+	rec := store.Service{ID: id, App: "shop", Env: "production", Name: "files", Type: manifest.ServiceS3, Version: "1", Image: "x", Engine: f.source.Status(ctx).Bin, Volume: container.ServiceVolume(id), Port: 45001,
+		Sealed: []byte("sealed:pw"), EnvVar: "S3_ENDPOINT", State: store.ServiceRunning, CreatedAt: time.Now()}
+	if err := f.db.CreateService(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.db.Service(ctx, "shop", "production", "files")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.flag("volume-"+got.Volume, true)
+	f.m.keepUp(ctx, got)
+	if f.running(got) {
+		t.Error("it came up with half of what it holds")
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "volume-"+got.Volume)); err != nil {
+		t.Errorf("what was left: %v", err)
+	}
+}
+
+// Waiting for its turn does not mean going by what it read before that: the load that had the lock may have failed, and its volume then holds a part of what it should.
+func TestWakeGoesByWhatIsSoOnceItIsItsTurn(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.m.o.DataDir = f.dir
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", postgresPlan(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := f.db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Sleep(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	dump := f.m.dumpPath(rec)
+	if err := os.MkdirAll(filepath.Dir(dump), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dump, []byte("the dump\n-- PostgreSQL database cluster dump complete\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unlock := f.m.lock("shop/production")
+	done := make(chan error, 1)
+	go func() { done <- f.m.Wake(ctx, "shop", "production") }()
+	time.Sleep(300 * time.Millisecond)
+	if err := f.db.SetServicePendingLoad(ctx, rec.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PendingLoad {
+		t.Error("it runs on a volume that is on record as a part of what it held")
+	}
+	if loaded, _ := os.ReadFile(filepath.Join(f.dir, "loaded")); !strings.Contains(string(loaded), "the dump") {
+		t.Errorf("what it loaded: %q", loaded)
+	}
+}
+
+// What a server left running, when it stopped during a dump, is stopped when the next one starts, and a backup does not take it for the service.
+func TestWhatAServerLeft(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.m.o.DataDir = f.dir
+	if err := f.m.Ensure(ctx, "shop", "production", store.KindProduction, "me", "", postgresPlan(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := f.db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(f.dir, "running-"+container.ServiceName(rec.ID))
+	dump := f.m.dumpPath(rec)
+
+	// Being put back, it is not something to dump.
+	if err := os.WriteFile(file, []byte("true true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if problems := f.m.DumpAll(ctx); len(problems) != 1 || !strings.Contains(problems[0], "not running just now") {
+		t.Errorf("%v", problems)
+	}
+	if _, err := os.Stat(dump); err == nil {
+		t.Error("it dumped what was being put back")
+	}
+	// What is on record as asleep does not stay up.
+	if err := f.db.SetServiceState(ctx, rec.ID, store.ServiceStopped); err != nil {
+		t.Fatal(err)
+	}
+	f.m.clearUp(ctx)
+	if _, err := os.Stat(file); err == nil {
+		t.Error("what it left is still running")
+	}
+	// A dump that is not whole does not replace one that is.
+	if err := f.db.SetServiceState(ctx, rec.ID, store.ServiceRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if problems := f.m.DumpAll(ctx); len(problems) != 0 {
+		t.Fatalf("%v", problems)
+	}
+	good, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.flag("cut-short", true)
+	if problems := f.m.DumpAll(ctx); len(problems) != 1 || !strings.Contains(problems[0], "not whole") {
+		t.Errorf("%v", problems)
+	}
+	if now, _ := os.ReadFile(dump); string(now) != string(good) {
+		t.Errorf("the dump: %q", now)
+	}
+}
+
+func TestDumpWhole(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "d")
+	var archive bytes.Buffer
+	w := tar.NewWriter(&archive)
+	if err := w.WriteHeader(&tar.Header{Name: "s3/a", Mode: 0o600, Size: 2000}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(make([]byte, 2000)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		kind, body string
+		whole      bool
+	}{
+		{manifest.ServicePostgres, "x\n--\n-- PostgreSQL database cluster dump complete\n--\n\n", true},
+		{manifest.ServicePostgres, "x\nCOPY a FROM stdin;\n1\n", false},
+		{manifest.ServicePostgres, "", false},
+		{manifest.ServiceS3, archive.String(), true},
+		{manifest.ServiceS3, archive.String()[:1024], false},
+		{manifest.ServiceS3, "", false},
+	} {
+		if err := os.WriteFile(path, []byte(c.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := dumpWhole(path, c.kind); (err == nil) != c.whole {
+			t.Errorf("%s of %d bytes: %v", c.kind, len(c.body), err)
+		}
+	}
+}
+
+// A load that fails does not leave what filters it waiting for ever.
+func TestAFailedLoadLeavesNothingBehind(t *testing.T) {
+	var body strings.Builder
+	for i := range 50000 {
+		fmt.Fprintf(&body, "select %d; -- a line long enough to fill what it goes through\n", i)
+	}
+	before := runtime.NumGoroutine()
+	for range 5 {
+		filtered := withoutWhatIsThere(strings.NewReader(body.String()))
+		if _, err := io.ReadFull(filtered, make([]byte, 16)); err != nil {
+			t.Fatal(err)
+		}
+		filtered.Close()
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after := runtime.NumGoroutine(); after > before {
+		t.Errorf("%d goroutines became %d", before, after)
 	}
 }

@@ -78,7 +78,7 @@ The address is given as an instance starts, as a secret is, along with its passw
 | You deploy | It is made if it is not there, and started if it has stopped. If it does not become ready, the deployment fails, and the previous release goes on serving |
 | It stops by itself, or the machine restarts | Moorage starts it again |
 | The server stops or is upgraded | It goes on running, like your apps |
-| The environment goes to sleep | It stops, and keeps what it holds, unless a process with `sleep = false` goes on running. Waking starts it first, and a command or a cron job starts it for as long as it runs |
+| The environment goes to sleep | It stops, and keeps what it holds, unless a process with `sleep = false` or a command is still using it. Waking starts it first, and a command or a cron job starts it for as long as it runs |
 | The manifest stops naming it | It stays, with what it holds, marked as unused. A release that does not name it does not get its address |
 | The environment is deleted | It goes, with what it holds |
 | The engine stops answering | What is running is left alone. Deploying, restarting, putting to sleep or deleting says why it cannot, and changes nothing. `server.engine_down` says so, to [the rules that ask](notifications.md) |
@@ -103,11 +103,11 @@ sanitize = "scripts/sanitize.sql"
 
 A new preview then starts with production's latest dump, which [a backup](backups.md) makes. The copy and the script happen where nothing can connect, and if either fails, or the server stops halfway, nothing is left of the copy, and the deployment fails. The script is in the app, and a link in its place that leads out of the app is refused. `sanitize = "none"` says that nothing needs removing.
 
-A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request that comes from a fork, or that nothing says does not, or if a [coding agent's token](agents.md) made it. An existing preview is not seeded again: destroy it, or remove its service.
+A preview starts empty all the same, and its deployment's log says why, if anyone can reach it, if it is the preview of a pull request that comes from a fork, or that nothing says does not, or if a [coding agent's token](agents.md) made it. An existing preview is not seeded again: destroy it, or remove its service. A later commit that would let anyone reach a preview holding such a copy fails to deploy, and says so.
 
 ## Backups
 
-A [backup](backups.md) holds a dump of each service of production and of the named environments, made just before: `pg_dumpall`, or a tar of the object store. One that is asleep is started for that, where no app can reach it. A dump that fails is reported, and the rest of the backup goes on. Volumes are not in a backup, and previews are not dumped. Dumps go in `.services` in the app's directory of data, where apps that run as [users of their own](isolation.md) cannot reach them. Without that, an app's code can read them, as it can read anything else of the server's.
+A [backup](backups.md) holds a dump of each service of production and of the named environments, made just before: `pg_dumpall`, or a tar of the object store. One that is asleep is started for that, where no app can reach it, and one that has lost its volume is left with the dump that it has. A dump that fails or does not get to its end is reported, the last good one stays, and the rest of the backup goes on. Volumes are not in a backup, and previews are not dumped. Dumps go in `.services` in the app's directory of data, where apps that run as [users of their own](isolation.md) cannot reach them. Without that, an app's code can read them, as it can read anything else of the server's.
 
 After a restore to a new machine, a service comes up on a fresh volume and loads its dump by itself, before anything can connect to it. So does one whose volume has gone for any other reason, and if that does not get to the end, it starts again from nothing on the next try. What was written after the last dump is gone.
 
@@ -117,6 +117,10 @@ On the machine that it ran on, a service still has its volume, and so keeps what
 moor services restore db --yes
 ```
 
+PostgreSQL's dump goes into a new volume first, so that one that will not load changes nothing. The old volume stays until you are happy, with `moor services upgrade db --finish`. An object store's dump is checked, and replaces what it holds.
+
+If one of an object store's two volumes has gone, it does not start, and says so: the other may be all that there is of what it held, so that going back to its dump is for you to ask for.
+
 ## Updates and upgrades
 
 Nothing changes an image by itself: which one it runs is recorded when a service is made.
@@ -125,7 +129,7 @@ Nothing changes an image by itself: which one it runs is recorded when a service
 moor services update db
 ```
 
-That takes the newest image of its version, such as 18.7 where it ran 18.6, and restarts it.
+That takes the newest image of its version, such as 18.7 where it ran 18.6, and restarts it. One that is asleep stays asleep, and runs it when it wakes.
 
 A new major version takes moving its data, as an image holds only its own version:
 

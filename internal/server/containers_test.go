@@ -1201,6 +1201,17 @@ func TestContainerServiceData(t *testing.T) {
 	if got := psql(preview.ID, "select distinct email from people"); got != "nobody@example.com" {
 		t.Errorf("in the preview: %q", got)
 	}
+	// As an app would reach it: over the network with its own password, which is not the one in the dump.
+	previewHost := "shop--topic." + cfg.Domain
+	_, previewAddress := get(t, addrs.HTTP, previewHost, "/env?name=DATABASE_URL")
+	previewPassword := strings.TrimPrefix(strings.SplitN(previewAddress, "@", 2)[0], "postgres://app:")
+	if previewPassword == "" {
+		t.Fatalf("its address: %q", previewAddress)
+	}
+	byPassword := exec.Command(e.Bin, "exec", "-e", "PGPASSWORD="+previewPassword, container.ServiceName(preview.ID), "psql", "-h", "127.0.0.1", "-U", "app", "-d", "app", "-At", "-c", "select 1")
+	if out, err := byPassword.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "1" {
+		t.Errorf("with its own password: %v: %s", err, out)
+	}
 
 	// An upgrade moves what it holds to the newer version, with the app stopped for that, and keeps the old volume until told.
 	said, err := c.UpgradeService(ctx, "shop", "production", "db", "18", "")
@@ -1266,4 +1277,66 @@ func removeServices(t *testing.T, e *container.Engine, cfg config.Config) {
 	for _, name := range strings.Fields(string(out)) {
 		exec.Command(e.Bin, "network", "rm", name).Run()
 	}
+}
+
+// A command in an environment that is asleep starts what it needs and stops it after, and sleeping leaves what a command or a process still needs.
+func TestContainerServiceAndCommands(t *testing.T) {
+	e := containerEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = e.Bin
+	t.Cleanup(func() { removeContainers(t, e, cfg); removeServices(t, e, cfg) })
+	addrs, _ := start(t, cfg)
+	c := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	d, log := deploySource(t, c, "shop", appManifest("\n[services.db]\ntype = \"postgres\"\n"))
+	if d.Status != "live" {
+		t.Fatalf("%+v\n%s", d, log)
+	}
+	rec, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := func() bool {
+		out, _ := exec.Command(e.Bin, "ps", "-q", "--filter", "name="+container.ServiceName(rec.ID)).Output()
+		return strings.TrimSpace(string(out)) != ""
+	}
+	if _, err := c.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	if running() {
+		t.Fatal("it is running while its environment sleeps")
+	}
+	run, err := c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sleep 8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "it to start for the command", running)
+	waitUntil(t, "the command", func() bool {
+		r, err := c.Run(ctx, "shop", run.ID)
+		return err == nil && r.Status != "running" && r.Status != "queued" && r.Status != "starting"
+	})
+	waitUntil(t, "it to stop again", func() bool { return !running() })
+	if got, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "db"); err != nil || got.State != "stopped" {
+		t.Errorf("after the command: %+v %v", got, err)
+	}
+	// Going to sleep leaves it for a command that is still going.
+	if _, err := c.WakeEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	run, err = c.StartRun(ctx, "shop", "production", apitypes.NewRun{Command: "sleep 6"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if _, err := c.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	if !running() {
+		t.Error("it stopped under a command")
+	}
+	waitUntil(t, "the command", func() bool {
+		r, err := c.Run(ctx, "shop", run.ID)
+		return err == nil && r.Status != "running" && r.Status != "queued" && r.Status != "starting"
+	})
+	waitUntil(t, "it to stop after the command", func() bool { return !running() })
 }

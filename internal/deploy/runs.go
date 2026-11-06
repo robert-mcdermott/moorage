@@ -230,12 +230,17 @@ func (d *Deployer) StartRun(ctx context.Context, req RunRequest) (store.Run, err
 		defer cancel()
 		defer close(active.done)
 		defer d.runs.remove(run.ID, LogPath(d.opts.DataDir, req.App, run.ID))
+		// Now that it can be seen, what is about to move a service either finds it and stops it, or is found here.
+		if _, moving := d.upgrading.Load(sleepKey(req.App, req.Env)); moving {
+			d.finishRun(run, errors.New("a service of this environment is moving to another version, and what is written meanwhile would be lost"), runCtx)
+			return
+		}
 		process := "run"
 		if req.Job != "" {
 			process = "cron-" + req.Job
 		}
-		// In an environment that is asleep, what it needs starts for it, and stops after.
-		done, err := d.startServicesForRun(runCtx, req.App, req.Env)
+		// In an environment that is asleep, what it needs starts for it, and stops after. Awake, nothing stops it under the command.
+		done, err := d.holdServicesForRun(runCtx, req.App, req.Env, plan)
 		if err != nil {
 			d.finishRun(run, fmt.Errorf("start what it needs: %w", err), runCtx)
 			return

@@ -195,7 +195,7 @@ func (m *Manager) Ensure(ctx context.Context, app, env, kind, by, appDir string,
 				return fmt.Errorf("the service %s: %w", name, err)
 			}
 		default:
-			if err := m.ensureExisting(ctx, rec, s, log); err != nil {
+			if err := m.ensureExisting(ctx, rec, s, plan, log); err != nil {
 				return fmt.Errorf("the service %s: %w", name, err)
 			}
 		}
@@ -305,6 +305,10 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 		if err := m.seed(ctx, driver, rec, s, appDir, password, log); err != nil {
 			return err
 		}
+		// It is noted before it is said to be finished, so that nothing thinks that a copy of production's is something else.
+		if err := m.o.DB.SetServiceSeeded(ctx, rec.ID); err != nil {
+			return err
+		}
 		if err := m.o.DB.SetServiceState(ctx, rec.ID, store.ServiceRunning); err != nil {
 			return err
 		}
@@ -333,12 +337,22 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 }
 
 // ensureExisting starts what is there, and refuses what would need its data moving.
-func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manifest.ServicePlan, log io.Writer) error {
+func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manifest.ServicePlan, plan manifest.Plan, log io.Writer) error {
 	if s.Type != rec.Type {
 		return &MajorChangeError{fmt.Sprintf("it is a service of %s, and the manifest asks for %s: remove it with moor services remove, or give the new one another name", rec.Type, s.Type)}
 	}
 	if s.Type == manifest.ServicePostgres && s.Version != "" && s.Version != rec.Version {
 		return &MajorChangeError{fmt.Sprintf("it holds data of PostgreSQL %s, and the manifest asks for %s. That takes moving its data: dump it, remove it with moor services remove, and deploy again, or go back to %s", rec.Version, s.Version, rec.Version)}
+	}
+	// A later commit can take away the gate that a copy of production's data was made behind.
+	if rec.Seeded {
+		refused, err := m.seedRefused(ctx, rec.App, rec.Env, plan)
+		if err != nil {
+			return err
+		}
+		if refused != "" {
+			return &MajorChangeError{"it holds a copy of production's data, and this would not keep it safe: " + refused}
+		}
 	}
 	driver, err := m.driverFor(ctx, rec)
 	if err != nil {
@@ -397,6 +411,7 @@ func (m *Manager) driverFor(ctx context.Context, rec store.Service) (*container.
 		if _, err := os.Stat(rec.Engine); err == nil {
 			return nil, fmt.Errorf("the service %s is held by %s, and this server is using %s: set engine under [containers] in server.toml", rec.Name, rec.Engine, st.Bin)
 		}
+		m.o.Log.Warn("a service's engine has gone, and it goes on with another: what it held there is left behind, and it comes back from its dump", "app", rec.App, "env", rec.Env, "service", rec.Name, "was", rec.Engine, "now", st.Bin)
 		if err := m.o.DB.SetServiceEngine(ctx, rec.ID, st.Bin); err != nil {
 			return nil, err
 		}
@@ -440,10 +455,11 @@ func (m *Manager) spec(rec store.Service, password string) container.ServiceSpec
 	return spec
 }
 
-// privateSpec is a service where no app can reach it: for what it has to go through first.
+// privateSpec is a service where no app can reach it, for what it has to go through first. It has the same name as it always has, as starting a container of that name replaces any
+// that is there: two servers on one volume would corrupt what it holds, and this way there cannot be two.
 func (m *Manager) privateSpec(rec store.Service, password string) container.ServiceSpec {
 	spec := m.spec(rec, password)
-	spec.Name, spec.HostPort, spec.Network = spec.Name+"-private", 0, ""
+	spec.HostPort, spec.Network, spec.Private = 0, "", true
 	return spec
 }
 
@@ -547,8 +563,8 @@ func (m *Manager) Addresses(ctx context.Context, app, env string, plan manifest.
 	secret, plain = map[string]string{}, map[string]string{}
 	for _, rec := range list {
 		s, named := plan.Services[rec.Name]
-		// A release that does not name a service does not get it, so that going back behaves.
-		if !named || s.Type != rec.Type {
+		// A release that does not name a service does not get it, so that going back behaves. What has not been sanitized yet is for nobody.
+		if !named || s.Type != rec.Type || rec.State == store.ServiceSeeding {
 			continue
 		}
 		password, err := m.password(ctx, rec)
@@ -594,6 +610,7 @@ func (m *Manager) Run(ctx context.Context) {
 	if m == nil {
 		return
 	}
+	m.clearUp(ctx)
 	m.look(ctx)
 	t := time.NewTicker(m.o.Tick)
 	defer t.Stop()
@@ -604,6 +621,27 @@ func (m *Manager) Run(ctx context.Context) {
 		case <-t.C:
 			m.look(ctx)
 		}
+	}
+}
+
+// clearUp stops what a server left when it stopped halfway through a dump or a seed. What is to be running sorts itself out: it is not taken for running until it has been started
+// where an app can reach it.
+func (m *Manager) clearUp(ctx context.Context) {
+	list, err := m.o.DB.AllServices(ctx)
+	if err != nil {
+		return
+	}
+	for _, rec := range list {
+		if rec.State == store.ServiceRunning || ctx.Err() != nil {
+			continue
+		}
+		unlock := m.lock(rec.App + "/" + rec.Env)
+		if driver, err := m.driverFor(ctx, rec); err == nil {
+			if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
+				m.o.Log.Warn("stop what a server left running", "app", rec.App, "env", rec.Env, "service", rec.Name, "err", err)
+			}
+		}
+		unlock()
 	}
 }
 
@@ -686,6 +724,9 @@ func (m *Manager) sayOnce(ctx context.Context, id, problem string, rec store.Ser
 // Sleep stops an environment's services, and keeps what they hold.
 func (m *Manager) Sleep(ctx context.Context, app, env string) error {
 	return m.each(ctx, app, env, func(driver *container.Driver, rec store.Service) error {
+		if rec.State == store.ServiceStopped {
+			return nil
+		}
 		if err := driver.StopService(container.ServiceName(rec.ID), stopLimit(rec)); err != nil {
 			return err
 		}
@@ -704,6 +745,9 @@ func (m *Manager) Wake(ctx context.Context, app, env string) error {
 		return err
 	}
 	for _, rec := range list {
+		if rec.State == store.ServiceSeeding {
+			continue
+		}
 		if err := m.o.DB.SetServiceState(ctx, rec.ID, store.ServiceRunning); err != nil {
 			return err
 		}
@@ -713,7 +757,7 @@ func (m *Manager) Wake(ctx context.Context, app, env string) error {
 		if err != nil {
 			return err
 		}
-		if !running {
+		if !running || rec.PendingLoad {
 			password, err := m.password(ctx, rec)
 			if err != nil {
 				return err
@@ -726,7 +770,7 @@ func (m *Manager) Wake(ctx context.Context, app, env string) error {
 	})
 }
 
-// each does something to every service of an environment. With none, it asks nothing of any engine.
+// each does something to every service of an environment that has finished being made, as it stands once the lock is held. With none, it asks nothing of any engine.
 func (m *Manager) each(ctx context.Context, app, env string, do func(*container.Driver, store.Service) error) error {
 	if m == nil {
 		return nil
@@ -737,7 +781,15 @@ func (m *Manager) each(ctx context.Context, app, env string, do func(*container.
 	}
 	unlock := m.lock(app + "/" + env)
 	defer unlock()
+	list, err = m.o.DB.Services(ctx, app, env)
+	if err != nil {
+		return err
+	}
 	for _, rec := range list {
+		// What has not been sanitized is not to be started by anything but what makes it.
+		if rec.State == store.ServiceSeeding {
+			continue
+		}
 		driver, err := m.driverFor(ctx, rec)
 		if err != nil {
 			return err
@@ -747,6 +799,18 @@ func (m *Manager) each(ctx context.Context, app, env string, do func(*container.
 		}
 	}
 	return nil
+}
+
+// AnyRunning says whether any of an environment's services is meant to be running.
+func (m *Manager) AnyRunning(ctx context.Context, app, env string) bool {
+	if m == nil {
+		return false
+	}
+	list, err := m.o.DB.Services(ctx, app, env)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(list, func(s store.Service) bool { return s.State == store.ServiceRunning })
 }
 
 // Blocks says why an environment's services, or with none named any of an app's, could not be removed now. Whatever is about to lose the record of one asks this first, as

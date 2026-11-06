@@ -36,6 +36,8 @@ type ServiceSpec struct {
 	StopTimeout time.Duration
 	// Command replaces what the image runs, if set.
 	Command []string
+	// Private says that no app is to reach it yet: it has no port or network, and what looks after services does not take it for running.
+	Private bool
 }
 
 // serviceLimit is how long the engine has for what should not take long, and pulling an image is not one of those.
@@ -53,6 +55,11 @@ func ServiceMetadataVolume(id string) string { return "moorage-svc-" + idPart(id
 // ServiceUpgradeVolume is where a service keeps what it holds after moving to a major version. No volume's name starts with another's, as Podman takes a name for anything that it starts.
 func ServiceUpgradeVolume(id, version string) string {
 	return "moorage-svc-" + idPart(id) + "-pg" + version
+}
+
+// ServiceRestoredVolume is where a service goes when it is put back to a dump, while what it held is kept.
+func ServiceRestoredVolume(id string, at int64) string {
+	return "moorage-svc-" + idPart(id) + "-restored-" + strconv.FormatInt(at, 10)
 }
 
 // ServiceNetwork is the network of an environment's services and of its apps in containers.
@@ -132,6 +139,9 @@ func (d *Driver) serviceLabels(s ServiceSpec) []string {
 	for _, l := range [][2]string{{labelManaged, "true"}, {labelServer, d.server}, {labelService, s.ID}, {labelApp, s.App}, {labelEnv, s.Env}} {
 		args = append(args, "--label", l[0]+"="+l[1])
 	}
+	if s.Private {
+		args = append(args, "--label", labelPrivate+"=true")
+	}
 	return args
 }
 
@@ -180,18 +190,20 @@ func (d *Driver) EnsureNetwork(ctx context.Context, name string) error {
 	return err
 }
 
-// ServiceRunning says whether a service's container is running.
+// ServiceRunning says whether a service's container is running, where an app can reach it. One that is private is on its way to something else, and may have been left by a server that
+// stopped halfway.
 func (d *Driver) ServiceRunning(ctx context.Context, name string) (bool, error) {
 	asking, cancel := context.WithTimeout(ctx, serviceLimit)
 	defer cancel()
-	st, err := d.inspect(asking, name)
+	out, err := d.engine.output(asking, nil, "container", "inspect", "--format", `{{.State.Running}} {{index .Config.Labels "`+labelPrivate+`"}}`, name)
 	if IsNotFound(err) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return st.Running, nil
+	fields := strings.Fields(string(out))
+	return len(fields) == 1 && fields[0] == "true", nil
 }
 
 // ExecService runs a command in a service's container, and says what it wrote and whether it worked.
