@@ -170,7 +170,7 @@
 <h2 id="stopping-everything">Stopping everything<a class="anchor" href="#stopping-everything" aria-label="Link to this section">#</a></h2>
 <p>Apps keep running when the server stops, on purpose. <code>moor server stop</code> stops the server, as a service or as started with <code>moor server run</code>; with <code>--all</code> it stops the apps too, in containers or not, whether or not a server is running:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server stop --all</code></pre></div>
-<p>The server starts them again when it next starts.</p>
+<p>The server starts them again when it next starts. A <a href="services.html">service</a>, such as a database, goes on running through this. Your engine can stop it, and the server starts it again when it next starts.</p>
 <h2 id="localhost-does-not-resolve"><code>*.localhost</code> does not resolve<a class="anchor" href="#localhost-does-not-resolve" aria-label="Link to this section">#</a></h2>
 <p>On your own computer, apps are at <code>http://&lt;app&gt;.localhost:8080</code>. Chromium- and Firefox-based browsers and systemd-resolved on Linux resolve those names by themselves, as do some versions of macOS. On the others, Safari and command-line tools do not, and this fixes that:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server resolver install</code></pre></div>
