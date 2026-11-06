@@ -936,6 +936,13 @@ func (m *Manager) MetricsContainers(ctx context.Context) map[string]metrics.Usag
 	if err != nil {
 		return nil
 	}
+	if !slices.ContainsFunc(list, func(s store.Service) bool { return s.State == store.ServiceRunning }) {
+		m.usedMu.Lock()
+		m.used = nil
+		m.usedMu.Unlock()
+		return nil
+	}
+	// Only now: even this can set off a look at an engine, and a server with nothing that needs one should never ask.
 	st := m.o.Engines.Known()
 	byName := map[string]string{}
 	for _, rec := range list {
