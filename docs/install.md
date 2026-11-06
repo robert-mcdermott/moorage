@@ -1,7 +1,14 @@
 # Installing Moorage
 
 Moorage is one program, `moor`: the server and the command line that talks
-to it. It runs on Linux, macOS and Windows, on amd64 and arm64. [How big a machine](#how-big-a-machine) says what it needs.
+to it. It runs on Linux, macOS and Windows, on amd64 and arm64. [How big a machine](#how-big-a-machine) says how much it needs.
+
+It needs no database, proxy or container engine. Builds download the Go, Node.js, uv and Python that an app asks for, from
+their official places or [mirrors of your own](configuration.md#toolchains). Beyond that:
+
+- **Git,** on the machines that you push from, to [deploy with `git push`](git.md). `moor deploy` does without it.
+- **Podman or Docker,** on a server that runs [apps in containers](containers.md) or [services](services.md), such as a database. Nothing else asks for one, and a server with none says so when something does.
+- **systemd,** on Linux, to [run it as a service](#3-run-it-as-a-service). macOS and Windows have what that takes.
 
 ## 1. Get `moor`
 
@@ -102,8 +109,9 @@ sha256sum --check --ignore-missing SHA256SUMS
 sudo install -m 0755 moor-linux-amd64 /usr/local/bin/moor
 ```
 
-(On macOS, use `moor-darwin-arm64` or `moor-darwin-amd64`, and
-`shasum -a 256 --check --ignore-missing SHA256SUMS`.)
+(On Linux on ARM, use `moor-linux-arm64`. On macOS, use `moor-darwin-arm64` or `moor-darwin-amd64`, and
+`shasum -a 256 --check --ignore-missing SHA256SUMS`. On Windows, use `moor-windows-amd64.exe` or `moor-windows-arm64.exe`,
+compare `Get-FileHash` with `SHA256SUMS`, and name it `moor.exe`, in a directory on your `PATH`.)
 
 The checksum shows a damaged download, and a file that differs from the release's
 list. Both come from the same release, so it cannot protect against someone able to
@@ -118,6 +126,14 @@ and on Windows, with `Unblock-File .\moor-windows-amd64.exe`.
 ### From source
 
 Build it with Go 1.26 or newer:
+
+```bash
+git clone https://github.com/robert-mcdermott/moorage
+```
+
+```bash
+cd moorage
+```
 
 ```bash
 CGO_ENABLED=0 go build -trimpath -o moor ./cmd/moor
@@ -137,7 +153,8 @@ and in `%LocalAppData%\Moorage` on Windows. `XDG_CONFIG_HOME` and `XDG_DATA_HOME
 Linux, if they are set.
 
 A server set up as yourself by an earlier version stays where it is, and `moor` finds it.
-To move one, stop it, move the folder, change `data_dir` in `server.toml`, and start it again.
+To move one, stop it, move the folder, change `data_dir` in `server.toml`, and start it again. A service names where
+its `server.toml` was, so that one takes `moor server install` from the new place.
 
 **On your own computer** — apps at `http://<app>.localhost:8080`:
 
@@ -146,7 +163,8 @@ moor server init --preset local
 ```
 
 Chromium- and Firefox-based browsers resolve `*.localhost` names on their
-own; for `curl` and other tools, send the app's name as the `Host` header
+own. Where the rest of your computer does not, for Safari and command-line tools,
+`moor server resolver install` [sets that up](troubleshooting.md#localhost-does-not-resolve). Or, for `curl` and other tools, send the app's name as the `Host` header
 (`curl -H 'Host: hello.localhost' http://127.0.0.1:8080/`).
 
 **A server on your network** — apps at `https://<app>.<domain>`, with
@@ -156,7 +174,8 @@ certificates from Moorage's own certificate authority:
 sudo moor server init --domain apps.example.com
 ```
 
-Point a wildcard DNS record, `*.apps.example.com`, at the server. Browsers
+Point a wildcard DNS record, `*.apps.example.com`, at the server, and open ports 80, 443 and 2222. With no wildcard
+record to be had, `--routing path` [puts apps at `<domain>/<app>`](domains.md#with-no-wildcard-dns-path-routing). Browsers
 trust the certificates once they trust Moorage's CA, which every app serves
 at `/.moorage/ca.crt`, and `moor trust` installs ([TLS and trusting the
 server](tls.md)). To use your own certificates — a corporate wildcard, for instance — set
@@ -171,7 +190,7 @@ from a public CA, and everything but production behind a sign-in:
 sudo moor server init --preset public --domain apps.example.com --email ops@example.com --agree-terms
 ```
 
-Point a wildcard DNS record at the server, and open ports 80 and 443. See
+Point a wildcard DNS record at the server, and open ports 80, 443 and 2222. See
 [From a public CA, with ACME](tls.md#from-a-public-ca-with-acme), and read [Security](security.md) first: Moorage has
 not yet had an outside security review.
 
@@ -199,9 +218,12 @@ sudo moor server install
 
 This installs and starts a systemd unit (`/etc/systemd/system/moorage.service`)
 on Linux or a launchd daemon (`/Library/LaunchDaemons/io.moorage.server.plist`)
-on macOS, which starts with the machine. Run it without `sudo` to install a
-service of your own user instead (on Linux, `loginctl enable-linger` keeps it
-running after you log out).
+on macOS, which starts with the machine.
+
+Run it without `sudo` to install a service of your own user instead, which starts when you log in
+(`~/.config/systemd/user/moorage.service` on Linux, where `loginctl enable-linger` keeps it
+running after you log out, and `~/Library/LaunchAgents/io.moorage.server.plist` on macOS).
+Then leave out the `sudo` below as well.
 
 The service runs `moor` from where it was when you installed it, with the
 `PATH` you had then — apps see that `PATH` too. Reinstall after moving
@@ -228,16 +250,22 @@ sudo moor server status
 sudo moor server restart
 ```
 
+| Command | What it does |
+|---|---|
+| `moor server status` | Says whether the service runs and answers, where its configuration and logs are, and the link to claim it until someone has |
+| `moor server start` | Starts the service |
+| `moor server restart` | Restarts the service |
+| `moor server stop` | Stops the server, as a service or as started with `moor server run`. It stays stopped until you start it, or the machine or your next login does |
+| `moor server stop --all` | Stops the apps too |
+| `moor server uninstall` | Removes the service and stops the apps, and leaves the configuration and data in place |
+
 Apps keep running while the server stops or restarts: each runs under a small
 supervisor of its own, and the server takes them over when it starts again.
-Requests to apps are refused for the moment the server restarts.
-`moor server stop --all` stops the apps too, and also stops a server you started
-with `moor server run`; `moor server uninstall` removes
-the service and stops the apps, and leaves the configuration and data in
-place.
+Requests to apps are refused until it is back, so that a site can look down while a stopped server leaves its app running.
+[Services](services.md) go on running through all of these, including `--all` and `uninstall`.
 
 The server's log is in the journal on Linux
-(`journalctl -u moorage.service -f`) and in `logs/server/moorage.log` in the
+(`journalctl -u moorage.service -f`, and with `--user` for a service of your own) and in `logs/server/moorage.log` in the
 data directory on every system.
 
 On Windows, a program has to have the extension it runs by: a `go build -o bin/server.exe .` in your manifest, and
@@ -252,7 +280,7 @@ moor server run
 ## 4. Claim it
 
 `moor server init` printed a one-time setup link (`moor server status` shows it
-again). Open it and create the first account, the server's administrator. On
+again, with `sudo` for a system service). Open it and create the first account, the server's administrator. On
 your own computer you can skip this: the command line needs no account there.
 
 ![The page that claims a new server: an email address, a name and a password](images/setup-light.webp "Claiming a server creates its first account.")
@@ -317,8 +345,8 @@ need room as well, which depends on what you build, and logs and [metrics](metri
 moor server backup --to /mnt/backups
 ```
 
-That holds the database, repositories, builds, apps' data and certificates, and the server goes on
-running. **Keep `keys/master.key` safe, and apart from your backups**: it encrypts the apps' secrets,
+That holds the database, repositories, builds, apps' data, certificates and [a dump of each service](services.md#backups) of production and the
+named environments, and the server goes on running. **Keep `keys/master.key` safe, and apart from your backups**: it encrypts the apps' secrets,
 and a backup leaves it out. See [backups](backups.md) for a schedule, buckets and restoring.
 
 ## Upgrading
@@ -329,7 +357,7 @@ once, and restart the server.
 Before you do:
 
 - **Read what will be different.** The [changelog](../CHANGELOG.md) has a list of things to know under each release. Read the list of each one that you are crossing, and you need not stop at any of them: CI upgrades from the last release and from 0.6.0, with apps running.
-- **Start the server, if it has stopped.** `moor server status` says. An upgrade only goes back by itself if the server was running, as there is otherwise nothing to restart: it replaces the binary, and nothing is watching when you start it.
+- **Start the server, if it has stopped,** with `moor server start`. `moor server status` says. An upgrade only goes back by itself if the server was running, as there is otherwise nothing to restart: it replaces the binary, and nothing is watching when you start it.
 - **Make [a backup](backups.md), if what it holds matters.** An upgrade keeps a copy of the database, for going back, and no more than that.
 
 ```bash
@@ -342,7 +370,7 @@ sudo moor server upgrade
 
 Leave out the `sudo` if you installed the service without it, as the service is then your own. Use the `moor` that the service runs: `moor server upgrade` says so if this is another.
 
-That downloads the newest release and checks it against the checksum published with it. It then keeps a copy of the database and of the binary, puts the new binary in place, and
+That downloads the newest release and checks it against the checksum published with it. It then keeps a copy of the database, in `upgrades` in the data directory, and of the binary, as `moor.previous` beside it, puts the new binary in place, and
 restarts the server. Running apps keep running, and the new server takes them over. **If the server does not
 come up on the new version, everything goes back by itself.** A database from a large server can take a
 while to migrate: `--wait 10m` gives it longer than the 2 minutes it otherwise has.
@@ -368,8 +396,21 @@ copy, in `upgrades` in the data directory. There is one way back: from the last 
 A server that nothing manages, run with `moor server run`, gets its new binary, and goes on with the version
 it started with until you restart it. To go back, stop it first.
 
+To see that all is well afterwards, with `sudo` for a system service:
+
+```bash
+moor server doctor
+```
+
+```bash
+moor apps
+```
+
 Upgrade `moor` on the other machines that use the server too, by running the installer again: a newer server
-may change what the API answers. `moor server doctor` then checks the result.
+may change what the API answers.
+
+A server from before 0.1.0 has no accounts yet: `moor server status` shows the link to
+create the first, and until then the admin token works from anywhere, as it did.
 
 ### With the installer
 
@@ -402,22 +443,49 @@ look at yourself:
 gh attestation verify moor-linux-amd64 --repo robert-mcdermott/moorage
 ```
 
-From 0.1.0, the server has no accounts yet: `moor server status` shows the link to
-create the first, and until then the admin token works from anywhere, as it did.
-
 ## Uninstalling
 
-First, on a server, stop it and its apps and remove the service:
+**First, if your apps have [services](services.md):** their containers and volumes are in the container engine, and uninstalling
+the server leaves them there, running. While the server still runs, deleting an app takes its services with it, and
+`moor services remove` takes one on its own:
+
+```bash
+moor apps delete shop
+```
+
+If you have already gone further than that, your engine still lists them. These are for Podman, and Docker takes the same:
+
+```bash
+podman ps -a --filter label=io.moorage.managed=true
+```
+
+```bash
+podman volume ls --filter label=io.moorage.managed=true
+```
+
+**If you changed what a computer trusts or resolves,** take that back, on each one where you did:
+
+```bash
+moor trust --remove
+```
+
+```bash
+moor server resolver remove
+```
+
+**Then stop the server and its apps, and remove the service:**
 
 ```bash
 sudo moor server uninstall
 ```
 
-Then delete the program: `~/.local/bin/moor` or `/usr/local/bin/moor`, or on Windows,
-the `%LocalAppData%\Programs\Moorage` folder, whose entry you can also remove from your
+**Then delete the program:** `~/.local/bin/moor` or `/usr/local/bin/moor`, with `moor.previous` beside it if it has upgraded itself. On Windows,
+that is the `%LocalAppData%\Programs\Moorage` folder, whose entry you can also remove from your
 user `PATH` (**Settings → System → About → Advanced system settings → Environment
-Variables**).
+Variables**), and the `%ProgramFiles%\Moorage` folder, where installing the service puts a copy.
 
-The configuration and the data stay. Delete `server.toml`, which `moor server status`
+**The configuration and the data stay.** Delete `server.toml`, which `moor server status`
 names, and the data directory that it names under `data_dir`, only if you no longer
-need the apps' data and the keys in it.
+need the apps' data and the keys in it. A server set up as yourself has both in one folder, `~/.moorage`, or
+`%LocalAppData%\Moorage` on Windows. What `moor` itself remembers of the servers it signs in to is in `config.toml` in `~/.moorage`, or
+in `%AppData%\moorage` on Windows.

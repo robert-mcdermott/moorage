@@ -50,6 +50,8 @@ func startLocalServer(t *testing.T) string {
 	addr := ln.Addr().String()
 	ln.Close()
 	cfg.Listen.HTTP = addr
+	// Someone's own server may hold the usual port.
+	cfg.Listen.SSH = ""
 	path := filepath.Join(dir, "server.toml")
 	if err := config.Write(path, cfg, "local", false); err != nil {
 		t.Fatal(err)

@@ -78,6 +78,7 @@ The address is given as an instance starts, as a secret is, along with its passw
 | You deploy | It is made if it is not there, and started if it has stopped. If it does not become ready, the deployment fails, and the previous release goes on serving |
 | It stops by itself, or the machine restarts | Moorage starts it again |
 | The server stops or is upgraded | It goes on running, like your apps |
+| `moor server stop --all` or `moor server uninstall` | It goes on running, unlike your apps. [Uninstalling](install.md#uninstalling) says how to take it away |
 | The environment goes to sleep | It stops, and keeps what it holds, unless a process with `sleep = false` or a command is still using it. Waking starts it first, and a command or a cron job starts it for as long as it runs |
 | The manifest stops naming it | It stays, with what it holds, marked as unused. A release that does not name it does not get its address |
 | The environment is deleted | It goes, with what it holds |

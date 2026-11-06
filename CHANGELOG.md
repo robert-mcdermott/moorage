@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`moor server uninstall`, `start` and `restart` went by the name of the service, and not by which server it runs.** A server tried out with a configuration or a home directory of its own could take away the real one's service. They now leave it alone, as `moor server stop` already did.
+
 ## 0.10.0 (2026-11-05)
 
 Moorage 0.10.0 runs a database for your app. Say `[services.db]` and `type = "postgres"` in `moorage.toml`, or `type = "s3"` for object storage, and each environment gets its own, with its address given to the app as it starts. They run in containers, so that they take Podman or Docker, and only those who use them need one.
