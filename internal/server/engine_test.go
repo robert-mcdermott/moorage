@@ -341,6 +341,8 @@ case "$1" in
   container) if [ -e "` + dir + `/running-$last" ]; then echo true; else echo "Error: no such container" >&2; exit 1; fi ;;
   run) while [ $# -gt 0 ]; do if [ "$1" = --name ]; then touch "` + dir + `/running-$2"; fi; shift; done ;;
   rm|stop) rm -f "` + dir + `/running-$last" ;;
+  stats) shift 4; for name; do printf '%s\t1.50%%\t30MiB / 1GiB\n' "$name"; done ;;
+  logs) echo "what it said" ;;
   volume|network)
     if [ "$2" = inspect ] && [ ! -e "` + dir + `/$1-$last" ]; then echo "no such $1" >&2; exit 1; fi
     if [ "$2" = inspect ]; then echo "$last"; fi
@@ -494,4 +496,50 @@ func TestSleepLeavesWhatACommandIsUsing(t *testing.T) {
 		_, there := os.Stat(file)
 		return there != nil
 	})
+}
+
+// A service is seen like what else runs: what it uses in metrics, in the console and on the command line, and what it says.
+func TestServicesAreSeen(t *testing.T) {
+	bin, _ := serviceEngine(t)
+	cfg := testConfig(t)
+	cfg.Containers.Engine = bin
+	addrs, _ := start(t, cfg)
+	client := apiClient(t, cfg, addrs)
+	ctx := context.Background()
+	deployedSource(t, client, "shop", manifestWithService("", "0s"))
+	var used uint64
+	waitUntil(t, "what it uses", func() bool {
+		list, err := client.Services(ctx, "shop", "production")
+		if err != nil || len(list) != 1 {
+			return false
+		}
+		used = list[0].MemoryBytes
+		return used > 0
+	})
+	if used != 30*(1<<20) {
+		t.Errorf("what it uses: %d", used)
+	}
+	waitUntil(t, "its chart", func() bool {
+		m, err := client.Metrics(ctx, "shop", "production", "live")
+		if err != nil {
+			return false
+		}
+		for _, line := range chartOf(m, "memory").Lines {
+			if strings.Contains(line.Name, "service.db") {
+				return true
+			}
+		}
+		return false
+	})
+	b := signIn(t, cfg, addrs)
+	_, page := b.get("/apps/shop/services")
+	contains(t, "its tab", page, "30 MiB", "this app has 1 service, 1 of them running, using 30 MiB", "/apps/shop/services/db/logs")
+	res, page := b.get("/apps/shop/services/db/logs")
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("%d", res.StatusCode)
+	}
+	contains(t, "what it said", page, "what it said")
+	if res, _ := b.get("/apps/shop/services/nothing/logs"); res.StatusCode != http.StatusNotFound {
+		t.Errorf("no such service: %d", res.StatusCode)
+	}
 }

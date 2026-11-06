@@ -1220,7 +1220,9 @@ type Service struct {
 	State   string `json:"state"`
 	Running bool   `json:"running"`
 	Unknown bool   `json:"unknown,omitempty"`
-	// OldVolume says that it kept what it held before its last upgrade, until someone says that the upgrade was good.
+	// MemoryBytes is what it was last seen to use, if it is running and has been looked at.
+	MemoryBytes uint64 `json:"memory_bytes,omitempty"`
+	// OldVolume says that it kept what it held before its last upgrade or restore, until someone says that that was good.
 	OldVolume string `json:"old_volume,omitempty"`
 	// Unused says that the current release's manifest does not name it. It stays, with what it holds, until someone removes it.
 	Unused    bool      `json:"unused,omitempty"`

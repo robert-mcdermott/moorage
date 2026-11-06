@@ -989,6 +989,8 @@ Show the output of an app's instances, merged by time. Lines marked with \* are 
 
 --source chooses what to show, from stdout, stderr, moorage, build, access and events; the first three unless asked.
 
+--service shows the newest of what a service has said instead, which its engine keeps, so that it has only --tail.
+
 ```text
 moor logs
 ```
@@ -998,6 +1000,7 @@ moor logs --app api
 moor logs -f --app api --process worker
 moor logs --app api --source stderr,build --since 1h --grep timeout
 moor logs --app api --problems --since 24h
+moor logs --app api --service db --tail 500
 ```
 
 | Flag | Default | What it does |
@@ -1010,6 +1013,7 @@ moor logs --app api --problems --since 24h
 | `--json` |  | print each line as JSON |
 | `--problems` |  | show the lines that report a problem: errors, warnings, standard error, failed requests |
 | `--process string` |  | show one process only, such as web |
+| `--service string` |  | show what this service has said instead |
 | `--since string` |  | show lines since then: how long ago (15m, 2h, 7d) or a moment |
 | `--source string` |  | sources to show, separated by commas: stdout, stderr, moorage, build, access, events |
 | `-n, --tail int` | `100` | lines to show from the end |

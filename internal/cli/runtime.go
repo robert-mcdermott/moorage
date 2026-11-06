@@ -194,6 +194,7 @@ func newLogsCmd() *cobra.Command {
 	var app, env string
 	var q client.LogQuery
 	var asJSON bool
+	var service string
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Show an app's logs",
@@ -202,15 +203,26 @@ are notes from Moorage (starts, exits, restarts); lines marked with ! came
 from standard error.
 
 --source chooses what to show, from stdout, stderr, moorage, build, access
-and events; the first three unless asked.`,
+and events; the first three unless asked.
+
+--service shows the newest of what a service has said instead, which its engine
+keeps, so that it has only --tail.`,
 		Example: `  moor logs --app api
   moor logs -f --app api --process worker
   moor logs --app api --source stderr,build --since 1h --grep timeout
-  moor logs --app api --problems --since 24h`,
+  moor logs --app api --problems --since 24h
+  moor logs --app api --service db --tail 500`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if _, err := applogs.SplitSources(q.Source); err != nil {
 				return usageError{err}
+			}
+			if service != "" {
+				for _, other := range []string{"follow", "process", "instance", "source", "grep", "problems", "since", "until", "json"} {
+					if cmd.Flags().Lookup(other) != nil && cmd.Flags().Changed(other) {
+						return usageError{fmt.Errorf("--service has only --tail, as a service's engine keeps what it says: --%s is for what Moorage keeps of an app", other)}
+					}
+				}
 			}
 			appName, _, err := resolveApp(app)
 			if err != nil {
@@ -221,6 +233,17 @@ and events; the first three unless asked.`,
 				return err
 			}
 			ctx := cmd.Context()
+			if service != "" {
+				text, err := c.ServiceLog(ctx, appName, env, service, q.Tail)
+				if err != nil {
+					return err
+				}
+				fmt.Fprint(cmd.OutOrStdout(), text)
+				if text != "" && !strings.HasSuffix(text, "\n") {
+					fmt.Fprintln(cmd.OutOrStdout())
+				}
+				return nil
+			}
 			if q.Follow {
 				var stop context.CancelFunc
 				ctx, stop = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -255,6 +278,7 @@ and events; the first three unless asked.`,
 	f := cmd.Flags()
 	f.StringVar(&app, "app", "", "app (default: $MOOR_APP or [app].name in moorage.toml)")
 	f.StringVar(&env, "env", names.Production, "environment")
+	f.StringVar(&service, "service", "", "show what this service has said instead")
 	f.StringVar(&q.Process, "process", "", "show one process only, such as web")
 	f.StringVar(&q.Instance, "instance", "", "show one instance only: its number or its ID")
 	f.StringVar(&q.Source, "source", "", "sources to show, separated by commas: stdout, stderr, moorage, build, access, events")

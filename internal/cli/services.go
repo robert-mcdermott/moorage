@@ -46,9 +46,13 @@ A service that a manifest no longer names stays, with what it holds, until you r
 				return nil
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "SERVICE\tTYPE\tSTATUS\tGIVES THE APP\tPORT")
+			fmt.Fprintln(w, "SERVICE\tTYPE\tSTATUS\tGIVES THE APP\tPORT\tMEMORY")
 			for _, s := range list {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n", s.Name, serviceKind(s), serviceStatus(s), s.Variable, s.Port)
+				memory := "-"
+				if s.MemoryBytes > 0 {
+					memory = humanBytes(int64(s.MemoryBytes))
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n", s.Name, serviceKind(s), serviceStatus(s), s.Variable, s.Port, memory)
 			}
 			return w.Flush()
 		},

@@ -1166,10 +1166,14 @@ func TestContainerServiceData(t *testing.T) {
 	t.Cleanup(func() { stop() })
 	c = apiClient(t, cfg, addrs)
 	db = testAuth(t, cfg).DB
+	// Until it is said to be running, it is having its dump put back, where no app can reach it.
 	waitUntil(t, "what it held to come back", func() bool {
-		got, err := psqlIn(rec.ID, "select email from people where name = 'Ada'")
-		return err == nil && got == "ada@example.com"
+		list, err := c.Services(ctx, "shop", "production")
+		return err == nil && len(list) == 1 && list[0].Running
 	})
+	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
+		t.Errorf("what it held: %q", got)
+	}
 	if got := psql(rec.ID, "select count(*) from pg_database where datname = 'other'"); got != "1" {
 		t.Errorf("its other database: %q", got)
 	}
@@ -1259,6 +1263,51 @@ func TestContainerServiceData(t *testing.T) {
 	if out, err := exec.Command(e.Bin, "volume", "inspect", rec.Volume).CombinedOutput(); err == nil {
 		t.Errorf("its old volume is still there: %s", out)
 	}
+
+	// Going back to its dump loses what came since, and keeps what it held until told. One that will not do changes nothing.
+	psql(rec.ID, "insert into people (name, email) values ('Later', 'later@example.com')")
+	whole, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dump, whole[:len(whole)/2], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RestoreService(ctx, "shop", "production", "db"); err == nil || !strings.Contains(err.Error(), "not whole") {
+		t.Errorf("a dump cut short: %v", err)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Later'"); got != "later@example.com" {
+		t.Errorf("after a dump that would not do: %q", got)
+	}
+	if err := os.WriteFile(dump, whole, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RestoreService(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if got := psql(rec.ID, "select count(*) from people where name = 'Later'"); got != "0" {
+		t.Errorf("what came since: %q", got)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
+		t.Errorf("what it held: %q", got)
+	}
+	restored, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.OldVolume != after.Volume || restored.Volume == after.Volume {
+		t.Errorf("%+v", restored)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", after.Volume).CombinedOutput(); err != nil {
+		t.Errorf("what it held before: %v: %s", err, out)
+	}
+	waitUntil(t, "the app to come back after that", func() bool {
+		res, _ := get(t, addrs.HTTP, "shop."+cfg.Domain, "/health")
+		return res.StatusCode == http.StatusOK
+	})
+	if err := c.FinishServiceUpgrade(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // removeServices leaves no container, volume or network of a test's server behind.
@@ -1316,9 +1365,10 @@ func TestContainerServiceAndCommands(t *testing.T) {
 		return err == nil && r.Status != "running" && r.Status != "queued" && r.Status != "starting"
 	})
 	waitUntil(t, "it to stop again", func() bool { return !running() })
-	if got, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "db"); err != nil || got.State != "stopped" {
-		t.Errorf("after the command: %+v %v", got, err)
-	}
+	waitUntil(t, "it to be on record as stopped", func() bool {
+		got, err := testAuth(t, cfg).DB.Service(ctx, "shop", "production", "db")
+		return err == nil && got.State == "stopped"
+	})
 	// Going to sleep leaves it for a command that is still going.
 	if _, err := c.WakeEnvironment(ctx, "shop", "production"); err != nil {
 		t.Fatal(err)

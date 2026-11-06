@@ -96,7 +96,7 @@ holds it, and its state. A new package has a `Run` beside the runtime's, and a s
 - **Sleep:** a preview's sleep stops its service and keeps its volume, and waking starts the service first. Every command counts as using its environment's services. A command in one that is asleep starts what it needs, and the last to end stops it, unless a process with `sleep = false` needs it or the environment has woken; sleep leaves it for a command that is still going. A server stopping during that leaves it running, and looking at what is idle stops it.
 - **A service the manifest no longer names** stays, with its data, and is shown as unused until `moor services remove`. Nothing deletes data because a line went from a file. An
   environment's deletion removes its services and their volumes, as it does its data directory.
-- **Seen like everything else:** in `moor logs`, in events and alert rules, in metrics, in the doctor, and on a Services tab.
+- **Seen like everything else:** in `moor logs --service`, in events and alert rules, in metrics, in the doctor, and on a Services tab. Its engine keeps what it says: only what is asked for is read, which keeps a database's output out of what Moorage stores and sends on.
 
 ## Reaching a service
 

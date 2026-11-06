@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	stdlog "log"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -465,7 +466,17 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		sweep = time.Minute
 	}
 	go deployer.Sweep(ctx, sweep)
-	collector := &metrics.Collector{Store: metricsStore, Log: log, Instances: runtime.MetricsInstances, Containers: runtime.MetricsContainers, DataDir: cfg.DataDir, OverLimit: runtime.OverMemory}
+	collector := &metrics.Collector{Store: metricsStore, Log: log, DataDir: cfg.DataDir, OverLimit: runtime.OverMemory,
+		Instances: func(ctx context.Context) []metrics.Instance {
+			return append(runtime.MetricsInstances(ctx), backing.MetricsInstances(ctx)...)
+		},
+		Containers: func(ctx context.Context) map[string]metrics.Usage {
+			usage := map[string]metrics.Usage{}
+			maps.Copy(usage, runtime.MetricsContainers(ctx))
+			maps.Copy(usage, backing.MetricsContainers(ctx))
+			return usage
+		},
+	}
 	go collector.Run(ctx, opts.MetricsEvery)
 	cronTick := opts.CronTick
 	if cronTick == 0 {

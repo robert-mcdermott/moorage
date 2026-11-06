@@ -150,14 +150,16 @@ moor services --app shop
 ```
 
 ```bash
-moor services logs db --env staging
+moor logs --service db --env staging
 ```
 
 ```bash
 moor services remove db --env my-branch --yes
 ```
 
-They are on the Services tab of an app in the console too, and `moor server doctor` says if one that should be running is not. Removing one takes what it holds, for good. If the manifest still names it, the next deployment makes a new one, which starts empty.
+`moor services logs db` is the same. Its engine keeps what it says, so that it has only `--tail`, and goes with it.
+
+They are on the Services tab of an app in the console too, with what each has said and what an app's services add up to across its environments, as each preview has its own. What one uses is in [metrics](metrics.md) as `service.db`, with an app's instances. `moor server doctor` says if one that should be running is not. Removing one takes what it holds, for good. If the manifest still names it, the next deployment makes a new one, which starts empty.
 
 ## How far to trust this
 

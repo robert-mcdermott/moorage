@@ -30,6 +30,7 @@ import (
 	"github.com/robert-mcdermott/moorage/internal/events"
 	"github.com/robert-mcdermott/moorage/internal/ids"
 	"github.com/robert-mcdermott/moorage/internal/manifest"
+	"github.com/robert-mcdermott/moorage/internal/observe/metrics"
 	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
@@ -87,6 +88,10 @@ type Options struct {
 
 // Manager runs services. A nil Manager has none.
 type Manager struct {
+	// used is what each service was last seen to use, by its ID.
+	usedMu sync.Mutex
+	used   map[string]metrics.Usage
+
 	o     Options
 	locks sync.Map // by app/env: one change at a time
 	said  sync.Map // by service ID: what stops it from being looked after, as last logged
@@ -801,6 +806,108 @@ func (m *Manager) each(ctx context.Context, app, env string, do func(*container.
 	return nil
 }
 
+// MetricsInstances lists the services that should be running, to sample with what else is running. A service's part is service.db, so that it is not taken for an instance of a process.
+func (m *Manager) MetricsInstances(ctx context.Context) []metrics.Instance {
+	if m == nil {
+		return nil
+	}
+	list, err := m.o.DB.AllServices(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []metrics.Instance
+	for _, rec := range list {
+		if rec.State != store.ServiceRunning {
+			continue
+		}
+		envID, err := m.o.DB.EnvID(ctx, rec.App, rec.Env)
+		if err != nil {
+			continue
+		}
+		out = append(out, metrics.Instance{EnvID: envID, ID: rec.ID, Part: servicePart + rec.Name})
+	}
+	return out
+}
+
+// servicePart comes before a service's name in its metrics.
+const servicePart = "service."
+
+// MetricsContainers asks the engines what services are using, by ID, and keeps it for the console, which should not have to wait for that. With none running, it asks no engine.
+func (m *Manager) MetricsContainers(ctx context.Context) map[string]metrics.Usage {
+	if m == nil {
+		return nil
+	}
+	list, err := m.o.DB.AllServices(ctx)
+	if err != nil {
+		return nil
+	}
+	type engineNames struct {
+		driver *container.Driver
+		byName map[string]string
+	}
+	engines := map[string]*engineNames{}
+	for _, rec := range list {
+		if rec.State != store.ServiceRunning {
+			continue
+		}
+		e := engines[rec.Engine]
+		if e == nil {
+			driver, err := m.driverFor(ctx, rec)
+			if err != nil {
+				continue
+			}
+			e = &engineNames{driver: driver, byName: map[string]string{}}
+			engines[rec.Engine] = e
+		}
+		e.byName[container.ServiceName(rec.ID)] = rec.ID
+	}
+	out := map[string]metrics.Usage{}
+	for _, e := range engines {
+		asking, cancel := context.WithTimeout(ctx, 8*time.Second)
+		stats, err := e.driver.ServiceStats(asking, e.byName)
+		cancel()
+		if err != nil {
+			if ctx.Err() == nil {
+				m.o.Log.Debug("read what services are using", "err", err)
+			}
+			continue
+		}
+		for id, u := range stats {
+			out[id] = metrics.Usage{CPU: u.CPU, Memory: u.Memory}
+		}
+	}
+	m.usedMu.Lock()
+	m.used = out
+	m.usedMu.Unlock()
+	return out
+}
+
+// memoryOf is what a service was last seen to use.
+func (m *Manager) memoryOf(id string) uint64 {
+	m.usedMu.Lock()
+	defer m.usedMu.Unlock()
+	return m.used[id].Memory
+}
+
+// Totals says what an app's services add up to, across its environments, as each preview has its own: how many there are, how many should be running, and the memory they were last seen to use.
+func (m *Manager) Totals(ctx context.Context, app string) (total, running int, memory uint64, err error) {
+	if m == nil {
+		return 0, 0, 0, nil
+	}
+	list, err := m.o.DB.AppServices(ctx, app)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for _, rec := range list {
+		total++
+		if rec.State == store.ServiceRunning {
+			running++
+			memory += m.memoryOf(rec.ID)
+		}
+	}
+	return total, running, memory, nil
+}
+
 // AnyRunning says whether any of an environment's services is meant to be running.
 func (m *Manager) AnyRunning(ctx context.Context, app, env string) bool {
 	if m == nil {
@@ -927,6 +1034,8 @@ type Status struct {
 	Running bool
 	// Unknown says that the engine could not be asked.
 	Unknown bool
+	// Memory is what it was last seen to use, which metrics look at every so often.
+	Memory uint64
 }
 
 // List says how an environment's services stand. It asks the engine if there are any.
@@ -946,6 +1055,9 @@ func (m *Manager) List(ctx context.Context, app, env string) ([]Status, error) {
 			st.Running, err = driver.ServiceRunning(ctx, container.ServiceName(rec.ID))
 		}
 		st.Unknown = err != nil
+		if st.Running {
+			st.Memory = m.memoryOf(rec.ID)
+		}
 		out = append(out, st)
 	}
 	return out, nil

@@ -1223,7 +1223,7 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
 1. **A first test, in CI.** The images under rootless Podman and Docker, and Versity Gateway against SeaweedFS with real S3 clients.
    - Done (slice 1): both engines, with `boto3`, the AWS command line and `psql`. Versity Gateway stays, using about a tenth of the memory and image of SeaweedFS, and a plain `tar` of it restores with its metadata. Where PostgreSQL's volume goes depends on its major version, and what the design said of image sizes and of keys `a` and `a/b` was wrong. [What it found](13-services.md#what-the-first-test-found).
 2. **PostgreSQL from end to end.** Manifest, table, container, address, deploy order, sleep, console, command line, doctor and logs.
-   - Done (slice 2): as designed, with a real-engine test under both engines. Its logs are `moor services logs`, and not yet part of `moor logs`, and its numbers are not yet in metrics.
+   - Done (slice 2): as designed, with a real-engine test under both engines. What it says is `moor logs --service`, what it uses is in metrics, and the console adds up what an app's services use across its environments, as each preview has its own.
    - Found by slice 2: the real-engine test caught what was read before a service was removed starting it again, which only one of the engines showed.
 3. **S3,** as the rest of the same design.
    - Done (slice 3): one bucket and one key, under the names that clients look for, with what is secret kept apart from what is not, as a bucket's name is too short a word to remove from what an app prints.

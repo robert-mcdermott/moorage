@@ -47,7 +47,7 @@ var cards = map[string]bool{
 
 func pageNames() []string {
 	names := []string{"login-code", "apps", "activity", "welcome", "app", "deployments", "deployment", "deploy", "new-app", "logs", "variables", "variables-edit",
-		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-services", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics", "app-console", "app-files", "settings-telemetry"}
+		"account", "account-keys", "account-tokens", "account-sessions", "account-security", "settings", "settings-users", "settings-registries", "settings-notifications", "settings-backups", "settings-sign-in", "notifications", "settings-system", "settings-audit", "projects", "project", "app-settings", "app-services", "app-service-log", "app-environments", "previews", "app-access", "app-cron", "app-run", "app-metrics", "app-console", "app-files", "settings-telemetry"}
 	for name := range cards {
 		names = append(names, name)
 	}
@@ -217,6 +217,7 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /previews", c.previewsPage)
 	mux.HandleFunc("GET /apps/{app}/environments", c.environmentsPage)
 	mux.HandleFunc("GET /apps/{app}/services", c.servicesPage)
+	mux.HandleFunc("GET /apps/{app}/services/{name}/logs", c.serviceLogPage)
 	mux.HandleFunc("POST /apps/{app}/services/{name}/remove", c.actionWith(auth.ScopeAdmin, maxForm, c.removeService))
 	mux.HandleFunc("POST /apps/{app}/environments", c.action(c.createEnvironment))
 	mux.HandleFunc("POST /apps/{app}/previews", c.action(c.createPreview))
@@ -387,6 +388,9 @@ type data struct {
 	// HasServices says that the app has services, for its tabs, and ServiceRows are those of an environment.
 	HasServices bool
 	ServiceRows []serviceRow
+	// ServicesTotal says what they add up to, across its environments, and ServiceLog is what one has said.
+	ServicesTotal string
+	ServiceLog    serviceLogView
 	// Gate says who may reach it, on its Access page.
 	Gate *accessView
 	// Metrics is an environment's charts, and Glance how it has been doing lately.

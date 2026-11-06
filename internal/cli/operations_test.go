@@ -122,6 +122,7 @@ func freePort(t *testing.T, path string) {
 	data, _ := os.ReadFile(path)
 	text := strings.ReplaceAll(string(data), "127.0.0.1:8080", addr)
 	text = strings.ReplaceAll(text, `":2222"`, `""`)
+	text = strings.ReplaceAll(text, `"127.0.0.1:2222"`, `""`)
 	os.WriteFile(path, []byte(text), 0o644)
 }
 

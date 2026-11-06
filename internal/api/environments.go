@@ -233,7 +233,7 @@ func (s *Server) services(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		docs = append(docs, apitypes.Service{
 			Name: row.Name, Type: row.Type, Version: row.Version, Image: row.Image, Variable: row.EnvVar, Port: row.Port, State: row.State,
-			Running: row.Running, Unknown: row.Unknown, Unused: row.Unused, OldVolume: row.OldVolume, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
+			Running: row.Running, Unknown: row.Unknown, MemoryBytes: row.Memory, Unused: row.Unused, OldVolume: row.OldVolume, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, docs)

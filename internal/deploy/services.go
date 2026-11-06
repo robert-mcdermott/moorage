@@ -42,6 +42,11 @@ func (d *Deployer) ServiceList(ctx context.Context, app, env string) ([]ServiceR
 	return rows, nil
 }
 
+// ServiceTotals says what an app's services add up to, across its environments.
+func (d *Deployer) ServiceTotals(ctx context.Context, app string) (total, running int, memory uint64, err error) {
+	return d.opts.Services.Totals(ctx, app)
+}
+
 // RemoveService removes a service, with what it holds.
 func (d *Deployer) RemoveService(ctx context.Context, app, env, name, by string) error {
 	lock := d.envLock(app, env)
@@ -92,6 +97,10 @@ func (d *Deployer) RestoreService(ctx context.Context, app, env, name string) er
 	lock := d.envLock(app, env)
 	lock.Lock()
 	defer lock.Unlock()
+	// What can refuse it does so with nothing stopped.
+	if err := d.opts.Services.CheckRestore(ctx, app, env, name); err != nil {
+		return err
+	}
 	key := sleepKey(app, env)
 	d.upgrading.Store(key, true)
 	defer d.upgrading.Delete(key)

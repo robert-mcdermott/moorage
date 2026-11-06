@@ -688,15 +688,12 @@ func (m *Manager) FinishUpgrade(ctx context.Context, app, env, name string) erro
 	return m.o.DB.SetServiceImage(ctx, rec.ID, rec.Version, rec.Image, rec.Digest, rec.Mount, rec.Volume, "")
 }
 
-// Restore puts a service back to its latest dump, which on the machine that it ran on, a restore of a backup does not do by itself, as what it holds may be newer. A dump can fail
-// to load, so that PostgreSQL's goes into a volume of its own first, and what it held is kept until someone says that this was good, as after an upgrade.
-func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
+// CheckRestore says why a service cannot go back to its latest dump, so that nothing need stop to find out.
+func (m *Manager) CheckRestore(ctx context.Context, app, env, name string) error {
 	rec, err := m.o.DB.Service(ctx, app, env, name)
 	if err != nil {
 		return err
 	}
-	unlock := m.lock(app + "/" + env)
-	defer unlock()
 	if rec.State == store.ServiceSeeding {
 		return &MajorChangeError{"it is still being made"}
 	}
@@ -710,6 +707,22 @@ func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
 	if err := dumpWhole(path, rec.Type); err != nil {
 		return &MajorChangeError{err.Error()}
 	}
+	return nil
+}
+
+// Restore puts a service back to its latest dump, which on the machine that it ran on, a restore of a backup does not do by itself, as what it holds may be newer. A dump can fail
+// to load, so that PostgreSQL's goes into a volume of its own first, and what it held is kept until someone says that this was good, as after an upgrade.
+func (m *Manager) Restore(ctx context.Context, app, env, name string) error {
+	unlock := m.lock(app + "/" + env)
+	defer unlock()
+	if err := m.CheckRestore(ctx, app, env, name); err != nil {
+		return err
+	}
+	rec, err := m.o.DB.Service(ctx, app, env, name)
+	if err != nil {
+		return err
+	}
+	path := m.dumpPath(rec)
 	driver, err := m.driverFor(ctx, rec)
 	if err != nil {
 		return err

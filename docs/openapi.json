@@ -2654,6 +2654,9 @@
           "image": {
             "type": "string"
           },
+          "memory_bytes": {
+            "type": "integer"
+          },
           "name": {
             "type": "string"
           },

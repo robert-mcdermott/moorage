@@ -378,6 +378,62 @@ type serviceRow struct {
 	Port                 int
 	Status               status
 	Unused               bool
+	Memory               string
+}
+
+// servicesTotal says what an app's services add up to, as each preview has its own.
+func servicesTotal(total, running int, memory uint64) string {
+	if total == 0 {
+		return ""
+	}
+	text := fmt.Sprintf("Across its environments, this app has %s, %d of them running", countText(total, "service", "services"), running)
+	if memory > 0 {
+		text += ", using " + humanSize(int64(memory))
+	}
+	return text + "."
+}
+
+// serviceLogPage shows the newest of what a service has said.
+func (c *Console) serviceLogPage(w http.ResponseWriter, r *http.Request) {
+	p, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
+	app, ok := c.lookupApp(w, r, p)
+	if !ok {
+		return
+	}
+	name := r.PathValue("name")
+	d, err := c.appData(r, p, app, "apps", "The service "+name+" of "+app)
+	if err != nil {
+		c.internal(w, err)
+		return
+	}
+	if !d.Access.Logs {
+		c.message(w, http.StatusForbidden, data{Title: "Refused", Heading: "You may not read its logs", Message: "Viewers of the project " + d.Access.Project.Name + " may not read logs.", Link: "/apps/" + url.PathEscape(app), LinkText: "Back to the app"})
+		return
+	}
+	d.Crumbs = []crumb{{"Apps", "/"}, {app, "/apps/" + url.PathEscape(app)}, {"Services", "/apps/" + url.PathEscape(app) + "/services" + string(envQuery(envOf(r)))}}
+	d.Tab = "services"
+	d.App = appView{Name: app, URL: c.cfg.EnvURL(app, envOf(r))}
+	d.Heading = "What " + name + " has said"
+	d.ServiceLog = serviceLogView{Name: name}
+	if c.deployer != nil {
+		d.ServiceLog.Text, err = c.deployer.ServiceLogs(r.Context(), app, envOf(r), name, 500)
+		if errors.Is(err, store.ErrNotFound) {
+			c.message(w, http.StatusNotFound, data{Title: "Not found", Heading: "No such service", Message: app + " has no service called " + name + " here."})
+			return
+		}
+		if err != nil {
+			d.Failure = &failure{Message: sentence(err.Error())}
+		}
+	}
+	c.render(w, http.StatusOK, "app-service-log", d)
+}
+
+// serviceLogView is what a service has said.
+type serviceLogView struct {
+	Name, Text string
 }
 
 func (c *Console) servicesPage(w http.ResponseWriter, r *http.Request) {
@@ -424,7 +480,16 @@ func (c *Console) showServices(w http.ResponseWriter, r *http.Request, p auth.Pr
 		if row.Version != "" {
 			kind += " " + row.Version
 		}
-		d.ServiceRows = append(d.ServiceRows, serviceRow{Name: row.Name, Kind: kind, Variable: row.EnvVar, Port: row.Port, Status: s, Unused: row.Unused})
+		used := ""
+		if row.Memory > 0 {
+			used = humanSize(int64(row.Memory))
+		}
+		d.ServiceRows = append(d.ServiceRows, serviceRow{Name: row.Name, Kind: kind, Variable: row.EnvVar, Port: row.Port, Status: s, Unused: row.Unused, Memory: used})
+	}
+	if c.deployer != nil {
+		if total, running, memory, err := c.deployer.ServiceTotals(r.Context(), app); err == nil {
+			d.ServicesTotal = servicesTotal(total, running, memory)
+		}
 	}
 	d.Notice = map[string]string{"removed": "The service is removed, with what it held."}[r.URL.Query().Get("done")]
 	d.Failure = failed

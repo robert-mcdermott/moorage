@@ -719,10 +719,11 @@
 {{$csrf := .CSRF}}{{$app := .App.Name}}{{$env := .Env}}{{$access := .Access}}
 <p class="muted">What this app declares under <code>[services]</code>, which Moorage runs and connects for it. Each environment has its own, and the app is given its address as it starts.</p>
 {{if not .Env}}<p class="muted small">In production, this is one container with no replica, kept by backups. It is a convenience, and not database hosting. A variable of the same name set on production itself goes to a real database instead.</p>{{end}}
+{{if .ServicesTotal}}<p class="muted small">{{.ServicesTotal}}</p>{{end}}
 {{if .ServiceRows}}
 <section class="panel table-wrap">
 <table>
-  <thead><tr><th>Service</th><th>Type</th><th>Status</th><th>Gives the app</th><th>Port</th>{{if $access.Manage}}<th></th>{{end}}</tr></thead>
+  <thead><tr><th>Service</th><th>Type</th><th>Status</th><th>Gives the app</th><th>Port</th><th>Memory</th>{{if $access.Logs}}<th></th>{{end}}{{if $access.Manage}}<th></th>{{end}}</tr></thead>
   <tbody>
   {{range .ServiceRows}}
     <tr>
@@ -731,6 +732,8 @@
       <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Unused}} <span class="muted small">The manifest no longer names it.</span>{{end}}</td>
       <td><code>{{.Variable}}</code></td>
       <td>{{.Port}}</td>
+      <td>{{if .Memory}}{{.Memory}}{{else}}<span class="muted">-</span>{{end}}</td>
+      {{if $access.Logs}}<td><a href="/apps/{{$app}}/services/{{.Name}}/logs{{envq $env}}">Logs</a></td>{{end}}
       {{if $access.Manage}}<td>
         <details>
           <summary>Remove</summary>
@@ -752,6 +755,14 @@
 <pre><code>[services.db]
 type = "postgres"</code></pre></section>
 {{end}}
+{{end}}
+
+{{define "app-service-log"}}
+{{template "app-tabs" .}}
+{{template "failure" .}}
+<p class="muted">The newest of what {{.ServiceLog.Name}} has said, which its engine keeps, and which goes with it.</p>
+{{if .ServiceLog.Text}}<section class="block"><pre class="log" tabindex="0" aria-label="What it has said">{{.ServiceLog.Text}}</pre></section>
+{{else if not .Failure}}<section class="panel panel-pad"><p>It has said nothing yet.</p></section>{{end}}
 {{end}}
 
 {{define "app-environments"}}
