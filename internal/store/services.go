@@ -148,6 +148,15 @@ func (db *DB) SetServiceImage(ctx context.Context, id, version, image, digest, m
 	})
 }
 
+// SetServiceBack puts a service back on what it held before, all at once, as what is half done here would have its volume wiped.
+func (db *DB) SetServiceBack(ctx context.Context, id string, was Service) error {
+	return db.write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE services SET version = ?, image = ?, digest = ?, mount = ?, volume = ?, pending_load = 0, old_volume = '', old_version = '', old_image = '', old_digest = '', old_mount = '' WHERE id = ?`,
+			was.Version, was.Image, was.Digest, was.Mount, was.Volume, id)
+		return err
+	})
+}
+
 // SetServiceMoved says that a service now holds what it holds in another volume, and keeps what it was, so that it can go back.
 func (db *DB) SetServiceMoved(ctx context.Context, id string, next, was Service) error {
 	return db.write(ctx, func(tx *sql.Tx) error {

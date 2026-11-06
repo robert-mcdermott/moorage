@@ -81,7 +81,7 @@ The address is given as an instance starts, as a secret is, along with its passw
 | The environment goes to sleep | It stops, and keeps what it holds, unless a process with `sleep = false` or a command is still using it. Waking starts it first, and a command or a cron job starts it for as long as it runs |
 | The manifest stops naming it | It stays, with what it holds, marked as unused. A release that does not name it does not get its address |
 | The environment is deleted | It goes, with what it holds |
-| The engine stops answering | What is running is left alone. Deploying, restarting, putting to sleep or deleting says why it cannot, and changes nothing. `server.engine_down` says so, to [the rules that ask](notifications.md) |
+| The engine stops answering | What is running is left alone. Deploying, restarting, putting to sleep or deleting says why it cannot, and leaves what is running as it is. `server.engine_down` says so, to [the rules that ask](notifications.md) |
 
 A manifest that asks for another major version than a service holds is refused, as that takes moving its data. PostgreSQL itself also refuses to start on a newer version's files, so this is not all that stands between a mistake and lost data.
 
@@ -140,7 +140,7 @@ moor services upgrade db --to 19
 The app stops for that, as what it wrote after the dump would be lost, and commands and cron jobs are stopped and refused until it is over. Moorage dumps the service with the newer version's tools, restores into a new volume, checks that the database `app` holds as many rows and tables and that the same databases are there, and switches. Anything that would refuse it does so before anything stops. Anything going wrong after that leaves the old one as it was, and the app starts again however it goes. Say the new version in the manifest too, if it names one. A service with an `image` of its own has to say which holds the new version, with `--image`. The old volume stays until you say what to do with it. To let go of it:
 
 ```bash
-moor services upgrade db --finish
+moor services upgrade db --finish --yes
 ```
 
 Or, if you are not happy, to go back to it, losing what the service has held since:
@@ -151,7 +151,7 @@ moor services upgrade db --back --yes
 
 After going back from an upgrade, the manifest has to say the older version again, if it names one, and a dump made since by the newer version cannot be loaded, so that it takes the next backup to have one that can.
 
-`moor services` says which of them still keep an old volume. A server that stops halfway through an upgrade or a restore comes back on the service as it was, and can leave a volume behind. `moor server doctor` says so, and `--finish` lets go of that too.
+Going back starts what it held before first, and if that will not start, it goes on as it was. `moor services` says which of them still keep an old volume. A server that stops halfway through an upgrade or a restore comes back on whichever volume the record names, which is whole, and can leave another behind. `moor server doctor` says so, and `--finish` lets go of that too, along with any old volume.
 
 ## Seeing and removing them
 

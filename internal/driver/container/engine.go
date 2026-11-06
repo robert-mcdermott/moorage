@@ -114,6 +114,13 @@ func IsNotFound(err error) bool {
 	return strings.Contains(msg, "no such") || strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "not known")
 }
 
+// isNoSuchVolume reports whether the engine said in as many words that there is no such volume. It is narrower than IsNotFound on purpose: an engine can say "not found" of its runtime,
+// or of a context, and taking that for a lost volume would have what the volume holds replaced by its last dump.
+func isNoSuchVolume(err error) bool {
+	var ee *EngineError
+	return errors.As(err, &ee) && strings.Contains(strings.ToLower(ee.Stderr), "no such volume")
+}
+
 // output runs a command and returns what it writes to standard output.
 func (e *Engine) output(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, e.Bin, args...)

@@ -1083,6 +1083,39 @@ func TestContainerServiceS3(t *testing.T) {
 		return res.StatusCode == http.StatusOK && string(data) == "hello"
 	})
 
+	// A backup holds a tar of it, whole by what an image's own tar writes, and going back to that loses what came since, and keeps what it holds with its metadata.
+	started, err := c.StartBackup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the backup", func() bool {
+		list, err := c.Backups(ctx)
+		if err != nil {
+			return false
+		}
+		for _, b := range list.Items {
+			if b.ID == started.ID {
+				return b.Status != "running"
+			}
+		}
+		return false
+	})
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "data", "shop", ".services", "production", "files.tar")); err != nil {
+		t.Fatalf("its dump: %v", err)
+	}
+	if code, data := object(http.MethodPut, "later.txt", []byte("later")); code != http.StatusOK {
+		t.Fatalf("putting: %d %s", code, data)
+	}
+	if err := c.RestoreService(ctx, "shop", "production", "files"); err != nil {
+		t.Fatal(err)
+	}
+	if code, data := object(http.MethodGet, "hello.txt", nil); code != http.StatusOK || string(data) != "hello" {
+		t.Errorf("what it held: %d %s", code, data)
+	}
+	if code, _ := object(http.MethodGet, "later.txt", nil); code != http.StatusNotFound {
+		t.Errorf("what came since: %d", code)
+	}
+
 	// Both of its volumes go with it.
 	if err := c.RemoveService(ctx, "shop", "production", "files"); err != nil {
 		t.Fatal(err)
@@ -1126,30 +1159,63 @@ func TestContainerServiceData(t *testing.T) {
 		}
 		return got
 	}
-	psql(rec.ID, "create table people (name text, email text); insert into people values ('Ada', 'ada@example.com'), ('odd', 'CREATE ROLE app;')")
+	psql(rec.ID, "create table people (name text, email text); insert into people values ('Ada', 'ada@example.com')")
+	// What the filter of a dump leaves out, as whole lines in rows and in the body of a function, and text that looks like the start of rows, in a database that comes before this one.
+	psql(rec.ID, "create table lines (line text); insert into lines values ('CREATE ROLE app;'), ('CREATE DATABASE app WITH TEMPLATE = template0;')")
+	psql(rec.ID, "create function note() returns text language sql as $$ select 'a\nCREATE ROLE app;\nb' $$")
 	psql(rec.ID, "create database other")
+	psql(rec.ID, "create database aaa")
+	psqlIn2 := func(id, database, query string) string {
+		t.Helper()
+		out, err := exec.Command(e.Bin, "exec", container.ServiceName(id), "psql", "-U", "app", "-d", database, "-At", "-c", query).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v: %s", query, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	psqlIn2(rec.ID, "aaa", "create function note() returns text language sql as $$ select 'a\nCOPY x FROM stdin;\nb' $$")
 
 	// A backup dumps it into the data directory, and so holds it.
-	started, err := c.StartBackup(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "the backup", func() bool {
-		list, err := c.Backups(ctx)
+	backUp := func() {
+		t.Helper()
+		started, err := c.StartBackup(ctx)
 		if err != nil {
-			return false
+			t.Fatal(err)
 		}
-		for _, b := range list.Items {
-			if b.ID == started.ID {
-				return b.Status != "running"
+		waitUntil(t, "the backup", func() bool {
+			list, err := c.Backups(ctx)
+			if err != nil {
+				return false
 			}
-		}
-		return false
-	})
+			for _, b := range list.Items {
+				if b.ID == started.ID {
+					return b.Status != "running"
+				}
+			}
+			return false
+		})
+	}
+	backUp()
 	dump := filepath.Join(cfg.DataDir, "data", "shop", ".services", "production", "db.sql")
 	data, err := os.ReadFile(dump)
 	if err != nil || !strings.Contains(string(data), "ada@example.com") {
 		t.Fatalf("its dump: %v\n%s", err, data)
+	}
+
+	// One that is asleep is dumped too, where no app can reach it, and goes on sleeping.
+	psql(rec.ID, "insert into people values ('Asleep', 'asleep@example.com')")
+	if _, err := c.SleepEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
+	}
+	backUp()
+	if data, err := os.ReadFile(dump); err != nil || !strings.Contains(string(data), "asleep@example.com") {
+		t.Errorf("its dump, asleep: %v\n%s", err, data)
+	}
+	if out, _ := exec.Command(e.Bin, "ps", "-q", "--filter", "name="+container.ServiceName(rec.ID)).Output(); strings.TrimSpace(string(out)) != "" {
+		t.Errorf("a dump left it running: %s", out)
+	}
+	if _, err := c.WakeEnvironment(ctx, "shop", "production"); err != nil {
+		t.Fatal(err)
 	}
 
 	// With its volume gone, as on a new machine after a restore, it comes back with what it held.
@@ -1178,8 +1244,14 @@ func TestContainerServiceData(t *testing.T) {
 	if got := psql(rec.ID, "select count(*) from pg_database where datname = 'other'"); got != "1" {
 		t.Errorf("its other database: %q", got)
 	}
-	if got := psql(rec.ID, "select email from people where name = 'odd'"); got != "CREATE ROLE app;" {
-		t.Errorf("a row that looks like what is left out: %q", got)
+	if got := psql(rec.ID, "select count(*) from lines"); got != "2" {
+		t.Errorf("rows that look like what is left out: %q", got)
+	}
+	if got := psql(rec.ID, "select note()"); !strings.Contains(got, "CREATE ROLE app;") {
+		t.Errorf("a function with a line that looks like what is left out: %q", got)
+	}
+	if got := psqlIn2(rec.ID, "aaa", "select note()"); !strings.Contains(got, "COPY x FROM stdin;") {
+		t.Errorf("a function with a line that looks like the start of rows: %q", got)
 	}
 
 	// A preview behind a gate is seeded from that dump, and sanitized before anything connects.
@@ -1223,8 +1295,28 @@ func TestContainerServiceData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(said, "2 rows in 1 tables, of databases app, other, postgres") {
+	if !strings.Contains(said, "4 rows in 2 tables, of databases aaa, app, other, postgres") {
 		t.Errorf("what it said: %q", said)
+	}
+	first, err := db.Service(ctx, "shop", "production", "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not happy with that, it goes back, on the older image and where that keeps what it holds, with what it held, and can then move again.
+	if err := c.BackService(ctx, "shop", "production", "db"); err != nil {
+		t.Fatal(err)
+	}
+	if got := psql(rec.ID, "show server_version_num"); !strings.HasPrefix(got, "17") {
+		t.Errorf("its version, after going back: %q", got)
+	}
+	if got := psql(rec.ID, "select email from people where name = 'Ada'"); got != "ada@example.com" {
+		t.Errorf("what it holds, after going back: %q", got)
+	}
+	if out, err := exec.Command(e.Bin, "volume", "inspect", first.Volume).CombinedOutput(); err == nil {
+		t.Errorf("what it held since: %s", out)
+	}
+	if said, err = c.UpgradeService(ctx, "shop", "production", "db", "18", ""); err != nil {
+		t.Fatal(err)
 	}
 	after, err := db.Service(ctx, "shop", "production", "db")
 	if err != nil {

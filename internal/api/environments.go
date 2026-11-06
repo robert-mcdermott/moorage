@@ -342,7 +342,10 @@ func (s *Server) serviceFailed(w http.ResponseWriter, err error) bool {
 	case errors.As(err, &major):
 		problem(w, http.StatusConflict, "conflict", sentenceOf(err))
 		return true
-	case err == nil, errors.As(err, &locked), errors.As(err, &busy), errors.As(err, &rollout), errors.Is(err, context.Canceled), errors.Is(err, store.ErrNotFound),
+	case errors.As(err, &rollout):
+		problem(w, http.StatusUnprocessableEntity, "app_did_not_start", "The app did not start again after that: "+sentenceOf(err))
+		return true
+	case err == nil, errors.As(err, &locked), errors.As(err, &busy), errors.Is(err, context.Canceled), errors.Is(err, store.ErrNotFound),
 		errors.Is(err, container.ErrNotAnswering), errors.Is(err, container.ErrNoEngine):
 		return s.environmentFailed(w, err)
 	}

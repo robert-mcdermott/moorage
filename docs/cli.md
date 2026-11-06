@@ -2176,7 +2176,7 @@ moor services remove db --env my-branch --yes
 
 ### `moor services restore`
 
-Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say what to do with it, with moor services upgrade NAME --finish or --back.
+Put a service back to its latest dump, which a backup makes, losing what it has been given since. The app stops for that, and starts again however it goes. After a restore of a server to a new machine, this happens by itself. On the machine that it ran on, a service keeps what it holds, which may be newer than the backup, and this is how to go back. A dump that will not load changes nothing. PostgreSQL's old volume stays until you say what to do with it, with moor services upgrade NAME --finish --yes or --back --yes.
 
 ```text
 moor services restore NAME
@@ -2221,7 +2221,7 @@ moor services upgrade NAME
 
 ```text
 moor services upgrade db --to 19
-moor services upgrade db --finish
+moor services upgrade db --finish --yes
 moor services upgrade db --back --yes
 ```
 
@@ -2233,7 +2233,7 @@ moor services upgrade db --back --yes
 | `--finish` |  | let go of what it held before its last upgrade or restore |
 | `--image string` |  | the image that holds it, for a service that does not run the official one |
 | `--to string` |  | the major version to move to |
-| `--yes` |  | with --back, say that you mean it |
+| `--yes` |  | with --finish or --back, say that you mean it |
 
 ## `moor share`
 

@@ -166,7 +166,7 @@ func TestWhatACrashLeavesOfATemporary(t *testing.T) {
 			t.Errorf("gone after the next start: %s", name)
 		}
 	}
-	if _, problems := f.m.Problems(ctx); len(problems) != 1 || !strings.Contains(problems[0], "--finish lets it go") {
+	if _, problems := f.m.Problems(ctx); len(problems) != 1 || !strings.Contains(problems[0], "lets go of it") {
 		t.Errorf("what the doctor says: %v", problems)
 	}
 	if err := f.m.Remove(ctx, "shop", "production", "db", "me"); err != nil {
@@ -299,7 +299,7 @@ func TestARestoreClearsWhatWasPending(t *testing.T) {
 	before := f.asked()
 	f.m.keepUp(ctx, got)
 	after := strings.TrimPrefix(f.asked(), before)
-	if strings.Contains(after, "volume rm -f "+got.Volume) {
+	if strings.Contains(after, "volume rm "+got.Volume) {
 		t.Errorf("moor services restore returned success with the app connecting, and the next look removed the volume that it restored: %s", got.Volume)
 	}
 }
@@ -455,7 +455,9 @@ func TestTarsThatMustBeWhole(t *testing.T) {
 func TestTheFilterAndTextThatLooksLikeIt(t *testing.T) {
 	in := strings.Join([]string{
 		"CREATE ROLE app;",
+		"--",
 		"-- Database \"analytics\" dump",
+		"--",
 		"\\connect analytics",
 		"CREATE FUNCTION a.notes() RETURNS text LANGUAGE sql AS $$ select '",
 		"CREATE ROLE app;",
@@ -463,7 +465,9 @@ func TestTheFilterAndTextThatLooksLikeIt(t *testing.T) {
 		"CREATE FUNCTION a.doc() RETURNS text LANGUAGE sql AS $$ select '",
 		"COPY people FROM stdin;",
 		"' $$;",
+		"--",
 		"-- Database \"app\" dump",
+		"--",
 		"CREATE DATABASE app WITH TEMPLATE = template0 ENCODING = 'UTF8';",
 		"\\connect app",
 		"",

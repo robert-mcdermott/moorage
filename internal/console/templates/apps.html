@@ -729,7 +729,7 @@
     <tr>
       <td><strong>{{.Name}}</strong></td>
       <td>{{.Kind}}</td>
-      <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Unused}} <span class="muted small">The manifest no longer names it.</span>{{end}}{{if .Kept}} <span class="muted small">It keeps what it held before its last upgrade or restore, until <code>moor services upgrade {{.Name}}</code> is given <code>--finish</code> or <code>--back</code>.</span>{{end}}</td>
+      <td><span class="badge {{.Status.Kind}}">{{.Status.Label}}</span>{{if .Unused}} <span class="muted small">The manifest no longer names it.</span>{{end}}{{if .Kept}} <span class="muted small">It keeps what it held before its last upgrade or restore, until <code>moor services upgrade {{.Name}}</code> is given <code>--finish --yes</code> or <code>--back --yes</code>.</span>{{end}}</td>
       <td><code>{{.Variable}}</code></td>
       <td>{{.Port}}</td>
       <td>{{if .Memory}}{{.Memory}}{{else}}<span class="muted">-</span>{{end}}</td>

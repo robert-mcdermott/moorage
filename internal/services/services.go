@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/robert-mcdermott/moorage/internal/backup"
@@ -93,6 +94,8 @@ type Manager struct {
 	// used is what each service was last seen to use, by its ID.
 	usedMu sync.Mutex
 	used   map[string]metrics.Usage
+	// moves counts, by a service's ID, what has changed what it holds, so that a dump can tell.
+	moves sync.Map
 
 	o     Options
 	locks sync.Map // by app/env: one change at a time
@@ -355,10 +358,13 @@ func (m *Manager) create(ctx context.Context, app, env, by, appDir, name string,
 // ensureExisting starts what is there, and refuses what would need its data moving.
 func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manifest.ServicePlan, plan manifest.Plan, log io.Writer) error {
 	if s.Type != rec.Type {
-		return &MajorChangeError{fmt.Sprintf("it is a service of %s, and the manifest asks for %s: remove it with moor services remove, or give the new one another name", rec.Type, s.Type)}
+		return &MajorChangeError{fmt.Sprintf("it is a service of %s, and the manifest asks for %s: remove it with %s, or give the new one another name", rec.Type, s.Type, serviceCommand(rec, "remove", "--yes"))}
 	}
 	if s.Type == manifest.ServicePostgres && s.Version != "" && s.Version != rec.Version {
-		return &MajorChangeError{fmt.Sprintf("it holds data of PostgreSQL %s, and the manifest asks for %s. That takes moving its data: dump it, remove it with moor services remove, and deploy again, or go back to %s", rec.Version, s.Version, rec.Version)}
+		if newerVersion(s.Version, rec.Version) {
+			return &MajorChangeError{fmt.Sprintf("it holds data of PostgreSQL %s, and the manifest asks for %s. That takes moving its data, with %s, and then this deployment again", rec.Version, s.Version, serviceCommand(rec, "upgrade", "--to "+s.Version))}
+		}
+		return &MajorChangeError{fmt.Sprintf("it holds data of PostgreSQL %s, and the manifest asks for %s, which cannot read that. Ask for %s again, or, if it keeps what it held before an upgrade, %s goes back to that", rec.Version, s.Version, rec.Version, serviceCommand(rec, "upgrade", "--back --yes"))}
 	}
 	// A later commit can take away the gate that a copy of production's data was made behind.
 	if rec.Seeded {
@@ -367,7 +373,7 @@ func (m *Manager) ensureExisting(ctx context.Context, rec store.Service, s manif
 			return err
 		}
 		if exposed {
-			return &MajorChangeError{fmt.Sprintf("it holds a copy of production's data, and anyone could reach this preview: give it a gate, with moor access or access under [environments.preview], or remove the copy with moor services remove %s --env %s --yes", rec.Name, rec.Env)}
+			return &MajorChangeError{fmt.Sprintf("it holds a copy of production's data, and anyone could reach this preview: give it a gate, with access under [environments.preview] or moor access, or remove the copy with %s", serviceCommand(rec, "remove", "--yes"))}
 		}
 	}
 	driver, err := m.driverFor(ctx, rec)
@@ -1253,6 +1259,30 @@ func (m *Manager) lock(key string) func() {
 	return lock.Unlock
 }
 
+// moved notes that what a service holds is changing, with the environment's lock held.
+func (m *Manager) moved(id string) {
+	counter, _ := m.moves.LoadOrStore(id, &atomic.Int64{})
+	counter.(*atomic.Int64).Add(1)
+}
+
+// movesOf says how many times what a service holds has changed, with the environment's lock held.
+func (m *Manager) movesOf(id string) int64 {
+	counter, _ := m.moves.LoadOrStore(id, &atomic.Int64{})
+	return counter.(*atomic.Int64).Load()
+}
+
+// serviceCommand says how to ask for something of a service, in words that can be run as they are, wherever they are read, as --app and --env have defaults that may not be it.
+func serviceCommand(rec store.Service, verb, flags string) string {
+	text := "moor services " + verb + " " + rec.Name + " --app " + rec.App
+	if rec.Env != names.Production {
+		text += " --env " + rec.Env
+	}
+	if flags != "" {
+		text += " " + flags
+	}
+	return text
+}
+
 func (m *Manager) lockWithin(ctx context.Context, key string) (func(), error) {
 	lock := m.lockFor(key)
 	for !lock.TryLock() {
@@ -1336,7 +1366,7 @@ func (m *Manager) Problems(ctx context.Context) (int, []string) {
 			continue
 		}
 		if stray, err := strayVolumes(ctx, driver, rec); err == nil && len(stray) > 0 {
-			problems = append(problems, fmt.Sprintf("%s of %s of %s has a volume that nothing names, %s, which a server may have left that stopped halfway: moor services upgrade %s --finish lets it go", rec.Name, rec.Env, rec.App, strings.Join(stray, ", "), rec.Name))
+			problems = append(problems, fmt.Sprintf("%s of %s of %s has a volume that nothing names, %s, which a server may have left as it stopped, or which may hold something newer if this server was restored from a backup. %s lets go of it, and of any old volume that it keeps", rec.Name, rec.Env, rec.App, strings.Join(stray, ", "), serviceCommand(rec, "upgrade", "--finish --yes")))
 		}
 		if rec.State != store.ServiceRunning {
 			continue

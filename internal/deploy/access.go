@@ -116,9 +116,25 @@ func (d *Deployer) SetAccess(ctx context.Context, app, env, by string, change Ac
 	if change.Mode == ingress.GatePassword && next.PasswordHash == "" {
 		return AccessState{}, &InvalidAccessError{"the password gate needs a password"}
 	}
-	// What a copy of production's data was made behind stays between it and everyone else.
-	if change.Mode == ingress.GatePublic && len(next.Allow) == 0 && d.opts.Services.HoldsCopy(ctx, app, env) {
-		return AccessState{}, &InvalidAccessError{"it holds a copy of production's data, so that it cannot be open to anyone: remove the service that holds it with moor services remove first"}
+	// What a copy of production's data was made behind stays between it and everyone else, however that would come about: by asking, or by leaving it to a manifest or the server.
+	holds, err := d.opts.Services.HoldsCopy(ctx, app, env)
+	if err != nil {
+		return AccessState{}, err
+	}
+	if holds {
+		var plan manifest.Plan
+		if _, b, err := d.db.CurrentRelease(ctx, app, env); err == nil {
+			if err := json.Unmarshal(b.Plan, &plan); err != nil {
+				return AccessState{}, err
+			}
+		}
+		exposes, err := d.opts.Services.GateExposes(ctx, app, env, next, plan)
+		if err != nil {
+			return AccessState{}, err
+		}
+		if exposes {
+			return AccessState{}, &InvalidAccessError{"it holds a copy of production's data, so that it cannot be open to anyone: remove the service that holds it with moor services remove first"}
+		}
 	}
 	if err := d.db.SetEnvironmentAccess(ctx, app, env, next); err != nil {
 		return AccessState{}, err

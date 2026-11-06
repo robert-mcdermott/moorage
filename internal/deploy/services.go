@@ -11,6 +11,7 @@ import (
 
 	"github.com/robert-mcdermott/moorage/internal/manifest"
 	"github.com/robert-mcdermott/moorage/internal/services"
+	"github.com/robert-mcdermott/moorage/internal/store"
 )
 
 // ServiceRow is how a service stands, and whether what is running asks for it.
@@ -30,8 +31,13 @@ func (d *Deployer) ServiceList(ctx context.Context, app, env string) ([]ServiceR
 	if _, b, err := d.db.CurrentRelease(ctx, app, env); err == nil {
 		var plan manifest.Plan
 		if json.Unmarshal(b.Plan, &plan) == nil {
-			for name := range plan.Services {
-				named[name] = true
+			kind, err := d.db.EnvKind(ctx, app, env)
+			if err != nil {
+				return nil, err
+			}
+			for name, s := range plan.Services {
+				// A preview that is told that it has no use for one is not given its address.
+				named[name] = kind != store.KindPreview || s.Previews != "none"
 			}
 		}
 	}

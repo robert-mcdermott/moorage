@@ -120,7 +120,7 @@ esac
 	}})
 	port := 40000
 	f.m = New(Options{
-		DB: db, Keyring: plainKeyring{}, Engines: f.source, Log: slog.New(slog.DiscardHandler), ReadyLimit: 500 * time.Millisecond,
+		DB: db, Keyring: plainKeyring{}, Engines: f.source, Log: slog.New(slog.DiscardHandler), ReadyLimit: 2 * time.Second,
 		AllocPort:   func(context.Context) (int, error) { port++; return port, nil },
 		ReleasePort: func(int) {},
 	})
@@ -344,7 +344,7 @@ func TestMakingAService(t *testing.T) {
 	if err := f.m.Remove(ctx, "shop", "production", "db", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(f.asked(), "volume rm -f "+rec.Volume) {
+	if !strings.Contains(f.asked(), "volume rm "+rec.Volume) {
 		t.Errorf("%s", f.asked())
 	}
 	if list, _ := f.db.Services(ctx, "shop", "production"); len(list) != 0 {
@@ -488,7 +488,7 @@ func TestAServiceOfS3(t *testing.T) {
 	if err := f.m.Remove(ctx, "shop", "production", "files", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if asked := f.asked(); !strings.Contains(asked, "volume rm -f "+rec.Volume) || !strings.Contains(asked, "volume rm -f "+container.ServiceMetadataVolume(rec.ID)) {
+	if asked := f.asked(); !strings.Contains(asked, "volume rm "+rec.Volume) || !strings.Contains(asked, "volume rm "+container.ServiceMetadataVolume(rec.ID)) {
 		t.Errorf("%s", asked)
 	}
 }
@@ -516,8 +516,8 @@ func TestSmallThings(t *testing.T) {
 		t.Error(got)
 	}
 	// What a new service has already is left out of a dump, and rows that look like it are not.
-	dump := "CREATE ROLE app;\nALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n-- Database \"app\" dump\nCREATE DATABASE app WITH TEMPLATE = template0;\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
-	want := "ALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n-- Database \"app\" dump\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
+	dump := "CREATE ROLE app;\nALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n--\n-- Database \"app\" dump\n--\nCREATE DATABASE app WITH TEMPLATE = template0;\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
+	want := "ALTER ROLE app WITH SUPERUSER;\nCREATE ROLE other;\n--\n-- Database \"app\" dump\n--\n\\connect app\nCOPY public.t (a) FROM stdin;\nCREATE ROLE app;\nCREATE DATABASE app WITH x\n\\.\nSELECT 1;\n"
 	if got, err := io.ReadAll(withoutWhatIsThere(strings.NewReader(dump))); err != nil || string(got) != want {
 		t.Errorf("%q %v", got, err)
 	}
@@ -859,13 +859,13 @@ func TestDumpsAndWhatComesOfThem(t *testing.T) {
 	if _, err := prepare("19", ""); err == nil || !strings.Contains(err.Error(), "--finish") {
 		t.Errorf("again before finishing: %v", err)
 	}
-	if strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume) {
+	if strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm "+rec.Volume) {
 		t.Error("it removed what it held")
 	}
 	if err := f.m.FinishUpgrade(ctx, "shop", "production", "db"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm -f "+rec.Volume) {
+	if !strings.Contains(strings.TrimPrefix(f.asked(), before), "volume rm "+rec.Volume) {
 		t.Error("it kept what it held")
 	}
 	if got, _ := f.db.Service(ctx, "shop", "production", "db"); got.OldVolume != "" {
@@ -1026,7 +1026,7 @@ esac
 	if err := d.RemoveVolume("moorage-svc-a-pg18"); err != nil {
 		t.Fatal(err)
 	}
-	if data, _ := os.ReadFile(removed); !strings.Contains(string(data), "volume rm -f moorage-svc-a-pg18") {
+	if data, _ := os.ReadFile(removed); !strings.Contains(string(data), "volume rm moorage-svc-a-pg18") {
 		t.Errorf("it did not remove it: %s", data)
 	}
 	// And no volume's name starts with another's.

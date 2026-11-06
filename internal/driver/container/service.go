@@ -173,7 +173,7 @@ func (d *Driver) VolumeThere(ctx context.Context, name string) (bool, error) {
 	switch {
 	case err == nil:
 		return strings.TrimSpace(string(out)) == name, nil
-	case IsNotFound(err):
+	case isNoSuchVolume(err):
 		return false, nil
 	}
 	return false, err
@@ -283,8 +283,9 @@ func (d *Driver) RemoveVolume(name string) error {
 	if err != nil || !there {
 		return err
 	}
-	_, err = d.tell(removeLimit, "volume", "rm", "-f", name)
-	if err != nil && !IsNotFound(err) {
+	// Without -f, with which Podman would remove what is using it, and whatever is using it should not lose it.
+	_, err = d.tell(removeLimit, "volume", "rm", name)
+	if err != nil && !isNoSuchVolume(err) {
 		return err
 	}
 	return nil

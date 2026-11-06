@@ -662,7 +662,7 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	lock := d.envLock(dep.App, dep.Env)
 	lock.Lock()
 	defer lock.Unlock()
-	defer d.release(ctx, dep.App, dep.Env)()
+	defer d.release(ctx, dep.App, dep.Env, plan)()
 
 	// A static site takes over from what ran before, which has to be able to stop.
 	if plan.Kind == manifest.KindStatic && d.opts.Runtime != nil {
