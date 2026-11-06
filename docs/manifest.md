@@ -293,6 +293,22 @@ applies to every preview.
 | `secret` | `false` | A deployment fails if it is set, and not as a secret. |
 | `generate` | | `secret` or `uuid`: a value is made once for each environment, and kept as a secret. |
 
+## `[services.NAME]`
+
+A database or an object store for each environment, which Moorage runs and connects the app to. It takes [a container engine](containers.md#the-engine), for those who use it and nobody else. [Services](services.md) says it all.
+
+```toml
+[services.db]
+type = "postgres"             # postgres or s3
+version = "18"                # postgres: 15 to 19. What is made stays at what it was made with
+# image = "pgvector/pgvector:pg18"   # postgres: another image, with a tag other than latest
+# env = "ANALYTICS_DATABASE_URL"     # another name for what it gives, needed for a second of one type
+# memory = "512MiB"
+# previews = "own"            # or "none"
+# seed = "production"         # a preview starts with a copy of production's latest dump, behind a gate
+# sanitize = "scripts/sanitize.sql"  # with seed: what removes what should not be copied, or "none"
+```
+
 ## `[env]`
 
 Variables for the app, at build and run time, such as `LOG_LEVEL = "info"`.
