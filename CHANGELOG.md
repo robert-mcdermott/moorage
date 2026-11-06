@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.10.0 (2026-11-05)
+
+Moorage 0.10.0 runs a database for your app. Say `[services.db]` and `type = "postgres"` in `moorage.toml`, or `type = "s3"` for object storage, and each environment gets its own, with its address given to the app as it starts. They run in containers, so that they take Podman or Docker, and only those who use them need one.
+
+**What this is not.** In production, a service is one container with no replica, kept by backups: a convenience, and not database hosting. For a database that matters, set `DATABASE_URL` on production to one that is looked after, and let previews use their own. Apps on a machine are kept apart from a service by its password, and not by the network. Real PostgreSQL and object storage are tried under both engines in CI on Linux, and nowhere else: on macOS and Windows, a service's data lives inside the engine's machine, and goes with it. Everything before this that was untried still is: this release has not had an outside penetration test, or met Let's Encrypt itself, Cloudflare, or a webhook directly from GitHub, and setting up Kiro comes from its documentation alone.
+
+To upgrade from 0.9.0, run `moor server upgrade`. Running apps are taken over without a restart. This release changes the database, so that `moor server upgrade --rollback` puts the previous one back. Nothing about an app changes unless its manifest names a service, and a server that has none never asks for an engine because of them.
+
+### Added
+
+- **`[services.<name>]`, with `type = "postgres"`, versions 15 to 18, or `type = "s3"`,** which is Versity Gateway on plain files, with one bucket and one key under the names that clients look for. Each environment and each preview has its own, with a random password. A service is made before a release, so that a release command can migrate, and one that does not become ready fails the deployment with the previous release still serving. Nothing is ever called `latest`.
+- **Previews are empty, unless you opt in.** `seed = "production"` starts a new preview with production's latest dump, where nothing can connect until `sanitize` has run. That is refused for a preview anyone can reach, one from a fork, and one that a coding agent's token made. A later commit or `moor access` cannot open the gate over such a copy. A preview never ends up on production's database by inheritance.
+- **Sleep.** An environment's services stop with it and keep what they hold, and waking starts them first. A command or a cron job starts what it needs for as long as it runs.
+- **Backups hold a dump of each service of production and of the named environments,** made just before: `pg_dumpall`, or a tar of the object store. Volumes are not in a backup. After a restore to a new machine, a service loads its dump by itself before anything can connect to it. `moor services restore` goes back to the dump on the machine that it ran on, into a new volume, so that one that will not load changes nothing.
+- **`moor services`,** with `logs`, `update`, `upgrade --to`, `restore` and `remove`. `moor logs --service db` reads what one has said. A new major version is refused at deploy, and `moor services upgrade` moves its data with the newer version's tools and checks that it holds what it did. After an upgrade or a restore, the old volume stays until `--finish` lets go of it, or `--back` goes back to it.
+- **A Services tab in the console,** with what each has said and uses, and what an app's services add up to across its environments, as each preview has its own. What one uses is also in metrics, as `service.db`. `moor server doctor` says if one that should be running is not, and events say when one is made, restarted or removed.
+
+### Changed
+
+- **A cold rootless Podman is given 15 seconds to answer for the first time,** rather than 3, as that failed a first deployment.
+- **CI does not test the same code twice.** A merge of a pull request that has passed takes about a minute, and the release of a commit that has passed reuses that.
+
 ## 0.9.0 (2026-11-05)
 
 Moorage 0.9.0 lets coding agents deploy to it and read how it went. `moor mcp` is a small server for Claude Code, Codex and others, which refuses a token that can do everything, and `moor mcp setup` makes a narrow one and connects a client. A token can be limited to previews, and `moor agent init` tells an agent how to use all of this.

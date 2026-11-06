@@ -1216,7 +1216,7 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
    - Found by reviewing those fixes: an engine with no socket says "no such file or directory", which was taken for a container that had gone; restarting as the engine came back started a second instance beside one still waiting to be found; and deleting with the engine down left a container running with no record. All fixed.
 6. **Release 0.9.0.**
 
-## 0.10.0: services (planned)
+## 0.10.0: services (released 2026-11-05)
 
 ### Wave 10
 
@@ -1237,6 +1237,7 @@ The research and the choices behind waves 9 and 10 are in [Backing services](13-
    - Found by reviewing those: taking the temporary of an upgrade off its network meant that no upgrade could finish, which a test that stopped short of it did not show. A refused deployment of what was asleep left it awake with its services stopped. A seed with no dump yet was taken for a copy. Temporary containers and volumes outlived a crash, and removing the service, and a server could not stop while one was in use. A moment without the engine's program moved a service to another engine for good. What PostgreSQL said of a row reached a deployment's error from a copy that had not been sanitized. There was no way back to an old volume, which is now `--back`.
    - Found by reviewing those: anything that an engine said was "not found", such as its own runtime for a moment, was taken for a lost volume, and what it held would have been replaced by its last dump, so that only "no such volume" now counts. A dump could replace a good one with what a restore was halfway through loading, so that it now looks again before it does. `--back` let go of the newer data before it knew that the older would start. What the doctor and others said to run left out `--env`, which would have acted on production.
 6. **Release 0.10.0.**
+   - Done: four independent reviews before it, each of which found real bugs in what the last had fixed, and a last check of what the fourth's fixes changed found nothing that should hold it. CI runs real PostgreSQL and object storage under Docker and Podman on Linux. One thing is left as it is, as better said than worked around: rows that are exactly a dump's heading, in a table of one text column, could lose the row after them on a restore.
 
 ## 0.11.0: ecosystem (planned)
 

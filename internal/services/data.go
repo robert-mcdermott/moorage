@@ -791,7 +791,12 @@ func (m *Manager) FinishUpgrade(ctx context.Context, app, env, name string) erro
 	if err != nil {
 		return err
 	}
-	// What a server left that stopped halfway through one of these goes too.
+	// What a server left that stopped halfway through one of these goes too, and a container of that holds on to its volume. With the lock held, nothing is using one of these now.
+	for _, temp := range temporaries(rec) {
+		if err := driver.StopService(temp, 10*time.Second); err != nil {
+			return err
+		}
+	}
 	stray, err := strayVolumes(ctx, driver, rec)
 	if err != nil {
 		return err

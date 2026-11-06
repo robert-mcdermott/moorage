@@ -662,14 +662,14 @@ func (d *Deployer) publish(ctx context.Context, dep store.Deployment, b store.Bu
 	lock := d.envLock(dep.App, dep.Env)
 	lock.Lock()
 	defer lock.Unlock()
-	defer d.release(ctx, dep.App, dep.Env, plan)()
-
-	// A static site takes over from what ran before, which has to be able to stop.
+	// A static site takes over from what ran before, which has to be able to stop. Before anything wakes, so that being refused changes nothing.
 	if plan.Kind == manifest.KindStatic && d.opts.Runtime != nil {
 		if err := d.opts.Runtime.EngineBlocks(ctx, dep.App, dep.Env); err != nil {
 			return store.Release{}, err
 		}
 	}
+	defer d.release(ctx, dep.App, dep.Env, plan)()
+
 	// What a release command migrates has to be there, so that this comes first. A service that does not become healthy fails the deployment, with the previous release still serving.
 	if plan.Kind == manifest.KindProcess && len(plan.Services) > 0 {
 		kind, err := d.db.EnvKind(ctx, dep.App, dep.Env)
