@@ -140,7 +140,7 @@
 <figure><div class="shot"><img class="shot-light" src="../assets/img/system-light.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The System page: all is well, what the server runs, and each check with how to fix it" /><img class="shot-dark" src="../assets/img/system-dark.webp" width="1600" height="1280" loading="lazy" decoding="async" alt="The System page: all is well, what the server runs, and each check with how to fix it" /></div><figcaption><strong>Settings → System</strong>: the same checks, in the console.</figcaption></figure>
 <p>It checks a server on this machine, running or not, and says how to fix what it finds. Run it with <code>sudo</code> if the server runs as root, so that it can read the server's files.</p>
 <div class="code"><pre tabindex="0"><code class="language-text">✔ config         /etc/moorage/server.toml
-✔ server         running 0.10.0 on :80
+✔ server         running 0.10.1 on :80
 ✔ listen.http    answering on :80
 ✔ listen.https   answering on :443
 ✔ listen.ssh     answering on :2222
@@ -168,9 +168,9 @@
 <span class="t-k">signatures</span> = <span class="t-s">&quot;warn&quot;</span></code></pre></div>
 <p><strong>&quot;failed verification&quot;.</strong> What arrived is not what was published: its checksum or its signature is wrong, and <code>signatures</code> does not change that. A proxy may be changing it on the way, or a mirror may be damaged.</p>
 <h2 id="stopping-everything">Stopping everything<a class="anchor" href="#stopping-everything" aria-label="Link to this section">#</a></h2>
-<p>Apps keep running when the server stops, on purpose. <code>moor server stop</code> stops the server, as a service or as started with <code>moor server run</code>; with <code>--all</code> it stops the apps too, in containers or not, whether or not a server is running:</p>
+<p>Apps and <a href="services.html">services</a> keep running when the server stops, on purpose. <code>moor server stop</code> stops the server, as a service or as started with <code>moor server run</code>; with <code>--all</code> it stops the apps too, in containers or not, and their services, whether or not a server is running:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server stop --all</code></pre></div>
-<p>The server starts them again when it next starts. A <a href="services.html">service</a>, such as a database, goes on running through this. Your engine can stop it, and the server starts it again when it next starts.</p>
+<p>The server starts them again when it next starts. A service keeps what it holds.</p>
 <h2 id="localhost-does-not-resolve"><code>*.localhost</code> does not resolve<a class="anchor" href="#localhost-does-not-resolve" aria-label="Link to this section">#</a></h2>
 <p>On your own computer, apps are at <code>http://&lt;app&gt;.localhost:8080</code>. Chromium- and Firefox-based browsers and systemd-resolved on Linux resolve those names by themselves, as do some versions of macOS. On the others, Safari and command-line tools do not, and this fixes that:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server resolver install</code></pre></div>
@@ -234,7 +234,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.1 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

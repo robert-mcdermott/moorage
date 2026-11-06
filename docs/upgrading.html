@@ -164,15 +164,14 @@
 <p>Each release has <code>SHA256SUMS</code>, a list of what went into the binaries in <code>moorage-sbom.cdx.json</code>, and an attestation of the workflow that built them. An upgrade and the installer both check a download against <code>SHA256SUMS</code>, which comes from the same place over HTTPS. That catches a damaged download, and a change on the way, and would not catch someone who could change the release itself. The attestation is GitHub's own record of what its build made, and that you can look at yourself:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash">gh attestation verify moor-linux-amd64 --repo robert-mcdermott/moorage</code></pre></div>
 <h2 id="uninstalling">Uninstalling<a class="anchor" href="#uninstalling" aria-label="Link to this section">#</a></h2>
-<p><strong>First, if your apps have <a href="services.html">services</a>:</strong> their containers and volumes are in the container engine, and uninstalling the server leaves them there, running. While the server still runs, deleting an app takes its services with it, and <code>moor services remove</code> takes one on its own:</p>
+<p><strong>First, if your apps have <a href="services.html">services</a>:</strong> what they hold is in volumes in the container engine, and uninstalling the server leaves those there. While the server still runs, deleting an app takes its services with it, and <code>moor services remove</code> takes one on its own:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> apps delete shop</code></pre></div>
-<p>If you have already gone further than that, your engine still lists them. These are for Podman, and Docker takes the same:</p>
-<div class="code"><pre tabindex="0"><code class="language-bash">podman ps -a --filter label=io.moorage.managed=true</code></pre></div>
+<p>If you have already gone further than that, your engine still lists them, and <code>podman volume rm</code> takes one. This is for Podman, and Docker takes the same:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash">podman volume ls --filter label=io.moorage.managed=true</code></pre></div>
 <p><strong>If you changed what a computer trusts or resolves,</strong> take that back, on each one where you did:</p>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> trust --remove</code></pre></div>
 <div class="code"><pre tabindex="0"><code class="language-bash"><span class="t-k">moor</span> server resolver remove</code></pre></div>
-<p><strong>Then stop the server and its apps, and remove the service:</strong></p>
+<p><strong>Then stop the server, its apps and their services, and remove the service:</strong></p>
 <div class="code"><pre tabindex="0"><code class="language-bash">sudo <span class="t-k">moor</span> server uninstall</code></pre></div>
 <p><strong>Then delete the program:</strong> <code>~/.local/bin/moor</code> or <code>/usr/local/bin/moor</code>, with <code>moor.previous</code> beside it if it has upgraded itself. On Windows, that is the <code>%LocalAppData%\Programs\Moorage</code> folder, whose entry you can also remove from your user <code>PATH</code> (<strong>Settings → System → About → Advanced system settings → Environment Variables</strong>), and the <code>%ProgramFiles%\Moorage</code> folder, where installing the service puts a copy.</p>
 <p><strong>The configuration and the data stay.</strong> Delete <code>server.toml</code>, which <code>moor server status</code> names, and the data directory that it names under <code>data_dir</code>, only if you no longer need the apps' data and the keys in it. A server set up as yourself has both in one folder, <code>~/.moorage</code>, or <code>%LocalAppData%\Moorage</code> on Windows. What <code>moor</code> itself remembers of the servers it signs in to is in <code>config.toml</code> in <code>~/.moorage</code>, or in <code>%AppData%\moorage</code> on Windows.</p>
@@ -228,7 +227,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.1 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 

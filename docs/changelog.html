@@ -128,6 +128,8 @@
       <h1>Changelog</h1>
       <p class="doc-lede">What changed in each release.</p>
 <details class="toc-inline"><summary>On this page</summary><ul>
+        <li class="toc-2"><a href="#0101-2026-11-06">0.10.1 (2026-11-06)</a></li>
+        <li class="toc-3"><a href="#fixed">Fixed</a></li>
         <li class="toc-2"><a href="#0100-2026-11-05">0.10.0 (2026-11-05)</a></li>
         <li class="toc-3"><a href="#added">Added</a></li>
         <li class="toc-3"><a href="#changed">Changed</a></li>
@@ -161,6 +163,11 @@
         <li class="toc-2"><a href="#010-2026-11-03">0.1.0 (2026-11-03)</a></li>
         <li class="toc-3"><a href="#added-9">Added</a></li>
       </ul></details>
+<h2 id="0101-2026-11-06">0.10.1 (2026-11-06)<a class="anchor" href="#0101-2026-11-06" aria-label="Link to this section">#</a></h2>
+<p>Moorage 0.10.1 fixes two things about stopping a server, for those who have more than one server on a machine, or use <a href="services.html">services</a>.</p>
+<p>To upgrade from 0.10.0, run <code>moor server upgrade</code>. Running apps are taken over without a restart, and <code>moor server upgrade --rollback</code> goes back. This release does not change the database.</p>
+<h3 id="fixed">Fixed<a class="anchor" href="#fixed" aria-label="Link to this section">#</a></h3>
+<ul><li><strong><code>moor server stop --all</code> and <code>moor server uninstall</code> left services running,</strong> so that uninstalling Moorage could leave a database running that nothing looked after. They now stop them, after the apps, and what they hold stays in their volumes. The server starts them again when it next starts. <code>--keep-apps</code> leaves them running, as it does apps.</li><li><strong><code>moor server uninstall</code>, <code>start</code> and <code>restart</code> went by the name of the service, and not by which server it runs.</strong> A server tried out with a configuration or a home directory of its own could take away the real one's service. They now leave it alone, as <code>moor server stop</code> already did. If yours was installed with a <code>--config</code> of its own, pass the same one, as they say if you do not.</li><li><strong>With <code>engine = &quot;auto&quot;</code> and both Podman and Docker installed, stopping everything only looked in the first.</strong> A server takes whichever answers, so that what it ran could be in the other. It now looks in both.</li><li><strong><code>moor server uninstall</code> with no service said that it had removed one,</strong> and stopped the apps of a server that might be running without one. It now says that there is none, and leaves them. <code>moor server stop --all</code> stops them.</li></ul>
 <h2 id="0100-2026-11-05">0.10.0 (2026-11-05)<a class="anchor" href="#0100-2026-11-05" aria-label="Link to this section">#</a></h2>
 <p>Moorage 0.10.0 runs a database for your app. Say <code>[services.db]</code> and <code>type = &quot;postgres&quot;</code> in <code>moorage.toml</code>, or <code>type = &quot;s3&quot;</code> for object storage, and each environment gets its own, with its address given to the app as it starts. They run in containers, so that they take Podman or Docker, and only those who use them need one.</p>
 <p><strong>What this is not.</strong> In production, a service is one container with no replica, kept by backups: a convenience, and not database hosting. For a database that matters, set <code>DATABASE_URL</code> on production to one that is looked after, and let previews use their own. Apps on a machine are kept apart from a service by its password, and not by the network. Real PostgreSQL and object storage are tried under both engines in CI on Linux, and nowhere else: on macOS and Windows, a service's data lives inside the engine's machine, and goes with it. Everything before this that was untried still is: this release has not had an outside penetration test, or met Let's Encrypt itself, Cloudflare, or a webhook directly from GitHub, and setting up Kiro comes from its documentation alone.</p>
@@ -253,6 +260,8 @@
     <aside class="toc" aria-label="On this page">
       <h2>On this page</h2>
       <ul>
+        <li class="toc-2"><a href="#0101-2026-11-06">0.10.1 (2026-11-06)</a></li>
+        <li class="toc-3"><a href="#fixed">Fixed</a></li>
         <li class="toc-2"><a href="#0100-2026-11-05">0.10.0 (2026-11-05)</a></li>
         <li class="toc-3"><a href="#added">Added</a></li>
         <li class="toc-3"><a href="#changed">Changed</a></li>
@@ -325,7 +334,7 @@
           </ul>
         </div>
       </div>
-      <p class="footer-note">Moorage 0.10.0 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
+      <p class="footer-note">Moorage 0.10.1 · <a href="https://github.com/robert-mcdermott/moorage/blob/main/LICENSE">Apache License 2.0</a></p>
     </div>
   </footer>
 
