@@ -50,7 +50,7 @@ func (t *serviceTarget) load() error {
 		return err
 	}
 	t.system = platform.IsPrivileged()
-	m, err := service.For(t.system)
+	m, err := serviceFor(t.system)
 	if errors.Is(err, service.ErrUnsupported) {
 		return fmt.Errorf("%w; on %s, run moor server run under the service manager of your choice (the Windows service arrives in a later release)", err, runtime.GOOS)
 	}
@@ -59,6 +59,18 @@ func (t *serviceTarget) load() error {
 	}
 	t.manager, t.path, t.cfg = m, path, cfg
 	return nil
+}
+
+// isThisServers refuses a service that does not run this server. A service has one name for all of a user's servers, whatever the
+// configuration or the home directory, so that going by the name would reach a real one from a server that someone is only trying out.
+func (t *serviceTarget) isThisServers() error {
+	if runsServer(t.manager, t.path) {
+		return nil
+	}
+	if runsAnother(t.manager, t.path) {
+		return fmt.Errorf("the service in %s runs another server than %s, and this leaves it alone: use the configuration that it runs, or moor server install to change it", t.manager.File(), t.path)
+	}
+	return fmt.Errorf("no service runs the server of %s: moor server install makes one, and moor server run runs it without", t.path)
 }
 
 func (t *serviceTarget) addFlag(cmd *cobra.Command) {
@@ -255,10 +267,17 @@ service again brings the server, and its apps, back.`,
 			if err := t.load(); err != nil {
 				return err
 			}
-			if err := t.manager.Uninstall(); err != nil {
-				return err
+			switch {
+			case runsServer(t.manager, t.path):
+				if err := t.manager.Uninstall(); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed %s.\n", t.manager.File())
+			case runsAnother(t.manager, t.path):
+				return t.isThisServers()
+			default:
+				fmt.Fprintln(cmd.OutOrStdout(), "No service runs this server.")
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s.\n", t.manager.File())
 			if !keepApps {
 				stopApps(cmd, t.cfg)
 			}
@@ -278,6 +297,9 @@ func newServerStartCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := t.load(); err != nil {
+				return err
+			}
+			if err := t.isThisServers(); err != nil {
 				return err
 			}
 			if err := t.manager.Start(); err != nil {
@@ -353,6 +375,9 @@ func newServerRestartCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := t.load(); err != nil {
+				return err
+			}
+			if err := t.isThisServers(); err != nil {
 				return err
 			}
 			if err := t.manager.Restart(); err != nil {

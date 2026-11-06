@@ -78,7 +78,8 @@ the apps too, in containers or not, whether or not a server is running:
 moor server stop --all
 ```
 
-The server starts them again when it next starts.
+The server starts them again when it next starts. A [service](services.md), such as a database, goes on running through
+this. Your engine can stop it, and the server starts it again when it next starts.
 
 ## `*.localhost` does not resolve
 

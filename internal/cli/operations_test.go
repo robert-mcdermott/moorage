@@ -292,6 +292,67 @@ func TestStopLeavesAnotherServersService(t *testing.T) {
 	}
 }
 
+// recordingManager says what was asked of it, and asks nothing of this machine.
+type recordingManager struct {
+	fakeManager
+	asked *[]string
+}
+
+func (m recordingManager) Uninstall() error { *m.asked = append(*m.asked, "uninstall"); return nil }
+func (m recordingManager) Start() error     { *m.asked = append(*m.asked, "start"); return nil }
+func (m recordingManager) Restart() error   { *m.asked = append(*m.asked, "restart"); return nil }
+
+// A service has one name for all of a user's servers, so that these must go by what it runs. A server tried out with a configuration or a
+// home directory of its own once took away the real one, with uninstall.
+func TestServiceCommandsLeaveAnotherServersService(t *testing.T) {
+	path := localConfig(t, "--preset", "local")
+	freePort(t, path)
+	unit := filepath.Join(t.TempDir(), "moorage.service")
+	var asked []string
+	old := serviceFor
+	serviceFor = func(bool) (service.Manager, error) { return recordingManager{fakeManager{file: unit}, &asked}, nil }
+	defer func() { serviceFor = old }()
+
+	if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config /etc/moorage/server.toml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"uninstall", "start", "restart"} {
+		if code, _, errOut := run(t, "server", command); code == 0 || !strings.Contains(errOut, "runs another server") {
+			t.Errorf("%s of another server's service: %d %s", command, code, errOut)
+		}
+	}
+	if len(asked) != 0 {
+		t.Errorf("it went by the name: %v", asked)
+	}
+
+	// With no service, as under a home directory of its own, nothing is asked either, and there is nothing to remove.
+	if err := os.Remove(unit); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := run(t, "server", "uninstall", "--keep-apps"); code != 0 || !strings.Contains(out, "No service runs this server") {
+		t.Errorf("uninstall with none: %d %s %s", code, out, errOut)
+	}
+	for _, command := range []string{"start", "restart"} {
+		if code, _, errOut := run(t, "server", command); code == 0 || !strings.Contains(errOut, "no service runs") {
+			t.Errorf("%s with none: %d %s", command, code, errOut)
+		}
+	}
+	if len(asked) != 0 {
+		t.Errorf("with no service: %v", asked)
+	}
+
+	// Its own, it removes.
+	if err := os.WriteFile(unit, []byte("ExecStart=/usr/local/bin/moor server run --config "+path+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := run(t, "server", "uninstall", "--keep-apps"); code != 0 || !strings.Contains(out, "Removed") {
+		t.Errorf("its own: %d %s %s", code, out, errOut)
+	}
+	if len(asked) != 1 || asked[0] != "uninstall" {
+		t.Errorf("its own: %v", asked)
+	}
+}
+
 func TestStopWithNothingRunning(t *testing.T) {
 	old := serviceFor
 	serviceFor = func(bool) (service.Manager, error) { return nil, service.ErrUnsupported }
